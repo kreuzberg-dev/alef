@@ -1434,6 +1434,215 @@ fn test_return_type_exported_from_native_module_not_options() {
     );
 }
 
+#[test]
+fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
+    // Regression: alef#72. A has_default config DTO that exposes a builder method
+    // returning `Self` (e.g. `PackConfig::from_toml_file -> PackConfig`) must still
+    // be imported from `.options` in api.py, not from `._native`. The pre-fix code
+    // walked method return types into `return_type_names`, which incorrectly pulled
+    // self-builders out of the options classification.
+    let backend = Pyo3Backend;
+
+    // ConversionResult: return type of free function `convert` — stays on ._native.
+    let conversion_result = TypeDef {
+        name: "ConversionResult".to_string(),
+        rust_path: "my_lib::ConversionResult".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("content", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    // ConversionOptions: input/config DTO with `Self`-returning builder methods.
+    // This is the regression: before the fix, the method returns caused this type
+    // to be excluded from options_type_names.
+    let with_verbose = MethodDef {
+        name: "with_verbose".to_string(),
+        params: vec![make_param_def("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        return_type: TypeRef::Named("ConversionOptions".to_string()),
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(ReceiverKind::Owned),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let default_method = MethodDef {
+        name: "default".to_string(),
+        params: vec![],
+        return_type: TypeRef::Named("ConversionOptions".to_string()),
+        is_async: false,
+        is_static: true,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+    };
+    let conversion_options = TypeDef {
+        name: "ConversionOptions".to_string(),
+        rust_path: "my_lib::ConversionOptions".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        methods: vec![with_verbose, default_method],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "my_lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![conversion_result, conversion_options],
+        functions: vec![FunctionDef {
+            name: "convert".to_string(),
+            rust_path: "my_lib::convert".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "input".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Named("ConversionOptions".to_string()),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::Named("ConversionResult".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let mut config = make_config();
+    config.python = Some(PythonConfig {
+        module_name: Some("_my_lib".to_string()),
+        pip_name: None,
+        async_runtime: None,
+        stubs: Some(StubsConfig {
+            output: std::path::PathBuf::from("packages/python/my_lib"),
+        }),
+        features: None,
+        serde_rename_all: None,
+        capsule_types: Default::default(),
+        release_gil: false,
+        exclude_functions: Vec::new(),
+        exclude_types: Vec::new(),
+        extra_dependencies: Default::default(),
+        scaffold_output: Default::default(),
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: Vec::new(),
+        extra_init_imports: std::collections::BTreeMap::new(),
+    });
+
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api failed");
+
+    let api_py = files
+        .iter()
+        .find(|f| f.path.ends_with("api.py"))
+        .expect("api.py not generated");
+
+    let native_import_line = api_py
+        .content
+        .lines()
+        .find(|l| l.contains("from ._my_lib import"))
+        .unwrap_or("");
+    let options_import_line = api_py
+        .content
+        .lines()
+        .find(|l| l.contains("from .options import"))
+        .unwrap_or("");
+
+    // ConversionOptions has Self-returning methods, so the pre-fix code put it in
+    // return_type_names and excluded it from options_type_names. Verify the fix.
+    assert!(
+        options_import_line.contains("ConversionOptions"),
+        "api.py must import ConversionOptions from .options, got native={:?} options={:?}\n\nFull api.py:\n{}",
+        native_import_line,
+        options_import_line,
+        api_py.content
+    );
+    assert!(
+        !native_import_line.contains("ConversionOptions"),
+        "api.py must NOT import ConversionOptions from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
+        native_import_line,
+        api_py.content
+    );
+
+    // Regression boundary: ConversionResult IS a free-function return type, so it
+    // must continue to come from the native module.
+    assert!(
+        native_import_line.contains("ConversionResult"),
+        "api.py must import ConversionResult from ._my_lib, got native={:?}\n\nFull api.py:\n{}",
+        native_import_line,
+        api_py.content
+    );
+    assert!(
+        !options_import_line.contains("ConversionResult"),
+        "api.py must NOT import ConversionResult from .options, got options={:?}\n\nFull api.py:\n{}",
+        options_import_line,
+        api_py.content
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Trait bridge helpers
 // ---------------------------------------------------------------------------

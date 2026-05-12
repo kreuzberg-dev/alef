@@ -150,59 +150,19 @@ pub(super) fn gen_api_py(
         .map(|t| t.name.clone())
         .collect();
     let error_names: AHashSet<String> = api.errors.iter().map(|e| e.name.clone()).collect();
-    // Collect types that appear as return types of functions/methods — these live in the
-    // native module, not options.py.
-    let return_type_names: AHashSet<String> = {
-        fn collect_named_types(ty: &alef_core::ir::TypeRef, out: &mut AHashSet<String>) {
-            match ty {
-                alef_core::ir::TypeRef::Named(name) => {
-                    out.insert(name.clone());
-                }
-                alef_core::ir::TypeRef::Optional(inner) | alef_core::ir::TypeRef::Vec(inner) => {
-                    collect_named_types(inner, out)
-                }
-                alef_core::ir::TypeRef::Map(k, v) => {
-                    collect_named_types(k, out);
-                    collect_named_types(v, out);
-                }
-                _ => {}
-            }
-        }
-        let mut names = AHashSet::new();
-        for func in &api.functions {
-            collect_named_types(&func.return_type, &mut names);
-        }
-        for ty in &api.types {
-            for method in &ty.methods {
-                collect_named_types(&method.return_type, &mut names);
-            }
-        }
-        // Transitively include field types of native types (they arrive from the native module).
-        let mut changed = true;
-        while changed {
-            changed = false;
-            for ty in &api.types {
-                if names.contains(&ty.name) || ty.is_opaque {
-                    for field in &ty.fields {
-                        let before = names.len();
-                        collect_named_types(&field.ty, &mut names);
-                        if names.len() > before {
-                            changed = true;
-                        }
-                    }
-                }
-            }
-        }
-        names
-    };
-    // Types that exist in options.py: has_default structs (excluding Update types and return
-    // types — return types are defined in the native module, not options.py).
+    // Types that exist in options.py: has_default structs that are not direct return types
+    // of free functions. Update types are output-only. `t.is_return_type` is set during IR
+    // extraction for types returned directly by a public free function — that's the only
+    // case where a has_default type must live in the native module rather than .options.
+    // Don't try to widen this with method returns or transitive field walks: a builder
+    // method like `PackConfig::from_toml_file -> PackConfig` is a constructor, not evidence
+    // that the type leaves through the native return surface, and falsely excluding it from
+    // .options is what produced alef#72 (PackConfig/ProcessConfig imported from ._native
+    // despite being dataclasses re-exported from .options).
     let options_type_names: AHashSet<String> = api
         .types
         .iter()
-        .filter(|t| {
-            t.has_default && !t.name.ends_with("Update") && !t.is_return_type && !return_type_names.contains(&t.name)
-        })
+        .filter(|t| t.has_default && !t.name.ends_with("Update") && !t.is_return_type)
         .map(|t| t.name.clone())
         .collect();
     // All non-enum IR type names (used to distinguish structs from enums in classification).
