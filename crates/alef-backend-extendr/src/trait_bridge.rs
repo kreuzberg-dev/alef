@@ -41,7 +41,11 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
         let (empty_args, args_pairs) = if method.params.is_empty() {
             (true, String::new())
         } else {
-            let args: Vec<String> = method.params.iter().map(build_extendr_arg).collect();
+            let args: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| build_extendr_arg(p, spec.bridge_config.context_type.as_deref()))
+                .collect();
             let pairs: Vec<String> = method
                 .params
                 .iter()
@@ -270,6 +274,7 @@ pub fn gen_trait_bridge(
         gen_visitor_bridge(
             &mut out,
             trait_type,
+            bridge_cfg,
             &struct_name,
             &trait_path,
             core_import,
@@ -352,17 +357,19 @@ pub fn gen_send_robj_helper() -> &'static str {
 fn gen_visitor_bridge(
     out: &mut String,
     trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
     struct_name: &str,
     trait_path: &str,
     core_crate: &str,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
+    let context_type = bridge_cfg.context_type.as_deref();
     let mut method_impls = String::with_capacity(4096);
     for method in &trait_type.methods {
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_extendr(&mut method_impls, method, type_paths);
+        gen_visitor_method_extendr(&mut method_impls, method, context_type, type_paths);
     }
 
     out.push_str(&crate::template_env::render(
@@ -381,6 +388,7 @@ fn gen_visitor_bridge(
 fn gen_visitor_method_extendr(
     out: &mut String,
     method: &MethodDef,
+    context_type: Option<&str>,
     type_paths: &std::collections::HashMap<String, String>,
 ) {
     let name = &method.name;
@@ -401,7 +409,11 @@ fn gen_visitor_method_extendr(
     };
 
     let empty_args = method.params.is_empty();
-    let args: Vec<String> = method.params.iter().map(build_extendr_arg).collect();
+    let args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| build_extendr_arg(p, context_type))
+        .collect();
     let args_pairs: Vec<String> = method
         .params
         .iter()
@@ -423,12 +435,12 @@ fn gen_visitor_method_extendr(
 }
 
 /// Build a single extendr `Pairlist` arg expression for a visitor method parameter.
-fn build_extendr_arg(p: &alef_core::ir::ParamDef) -> String {
+fn build_extendr_arg(p: &alef_core::ir::ParamDef, context_type: Option<&str>) -> String {
     use alef_core::ir::TypeRef;
 
-    // NodeContext: convert to an R list
+    // context_type param: convert to an R list via nodecontext_to_robj
     if let TypeRef::Named(n) = &p.ty {
-        if n == "NodeContext" {
+        if Some(n.as_str()) == context_type {
             let ref_prefix = if p.is_ref { "" } else { "&" };
             return format!("extendr_api::Robj::from(nodecontext_to_robj({}{}))", ref_prefix, p.name);
         }

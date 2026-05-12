@@ -910,9 +910,8 @@ mod alef_json_str_opt {
                 // We need to insert .or_else(|| { ... }) before the });
                 let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
                 let handle_path = format!("{core_import}::visitor::{type_alias}");
-                let closing_pattern = format!(
-                    "        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    }});"
-                );
+                let closing_pattern =
+                    format!("        std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path}\n    }});");
                 if let Some(pos) = content.find(&closing_pattern) {
                     let before = &content[..pos];
                     let after = &content[pos + closing_pattern.len()..];

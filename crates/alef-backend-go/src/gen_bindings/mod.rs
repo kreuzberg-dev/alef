@@ -441,10 +441,12 @@ fn gen_go_file(
         }
     }
 
-    // When a visitor bridge is active, visitor.go defines NodeContext and VisitResult
-    // with FFI-compatible fields. Skip them in binding.go to avoid redeclarations.
+    // When a visitor bridge is active, visitor.go defines the bridge's associated types
+    // (e.g. NodeContext, VisitResult) with FFI-compatible fields. Skip them in binding.go
+    // to avoid redeclarations.
+    let bridge_associated_types = config.bridge_associated_types();
     let visitor_types: std::collections::HashSet<&str> = if !bridge_param_names.is_empty() {
-        ["NodeContext", "VisitResult"].into_iter().collect()
+        bridge_associated_types.iter().map(|s| s.as_str()).collect()
     } else {
         std::collections::HashSet::new()
     };

@@ -1950,6 +1950,8 @@ mod tests {
             BridgeBinding::FunctionParam,
             None,
             None,
+            None,
+            None,
         )];
         let result = find_bridge_param(&func, &bridges).expect("bridge match");
         assert_eq!(result.0, 1);
@@ -1970,6 +1972,8 @@ mod tests {
             BridgeBinding::OptionsField,
             Some("ConversionOptions"),
             Some("visitor"),
+            None,
+            None,
         )];
         assert!(
             find_bridge_param(&func, &bridges).is_none(),
@@ -2021,6 +2025,8 @@ mod tests {
             BridgeBinding::OptionsField,
             Some("ConversionOptions"),
             None,
+            None,
+            None,
         )];
         let m = find_bridge_field(&func, std::slice::from_ref(&opts_type), &bridges).expect("bridge field match");
         assert_eq!(m.param_index, 1);
@@ -2066,6 +2072,8 @@ mod tests {
             Some("VisitorHandle"),
             Some("visitor"),
             BridgeBinding::FunctionParam,
+            None,
+            None,
             None,
             None,
         )];

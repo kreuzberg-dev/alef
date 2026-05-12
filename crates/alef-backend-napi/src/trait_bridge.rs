@@ -375,7 +375,14 @@ fn gen_visitor_bridge(
         if method.trait_source.is_some() {
             continue;
         }
-        gen_visitor_method_napi(&mut method_impls, method, trait_path, core_crate, bridge_cfg, type_paths);
+        gen_visitor_method_napi(
+            &mut method_impls,
+            method,
+            trait_path,
+            core_crate,
+            bridge_cfg,
+            type_paths,
+        );
     }
 
     crate::template_env::render(
