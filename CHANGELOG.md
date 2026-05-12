@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(alef-e2e/streaming_assertions): three rust-codegen bugs that produced uncompilable e2e tests. (1) `is_streaming_virtual_field` matched the tail-suffix of any field whose chars-after-`root.len()` started with `.` or `[` without first checking `field.starts_with(root)`, so `choices[0].finish_reason` matched root `tool_calls` (chars 10+ begin with `.finish_reason`) and falsely triggered streaming-mode codegen on non-streaming fixtures — added the `starts_with` guard. (2) Rust `collect_snippet` left the chunks vector as `Vec<Result<ChatCompletionChunk, _>>`, so subsequent accessors like `chunks.iter().map(|c| c.choices...)` failed E0609 ("no field `choices` on `&Result<...>`") — now chains `.into_iter().map(|r| r.expect("stream item failed")).collect()` to yield `Vec<ChatCompletionChunk>`. (3) Rust `finish_reason` accessor used `.as_deref()` on `Option<FinishReason>` (an enum, not `String`) which fails E0599 — switched to `.as_ref().map(|v| v.to_string())`. (4) Rust deep-path `tool_calls[0].function.name` chained naive field access through `StreamToolCall { function: Option<StreamFunctionCall>, ... }` causing E0609 — added `render_rust_tool_calls_deep` helper that emits Option-aware chaining (`.nth(0).and_then(|x| x.function.as_ref()).and_then(|x| x.name.as_deref()).unwrap_or("")`). Drops liter-llm rust e2e from 266 compile errors to 0; all 152 tests pass.
+
 ### Added
 
 - feat(alef-core,alef-backend-ffi): `ffi_skip_methods` on `TraitBridgeConfig` filters individual methods from the FFI vtable struct and `impl Trait for KreuzbergXBridge`. Methods whose signatures can't traverse the C FFI boundary (e.g. `Option<&dyn Trait>` returns like `DocumentExtractor::as_sync_extractor`) are dropped, falling back to the trait's default implementation. Configured per-bridge in `alef.toml`.
