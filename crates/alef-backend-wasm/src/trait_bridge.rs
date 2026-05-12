@@ -96,7 +96,11 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
         let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
 
-        let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, spec.bridge_config)).collect();
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| build_wasm_arg(p, spec.bridge_config))
+            .collect();
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
@@ -139,7 +143,11 @@ impl TraitBridgeGenerator for WasmBridgeGenerator {
         let error_result_conv = spec.make_error("\"Failed to convert result\".to_string()");
         let error_deser = spec.make_error("format!(\"Failed to deserialize result: {}\", e)");
 
-        let params: Vec<String> = method.params.iter().map(|p| build_wasm_arg(p, spec.bridge_config)).collect();
+        let params: Vec<String> = method
+            .params
+            .iter()
+            .map(|p| build_wasm_arg(p, spec.bridge_config))
+            .collect();
 
         let return_unit = matches!(method.return_type, TypeRef::Unit);
         let return_string = matches!(method.return_type, TypeRef::String);
@@ -426,7 +434,12 @@ fn gen_visitor_bridge(
 }
 
 /// Generate a single visitor method that checks for a camelCase JS property and calls it.
-fn gen_visitor_method_wasm(out: &mut String, method: &MethodDef, bridge_cfg: &TraitBridgeConfig, type_paths: &HashMap<String, String>) {
+fn gen_visitor_method_wasm(
+    out: &mut String,
+    method: &MethodDef,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &HashMap<String, String>,
+) {
     let name = &method.name;
     let js_name = to_camel_case(name);
 

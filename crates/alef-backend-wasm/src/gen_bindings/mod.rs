@@ -564,9 +564,8 @@ impl Backend for WasmBackend {
                 if !content.contains(&impl_header) {
                     continue;
                 }
-                let default_line = format!(
-                    "            {field_name}: Default::default(),\n            ..Default::default()"
-                );
+                let default_line =
+                    format!("            {field_name}: Default::default(),\n            ..Default::default()");
                 let passthrough = format!(
                     "            {field_name}: val.{field_name}.map(|v| (*v.inner).clone()),\n            ..Default::default()"
                 );

@@ -185,7 +185,11 @@ fn gen_visitor_bridge(
 }
 
 /// Generate a single visitor method that checks Ruby respond_to and calls via funcall.
-fn gen_visitor_method_magnus(method: &MethodDef, bridge_cfg: &TraitBridgeConfig, type_paths: &std::collections::HashMap<String, String>) -> String {
+fn gen_visitor_method_magnus(
+    method: &MethodDef,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
     let name = &method.name;
 
     let mut sig_parts = vec!["&mut self".to_string()];
