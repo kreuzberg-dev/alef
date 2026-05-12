@@ -2,7 +2,7 @@ use alef_codegen::keywords::swift_ident;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
-use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -111,6 +111,13 @@ impl Backend for SwiftBackend {
         // is TypeRef::Bytes or TypeRef::Path. Discovery is IR-driven: the emitter
         // walks api.functions and detects candidates by signature shape, never by name.
         emit_convenience_wrappers(api, &mut body);
+
+        // Emit public Swift forwarding functions for `*FromJson` helpers.
+        // The Rust bridge crate exposes `{type_snake}_from_json` as a swift-bridge
+        // free function accessible via `RustBridge.{swiftName}(json)`. Without a
+        // forwarding wrapper in this module, callers would need the `RustBridge.`
+        // prefix, which the generated e2e test layer doesn't use.
+        emit_from_json_forwarders(api, &exclude_types, &mut body);
 
         let _ = module_name;
 
@@ -530,6 +537,66 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     // No-op for binding crates that don't expose these specific types.
     if api_has_e2e_helper_types(api) {
         emit_e2e_wrappers(out);
+    }
+}
+
+/// Emit public Swift forwarding functions for every serde-enabled, non-opaque type
+/// that appears as a method/function parameter and therefore has a
+/// `#[swift_bridge(swift_name = "{TypeName}FromJson")]` shim in the Rust bridge crate.
+///
+/// The Rust bridge crate exposes these shims in the `RustBridge` module. Without a
+/// forwarding wrapper here, callers would need to write `RustBridge.chatCompletionRequestFromJson(json)`.
+/// These forwarders re-export them as `public func chatCompletionRequestFromJson(_ json: String)
+/// throws -> TypeName` in the main `LiterLlm` module so generated e2e tests work without
+/// the `RustBridge.` prefix.
+fn emit_from_json_forwarders(
+    api: &ApiSurface,
+    exclude_types: &std::collections::HashSet<&str>,
+    out: &mut String,
+) {
+    use heck::AsSnakeCase;
+
+    // Mirror the filter used by `gen_rust_crate::collect_serde_param_types`:
+    // non-opaque, non-trait, serde-enabled types that appear as method/free-fn params.
+    let e2e_covered = ["ExtractionConfig", "BatchBytesItem", "BatchFileItem"];
+    let e2e_covered_set: std::collections::HashSet<&str> = e2e_covered.iter().copied().collect();
+
+    fn param_uses_type(params: &[ParamDef], name: &str) -> bool {
+        params.iter().any(|p| p.ty.references_named(name))
+    }
+
+    let candidates: Vec<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && t.has_serde)
+        .filter(|t| !exclude_types.contains(t.name.as_str()))
+        .filter(|t| !e2e_covered_set.contains(t.name.as_str()))
+        .filter(|ty| {
+            let name = ty.name.as_str();
+            let in_free_fn = api.functions.iter().any(|f| param_uses_type(&f.params, name));
+            let in_method = api
+                .types
+                .iter()
+                .any(|t| t.methods.iter().any(|m| param_uses_type(&m.params, name)));
+            in_free_fn || in_method
+        })
+        .map(|t| t.name.as_str())
+        .collect();
+
+    if candidates.is_empty() {
+        return;
+    }
+
+    out.push_str("// MARK: - From-JSON Helpers\n");
+    out.push_str("// Public wrappers forwarding RustBridge's swift_bridge-generated\n");
+    out.push_str("// `{TypeName}FromJson` helpers into this module's namespace.\n\n");
+
+    for type_name in candidates {
+        let type_snake = AsSnakeCase(type_name).to_string();
+        let swift_name = format!("{type_snake}_from_json").to_lower_camel_case();
+        out.push_str(&format!(
+            "public func {swift_name}(_ json: String) throws -> {type_name} {{\n    return try RustBridge.{swift_name}(json)\n}}\n\n"
+        ));
     }
 }
 
