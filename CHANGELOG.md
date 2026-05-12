@@ -40,7 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(pyo3): emit `error_to_py_err` directly in `.map_err()` (no redundant closure) — avoids clippy `redundant_closure` in generated bindings.
 - fix(pyo3): api.py import order — stdlib `from typing import …` first, then `import _rust as _rust`, then capsule-type imports (e.g. `from tree_sitter import Language`), then locals.
 - fix(pyo3): api.py wraps capsule-returning calls in `cast("Type", …)` for mypy strict mode; adds `cast` to the typing import only when needed.
-- fix(pyo3): skip capsule types in `.pyi` stubs (they live in third-party packages); conditional `from typing import …` based on actual usage — avoids RUF100 for the old unconditional four-name import.
+- fix(pyo3): skip capsule types in `.pyi` stubs (they live in third-party packages); conditional `from typing import …` based on actual usage — avoids RUF100 for the old unconditional four-name import. Method stubs on opaque types (e.g. `LanguageRegistry.get_language`) also substitute `Any` for capsule-typed params/returns. Suppresses PYI029 on the data-enum class wrappers' `__str__`/`__repr__` — the pyo3 wrapper implements them via Display/Debug and callers rely on `str(value)` returning the serde tag.
 - fix(pyo3): drop redundant `pass` body for empty-field types in generated `options.py` — `pass` after a docstring triggers ruff PIE790.
 - fix(wasm): add `#[allow(clippy::should_implement_trait)]` to inherent `default()` factory method; renaming would change the JS-visible API.
 - fix(java): marshal `Path` params via `.toString()` in opaque-type stream-method bodies — previously lumped with `String`/`Char`/`Json` whose template does not call `.toString()`, causing a Java type mismatch.
