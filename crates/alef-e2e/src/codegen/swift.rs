@@ -592,6 +592,23 @@ fn render_test_method(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let is_async = call_config.r#async;
 
+    // Streaming fixtures: drain the async sequence into a `chunks` array after the call.
+    // Also trigger when any assertion references a streaming virtual field (e.g. empty_stream
+    // has stream_chunks:[] so is_streaming_mock() returns false, but assertions still reference
+    // `chunks`/`stream_content` which require the collect snippet).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
+    let collect_snippet = if is_streaming && !expects_error {
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(lang, result_var, "chunks")
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     // Detect whether this call has any json_object args that cannot be constructed
     // in Swift — swift-bridge opaque types do not provide a fromJson initialiser.
     // When such args exist and no `options_via` is configured for swift, emit a
@@ -741,6 +758,14 @@ fn render_test_method(
     }
 
     let _ = writeln!(out, "        let {result_var} = {call_expr}");
+
+    // Emit the collect snippet for streaming fixtures (drains the async sequence into
+    // a local `chunks: [ChatCompletionChunk]` array used by streaming-virtual assertions).
+    if !collect_snippet.is_empty() {
+        for line in collect_snippet.lines() {
+            let _ = writeln!(out, "        {line}");
+        }
+    }
 
     for assertion in &fixture.assertions {
         render_assertion(
@@ -950,6 +975,80 @@ fn render_assertion(
     result_is_array: bool,
     enum_fields: &HashSet<String>,
 ) {
+    // Streaming virtual fields resolve against the `chunks` collected-array variable.
+    // Intercept before is_valid_for_result so they are never skipped.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "swift", "chunks")
+            {
+                let line = match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        XCTAssertGreaterThanOrEqual(chunks.count, {n})\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        XCTAssertEqual(chunks.count, {n})\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = escape_swift(s);
+                            format!("        XCTAssertEqual({expr}, \"{escaped}\")\n")
+                        } else if let Some(b) = assertion.value.as_ref().and_then(|v| v.as_bool()) {
+                            format!("        XCTAssertEqual({expr}, {b})\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "not_empty" => {
+                        format!("        XCTAssertFalse({expr}.isEmpty, \"expected non-empty\")\n")
+                    }
+                    "is_empty" => {
+                        format!("        XCTAssertTrue({expr}.isEmpty, \"expected empty\")\n")
+                    }
+                    "is_true" => {
+                        format!("        XCTAssertTrue({expr})\n")
+                    }
+                    "is_false" => {
+                        format!("        XCTAssertFalse({expr})\n")
+                    }
+                    "greater_than" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        XCTAssertGreaterThan(chunks.count, {n})\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = escape_swift(s);
+                            format!(
+                                "        XCTAssertTrue({expr}.contains(\"{escaped}\"), \"expected to contain: {escaped}\")\n"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => format!(
+                        "        // streaming field '{f}': assertion type '{}' not rendered\n",
+                        assertion.assertion_type
+                    ),
+                };
+                if !line.is_empty() {
+                    out.push_str(&line);
+                }
+            }
+            return;
+        }
+    }
+
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
