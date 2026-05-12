@@ -208,6 +208,73 @@ fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, res
             ));
             true
         }
+        // Streaming virtual fields resolve against the `chunks` collected-list variable.
+        f if crate::codegen::streaming_assertions::is_streaming_virtual_field(f) => {
+            // lang is always "node" or "wasm" here; both use the same JS expressions.
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "node", "chunks")
+            {
+                match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!(
+                                "    expect({expr}.length).toBeGreaterThanOrEqual({js_val});\n"
+                            ));
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!("    expect({expr}.length).toBe({js_val});\n"));
+                        }
+                    }
+                    "equals" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!("    expect({expr}).toBe({js_val});\n"));
+                        }
+                    }
+                    "not_empty" => {
+                        out.push_str(&format!("    expect({expr}).toBeTruthy();\n"));
+                    }
+                    "is_empty" => {
+                        out.push_str(&format!("    expect({expr}).toBeFalsy();\n"));
+                    }
+                    "is_true" => {
+                        out.push_str(&format!("    expect({expr}).toBe(true);\n"));
+                    }
+                    "is_false" => {
+                        out.push_str(&format!("    expect({expr}).toBe(false);\n"));
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!("    expect({expr}).toBeGreaterThan({js_val});\n"));
+                        }
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!("    expect({expr}).toBeGreaterThanOrEqual({js_val});\n"));
+                        }
+                    }
+                    "contains" => {
+                        if let Some(val) = &assertion.value {
+                            let js_val = json_to_js(val);
+                            out.push_str(&format!("    expect({expr}).toContain({js_val});\n"));
+                        }
+                    }
+                    _ => {
+                        out.push_str(&format!(
+                            "    // streaming field '{field}': assertion type '{}' not rendered\n",
+                            assertion.assertion_type
+                        ));
+                    }
+                }
+            }
+            true
+        }
         _ => false,
     }
 }

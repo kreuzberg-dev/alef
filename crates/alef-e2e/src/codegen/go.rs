@@ -1040,9 +1040,13 @@ fn render_test_function(
         return;
     }
 
+    // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
+    let is_streaming = fixture.is_streaming_mock();
+
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
     // Go's "declared and not used" compile error.
+    // For streaming fixtures: streaming virtual fields count as usable.
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
@@ -1052,7 +1056,12 @@ fn render_test_function(
             return true;
         }
         match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            Some(f) if !f.is_empty() => {
+                if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+                field_resolver.is_valid_for_result(f)
+            }
             _ => true,
         }
     });
@@ -1122,7 +1131,10 @@ fn render_test_function(
         return;
     } else {
         // returns_result = true, returns_void = false: function returns (value, error).
-        let result_binding = if has_usable_assertion {
+        // For streaming fixtures, always capture the channel as `stream`.
+        let result_binding = if is_streaming {
+            "stream".to_string()
+        } else if has_usable_assertion {
             result_var.to_string()
         } else {
             "_".to_string()
@@ -1134,6 +1146,13 @@ fn render_test_function(
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
+        // For streaming fixtures: drain the channel into a []T slice.
+        if is_streaming {
+            let _ = writeln!(out, "\tvar chunks []{import_alias}.ChatCompletionChunk");
+            let _ = writeln!(out, "\tfor chunk := range stream {{");
+            let _ = writeln!(out, "\t\tchunks = append(chunks, chunk)");
+            let _ = writeln!(out, "\t}}");
+        }
         if result_is_simple && has_usable_assertion && result_binding != "_" {
             if result_is_array {
                 // Array results are slices (not pointers); assign directly without dereference.
@@ -2004,6 +2023,93 @@ fn render_assertion(
                     return;
                 }
                 _ => {}
+            }
+        }
+    }
+
+    // Streaming virtual fields: intercept before is_valid_for_result so they are
+    // never skipped.  These fields resolve against the `chunks` collected-list variable.
+    if !result_is_simple {
+        if let Some(f) = &assertion.field {
+            if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                if let Some(expr) =
+                    crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "go", "chunks")
+                {
+                    match assertion.assertion_type.as_str() {
+                        "count_min" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "\tassert.GreaterOrEqual(t, len({expr}), {n}, \"expected >= {n} chunks\")"
+                                    );
+                                }
+                            }
+                        }
+                        "count_equals" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(
+                                        out,
+                                        "\tassert.Equal(t, {n}, len({expr}), \"expected exactly {n} chunks\")"
+                                    );
+                                }
+                            }
+                        }
+                        "equals" => {
+                            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                                let escaped = crate::escape::go_string_literal(s);
+                                let _ = writeln!(out, "\tassert.Equal(t, {escaped}, {expr})");
+                            } else if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(out, "\tassert.Equal(t, {n}, {expr})");
+                                }
+                            }
+                        }
+                        "not_empty" => {
+                            let _ = writeln!(out, "\tassert.NotEmpty(t, {expr}, \"expected non-empty\")");
+                        }
+                        "is_empty" => {
+                            let _ = writeln!(out, "\tassert.Empty(t, {expr}, \"expected empty\")");
+                        }
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {expr}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {expr}, \"expected false\")");
+                        }
+                        "greater_than" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ = writeln!(out, "\tassert.Greater(t, {expr}, {n}, \"expected > {n}\")");
+                                }
+                            }
+                        }
+                        "greater_than_or_equal" => {
+                            if let Some(val) = &assertion.value {
+                                if let Some(n) = val.as_u64() {
+                                    let _ =
+                                        writeln!(out, "\tassert.GreaterOrEqual(t, {expr}, {n}, \"expected >= {n}\")");
+                                }
+                            }
+                        }
+                        "contains" => {
+                            if let Some(serde_json::Value::String(s)) = &assertion.value {
+                                let escaped = crate::escape::go_string_literal(s);
+                                let _ =
+                                    writeln!(out, "\tassert.Contains(t, {expr}, {escaped}, \"expected to contain\")");
+                            }
+                        }
+                        _ => {
+                            let _ = writeln!(
+                                out,
+                                "\t// streaming field '{f}': assertion type '{}' not rendered",
+                                assertion.assertion_type
+                            );
+                        }
+                    }
+                }
+                return;
             }
         }
     }
@@ -3232,6 +3338,124 @@ mod tests {
         assert!(
             !out.contains("kreuzberg.clean_extracted_text("),
             "must not emit raw snake_case method name, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_streaming_fixture_emits_collect_snippet() {
+        // A streaming fixture should emit `stream, err :=` and the collect loop.
+        let streaming_fixture_json = r#"{
+            "id": "basic_stream",
+            "description": "basic streaming test",
+            "call": "chat_stream",
+            "input": {"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}]},
+            "mock_response": {
+                "status": 200,
+                "stream_chunks": [{"delta": "hello"}]
+            },
+            "assertions": [
+                {"type": "count_min", "field": "chunks", "value": 1}
+            ]
+        }"#;
+        let fixture: Fixture = serde_json::from_str(streaming_fixture_json).unwrap();
+        assert!(fixture.is_streaming_mock(), "fixture should be detected as streaming");
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "chat_stream".to_string(),
+                module: "github.com/example/mylib".to_string(),
+                result_var: "result".to_string(),
+                returns_result: true,
+                r#async: true,
+                ..CallConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+
+        assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
+        assert!(
+            out.contains("for chunk := range stream"),
+            "should emit collect loop, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_streaming_with_client_factory_and_json_arg() {
+        // Mimics the real liter-llm setup: no returns_result on the call,
+        // json_object arg (binding_returns_error=true), and client_factory from
+        // the default Go call override.
+        use alef_core::config::e2e::{ArgMapping, CallOverride};
+        let streaming_fixture_json = r#"{
+            "id": "basic_stream_client",
+            "description": "basic streaming test with client",
+            "call": "chat_stream",
+            "input": {"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}]},
+            "mock_response": {
+                "status": 200,
+                "stream_chunks": [{"delta": "hello"}]
+            },
+            "assertions": [
+                {"type": "count_min", "field": "chunks", "value": 1}
+            ]
+        }"#;
+        let fixture: Fixture = serde_json::from_str(streaming_fixture_json).unwrap();
+        assert!(fixture.is_streaming_mock(), "fixture should be detected as streaming");
+
+        let mut go_override = CallOverride::default();
+        go_override.client_factory = Some("CreateClient".to_string());
+
+        let mut call_overrides = std::collections::HashMap::new();
+        call_overrides.insert("go".to_string(), go_override);
+
+        let e2e_config = E2eConfig {
+            call: CallConfig {
+                function: "chat_stream".to_string(),
+                module: "github.com/example/mylib".to_string(),
+                result_var: "result".to_string(),
+                returns_result: false, // NOT true — like real liter-llm
+                r#async: true,
+                args: vec![ArgMapping {
+                    name: "request".to_string(),
+                    field: "input".to_string(),
+                    arg_type: "json_object".to_string(),
+                    optional: false,
+                    owned: true,
+                    element_type: None,
+                    go_type: None,
+                }],
+                overrides: call_overrides,
+                ..CallConfig::default()
+            },
+            ..E2eConfig::default()
+        };
+
+        let resolver = FieldResolver::new(
+            &std::collections::HashMap::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+            &std::collections::HashSet::new(),
+        );
+
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, "pkg", &resolver, &e2e_config);
+
+        eprintln!("generated:\n{out}");
+        assert!(out.contains("stream, err :="), "should use stream binding, got:\n{out}");
+        assert!(
+            out.contains("for chunk := range stream"),
+            "should emit collect loop, got:\n{out}"
         );
     }
 }

@@ -1337,4 +1337,96 @@ mod tests {
              actual code:\n{code}"
         );
     }
+
+    /// Regression: `gen_ffi_trait_impl` was calling `format_type_ref` which ignores
+    /// `is_ref`/`is_mut`, causing `&[u8]` → `Vec<u8>`, `&str` → `String`, `&Path` →
+    /// `PathBuf`, `&InternalDocument` → `InternalDocument` in the trait impl method
+    /// signatures.  The fix uses `format_param_type` which respects those flags.
+    #[test]
+    fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
+        let method = MethodDef {
+            name: "process".to_string(),
+            params: vec![
+                ParamDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true, // &[u8]
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "mime_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true, // &str
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+                ParamDef {
+                    name: "path".to_string(),
+                    ty: TypeRef::Path,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: true, // &Path
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                },
+            ],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+        };
+        let trait_def = make_trait_def("Extractor", vec![method]);
+        let bridge_cfg = sample_bridge_cfg("Extractor");
+        let api = sample_api();
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "ml",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        // trait impl must emit the reference types, not the owned equivalents
+        assert!(
+            code.contains("content: &[u8]"),
+            "is_ref Bytes param must be &[u8] in trait impl, not Vec<u8>;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            code.contains("mime_type: &str"),
+            "is_ref String param must be &str in trait impl, not String;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            code.contains("path: &std::path::Path"),
+            "is_ref Path param must be &std::path::Path in trait impl, not PathBuf;\n\
+             actual code:\n{code}"
+        );
+    }
 }

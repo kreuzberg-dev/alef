@@ -526,9 +526,18 @@ pub fn render_test_function(
     // Non-error path: unwrap the result.
     let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
 
+    // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
+    let is_streaming = fixture.is_streaming_mock();
+    // Name of the stream-level variable (the raw stream returned by the call).
+    let stream_var = "stream";
+    // Name of the collected-list variable produced by draining the stream.
+    let chunks_var = "chunks";
+
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
     // Rust's "variable never used" warning.
+    // For streaming fixtures: streaming virtual fields count as usable — they resolve
+    // against the `chunks` collected variable rather than the result type.
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
@@ -553,12 +562,21 @@ pub fn render_test_function(
             }
         }
         match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            Some(f) if !f.is_empty() => {
+                if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+                field_resolver.is_valid_for_result(f)
+            }
             _ => true,
         }
     });
 
-    let result_binding = if has_usable_assertion {
+    // For streaming fixtures the stream itself is stored in `stream` and the
+    // collected list in `chunks`.  Non-streaming fixtures use result_var / `_`.
+    let result_binding = if is_streaming {
+        stream_var.to_string()
+    } else if has_usable_assertion {
         result_var.to_string()
     } else {
         "_".to_string()
@@ -584,7 +602,15 @@ pub fn render_test_function(
     } else {
         ""
     };
-    if !returns_result || (only_emptiness_checks && !has_not_error) {
+    if is_streaming {
+        // Streaming: bind the raw stream, then drain it into a Vec.
+        let _ = writeln!(out, "    let {stream_var} = {call_expr}{await_suffix}{unwrap_suffix};");
+        if let Some(collect) = crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
+            "rust", stream_var, chunks_var,
+        ) {
+            let _ = writeln!(out, "    {collect}");
+        }
+    } else if !returns_result || (only_emptiness_checks && !has_not_error) {
         // Option-returning or non-Result-returning (and not a not_error check): bind raw value, no unwrap.
         // When returns_result=true and has_not_error, fall through to emit .expect() so errors panic.
         let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
