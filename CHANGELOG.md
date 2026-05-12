@@ -37,6 +37,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-codegen): cfg-gated fields restored via trait-bridge `bind_via = "options_field"` now emit `#[serde(skip)]` and are propagated through both `binding→core` and `core→binding` From impls. Previously, restoring such a field (e.g. `visitor: Option<VisitorHandle>` on `ConversionOptions`) produced uncompilable bindings: the struct derived `serde::{Serialize, Deserialize}` over a non-serde-compatible bridge handle type, and the `From<Core>` impls omitted the field, so `Self { ... }` initializers were missing it. Adds `never_skip_cfg_field_names` to `ConversionConfig`, populated from `trait_bridges` by each backend.
 - fix(alef-backend-napi,php): apply the trait-bridge `never_skip_cfg_field_names` mechanism added in alef-codegen so the NAPI (Node) and PHP bindings keep `bind_via = "options_field"` fields (e.g. `visitor` on `ConversionOptions`) instead of dropping them with the rest of the cfg-gated fields. Mirrors the existing PyO3 backend behavior.
 - fix(alef-backend-ffi,php): emit `*result` (Copy) for `TypeRef::Char` and `result.to_vec()` for `TypeRef::Vec/Map` slice returns in `gen_method_wrapper`, instead of `result.clone()` (clippy noop on `&char` and unsized slices). Also emit `.to_string()` rather than `.clone()` for `&str` params before moving into `spawn_blocking` closures (avoids E0521 borrow-escape).
+- fix(pyo3): emit `error_to_py_err` directly in `.map_err()` (no redundant closure) — avoids clippy `redundant_closure` in generated bindings.
+- fix(pyo3): api.py import order — stdlib `from typing import …` first, then `import _rust as _rust`, then capsule-type imports (e.g. `from tree_sitter import Language`), then locals.
+- fix(pyo3): api.py wraps capsule-returning calls in `cast("Type", …)` for mypy strict mode; adds `cast` to the typing import only when needed.
+- fix(pyo3): skip capsule types in `.pyi` stubs (they live in third-party packages); conditional `from typing import …` based on actual usage — avoids RUF100 for the old unconditional four-name import.
+- fix(pyo3): drop redundant `pass` body for empty-field types in generated `options.py` — `pass` after a docstring triggers ruff PIE790.
+- fix(wasm): add `#[allow(clippy::should_implement_trait)]` to inherent `default()` factory method; renaming would change the JS-visible API.
+- fix(java): marshal `Path` params via `.toString()` in opaque-type stream-method bodies — previously lumped with `String`/`Char`/`Json` whose template does not call `.toString()`, causing a Java type mismatch.
 
 ## [0.15.44] - 2026-05-12
 
