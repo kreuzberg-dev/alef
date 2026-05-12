@@ -101,6 +101,58 @@ fn emit_lib_rs(
     // can reference it by bare name in the generated closure types.
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
 
+    // FRB strips module paths from `frb_generated.rs` when it serializes closure
+    // signatures, leaving bare type names that resolve against `use crate::*`.
+    // Re-export every excluded type referenced by trait-bridge method signatures so
+    // those bare names resolve. Without this, types like `InternalDocument` show up
+    // as E0425 in the generated bridge file.
+    {
+        use alef_core::ir::TypeRef;
+        fn collect_named(ty: &TypeRef, out: &mut std::collections::BTreeSet<String>) {
+            match ty {
+                TypeRef::Named(n) => {
+                    out.insert(n.clone());
+                }
+                TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named(inner, out),
+                TypeRef::Map(k, v) => {
+                    collect_named(k, out);
+                    collect_named(v, out);
+                }
+                _ => {}
+            }
+        }
+        let mut referenced: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for ty in &api.types {
+            if !ty.is_trait {
+                continue;
+            }
+            // Match the filter applied by `emit_trait_bridge`: only required methods
+            // (no `trait_source`, no `has_default_impl`) participate in the bridge.
+            // Skipping default-impl methods avoids re-exporting types referenced only
+            // there — e.g. `Option<&dyn SyncExtractor>` from `as_sync_extractor`.
+            for method in &ty.methods {
+                if method.trait_source.is_some() || method.has_default_impl {
+                    continue;
+                }
+                for p in &method.params {
+                    collect_named(&p.ty, &mut referenced);
+                }
+                collect_named(&method.return_type, &mut referenced);
+            }
+        }
+        let mut emitted: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        for name in &referenced {
+            if let Some(path) = api.excluded_type_paths.get(name) {
+                if path.is_empty() || emitted.contains(path) {
+                    continue;
+                }
+                content.push_str("#[allow(unused_imports)]\n");
+                content.push_str(&format!("pub use {};\n", path.replace('-', "_")));
+                emitted.insert(path.clone());
+            }
+        }
+    }
+
     // Compute the set of types that have DIRECT sanitized fields (or Duration/Path fields that
     // cause layout mismatches) BEFORE emitting impl blocks so opaque method bodies can use
     // `From` conversion instead of `transmute` for these types.

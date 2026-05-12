@@ -10,12 +10,21 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         // is zero-sized while the core type has data. Instead, emit a #[frb(opaque)] wrapper
         // struct so FRB v2 manages the value as a reference-counted opaque handle (RustAutoOpaque).
         // Bridge functions use `.inner` to access the wrapped core type.
+        //
+        // Prefer the IR-recorded `rust_path` (e.g. `kreuzberg::extractors::HwpxExtractor`)
+        // over the naive `{source_crate}::{name}` form, which only resolves for types
+        // re-exported at the crate root.
         let source_module = source_crate_name.replace('-', "_");
+        let inner_path = if ty.rust_path.is_empty() {
+            format!("{source_module}::{}", ty.name)
+        } else {
+            ty.rust_path.replace('-', "_")
+        };
         out.push_str(&template_env::render(
             "rust_opaque_wrapper_struct.jinja",
             minijinja::context! {
                 name => ty.name.as_str(),
-                source_module => source_module.as_str(),
+                inner_path => inner_path.as_str(),
             },
         ));
         return;

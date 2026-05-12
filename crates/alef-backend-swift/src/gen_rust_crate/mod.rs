@@ -264,7 +264,20 @@ fn emit_lib_rs(
         ));
         // For opaque types with methods, also emit constructor + method extern blocks.
         if ty.is_opaque && !ty.methods.iter().all(|m| m.sanitized) && !ty.methods.is_empty() {
-            if let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty) {
+            // Only emit the `create_<type>` constructor when the user provides an explicit
+            // `client_constructor_body` override in alef.toml. The default
+            // `(api_key, base_url)` signature only fits liter_llm-style clients; for plugin
+            // types like `HwpxExtractor::new()` or utilities like
+            // `TessdataManager::new(Option<PathBuf>)` it produces calls that don't match
+            // the real Rust signature. Opaque types without an override are returned by
+            // Rust APIs, not constructed in Swift.
+            let has_ctor_override = config
+                .swift
+                .as_ref()
+                .is_some_and(|c| c.client_constructor_body.contains_key(&ty.name));
+            if has_ctor_override
+                && let Some(ctor_block) = extern_block::emit_extern_block_for_type_constructor(ty)
+            {
                 extern_blocks.push(ctor_block);
             }
             if let Some(method_block) = extern_block::emit_extern_block_for_type_methods(ty) {
@@ -366,13 +379,17 @@ fn emit_lib_rs(
                 .as_ref()
                 .and_then(|c| c.client_constructor_body.get(&ty.name))
                 .map(String::as_str);
-            out.push_str(&wrappers::emit_type_constructor_shim(
-                ty,
-                &source_crate,
-                &type_paths,
-                custom_body,
-            ));
-            out.push('\n');
+            // Only emit `create_<type>` when an explicit constructor body is configured.
+            // See extern-block gate above for the rationale.
+            if custom_body.is_some() {
+                out.push_str(&wrappers::emit_type_constructor_shim(
+                    ty,
+                    &source_crate,
+                    &type_paths,
+                    custom_body,
+                ));
+                out.push('\n');
+            }
             out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths));
             out.push('\n');
         }
