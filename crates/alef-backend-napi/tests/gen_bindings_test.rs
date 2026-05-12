@@ -1581,10 +1581,10 @@ fn test_capsule_types_end_to_end() {
         "get_language shim must call into_raw(); content:\n{content}"
     );
 
-    // The shim must call create_external to wrap the pointer.
+    // The shim must wrap the pointer in an External (napi v3: External::new).
     assert!(
-        content.contains("create_external"),
-        "get_language shim must call create_external; content:\n{content}"
+        content.contains("External::new"),
+        "get_language shim must call External::new; content:\n{content}"
     );
 
     // The shim must set the __parser property on the returned JsObject.
@@ -1593,10 +1593,10 @@ fn test_capsule_types_end_to_end() {
         "get_language shim must set __parser property; content:\n{content}"
     );
 
-    // The function must return napi::Result<napi::JsObject>.
+    // The function must return napi::Result<napi::bindgen_prelude::Object>.
     assert!(
-        content.contains("JsObject"),
-        "get_language shim must return JsObject; content:\n{content}"
+        content.contains("bindgen_prelude::Object"),
+        "get_language shim must return napi::bindgen_prelude::Object; content:\n{content}"
     );
 
     // The shim must accept napi::Env as its first parameter.
@@ -1760,10 +1760,10 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
         "method shim must accept napi::Env; content:\n{content}"
     );
 
-    // The method shim must return napi::Result<napi::JsObject>.
+    // The method shim must return napi::Result<napi::bindgen_prelude::Object<'_>>.
     assert!(
-        content.contains("napi::Result<napi::JsObject>"),
-        "method shim must return napi::Result<napi::JsObject>; content:\n{content}"
+        content.contains("napi::Result<napi::bindgen_prelude::Object<'_>>"),
+        "method shim must return napi::Result<napi::bindgen_prelude::Object<'_>>; content:\n{content}"
     );
 
     // The shim must call into_raw().
@@ -1772,10 +1772,10 @@ fn test_capsule_types_method_on_opaque_rust_shim() {
         "method shim must call into_raw(); content:\n{content}"
     );
 
-    // The shim must call create_external.
+    // The shim must wrap the pointer in an External (napi v3: External::new).
     assert!(
-        content.contains("create_external"),
-        "method shim must call create_external; content:\n{content}"
+        content.contains("External::new"),
+        "method shim must call External::new; content:\n{content}"
     );
 
     // The shim must set __parser.
@@ -1827,8 +1827,8 @@ fn test_capsule_types_method_on_opaque_dts() {
 
     // No bare JsLanguage class declaration (as distinct from JsLanguageRegistry).
     // Check specifically for "JsLanguage {" to avoid matching JsLanguageRegistry.
-    let has_js_language_class = content.contains("export declare class JsLanguage {")
-        || content.contains("export declare class JsLanguage\n");
+    let has_js_language_class =
+        content.contains("export declare class JsLanguage {") || content.contains("export declare class JsLanguage\n");
     assert!(
         !has_js_language_class,
         "index.d.ts must not emit standalone export declare class JsLanguage; content:\n{content}"
