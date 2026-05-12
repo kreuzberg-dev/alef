@@ -5,7 +5,7 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 	cHTML := C.CString(html)
 	defer C.free(unsafe.Pointer(cHTML))
 
-	var cOptions *{{ conversion_options_type }}
+	var cOptions *C.{{ conversion_options_type }}
 	if options != nil {
 		optionsBytes, err := json.Marshal(options)
 		if err != nil {
@@ -13,15 +13,15 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 		}
 		optionsJSON := C.CString(string(optionsBytes))
 		defer C.free(unsafe.Pointer(optionsJSON))
-		cOptions = {{ fn_options_from_json }}(optionsJSON)
-		defer {{ fn_options_free }}(cOptions)
+		cOptions = C.{{ fn_options_from_json }}(optionsJSON)
+		defer C.{{ fn_options_free }}(cOptions)
 	}
 	if cOptions == nil {
 		// Allocate a default options struct so we can attach the visitor.
 		defaultJSON := C.CString("{}")
-		cOptions = {{ fn_options_from_json }}(defaultJSON)
+		cOptions = C.{{ fn_options_from_json }}(defaultJSON)
 		C.free(unsafe.Pointer(defaultJSON))
-		defer {{ fn_options_free }}(cOptions)
+		defer C.{{ fn_options_free }}(cOptions)
 	}
 
 	// Register visitor and build the C VTable via the static C helper.
@@ -30,25 +30,25 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 	vtbl := C.makeVisitorVTable()
 
 	// Create a bridge that holds the VTable and the visitor ID as user_data.
-	bridge := {{ fn_bridge_new }}(&vtbl, unsafe.Pointer(id))
+	bridge := C.{{ fn_bridge_new }}(&vtbl, unsafe.Pointer(id))
 	if bridge == nil {
 		return nil, fmt.Errorf("failed to create visitor bridge")
 	}
-	defer {{ fn_bridge_free }}(bridge)
+	defer C.{{ fn_bridge_free }}(bridge)
 
 	// Attach the bridge to the options struct so convert() picks it up.
-	{{ fn_options_set_visitor }}(cOptions, (*{{ bridge_c_type }})(bridge))
+	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ bridge_c_type }})(bridge))
 
-	ptr := {{ fn_convert }}(cHTML, cOptions)
+	ptr := C.{{ fn_convert }}(cHTML, cOptions)
 	if ptr == nil {
 		if err := lastError(); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("conversion returned nil")
 	}
-	defer {{ fn_result_free }}(ptr)
+	defer C.{{ fn_result_free }}(ptr)
 
-	jsonPtr := {{ fn_result_to_json }}(ptr)
+	jsonPtr := C.{{ fn_result_to_json }}(ptr)
 	if jsonPtr == nil {
 		return nil, fmt.Errorf("conversion result serialisation failed")
 	}
