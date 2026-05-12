@@ -322,14 +322,27 @@ pub(crate) fn gen_instance_method(
     } else {
         ""
     };
+    // `initialize` collides with `ZendClassObject::initialize` in ext-php-rs and the
+    // `#[php_impl]` macro mis-routes calls to the wrong fn (E0061: takes 1 arg, 0
+    // supplied). Emit the Rust fn as `initialize_plugin` and explicitly rename it to
+    // `initialize` on the PHP side via `#[php(name = "initialize")]` — the PHP name
+    // is preserved for downstream callers.
+    let (rust_name, php_rename_attr) = match method.name.as_str() {
+        "initialize" => (
+            "initialize_plugin".to_string(),
+            "#[php(name = \"initialize\")]\n    ".to_string(),
+        ),
+        _ => (method.name.clone(), String::new()),
+    };
     let ret_sig = return_type_sig(&return_annotation);
     out.push_str("    ");
+    out.push_str(&php_rename_attr);
     out.push_str(trait_allow);
     if params_str.is_empty() {
         out.push_str(&crate::template_env::render(
             "php_method_definition_no_params.jinja",
             context! {
-                name => &method.name,
+                name => &rust_name,
                 ret_sig => &ret_sig,
                 body => &body,
             },
@@ -338,7 +351,7 @@ pub(crate) fn gen_instance_method(
         out.push_str(&crate::template_env::render(
             "php_method_definition_with_params.jinja",
             context! {
-                name => &method.name,
+                name => &rust_name,
                 params => &params_str,
                 ret_sig => &ret_sig,
                 body => &body,
@@ -448,20 +461,27 @@ pub(crate) fn gen_instance_method_non_opaque(
     } else {
         ""
     };
+    // See `gen_instance_method` for the rationale: `initialize` collides with
+    // `ZendClassObject::initialize` and the `#[php_impl]` macro mis-routes.
+    let (rust_name, php_rename_attr) = match method.name.as_str() {
+        "initialize" => (
+            "initialize_plugin".to_string(),
+            "#[php(name = \"initialize\")]\n    ".to_string(),
+        ),
+        _ => (method.name.clone(), String::new()),
+    };
     let ret_sig = return_type_sig(&return_annotation);
     if params_str.is_empty() {
         format!(
-            "{trait_allow}pub fn {}(&self){ret_sig} {{\n    \
+            "{php_rename_attr}{trait_allow}pub fn {rust_name}(&self){ret_sig} {{\n    \
              {body}\n\
-             }}",
-            method.name
+             }}"
         )
     } else {
         format!(
-            "{trait_allow}pub fn {}(&self, {params_str}){ret_sig} {{\n    \
+            "{php_rename_attr}{trait_allow}pub fn {rust_name}(&self, {params_str}){ret_sig} {{\n    \
              {body}\n\
-             }}",
-            method.name
+             }}"
         )
     }
 }
