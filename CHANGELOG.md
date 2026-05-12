@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.42] - 2026-05-12
+
+### Fixed
+
+- fix(alef-backend-go): prepend `C.` to all cgo function calls and the options struct type in the visitor helper template. Previously `convert_with_visitor_helper.jinja` emitted bare identifiers (`htm_conversion_options_from_json(...)`, `htm_options_set_visitor(...)`, `htm_convert(...)`, etc.) which Go treated as undefined package-level functions, breaking the entire Go binding with `undefined: htm_*` errors. Now matches the existing `binding.go` convention of `C.htm_*` for cgo symbol resolution.
+
 ## [0.15.41] - 2026-05-12
 
 ### Fixed
