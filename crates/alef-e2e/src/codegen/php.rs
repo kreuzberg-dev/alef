@@ -788,11 +788,10 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    // ext-php-rs binds async Rust methods with an `_async` suffix (mirroring Magnus).
-    // Append it before camelCasing so e.g. `chat` becomes `chatAsync`.
-    if !has_override && call_config.r#async && !function_name.ends_with("_async") {
-        function_name = format!("{function_name}_async");
-    }
+    // The PHP facade exposes async Rust methods under their bare name (no `_async`
+    // suffix) — PHP has no surface-level async, so the facade picks the async
+    // implementation as the default and delegates to `*Async` on the native class.
+    // The `*_sync` variants stay explicit (e.g. `extract_bytes_sync` → `extractBytesSync`).
     if !has_override {
         function_name = function_name.to_lower_camel_case();
     }
@@ -1258,12 +1257,12 @@ fn build_args_and_setup(
                                 }
 
                                 let arg_var = format!("${}", arg.name);
-                                // Use json_to_php (snake_case) instead of json_to_php_camel_keys because
-                                // Rust's serde deserializes field names as snake_case by default (via #[serde(rename_all = "snake_case")]).
-                                // PHP should match Rust field naming conventions, not use camelCase.
+                                // PHP binding's serde wrapper applies `rename_all` per the per-language
+                                // wire-case registry (`ResolvedCrateConfig::serde_rename_all_for_language`),
+                                // which is camelCase for PHP — emit camelCase keys to match.
                                 setup_lines.push(format!(
                                     "{arg_var} = {type_name}::from_json(json_encode({}));",
-                                    json_to_php(&filtered_v)
+                                    json_to_php_camel_keys(&filtered_v)
                                 ));
                                 parts.push(arg_var);
                                 continue;

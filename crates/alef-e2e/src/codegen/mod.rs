@@ -76,25 +76,44 @@ pub(crate) fn should_include_fixture(fixture: &Fixture, language: &str, e2e_conf
     true
 }
 
-/// Convert a JSON value's object keys from camelCase to snake_case recursively.
+/// Recursively rewrite a JSON value's object keys to the target wire case.
 ///
-/// Used when serializing fixture options for FFI-based languages (Rust, C, Java)
-/// where the receiving Rust type uses default serde (snake_case) without `rename_all`.
-pub(crate) fn normalize_json_keys_to_snake_case(value: &serde_json::Value) -> serde_json::Value {
-    use heck::ToSnakeCase;
-    match value {
-        serde_json::Value::Object(obj) => {
-            let new_obj: serde_json::Map<String, serde_json::Value> = obj
-                .iter()
-                .map(|(k, v)| (k.to_snake_case(), normalize_json_keys_to_snake_case(v)))
-                .collect();
-            serde_json::Value::Object(new_obj)
+/// `wire_case` accepts the same vocabulary as serde's `rename_all` attribute:
+/// `"snake_case"` (default), `"camelCase"`, `"PascalCase"`, `"SCREAMING_SNAKE_CASE"`,
+/// `"kebab-case"`, `"SCREAMING-KEBAB-CASE"`. Unknown values fall back to `snake_case`.
+///
+/// Used by per-language e2e codegen to translate canonical (snake_case) fixture keys
+/// to the wire case that each binding's `from_json` / typed deserializer expects, as
+/// driven by `ResolvedCrateConfig::serde_rename_all_for_language`.
+pub(crate) fn transform_json_keys_for_language(
+    value: &serde_json::Value,
+    wire_case: &str,
+) -> serde_json::Value {
+    use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase, ToShoutyKebabCase, ToShoutySnakeCase, ToSnakeCase};
+    let rewrite_key: fn(&str) -> String = match wire_case {
+        "camelCase" => |k| k.to_lower_camel_case(),
+        "PascalCase" => |k| k.to_pascal_case(),
+        "SCREAMING_SNAKE_CASE" => |k| k.to_shouty_snake_case(),
+        "kebab-case" => |k| k.to_kebab_case(),
+        "SCREAMING-KEBAB-CASE" => |k| k.to_shouty_kebab_case(),
+        _ => |k| k.to_snake_case(),
+    };
+    fn walk(value: &serde_json::Value, rewrite_key: fn(&str) -> String) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(obj) => {
+                let new_obj: serde_json::Map<String, serde_json::Value> = obj
+                    .iter()
+                    .map(|(k, v)| (rewrite_key(k), walk(v, rewrite_key)))
+                    .collect();
+                serde_json::Value::Object(new_obj)
+            }
+            serde_json::Value::Array(arr) => {
+                serde_json::Value::Array(arr.iter().map(|v| walk(v, rewrite_key)).collect())
+            }
+            other => other.clone(),
         }
-        serde_json::Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(normalize_json_keys_to_snake_case).collect())
-        }
-        other => other.clone(),
     }
+    walk(value, rewrite_key)
 }
 
 /// Trait for per-language e2e test code generation.

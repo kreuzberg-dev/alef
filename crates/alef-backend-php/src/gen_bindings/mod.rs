@@ -118,6 +118,7 @@ impl Backend for PhpBackend {
             untagged_data_enum_names: untagged_data_enum_names.clone(),
         };
         let core_import = config.core_import_name();
+        let lang_rename_all = config.serde_rename_all_for_language(Language::Php);
 
         // Get exclusion lists from PHP config
         let php_config = config.php.as_ref();
@@ -300,7 +301,14 @@ impl Backend for PhpBackend {
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.
-                builder.add_item(&gen_php_struct(typ, &mapper, &cfg, Some(&php_namespace), &enum_names));
+                builder.add_item(&gen_php_struct(
+                    typ,
+                    &mapper,
+                    &cfg,
+                    Some(&php_namespace),
+                    &enum_names,
+                    &lang_rename_all,
+                ));
                 builder.add_item(&types::gen_struct_methods_with_exclude(
                     typ,
                     &mapper,
