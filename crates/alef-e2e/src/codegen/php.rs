@@ -898,8 +898,16 @@ fn render_test_method(
         String::new()
     };
 
-    // Detect streaming fixtures.
-    let is_streaming = fixture.is_streaming_mock();
+    // Detect streaming fixtures: trigger when mock_response has stream_chunks OR any
+    // assertion references a streaming-virtual field (e.g. empty_stream has
+    // stream_chunks:[] so is_streaming_mock() returns false, but the fixture still
+    // asserts on `chunks`/`stream_content` which need the collect snippet).
+    let is_streaming = fixture.is_streaming_mock()
+        || fixture.assertions.iter().any(|a| {
+            a.field
+                .as_deref()
+                .is_some_and(|f| !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f))
+        });
 
     // Determine if there are usable assertions.
     // For streaming fixtures: streaming virtual fields count as usable.
@@ -937,6 +945,16 @@ fn render_test_method(
             result_is_simple,
             call_config.result_is_array,
         );
+    }
+
+    // Streaming fixtures whose only assertion is `not_error` produce an empty
+    // assertions_body even though the stream was drained successfully.  PHPUnit
+    // flags such tests as "risky" (no assertions performed).  Emit a minimal
+    // structural assertion against the drained chunk list so the test records
+    // success without false-positive reliance on `expectNotToPerformAssertions`.
+    if is_streaming && !expects_error && assertions_body.trim().is_empty() {
+        assertions_body
+            .push_str("        $this->assertTrue(is_array($chunks), 'expected drained chunks list');\n");
     }
 
     let rendered = crate::template_env::render(

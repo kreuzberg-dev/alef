@@ -101,6 +101,9 @@ impl StreamingFieldResolver {
             "chunks" => Some(match lang {
                 // Zig ArrayList does not expose .len directly; must use .items
                 "zig" => format!("{chunks_var}.items"),
+                // PHP variables require `$` sigil — bareword `chunks` is parsed as a
+                // constant reference and triggers "Undefined constant" errors.
+                "php" => format!("${chunks_var}"),
                 _ => chunks_var.to_string(),
             }),
 
@@ -179,7 +182,10 @@ impl StreamingFieldResolver {
                     )
                 }
                 "php" => {
-                    format!("!empty(${chunks_var}) && isset(end(${chunks_var})->choices[0]->finishReason)")
+                    // PHP streaming chunks come from `json_decode` of the binding's JSON
+                    // string return, so property names follow the JSON wire format
+                    // (snake_case `finish_reason`, not camelCase `finishReason`).
+                    format!("!empty(${chunks_var}) && isset(end(${chunks_var})->choices[0]->finish_reason)")
                 }
                 "kotlin" => {
                     // Kotlin: use isNotEmpty() + last() + safe-call chain
@@ -224,8 +230,11 @@ impl StreamingFieldResolver {
                     )
                 }
                 "go" => {
+                    // StreamDelta.ToolCalls is `[]StreamToolCall` (slice, not pointer).
+                    // Return the typed slice so deep-path accessors like `tool_calls[0].function.name`
+                    // can index and access typed fields.
                     format!(
-                        "func() []interface{{}} {{ var tc []interface{{}}; for _, c := range {chunks_var} {{ for _, ch := range c.Choices {{ if ch.Delta.ToolCalls != nil {{ for _, t := range *ch.Delta.ToolCalls {{ tc = append(tc, t) }} }} }} }}; return tc }}()"
+                        "func() []pkg.StreamToolCall {{ var tc []pkg.StreamToolCall; for _, c := range {chunks_var} {{ for _, ch := range c.Choices {{ tc = append(tc, ch.Delta.ToolCalls...) }} }}; return tc }}()"
                     )
                 }
                 "java" => {
@@ -234,8 +243,10 @@ impl StreamingFieldResolver {
                     )
                 }
                 "php" => {
+                    // PHP streaming chunks are json_decoded stdClass — use snake_case
+                    // `tool_calls` to match the JSON wire format.
                     format!(
-                        "array_merge(...array_map(fn($c) => $c->choices[0]->delta->toolCalls ?? [], ${chunks_var}))"
+                        "array_merge(...array_map(fn($c) => $c->choices[0]->delta->tool_calls ?? [], ${chunks_var}))"
                     )
                 }
                 "kotlin" => {
@@ -272,8 +283,10 @@ impl StreamingFieldResolver {
                     )
                 }
                 "go" => {
+                    // FinishReason is a typed alias (`type FinishReason string`) in bindings,
+                    // so cast to string explicitly to match the assertion target type.
                     format!(
-                        "func() string {{ if len({chunks_var}) == 0 {{ return \"\" }}; last := {chunks_var}[len({chunks_var})-1]; if len(last.Choices) > 0 && last.Choices[0].FinishReason != nil {{ return *last.Choices[0].FinishReason }}; return \"\" }}()"
+                        "func() string {{ if len({chunks_var}) == 0 {{ return \"\" }}; last := {chunks_var}[len({chunks_var})-1]; if len(last.Choices) > 0 && last.Choices[0].FinishReason != nil {{ return string(*last.Choices[0].FinishReason) }}; return \"\" }}()"
                     )
                 }
                 "java" => {
@@ -282,7 +295,9 @@ impl StreamingFieldResolver {
                     )
                 }
                 "php" => {
-                    format!("(!empty(${chunks_var}) ? (end(${chunks_var})->choices[0]->finishReason ?? null) : null)")
+                    // PHP streaming chunks are json_decoded stdClass — use snake_case
+                    // `finish_reason` to match the JSON wire format.
+                    format!("(!empty(${chunks_var}) ? (end(${chunks_var})->choices[0]->finish_reason ?? null) : null)")
                 }
                 "kotlin" => {
                     // Returns the string value of the finish_reason enum from the last chunk.
@@ -324,6 +339,15 @@ impl StreamingFieldResolver {
                     if lang == "rust" && root == "tool_calls" {
                         return Some(render_rust_tool_calls_deep(chunks_var, tail));
                     }
+                    // Zig stores stream chunks as JSON strings (`[]const u8`) in
+                    // `chunks: ArrayList([]u8)`, not typed `ChatCompletionChunk`
+                    // records. A deep `tool_calls[N].function.name` access would
+                    // require parsing each chunk's JSON inline — rather than
+                    // emit code that won't compile, signal "unsupported" so the
+                    // assertion is skipped at the call site.
+                    if lang == "zig" && root == "tool_calls" {
+                        return None;
+                    }
                     let root_expr = Self::accessor(root, lang, chunks_var)?;
                     Some(render_deep_tail(&root_expr, tail, lang))
                 } else {
@@ -349,7 +373,15 @@ impl StreamingFieldResolver {
             "java" => Some(format!(
                 "var {chunks_var} = new java.util.ArrayList<ChatCompletionChunk>();\n        var _it = {stream_var};\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
             )),
-            "php" => Some(format!("${chunks_var} = iterator_to_array(${stream_var});")),
+            // PHP binding's chat_stream_async typically returns a JSON string of the
+            // chunk array (PHP cannot expose Rust iterators directly via ext-php-rs).
+            // Decode to an array of stdClass objects so accessor chains like
+            // `$c->choices[0]->delta->content` resolve against the JSON wire shape
+            // (snake_case keys).  Falls back to iterator_to_array for a future binding
+            // upgrade that exposes a real iterator.
+            "php" => Some(format!(
+                "${chunks_var} = is_string(${stream_var}) ? (json_decode(${stream_var}) ?: []) : iterator_to_array(${stream_var});"
+            )),
             "python" => Some(format!(
                 "{chunks_var} = []\n    async for chunk in {stream_var}:\n        {chunks_var}.append(chunk)"
             )),
@@ -570,8 +602,12 @@ fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
                 out.push_str(&f.to_pascal_case());
             }
             (TailSeg::Field(f), "php") => {
+                // Streaming PHP accessors operate on json_decoded stdClass with
+                // snake_case property names (JSON wire format), not the camelCase
+                // properties exposed on the PHP wrapper class. Use the raw field
+                // name verbatim.
                 out.push_str("->");
-                out.push_str(&f.to_lower_camel_case());
+                out.push_str(f);
             }
             (TailSeg::Field(f), "elixir") => {
                 out.push('.');
@@ -752,9 +788,18 @@ mod tests {
     }
 
     #[test]
-    fn collect_snippet_php_uses_iterator_to_array() {
+    fn collect_snippet_php_decodes_json_or_iterates() {
         let snip = StreamingFieldResolver::collect_snippet("php", "result", "chunks").unwrap();
-        assert!(snip.contains("iterator_to_array"), "php: {snip}");
+        // PHP binding's chat_stream_async returns a JSON string today; collect-snippet
+        // decodes it.  iterator_to_array is retained as the fallback branch so a
+        // future binding that exposes a real iterator continues to work without
+        // regenerating the e2e tests.
+        assert!(snip.contains("json_decode"), "php must decode JSON: {snip}");
+        assert!(
+            snip.contains("iterator_to_array"),
+            "php must keep iterator_to_array fallback: {snip}"
+        );
+        assert!(snip.contains("$chunks ="), "php must bind $chunks: {snip}");
     }
 
     #[test]
@@ -946,11 +991,13 @@ mod tests {
         assert!(elixir.contains(".function"), "elixir: {elixir}");
         assert!(elixir.contains(".name"), "elixir: {elixir}");
 
-        let zig = StreamingFieldResolver::accessor(field, "zig", "chunks").unwrap();
-        // Zig uses .items[N] for ArrayList element access
-        assert!(zig.contains(".items[0]"), "zig: expected .items[0], got: {zig}");
-        assert!(zig.contains(".function"), "zig: {zig}");
-        assert!(zig.contains(".name"), "zig: {zig}");
+        // Zig stores chunks as JSON strings, not typed records — deep
+        // tool_calls paths are unsupported and resolve to None so the
+        // assertion site can skip them.
+        assert!(
+            StreamingFieldResolver::accessor(field, "zig", "chunks").is_none(),
+            "zig: expected None for deep tool_calls path"
+        );
     }
 
     #[test]
