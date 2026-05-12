@@ -60,7 +60,7 @@ pub fn is_streaming_virtual_field(field: &str) -> bool {
     }
     // Check deep-path prefixes: `tool_calls[…` or `tool_calls.`
     for root in STREAMING_VIRTUAL_ROOTS {
-        if field.len() > root.len() {
+        if field.len() > root.len() && field.starts_with(root) {
             let rest = &field[root.len()..];
             if rest.starts_with('[') || rest.starts_with('.') {
                 return true;
@@ -265,8 +265,10 @@ impl StreamingFieldResolver {
 
             "finish_reason" => Some(match lang {
                 "rust" => {
+                    // ChatCompletionChunk's finish_reason is Option<FinishReason> (enum, not
+                    // String). Display impl writes the JSON wire form (e.g. "tool_calls").
                     format!(
-                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_deref()).unwrap_or(\"\")"
+                        "{chunks_var}.last().and_then(|c| c.choices.first()).and_then(|ch| ch.finish_reason.as_ref()).map(|v| v.to_string()).unwrap_or_default()"
                     )
                 }
                 "go" => {
@@ -316,6 +318,12 @@ impl StreamingFieldResolver {
                 // Split into root + tail, get the root's inline expression, then
                 // render the tail (index + fields) in a per-language style on top.
                 if let Some((root, tail)) = split_streaming_deep_path(field) {
+                    // Rust needs Option-aware chaining for the StreamToolCall fields
+                    // (function/id are Option<...>). The generic tail renderer can't
+                    // infer Option-wrapping, so we emit rust-specific idiom here.
+                    if lang == "rust" && root == "tool_calls" {
+                        return Some(render_rust_tool_calls_deep(chunks_var, tail));
+                    }
                     let root_expr = Self::accessor(root, lang, chunks_var)?;
                     Some(render_deep_tail(&root_expr, tail, lang))
                 } else {
@@ -333,7 +341,7 @@ impl StreamingFieldResolver {
     pub fn collect_snippet(lang: &str, stream_var: &str, chunks_var: &str) -> Option<String> {
         match lang {
             "rust" => Some(format!(
-                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await;"
+                "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await\n        .into_iter()\n        .map(|r| r.expect(\"stream item failed\"))\n        .collect();"
             )),
             "go" => Some(format!(
                 "var {chunks_var} []pkg.ChatCompletionChunk\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
@@ -422,6 +430,46 @@ impl StreamingFieldResolver {
             _ => None,
         }
     }
+}
+
+/// Render a rust deep accessor for `tool_calls[N]...` paths over the flattened
+/// stream-chunk tool_calls iterator. Handles Option-wrapped fields by chaining
+/// `as_ref().and_then(...)` so the final value is a `&str` (for name/id/arguments).
+fn render_rust_tool_calls_deep(chunks_var: &str, tail: &str) -> String {
+    let segs = parse_tail(tail);
+    // Locate index segment (rust uses .nth(n) on the iterator instead of [N] on a Vec)
+    let idx = segs.iter().find_map(|s| match s {
+        TailSeg::Index(n) => Some(*n),
+        _ => None,
+    });
+    let field_segs: Vec<&str> = segs
+        .iter()
+        .filter_map(|s| match s {
+            TailSeg::Field(f) => Some(f.as_str()),
+            _ => None,
+        })
+        .collect();
+
+    let base = format!(
+        "{chunks_var}.iter().flat_map(|c| c.choices.iter().flat_map(|ch| ch.delta.tool_calls.iter().flatten()))"
+    );
+    let with_nth = match idx {
+        Some(n) => format!("{base}.nth({n})"),
+        None => base,
+    };
+
+    // Chain Option-aware field access. Every field on StreamToolCall is Option<...>;
+    // the leaf (String fields) uses `.as_deref()` to project to `&str`.
+    let mut expr = with_nth;
+    for (i, f) in field_segs.iter().enumerate() {
+        let is_leaf = i == field_segs.len() - 1;
+        if is_leaf {
+            expr = format!("{expr}.and_then(|x| x.{f}.as_deref())");
+        } else {
+            expr = format!("{expr}.and_then(|x| x.{f}.as_ref())");
+        }
+    }
+    format!("{expr}.unwrap_or(\"\")")
 }
 
 /// Parse a deep-path tail (e.g. `[0].function.name`) into structured segments.
@@ -571,6 +619,18 @@ mod tests {
     }
 
     #[test]
+    fn is_streaming_virtual_field_rejects_non_root_paths_with_matching_tail() {
+        // Regression: prior impl matched any field whose chars-after-root-len started
+        // with `[` or `.` — without checking that the field actually starts with the
+        // root token. `choices[0].finish_reason` therefore falsely matched root
+        // `tool_calls` because byte 10 onward is `.finish_reason`.
+        assert!(!is_streaming_virtual_field("choices[0].finish_reason"));
+        assert!(!is_streaming_virtual_field("choices[0].message.content"));
+        assert!(!is_streaming_virtual_field("usage.total_tokens"));
+        assert!(!is_streaming_virtual_field("data[0].embedding"));
+    }
+
+    #[test]
     fn accessor_chunks_returns_var_name() {
         assert_eq!(
             StreamingFieldResolver::accessor("chunks", "rust", "chunks"),
@@ -675,6 +735,8 @@ mod tests {
         let snip = StreamingFieldResolver::collect_snippet("rust", "result", "chunks").unwrap();
         assert!(snip.contains("tokio_stream::StreamExt::collect"), "rust: {snip}");
         assert!(snip.contains("let chunks"), "rust: {snip}");
+        // Items are Result<ChatCompletionChunk, _> — unwrap so chunks is Vec<ChatCompletionChunk>
+        assert!(snip.contains(".expect("), "rust must unwrap Result items: {snip}");
     }
 
     #[test]
@@ -781,18 +843,20 @@ mod tests {
         let field = "tool_calls[0].function.name";
 
         let rust = StreamingFieldResolver::accessor(field, "rust", "chunks").unwrap();
-        // Rust: wraps inline flat_map expression with [0] then .function.name (snake)
+        // Rust: Option-aware chain over the iterator — `.nth(0)` then `.and_then`
+        // on each Option-wrapped field (function is Option<StreamFunctionCall>,
+        // name is Option<String>). Final `.unwrap_or("")` yields `&str`.
         assert!(
-            rust.contains("[0]"),
-            "rust deep tool_calls: expected [0] index, got: {rust}"
+            rust.contains(".nth(0)"),
+            "rust deep tool_calls: expected .nth(0) iterator index, got: {rust}"
         );
         assert!(
-            rust.contains(".function"),
-            "rust deep tool_calls: expected .function segment, got: {rust}"
+            rust.contains("x.function.as_ref()"),
+            "rust deep tool_calls: expected Option-aware function access, got: {rust}"
         );
         assert!(
-            rust.contains(".name"),
-            "rust deep tool_calls: expected .name segment, got: {rust}"
+            rust.contains("x.name.as_deref()"),
+            "rust deep tool_calls: expected Option-aware name leaf, got: {rust}"
         );
         assert!(
             !rust.contains("// skipped"),
@@ -835,8 +899,8 @@ mod tests {
         let field = "tool_calls[0].id";
 
         let rust = StreamingFieldResolver::accessor(field, "rust", "chunks").unwrap();
-        assert!(rust.contains("[0]"), "rust: {rust}");
-        assert!(rust.contains(".id"), "rust: {rust}");
+        assert!(rust.contains(".nth(0)"), "rust: {rust}");
+        assert!(rust.contains("x.id.as_deref()"), "rust: {rust}");
 
         let go = StreamingFieldResolver::accessor(field, "go", "chunks").unwrap();
         assert!(go.contains("[0]"), "go: {go}");
