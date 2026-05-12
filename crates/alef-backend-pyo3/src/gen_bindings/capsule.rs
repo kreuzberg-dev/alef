@@ -450,7 +450,7 @@ fn error_converter_name(error_type: &Option<String>, error_converters: &[String]
         let short = et.split("::").last().unwrap_or(et.as_str());
         let candidate = format!("{}_to_py_err", short.to_snake_case());
         if error_converters.iter().any(|c| c == &candidate) {
-            return format!("|e| {candidate}(e)");
+            return candidate;
         }
     }
     // Fallback: convert to PyRuntimeError.
