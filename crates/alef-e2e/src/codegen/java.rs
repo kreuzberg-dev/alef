@@ -1075,7 +1075,10 @@ fn render_test_method(
                 if !val.is_null() && !val.is_array() {
                     if options_via == "from_json" {
                         // Build the typed POJO via static fromJson(String) method.
-                        let json_str = serde_json::to_string(val).unwrap_or_default();
+                        // Java's Jackson @JsonProperty annotations expect camelCase keys, so
+                        // transform the canonical snake_case fixture keys before emitting.
+                        let normalized = super::transform_json_keys_for_language(val, "camelCase");
+                        let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                         let escaped = escape_java(&json_str);
                         let var_name = &arg.name;
                         builder_expressions.push_str(&format!(

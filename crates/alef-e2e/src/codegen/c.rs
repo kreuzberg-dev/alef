@@ -1085,7 +1085,7 @@ fn render_test_function(
 
                 if let Some(val) = json_val {
                     if !val.is_null() {
-                        let normalized = super::normalize_json_keys_to_snake_case(val);
+                        let normalized = super::transform_json_keys_for_language(val, "snake_case");
                         let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                         let escaped = escape_c(&json_str);
                         let _ = writeln!(
@@ -1516,7 +1516,7 @@ fn render_test_function(
                     // Fixture keys are camelCase; the FFI htm_conversion_options_from_json
                     // deserializes into the Rust ConversionOptions type which uses default
                     // serde (snake_case). Normalize keys before serializing.
-                    let normalized = super::normalize_json_keys_to_snake_case(val);
+                    let normalized = super::transform_json_keys_for_language(val, "snake_case");
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                     let escaped = escape_c(&json_str);
                     let upper = prefix.to_uppercase();
@@ -1693,7 +1693,7 @@ fn render_engine_factory_test_function(
     let config_val = fixture.input.get("config");
     let config_json = match config_val {
         Some(v) if !v.is_null() => {
-            let normalized = super::normalize_json_keys_to_snake_case(v);
+            let normalized = super::transform_json_keys_for_language(v, "snake_case");
             serde_json::to_string(&normalized).unwrap_or_else(|_| "{}".to_string())
         }
         _ => "{}".to_string(),
@@ -1912,7 +1912,7 @@ fn render_bytes_test_function(
 
                 if let Some(val) = json_val {
                     if !val.is_null() {
-                        let normalized = super::normalize_json_keys_to_snake_case(val);
+                        let normalized = super::transform_json_keys_for_language(val, "snake_case");
                         let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                         let escaped = escape_c(&json_str);
                         let _ = writeln!(
@@ -2100,7 +2100,7 @@ fn render_chat_stream_test_function(
 
             if let Some(val) = json_val {
                 if !val.is_null() {
-                    let normalized = super::normalize_json_keys_to_snake_case(val);
+                    let normalized = super::transform_json_keys_for_language(val, "snake_case");
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
                     let escaped = escape_c(&json_str);
                     let _ = writeln!(

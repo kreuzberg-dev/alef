@@ -60,9 +60,9 @@ impl ResolvedCrateConfig {
     ///
     /// Resolution order:
     /// 1. Per-language config override (`[python] serde_rename_all = "..."`)
-    /// 2. Language default:
-    ///    - camelCase: node, wasm, java, csharp
-    ///    - snake_case: all others
+    /// 2. Language default (idiomatic per-language JSON wire convention):
+    ///    - camelCase: node, wasm, java, csharp, php, kotlin, swift, dart
+    ///    - snake_case: python, ruby, go, ffi, elixir, r, rust, gleam, zig, c
     pub fn serde_rename_all_for_language(&self, lang: Language) -> String {
         let override_val = match lang {
             Language::Python => self.python.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
@@ -89,20 +89,23 @@ impl ResolvedCrateConfig {
         }
 
         match lang {
-            Language::Node | Language::Wasm | Language::Java | Language::Csharp => "camelCase".to_string(),
+            Language::Node
+            | Language::Wasm
+            | Language::Java
+            | Language::Csharp
+            | Language::Php
+            | Language::Kotlin
+            | Language::Swift
+            | Language::Dart => "camelCase".to_string(),
             Language::Python
             | Language::Ruby
-            | Language::Php
             | Language::Go
             | Language::Ffi
             | Language::Elixir
             | Language::R
             | Language::Rust
-            | Language::Kotlin
             | Language::Gleam
             | Language::Zig
-            | Language::Swift
-            | Language::Dart
             | Language::C => "snake_case".to_string(),
         }
     }

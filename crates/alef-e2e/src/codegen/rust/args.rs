@@ -180,9 +180,9 @@ fn render_json_object_arg(
         return (vec![format!("let {name} = Default::default();")], expr);
     }
 
-    // Fixture keys are camelCase; the Rust ConversionOptions type uses snake_case serde.
-    // Normalize keys before building the json! literal so deserialization succeeds.
-    let normalized = super::super::normalize_json_keys_to_snake_case(value);
+    // Rust core uses snake_case serde — transform fixture keys to snake_case before
+    // building the json! literal so deserialization succeeds.
+    let normalized = super::super::transform_json_keys_for_language(value, "snake_case");
     // Build the json! macro invocation from the fixture object.
     let json_literal = json_value_to_macro_literal(&normalized);
     let mut lines = Vec::new();

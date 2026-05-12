@@ -106,6 +106,7 @@ pub(crate) fn gen_php_struct(
     cfg: &RustBindingConfig<'_>,
     php_namespace: Option<&str>,
     enum_names: &AHashSet<String>,
+    lang_rename_all: &str,
 ) -> String {
     // Build the php_class attributes: with namespace → plain #[php_class] + #[php(name = "Ns\\ClassName")],
     // without → use the config's struct_attrs unchanged.
@@ -203,11 +204,11 @@ pub(crate) fn gen_php_struct(
         extra_derives.push("serde::Serialize");
         extra_derives.push("serde::Deserialize");
         let mut serde_struct_attrs: Vec<&str> = effective_struct_attrs.to_vec();
-        // PHP test fixtures and user code pass camelCase JSON keys (e.g.
-        // `includeDocumentStructure`) via `Type::from_json(json_encode([...]))`.
-        // Adding `rename_all = "camelCase"` lets serde map those camelCase keys to the
-        // snake_case Rust field names so deserialization populates the struct correctly.
-        serde_struct_attrs.push("serde(default, rename_all = \"camelCase\")");
+        // Wire-case is sourced from the per-language registry
+        // (`ResolvedCrateConfig::serde_rename_all_for_language`) so all bindings agree
+        // on a single source of truth.  PHP defaults to camelCase to match PSR-12.
+        let serde_default_attr = format!("serde(default, rename_all = \"{lang_rename_all}\")");
+        serde_struct_attrs.push(serde_default_attr.as_str());
         let modified_cfg = RustBindingConfig {
             struct_attrs: &serde_struct_attrs,
             field_attrs: cfg.field_attrs,
