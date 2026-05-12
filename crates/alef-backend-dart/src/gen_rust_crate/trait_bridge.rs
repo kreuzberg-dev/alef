@@ -374,8 +374,24 @@ fn emit_trait_bridge_method(
         }))
         .collect();
 
+    // Detect the `&[&str]` (Vec<String> + returns_ref) special case — the trait method
+    // expects a borrowed static slice but the Dart-side closure produces owned
+    // `Vec<String>`. We materialise that into `&'static [&'static str]` via Box::leak
+    // (same pattern as the napi/pyo3 trait-bridges, see
+    // `alef-codegen::trait_bridge::gen_method`). The owned vector is leaked once per
+    // method invocation: acceptable for plugin metadata that's typically read at
+    // registration time.
+    let is_ref_slice_of_str = method.returns_ref
+        && matches!(
+            &method.return_type,
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)
+        );
     // Return type: use original primitive/named type; wrap in source-crate Result when error_type set.
-    let ret = trait_impl_return_type(&method.return_type, source_crate_name, type_paths);
+    let ret = if is_ref_slice_of_str {
+        "&[&str]".to_string()
+    } else {
+        trait_impl_return_type(&method.return_type, source_crate_name, type_paths)
+    };
     let return_sig = if method.error_type.is_some() {
         if matches!(method.return_type, TypeRef::Unit) {
             format!("{source_crate_name}::Result<()>")
@@ -514,6 +530,18 @@ fn emit_trait_bridge_method(
                     return_expr => "Default::default()",
                 },
             ));
+        } else if is_ref_slice_of_str {
+            // Materialise `Vec<String>` into `&'static [&'static str]` so the trait
+            // method's `&[&str]` return type is satisfied. Each closure invocation
+            // leaks its strings — acceptable for plugin-metadata callsites.
+            out.push_str(
+                "            ;\n        \
+                 let __strs: Vec<&'static str> = __result\n            \
+                 .into_iter()\n            \
+                 .map(|s| -> &'static str { Box::leak(s.into_boxed_str()) })\n            \
+                 .collect();\n        \
+                 Box::leak(__strs.into_boxed_slice())\n",
+            );
         } else {
             // No error_type: return the plain value (no Ok() wrapping).
             out.push_str(&crate::template_env::render(
