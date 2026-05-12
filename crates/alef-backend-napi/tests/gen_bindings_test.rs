@@ -1,7 +1,8 @@
 use alef_backend_napi::NapiBackend;
 use alef_core::backend::Backend;
-use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
+use alef_core::config::{NewAlefConfig, NodeCapsuleTypeConfig, NodeConfig, ResolvedCrateConfig};
 use alef_core::ir::*;
+use std::collections::HashMap;
 
 fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     FieldDef {
@@ -1197,6 +1198,7 @@ fn make_plugin_bridge_cfg(trait_name: &str) -> alef_core::config::TraitBridgeCon
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }
 }
 
@@ -1217,6 +1219,7 @@ fn make_visitor_bridge_cfg(trait_name: &str, type_alias: &str) -> alef_core::con
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     }
 }
 
@@ -1394,6 +1397,7 @@ fn test_napi_plugin_bridge_validates_required_methods() {
         bind_via: alef_core::config::BridgeBinding::FunctionParam,
         options_type: None,
         options_field: None,
+        ffi_skip_methods: vec![],
     };
     let api = make_api_napi();
 
@@ -1435,5 +1439,215 @@ fn test_napi_async_method_body_uses_box_pin() {
     assert!(
         code.code.contains("get_named_property(\"run\")"),
         "NAPI async method body must retrieve JS method via get_named_property"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// capsule_types end-to-end: External<T> + __parser passthrough
+// ---------------------------------------------------------------------------
+
+fn make_capsule_config_node(type_name: &str, from_module: &str) -> NodeCapsuleTypeConfig {
+    NodeCapsuleTypeConfig {
+        type_name: type_name.to_string(),
+        from_module: from_module.to_string(),
+        construct: "external_pointer".to_string(),
+    }
+}
+
+fn make_config_with_capsule_types(capsule_map: HashMap<String, NodeCapsuleTypeConfig>) -> ResolvedCrateConfig {
+    let cfg: NewAlefConfig = toml::from_str(
+        r#"
+[workspace]
+languages = ["node"]
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+[crates.node]
+package_name = "test-lib"
+"#,
+    )
+    .unwrap();
+    let mut resolved = cfg.resolve().unwrap().remove(0);
+    resolved.node = Some(NodeConfig {
+        package_name: Some("test-lib".to_string()),
+        features: None,
+        serde_rename_all: None,
+        type_prefix: None,
+        capsule_types: capsule_map,
+        exclude_functions: vec![],
+        exclude_types: vec![],
+        extra_dependencies: Default::default(),
+        scaffold_output: None,
+        rename_fields: Default::default(),
+        run_wrapper: None,
+        extra_lint_paths: vec![],
+    });
+    resolved
+}
+
+fn make_language_type_def() -> TypeDef {
+    TypeDef {
+        name: "Language".to_string(),
+        rust_path: "ts_pack::Language".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        doc: "A tree-sitter Language handle.".to_string(),
+        cfg: None,
+    }
+}
+
+fn make_get_language_func() -> FunctionDef {
+    FunctionDef {
+        name: "get_language".to_string(),
+        rust_path: "ts_pack::get_language".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "name".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Named("Language".to_string()),
+        is_async: false,
+        error_type: Some("ts_pack::Error".to_string()),
+        doc: "Look up a language by name.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    }
+}
+
+/// capsule_types wires up External<T> + __parser passthrough end-to-end:
+/// - Language type does NOT get a #[napi] opaque class emitted.
+/// - get_language returns a JsObject with __parser = External<T>(ptr from value.into_raw()).
+#[test]
+fn test_capsule_types_end_to_end() {
+    let backend = NapiBackend;
+
+    let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert("Language".to_string(), make_capsule_config_node("Language", "tree-sitter"));
+
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_language_type_def()],
+        functions: vec![make_get_language_func()],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_capsule_types(capsule_map);
+
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings with capsule_types should succeed");
+
+    assert_eq!(files.len(), 1, "expected exactly lib.rs");
+    let content = &files[0].content;
+
+    // Language must NOT appear as a #[napi] opaque struct.
+    assert!(
+        !content.contains("struct JsLanguage"),
+        "Language must not be emitted as a #[napi] struct; content:\n{content}"
+    );
+
+    // The shim must call into_raw() to extract the raw pointer.
+    assert!(
+        content.contains("into_raw"),
+        "get_language shim must call into_raw(); content:\n{content}"
+    );
+
+    // The shim must call create_external to wrap the pointer.
+    assert!(
+        content.contains("create_external"),
+        "get_language shim must call create_external; content:\n{content}"
+    );
+
+    // The shim must set the __parser property on the returned JsObject.
+    assert!(
+        content.contains("__parser"),
+        "get_language shim must set __parser property; content:\n{content}"
+    );
+
+    // The function must return napi::Result<napi::JsObject>.
+    assert!(
+        content.contains("JsObject"),
+        "get_language shim must return JsObject; content:\n{content}"
+    );
+
+    // The shim must accept napi::Env as its first parameter.
+    assert!(
+        content.contains("napi::Env"),
+        "get_language shim must accept napi::Env; content:\n{content}"
+    );
+}
+
+/// capsule_types dts generation:
+/// - `import type { Language } from "tree-sitter"` appears at the top.
+/// - `export declare class JsLanguage` is NOT emitted.
+/// - `getLanguage(name: string): Language` uses the ecosystem type name.
+#[test]
+fn test_capsule_types_dts_generation() {
+    let backend = NapiBackend;
+
+    let mut capsule_map: HashMap<String, NodeCapsuleTypeConfig> = HashMap::new();
+    capsule_map.insert("Language".to_string(), make_capsule_config_node("Language", "tree-sitter"));
+
+    let api = ApiSurface {
+        crate_name: "ts_pack".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![make_language_type_def()],
+        functions: vec![make_get_language_func()],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config_with_capsule_types(capsule_map);
+
+    let files = backend
+        .generate_type_stubs(&api, &config)
+        .expect("generate_type_stubs with capsule_types should succeed");
+
+    assert_eq!(files.len(), 1, "expected exactly index.d.ts");
+    let content = &files[0].content;
+
+    // Import line must be emitted for the capsule type.
+    assert!(
+        content.contains("import type { Language } from \"tree-sitter\""),
+        "index.d.ts must emit import type for capsule type; content:\n{content}"
+    );
+
+    // The class declaration for JsLanguage must NOT be emitted.
+    assert!(
+        !content.contains("export declare class JsLanguage"),
+        "index.d.ts must not emit export declare class JsLanguage; content:\n{content}"
+    );
+
+    // getLanguage must use the ecosystem type name, not JsLanguage.
+    assert!(
+        content.contains("getLanguage(name: string): Language"),
+        "index.d.ts must emit getLanguage returning Language (not JsLanguage); content:\n{content}"
     );
 }
