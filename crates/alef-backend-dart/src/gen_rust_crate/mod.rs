@@ -205,6 +205,17 @@ fn emit_lib_rs(
     // referenced in method signatures and emit the corresponding `use` statements.
     let type_paths_for_impls = build_type_path_lookup_for_source(api, source_crate_name);
 
+    // Build the set of mirror type names: non-opaque, non-trait types that receive a
+    // `#[frb(mirror(TypeName))]` struct declaration above. These types are already in
+    // scope under their short name; emitting a `use source_crate::TypeName;` for them
+    // inside impl blocks would cause E0255 "defined multiple times" errors.
+    let mirror_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .map(|t| t.name.clone())
+        .collect();
+
     // Emit impl blocks for opaque types that expose methods.
     // FRB generates Dart-side methods on opaque handles only when the bridge crate
     // contains `impl TypeName { #[frb] pub fn method(...) }` blocks. Without these
@@ -225,6 +236,7 @@ fn emit_lib_rs(
             &streaming_adapters,
             config,
             &type_paths_for_impls,
+            &mirror_type_names,
         );
     }
 
@@ -1464,6 +1476,7 @@ fn emit_opaque_impl_block(
     streaming_adapters: &std::collections::HashMap<String, &AdapterConfig>,
     config: &ResolvedCrateConfig,
     type_paths: &std::collections::HashMap<String, String>,
+    mirror_type_names: &HashSet<String>,
 ) {
     let type_name = &ty.name;
 
@@ -1504,10 +1517,18 @@ fn emit_opaque_impl_block(
         }
         collect_named(&method.return_type, &mut named_refs);
     }
-    // Map each Named name → its qualified Rust path, and skip names that resolve to the
-    // current type (already in scope) or that lack a path entry (primitives, sanitized, etc.).
+    // Map each Named name → its qualified Rust path, and skip names that:
+    //   - resolve to the current type (already in scope), OR
+    //   - already have a `#[frb(mirror(TypeName))]` struct in scope (would cause E0255
+    //     if we also emit a `use source_crate::TypeName;` for the same short name), OR
+    //   - lack a path entry (primitives, sanitized types, etc.).
     for name in &named_refs {
         if name == type_name {
+            continue;
+        }
+        // Skip types that already have a mirror struct in scope — the frb(mirror) macro
+        // brings the type's short name into scope, so a separate `use` would conflict.
+        if mirror_type_names.contains(name) {
             continue;
         }
         if let Some(path) = type_paths.get(name)
