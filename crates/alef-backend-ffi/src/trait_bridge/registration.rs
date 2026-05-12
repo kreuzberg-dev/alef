@@ -1,6 +1,6 @@
 //! Constructor generation and extern "C" registration/unregistration functions.
 
-use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, format_type_ref};
+use alef_codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, format_param_type};
 use alef_core::ir::{MethodDef, TypeRef};
 
 use super::FfiBridgeGenerator;
@@ -156,17 +156,13 @@ impl FfiBridgeGenerator {
     /// This is critical for visitor traits like `HtmlVisitor` where all methods have
     /// default implementations.
     pub(super) fn gen_ffi_trait_impl(&self, spec: &TraitBridgeSpec) -> String {
-        use alef_codegen::generators::trait_bridge::{gen_bridge_plugin_impl, format_return_type};
+        use alef_codegen::generators::trait_bridge::{format_return_type, gen_bridge_plugin_impl};
 
         let wrapper = spec.wrapper_name();
         let trait_path = spec.trait_path();
 
         // Check if the trait has async methods
-        let has_async_methods = spec
-            .trait_def
-            .methods
-            .iter()
-            .any(|m| m.is_async);
+        let has_async_methods = spec.trait_def.methods.iter().any(|m| m.is_async);
         let async_trait_is_send = <Self as TraitBridgeGenerator>::async_trait_is_send(self);
 
         // Include ALL methods, not just those without defaults (unlike gen_bridge_trait_impl).
@@ -186,14 +182,12 @@ impl FfiBridgeGenerator {
                 None => "",
             };
 
-            // Build params (excluding self)
+            // Build params (excluding self), respecting is_ref/is_mut so that
+            // &[u8], &str, &Path, and &InternalDocument are emitted correctly.
             let params: Vec<String> = method
                 .params
                 .iter()
-                .map(|p| {
-                    let ty = format_type_ref(&p.ty, &spec.type_paths);
-                    format!("{}: {}", p.name, ty)
-                })
+                .map(|p| format!("{}: {}", p.name, format_param_type(p, &spec.type_paths)))
                 .collect();
 
             let all_params = if receiver.is_empty() {

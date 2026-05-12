@@ -136,9 +136,95 @@ pub fn render_assertion(
         }
     }
 
-    // Skip assertions on fields that don't exist on the result type.
+    // Streaming virtual fields: intercept before is_valid_for_result so they are
+    // never skipped.  These fields resolve against the `chunks` collected-list variable.
     if let Some(f) = &assertion.field {
-        if !f.is_empty() && !field_resolver.is_valid_for_result(f) {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "rust", "chunks")
+            {
+                match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(
+                                    out,
+                                    "    assert!({expr}.len() >= {n} as usize, \"expected >= {n} chunks\");"
+                                );
+                            }
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(val) = &assertion.value {
+                            if let Some(n) = val.as_u64() {
+                                let _ = writeln!(
+                                    out,
+                                    "    assert_eq!({expr}.len(), {n} as usize, \"expected exactly {n} chunks\");"
+                                );
+                            }
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = crate::escape::escape_rust(s);
+                            let _ = writeln!(out, "    assert_eq!({expr}, \"{escaped}\");");
+                        } else if let Some(val) = &assertion.value {
+                            let lit = super::assertion_synthetic::numeric_literal(val);
+                            let _ = writeln!(out, "    assert_eq!({expr}, {lit});");
+                        }
+                    }
+                    "not_empty" => {
+                        let _ = writeln!(out, "    assert!(!{expr}.is_empty(), \"expected non-empty\");");
+                    }
+                    "is_empty" => {
+                        let _ = writeln!(out, "    assert!({expr}.is_empty(), \"expected empty\");");
+                    }
+                    "is_true" => {
+                        let _ = writeln!(out, "    assert!({expr}, \"expected true\");");
+                    }
+                    "is_false" => {
+                        let _ = writeln!(out, "    assert!(!{expr}, \"expected false\");");
+                    }
+                    "greater_than" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = super::assertion_synthetic::numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} > {lit}, \"expected > {lit}\");");
+                        }
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(val) = &assertion.value {
+                            let lit = super::assertion_synthetic::numeric_literal(val);
+                            let _ = writeln!(out, "    assert!({expr} >= {lit}, \"expected >= {lit}\");");
+                        }
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = crate::escape::escape_rust(s);
+                            let _ = writeln!(
+                                out,
+                                "    assert!({expr}.contains(\"{escaped}\"), \"expected to contain: {escaped}\");"
+                            );
+                        }
+                    }
+                    _ => {
+                        let _ = writeln!(
+                            out,
+                            "    // streaming field '{f}': assertion type '{}' not rendered",
+                            assertion.assertion_type
+                        );
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    // Skip assertions on fields that don't exist on the result type.
+    // Exception: fields prefixed with "error." target the error value in error-context
+    // assertions — they are resolved against the error type via accessor_for_error,
+    // not against the success result type, so they must not be skipped here.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && !f.starts_with("error.") && !field_resolver.is_valid_for_result(f) {
             let _ = writeln!(out, "    // skipped: field '{f}' not available on result type");
             return;
         }
@@ -153,14 +239,17 @@ pub fn render_assertion(
     // When in error context with returns_result=true and accessing a field (not an error check),
     // we need to unwrap the Result first. The test generator creates a binding like
     // `let result_ok = result.as_ref().ok();` which we can dereference here.
+    // Exception: fields prefixed with "error." access the Err value, not the Ok value.
     let has_field = assertion.field.as_ref().is_some_and(|f| !f.is_empty());
     let is_field_assertion = !matches!(assertion.assertion_type.as_str(), "error" | "not_error");
-    let effective_result_var = if has_field && is_error_context && returns_result && is_field_assertion {
-        // Dereference the Option<&T> bound as {result_var}_ok
-        format!("{result_var}_ok.as_ref().unwrap()")
-    } else {
-        result_var.to_string()
-    };
+    let is_error_field = assertion.field.as_ref().is_some_and(|f| f.starts_with("error."));
+    let effective_result_var =
+        if has_field && is_error_context && returns_result && is_field_assertion && !is_error_field {
+            // Dereference the Option<&T> bound as {result_var}_ok
+            format!("{result_var}_ok.as_ref().unwrap()")
+        } else {
+            result_var.to_string()
+        };
 
     // Determine field access expression:
     // 1. If the field was unwrapped to a local var, use that local var name.
@@ -168,7 +257,8 @@ pub fn render_assertion(
     // 3. When the field path is exactly the result var name (sentinel: `field: "result"`),
     //    refer to the result variable directly to avoid emitting `result.result`.
     // 4. When the result is a Tree, map pseudo-field names to correct Rust expressions.
-    // 5. Otherwise, use the field resolver to generate the accessor.
+    // 5. When the field starts with "error.", resolve against the error type.
+    // 6. Otherwise, use the field resolver to generate the accessor.
     let field_access = match &assertion.field {
         Some(f) if !f.is_empty() => {
             if let Some((_, local_var)) = unwrapped_fields.iter().find(|(ff, _)| ff == f) {
@@ -185,6 +275,11 @@ pub fn render_assertion(
                 // Tree is an opaque type — its "fields" are accessed via root_node() or
                 // free functions. Map known pseudo-field names to correct Rust expressions.
                 tree_field_access_expr(f, &effective_result_var, module)
+            } else if let Some(sub) = f.strip_prefix("error.") {
+                // Error-path field: access a field on the Err value rather than the Ok value.
+                // Inline-bind the error so the expression is self-contained.
+                let err_accessor = field_resolver.accessor_for_error(sub, "rust", "__err");
+                format!("{{ let __err = {result_var}.as_ref().err().unwrap(); {err_accessor} }}")
             } else {
                 field_resolver.accessor(f, "rust", &effective_result_var)
             }

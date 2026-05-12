@@ -1233,6 +1233,15 @@ fn render_test_method(
 
     let call_expr = format!("{call_target}.{function_name}({final_args})");
 
+    // For streaming fixtures, add the collect snippet after the stream call.
+    let is_streaming = fixture.is_streaming_mock();
+    let collect_snippet = if is_streaming {
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("java", result_var, "chunks")
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
+
     let rendered = crate::template_env::render(
         "java/test_method.jinja",
         minijinja::context! {
@@ -1244,6 +1253,7 @@ fn render_test_method(
             expects_error => expects_error,
             call_expr => call_expr,
             result_var => result_var,
+            collect_snippet => collect_snippet,
             assertions_body => assertions_body,
         },
     );
@@ -1594,6 +1604,79 @@ fn render_assertion(
                 }
             }
             _ => {}
+        }
+    }
+
+    // Streaming virtual fields: intercept before is_valid_for_result so they are
+    // never skipped.  These fields resolve against the `chunks` collected-list variable.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "java", "chunks")
+            {
+                let line = match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertTrue({expr}.size() >= {n}, \"expected >= {n} chunks\");\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertEquals({n}, {expr}.size());\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = crate::escape::escape_java(s);
+                            format!("        assertEquals(\"{escaped}\", {expr});\n")
+                        } else if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertEquals({n}, {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "not_empty" => format!("        assertFalse({expr}.isEmpty(), \"expected non-empty\");\n"),
+                    "is_empty" => format!("        assertTrue({expr}.isEmpty(), \"expected empty\");\n"),
+                    "is_true" => format!("        assertTrue({expr}, \"expected true\");\n"),
+                    "is_false" => format!("        assertFalse({expr}, \"expected false\");\n"),
+                    "greater_than" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertTrue({expr} > {n}, \"expected > {n}\");\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        assertTrue({expr} >= {n}, \"expected >= {n}\");\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = crate::escape::escape_java(s);
+                            format!(
+                                "        assertTrue({expr}.contains(\"{escaped}\"), \"expected to contain: {escaped}\");\n"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => format!(
+                        "        // streaming field '{f}': assertion type '{}' not rendered\n",
+                        assertion.assertion_type
+                    ),
+                };
+                if !line.is_empty() {
+                    out.push_str(&line);
+                }
+            }
+            return;
         }
     }
 

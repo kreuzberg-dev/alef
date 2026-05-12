@@ -898,16 +898,33 @@ fn render_test_method(
         String::new()
     };
 
-    // Determine if there are usable assertions
+    // Detect streaming fixtures.
+    let is_streaming = fixture.is_streaming_mock();
+
+    // Determine if there are usable assertions.
+    // For streaming fixtures: streaming virtual fields count as usable.
     let has_usable_assertions = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "error" || a.assertion_type == "not_error" {
             return false;
         }
         match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            Some(f) if !f.is_empty() => {
+                if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+                field_resolver.is_valid_for_result(f)
+            }
             _ => true,
         }
     });
+
+    // For streaming fixtures, emit collect snippet after the result assignment.
+    let collect_snippet = if is_streaming {
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("php", result_var, "chunks")
+            .unwrap_or_default()
+    } else {
+        String::new()
+    };
 
     // Render assertions_body
     let mut assertions_body = String::new();
@@ -931,9 +948,10 @@ fn render_test_method(
             setup_lines => setup_lines,
             expects_error => expects_error,
             skip_test => fixture.assertions.is_empty(),
-            has_usable_assertions => has_usable_assertions,
+            has_usable_assertions => has_usable_assertions || is_streaming,
             call_expr => call_expr,
             result_var => result_var,
+            collect_snippet => collect_snippet,
             assertions_body => assertions_body,
         },
     );
@@ -1398,6 +1416,79 @@ fn render_assertion(
                 return;
             }
             _ => {}
+        }
+    }
+
+    // Streaming virtual fields: intercept before is_valid_for_result so they are
+    // never skipped.  These fields resolve against the `$chunks` collected-list variable.
+    if let Some(f) = &assertion.field {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            if let Some(expr) =
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "php", "chunks")
+            {
+                let line = match assertion.assertion_type.as_str() {
+                    "count_min" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!(
+                                "        $this->assertGreaterThanOrEqual({n}, count({expr}), 'expected >= {n} chunks');\n"
+                            )
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "count_equals" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        $this->assertCount({n}, {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "equals" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+                            format!("        $this->assertEquals('{escaped}', {expr});\n")
+                        } else if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        $this->assertEquals({n}, {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "not_empty" => format!("        $this->assertNotEmpty({expr});\n"),
+                    "is_empty" => format!("        $this->assertEmpty({expr});\n"),
+                    "is_true" => format!("        $this->assertTrue({expr});\n"),
+                    "is_false" => format!("        $this->assertFalse({expr});\n"),
+                    "greater_than" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        $this->assertGreaterThan({n}, {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "greater_than_or_equal" => {
+                        if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
+                            format!("        $this->assertGreaterThanOrEqual({n}, {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    "contains" => {
+                        if let Some(serde_json::Value::String(s)) = &assertion.value {
+                            let escaped = s.replace('\\', "\\\\").replace('\'', "\\'");
+                            format!("        $this->assertStringContainsString('{escaped}', {expr});\n")
+                        } else {
+                            String::new()
+                        }
+                    }
+                    _ => format!(
+                        "        // streaming field '{f}': assertion type '{}' not rendered\n",
+                        assertion.assertion_type
+                    ),
+                };
+                if !line.is_empty() {
+                    out.push_str(&line);
+                }
+            }
+            return;
         }
     }
 

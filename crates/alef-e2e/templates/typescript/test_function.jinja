@@ -43,6 +43,9 @@
 {%- else %}
     {{ await_kw }}{{ call_expr }};
 {%- endif %}
+{%- if collect_snippet %}
+    {{ collect_snippet }}
+{%- endif %}
 {{ assertions_body }}
   });
 {%- endif %}

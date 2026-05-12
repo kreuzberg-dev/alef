@@ -685,15 +685,33 @@ fn render_test_case(
         );
     }
 
+    // Detect streaming fixtures: is_streaming_mock() checks for stream_chunks in mock_response.
+    let is_streaming = fixture.is_streaming_mock();
+
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
         }
         match &a.field {
-            Some(f) if !f.is_empty() => field_resolver.is_valid_for_result(f),
+            Some(f) if !f.is_empty() => {
+                if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+                field_resolver.is_valid_for_result(f)
+            }
             _ => true,
         }
     });
+
+    // For streaming fixtures: capture the stream in `stream`, then collect into `chunks`.
+    let (ts_result_var, collect_snippet) = if is_streaming {
+        let snip =
+            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("node", "stream", "chunks")
+                .unwrap_or_default();
+        ("stream".to_string(), snip)
+    } else {
+        (result_var.to_string(), String::new())
+    };
 
     let ctx = minijinja::context! {
         test_name => test_name,
@@ -702,9 +720,10 @@ fn render_test_case(
         client_setup => client_setup,
         setup_lines => setup_lines,
         call_expr => call_expr,
-        has_usable_assertion => has_usable_assertion,
-        result_var => result_var,
+        has_usable_assertion => has_usable_assertion || is_streaming,
+        result_var => ts_result_var,
         await_kw => await_kw,
+        collect_snippet => collect_snippet,
         assertions_body => assertions_body,
         expects_error => expects_error,
         is_skipped => is_skipped,

@@ -32,6 +32,7 @@ pub mod python;
 pub mod r;
 pub mod ruby;
 pub mod rust;
+pub mod streaming_assertions;
 pub mod swift;
 pub mod typescript;
 pub mod wasm;
