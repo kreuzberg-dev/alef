@@ -17,7 +17,7 @@ use super::helpers::{
     BytesKind, classify_bytes_value, is_skipped, resolve_assert_enum_fields, resolve_client_factory,
     resolve_function_name_for_call,
 };
-use super::json::json_to_python_literal;
+use super::json::{json_to_python_literal, value_to_python_string};
 use super::visitors::emit_python_visitor_method;
 
 /// Render a pytest test function for a non-HTTP fixture.
@@ -66,7 +66,10 @@ pub(super) fn render_test_function(
         String::new()
     };
 
-    let is_async = python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
+    // Streaming fixtures require async test functions so the async iterator
+    // (ChatStreamIterator.__anext__) can be driven with `async for`.
+    let is_streaming = fixture.is_streaming_mock();
+    let is_async = is_streaming || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     let async_decorator = if is_async {
         "@pytest.mark.asyncio\n".to_string()
     } else {
@@ -211,6 +214,7 @@ pub(super) fn render_test_function(
         result_var,
         field_resolver,
         result_is_simple,
+        is_streaming,
     );
 
     let ctx = minijinja::context! {
@@ -284,10 +288,21 @@ fn emit_result_and_assertions(
     result_var: &str,
     field_resolver: &FieldResolver,
     result_is_simple: bool,
+    is_streaming: bool,
 ) {
+    // For streaming fixtures, streaming virtual fields are always usable
+    // (they resolve against the collected `chunks` list, not the result type).
+    let chunks_var = "chunks";
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {
             return false;
+        }
+        if is_streaming {
+            if let Some(f) = &a.field {
+                if crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    return true;
+                }
+            }
         }
         if result_is_simple {
             if let Some(f) = &a.field {
@@ -320,12 +335,29 @@ fn emit_result_and_assertions(
         }
     });
 
-    let py_result_var = if has_usable_assertion {
+    let py_result_var = if has_usable_assertion || is_streaming {
         result_var.to_string()
     } else {
         "_".to_string()
     };
-    let _ = writeln!(out, "    {py_result_var} = {call_expr}");
+    // For streaming fixtures: bind the raw iterator, then drain it into a list.
+    // The Python ChatStreamIterator exposes __aiter__/__anext__ (async iterator),
+    // so the test function must be `async def` and we use `async for` to drain.
+    // Note: chat_stream() itself is NOT a coroutine in Python — it returns the
+    // iterator synchronously (blocking on stream acquisition via block_on), so
+    // no `await` prefix is used on the call expression.
+    if is_streaming {
+        let _ = writeln!(out, "    {result_var} = {call_expr}");
+        if let Some(collect) =
+            crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(
+                "python", result_var, chunks_var,
+            )
+        {
+            let _ = writeln!(out, "    {collect}");
+        }
+    } else {
+        let _ = writeln!(out, "    {py_result_var} = {call_expr}");
+    }
 
     let fields_enum = &e2e_config.fields_enum;
     let assert_enum_fields = resolve_assert_enum_fields(call_config);
@@ -336,6 +368,16 @@ fn emit_result_and_assertions(
             }
             continue;
         }
+        // Streaming virtual fields are rendered directly here using the
+        // collected `chunks` list, bypassing the regular field resolver.
+        if is_streaming {
+            if let Some(f) = &assertion.field {
+                if crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+                    emit_streaming_virtual_assertion(out, assertion, f, chunks_var);
+                    continue;
+                }
+            }
+        }
         render_assertion(
             out,
             assertion,
@@ -345,6 +387,82 @@ fn emit_result_and_assertions(
             assert_enum_fields,
             result_is_simple,
         );
+    }
+}
+
+/// Emit a Python assertion for a streaming virtual field using the collected
+/// `chunks` list.  Mirrors the pattern in rust/assertions.rs.
+fn emit_streaming_virtual_assertion(out: &mut String, assertion: &crate::fixture::Assertion, field: &str, chunks_var: &str) {
+    use crate::codegen::streaming_assertions::StreamingFieldResolver;
+
+    let Some(expr) = StreamingFieldResolver::accessor(field, "python", chunks_var) else {
+        let _ = writeln!(out, "    # skipped: streaming field '{field}': no python accessor");
+        return;
+    };
+
+    match assertion.assertion_type.as_str() {
+        "count_min" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    assert len({expr}) >= {n}  # noqa: S101");
+                }
+            }
+        }
+        "count_equals" => {
+            if let Some(val) = &assertion.value {
+                if let Some(n) = val.as_u64() {
+                    let _ = writeln!(out, "    assert len({expr}) == {n}  # noqa: S101");
+                }
+            }
+        }
+        "equals" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let op = if val.is_boolean() || val.is_null() { "is" } else { "==" };
+                if val.is_string() {
+                    let _ = writeln!(out, "    assert {expr}.strip() {op} {expected}.strip()  # noqa: S101");
+                } else {
+                    let _ = writeln!(out, "    assert {expr} {op} {expected}  # noqa: S101");
+                }
+            }
+        }
+        "not_empty" => {
+            let _ = writeln!(out, "    assert {expr}  # noqa: S101");
+        }
+        "is_empty" => {
+            let _ = writeln!(out, "    assert not {expr}  # noqa: S101");
+        }
+        "is_true" => {
+            let _ = writeln!(out, "    assert {expr}  # noqa: S101");
+        }
+        "is_false" => {
+            let _ = writeln!(out, "    assert not {expr}  # noqa: S101");
+        }
+        "greater_than" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let _ = writeln!(out, "    assert {expr} > {expected}  # noqa: S101");
+            }
+        }
+        "greater_than_or_equal" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let _ = writeln!(out, "    assert {expr} >= {expected}  # noqa: S101");
+            }
+        }
+        "contains" => {
+            if let Some(val) = &assertion.value {
+                let expected = value_to_python_string(val);
+                let _ = writeln!(out, "    assert {expected} in {expr}  # noqa: S101");
+            }
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "    # skipped: streaming field '{field}': assertion type '{}' not rendered",
+                assertion.assertion_type
+            );
+        }
     }
 }
 
