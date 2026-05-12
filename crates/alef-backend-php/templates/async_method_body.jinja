@@ -1,7 +1,7 @@
 let inner_obj = self.inner;
 let cached_name = self.cached_name.clone();
 {% for param_name in string_params %}
-let {{ param_name }} = {{ param_name }}.clone();
+let {{ param_name }} = {{ param_name }}.to_string();
 {% endfor %}
 
 // SAFETY: PHP objects are single-threaded within a request.
