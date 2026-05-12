@@ -487,8 +487,10 @@ fn gen_new_method(typ: &TypeDef, mapper: &WasmMapper, exclude_types: &[String], 
 /// struct derives `Default` (see `gen_struct.jinja`), so the factory can be
 /// emitted unconditionally for structs with fields.
 fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
+    // `#[allow(clippy::should_implement_trait)]` is required because `default()` conflicts with
+    // `Default::default()`. Renaming would change the JS-visible API; the allow is correct.
     format!(
-        "#[wasm_bindgen]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
+        "#[wasm_bindgen]\n#[allow(clippy::should_implement_trait)]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
     )
 }
