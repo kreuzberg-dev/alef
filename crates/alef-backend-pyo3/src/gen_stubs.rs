@@ -164,7 +164,10 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
     }
 
     // Capsule types are emitted by external packages — skip them here.
-    let non_capsule_opaque: Vec<_> = opaque.iter().filter(|t| !capsule_names.contains(t.name.as_str())).collect();
+    let non_capsule_opaque: Vec<_> = opaque
+        .iter()
+        .filter(|t| !capsule_names.contains(t.name.as_str()))
+        .collect();
     if !non_capsule_opaque.is_empty() {
         for typ in &non_capsule_opaque {
             body_lines.push(gen_opaque_type_stub(typ));

@@ -1469,7 +1469,11 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
     // to be excluded from options_type_names.
     let with_verbose = MethodDef {
         name: "with_verbose".to_string(),
-        params: vec![make_param_def("verbose", TypeRef::Primitive(PrimitiveType::Bool), false)],
+        params: vec![make_param_def(
+            "verbose",
+            TypeRef::Primitive(PrimitiveType::Bool),
+            false,
+        )],
         return_type: TypeRef::Named("ConversionOptions".to_string()),
         is_async: false,
         is_static: false,
