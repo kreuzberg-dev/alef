@@ -190,8 +190,14 @@ fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
                     let camel = name.to_lower_camel_case();
                     expr = format!("{expr}->{camel}");
                 }
+                "swift" => {
+                    // swift-bridge exposes Rust struct fields as snake_case method calls.
+                    // e.g. `function` → `.function()`, `name` → `.name()`
+                    let snake = name.to_snake_case();
+                    expr = format!("{expr}.{snake}()");
+                }
                 _ => {
-                    // node / typescript / dart / swift / wasm / zig
+                    // node / typescript / dart / wasm / zig
                     let camel = name.to_lower_camel_case();
                     expr = format!("{expr}.{camel}");
                 }
@@ -233,6 +239,8 @@ impl StreamingFieldResolver {
                 "kotlin" => format!("{chunks_var}.size"),
                 // zig: chunks_var is ArrayList([]u8); use .items.len
                 "zig" => format!("{chunks_var}.items.len"),
+                // swift: [ChatCompletionChunk] Swift array uses .count
+                "swift" => format!("{chunks_var}.count"),
                 // node/wasm/typescript use .length
                 _ => format!("{chunks_var}.length"),
             }),
@@ -275,6 +283,12 @@ impl StreamingFieldResolver {
                     // the collect snippet. `.items` gives a `[]u8` slice of the content.
                     format!("{chunks_var}_content.items")
                 }
+                // swift: [ChatCompletionChunk] — compactMap over choices().first?.delta().content()
+                // choices() returns RustVec<StreamChoice> (Collection), delta() is non-optional,
+                // content() returns Optional<RustString>; toString() converts to Swift String.
+                "swift" => {
+                    format!("{chunks_var}.compactMap {{ $0.choices().first?.delta().content()?.toString() }}.joined()")
+                }
                 // node/wasm/typescript
                 _ => {
                     format!("{chunks_var}.map((c: any) => c.choices?.[0]?.delta?.content ?? '').join('')")
@@ -316,6 +330,10 @@ impl StreamingFieldResolver {
                 // was collected (chunks.items is non-empty) as a proxy for completion.
                 "zig" => {
                     format!("{chunks_var}.items.len > 0")
+                }
+                // swift: non-empty array and last chunk's first choice has a non-nil finish_reason
+                "swift" => {
+                    format!("!{chunks_var}.isEmpty && {chunks_var}.last?.choices().first?.finish_reason() != nil")
                 }
                 // node/wasm/typescript
                 _ => {
@@ -377,6 +395,13 @@ impl StreamingFieldResolver {
                 "zig" => {
                     format!("{chunks_var}.items")
                 }
+                // swift: flat-map tool_calls from all chunk deltas; tool_calls() returns
+                // Optional<RustVec<StreamToolCall>> so use ?? [] (coalesced to empty Array via map)
+                "swift" => {
+                    format!(
+                        "{chunks_var}.flatMap {{ c -> [StreamToolCall] in (c.choices().first?.delta().tool_calls()).map {{ vec in (0..<vec.len()).map {{ vec[$0] as! StreamToolCall }} }} ?? [] }}"
+                    )
+                }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
                 }
@@ -423,6 +448,12 @@ impl StreamingFieldResolver {
                         "(blk: {{ if ({chunks_var}.items.len == 0) break :blk \"\"; var _lcp = std.json.parseFromSlice(std.json.Value, std.heap.c_allocator, {chunks_var}.items[{chunks_var}.items.len - 1], .{{}}) catch break :blk \"\"; defer _lcp.deinit(); if (_lcp.value.object.get(\"choices\")) |_lchs| if (_lchs.array.items.len > 0) if (_lchs.array.items[0].object.get(\"finish_reason\")) |_fr| if (_fr == .string) break :blk _fr.string; break :blk \"\"; }})"
                     )
                 }
+                // swift: finish_reason from last chunk's first StreamChoice.
+                // finish_reason() returns Optional<FinishReason> (opaque swift-bridge type);
+                // to_string().toString() converts it to a Swift String for comparisons.
+                "swift" => {
+                    format!("{chunks_var}.last?.choices().first?.finish_reason()?.to_string().toString() ?? \"\"")
+                }
                 _ => {
                     format!(
                         "{chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].choices?.[0]?.finishReason : undefined"
@@ -468,6 +499,12 @@ impl StreamingFieldResolver {
                 Some(format!("val {chunks_var} = {stream_var}.asSequence().toList()"))
             }
             "elixir" => Some(format!("{chunks_var} = Enum.to_list({stream_var})")),
+            // swift: chatStream returns an AsyncSequence<ChatCompletionChunk>; drain with
+            // `for try await chunk in result { ... }`.  The result variable must be the
+            // async sequence returned by chatStream (default: "result").
+            "swift" => Some(format!(
+                "var {chunks_var}: [ChatCompletionChunk] = []\n        for try await _chunk in {stream_var} {{\n            {chunks_var}.append(_chunk)\n        }}"
+            )),
             "node" | "wasm" | "typescript" => Some(format!(
                 "const {chunks_var}: any[] = [];\n    for await (const _chunk of {stream_var}) {{ {chunks_var}.push(_chunk); }}"
             )),
@@ -853,5 +890,92 @@ mod tests {
         assert!(zig.contains(".items[0]"), "zig .items[0]: {zig}");
         assert!(zig.contains(".function"), "zig .function: {zig}");
         assert!(zig.contains(".name"), "zig .name: {zig}");
+    }
+
+    // ---- swift-specific tests ----
+
+    #[test]
+    fn accessor_swift_chunks_length_uses_count() {
+        let expr = StreamingFieldResolver::accessor("chunks.length", "swift", "chunks").unwrap();
+        assert_eq!(expr, "chunks.count", "swift chunks.length: {expr}");
+    }
+
+    #[test]
+    fn accessor_swift_stream_content_uses_compact_map_joined() {
+        let expr = StreamingFieldResolver::accessor("stream_content", "swift", "chunks").unwrap();
+        assert!(
+            expr.contains("compactMap"),
+            "swift stream_content must use compactMap: {expr}"
+        );
+        assert!(
+            expr.contains("joined()"),
+            "swift stream_content must use joined(): {expr}"
+        );
+        assert!(
+            expr.contains("choices()"),
+            "swift stream_content must use choices(): {expr}"
+        );
+        assert!(
+            expr.contains("delta()"),
+            "swift stream_content must use delta(): {expr}"
+        );
+        assert!(
+            expr.contains("content()"),
+            "swift stream_content must use content(): {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_swift_stream_complete_uses_finish_reason() {
+        let expr = StreamingFieldResolver::accessor("stream_complete", "swift", "chunks").unwrap();
+        assert!(expr.contains("chunks.isEmpty"), "swift stream_complete: {expr}");
+        assert!(
+            expr.contains("finish_reason()"),
+            "swift stream_complete must use finish_reason(): {expr}"
+        );
+    }
+
+    #[test]
+    fn accessor_swift_finish_reason_uses_last_chunk() {
+        let expr = StreamingFieldResolver::accessor("finish_reason", "swift", "chunks").unwrap();
+        assert!(
+            expr.contains("chunks.last"),
+            "swift finish_reason must use chunks.last: {expr}"
+        );
+        assert!(
+            expr.contains("finish_reason()"),
+            "swift finish_reason must use finish_reason(): {expr}"
+        );
+        assert!(
+            expr.contains("to_string()"),
+            "swift finish_reason must use to_string(): {expr}"
+        );
+    }
+
+    #[test]
+    fn collect_snippet_swift_uses_for_await() {
+        let snip = StreamingFieldResolver::collect_snippet("swift", "result", "chunks").unwrap();
+        assert!(
+            snip.contains("var chunks: [ChatCompletionChunk]"),
+            "swift collect: {snip}"
+        );
+        assert!(snip.contains("for try await _chunk in result"), "swift collect: {snip}");
+        assert!(snip.contains("chunks.append(_chunk)"), "swift collect: {snip}");
+    }
+
+    #[test]
+    fn deep_tool_calls_function_name_snapshot_swift() {
+        let swift = StreamingFieldResolver::accessor("tool_calls[0].function.name", "swift", "chunks")
+            .expect("swift deep path must resolve");
+        // Swift: [0] (subscript on array), then .function() and .name() method calls
+        assert!(swift.contains("[0]"), "swift deep path index: {swift}");
+        assert!(swift.contains(".function()"), "swift deep path .function(): {swift}");
+        assert!(swift.contains(".name()"), "swift deep path .name(): {swift}");
+    }
+
+    #[test]
+    fn accessor_swift_no_chunks_after_done_returns_true() {
+        let expr = StreamingFieldResolver::accessor("no_chunks_after_done", "swift", "chunks").unwrap();
+        assert_eq!(expr, "true", "swift no_chunks_after_done: {expr}");
     }
 }
