@@ -531,7 +531,10 @@ fn inbound_impl_return_type(
         }
     }
 
-    let inner = inbound_native_ty(&method.return_type, source_crate, type_paths);
+    // Return types are owned (not borrowed) — use the owned form so e.g. `String` is emitted
+    // for `TypeRef::String` rather than the unsized `str` that `inbound_native_ty` uses for
+    // parameter positions.
+    let inner = inbound_native_ty_owned(&method.return_type, source_crate, type_paths);
     if method.error_type.is_some() {
         if matches!(method.return_type, TypeRef::Unit) {
             format!("{source_crate}::Result<()>")

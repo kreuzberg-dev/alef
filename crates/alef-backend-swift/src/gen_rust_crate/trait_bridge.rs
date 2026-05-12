@@ -287,7 +287,7 @@ pub(crate) fn emit_trait_bridge_wrapper(
         let call_args: Vec<String> = method
             .params
             .iter()
-            .map(|p| trait_call_arg(p, visible_type_names))
+            .map(|p| trait_call_arg(p, visible_type_names, type_paths))
             .collect();
         let call_args_str = call_args.join(", ");
         let source_call = format!("this.0.{method_name}({call_args_str})");
@@ -330,7 +330,11 @@ fn bridge_type_for_trait_method(ty: &TypeRef, visible_type_names: &HashSet<&str>
 /// Named types visible in the bridge are passed through wrapper newtypes (extract `.0`);
 /// Named types NOT in `visible_type_names` (excluded internal types) are JSON-bridged as `String`
 /// at the boundary and deserialised here back to the source type.
-pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef, visible_type_names: &HashSet<&str>) -> String {
+pub(crate) fn trait_call_arg(
+    p: &alef_core::ir::ParamDef,
+    visible_type_names: &HashSet<&str>,
+    type_paths: &std::collections::HashMap<String, String>,
+) -> String {
     let name = p.name.to_snake_case();
 
     // JSON-bridged types: deserialize from the bridged String.
@@ -360,10 +364,16 @@ pub(crate) fn trait_call_arg(p: &alef_core::ir::ParamDef, visible_type_names: &H
     // Named types not in the visible set (e.g. excluded internal types like `InternalDocument`)
     // are JSON-bridged as `String` at the boundary. Deserialise back to the source type — the
     // type must implement `serde::Deserialize` (true for all kreuzberg internal types passed
-    // across plugin trait method boundaries).
+    // across plugin trait method boundaries). Resolve the fully-qualified Rust path via
+    // `type_paths` so the deserialise compiles even when the type is not re-exported from the
+    // source crate root.
     if let TypeRef::Named(named) = &p.ty {
         if !visible_type_names.contains(named.as_str()) {
-            let deser = format!("serde_json::from_str::<{named}>(&{name}).expect(\"valid JSON for {name}\")");
+            let qualified = type_paths
+                .get(named.as_str())
+                .map(|p| p.replace('-', "_"))
+                .unwrap_or_else(|| named.clone());
+            let deser = format!("serde_json::from_str::<{qualified}>(&{name}).expect(\"valid JSON for {name}\")");
             if p.is_ref {
                 return format!("&{deser}");
             }

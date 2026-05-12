@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - feat(alef-core,alef-backend-ffi): `ffi_skip_methods` on `TraitBridgeConfig` filters individual methods from the FFI vtable struct and `impl Trait for KreuzbergXBridge`. Methods whose signatures can't traverse the C FFI boundary (e.g. `Option<&dyn Trait>` returns like `DocumentExtractor::as_sync_extractor`) are dropped, falling back to the trait's default implementation. Configured per-bridge in `alef.toml`.
+- feat(alef-backend-swift): trait-bridge support for trait methods that take excluded internal types by reference (e.g. `Renderer::render(&self, doc: &InternalDocument)`). Outbound trampolines now deserialise the JSON-bridged `String` parameter back to the source type using its fully-qualified Rust path (resolved via `type_paths`); inbound `impl Trait` blocks emit owned return types (`String` rather than the unsized `str`) so methods returning `Result<String>` compile. Lets the swift backend bridge `Renderer` alongside the other plugin traits.
 
 ### Fixed
 
