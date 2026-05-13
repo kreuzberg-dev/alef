@@ -321,12 +321,11 @@ fn render_test_case(
     let mut setup_lines = Vec::new();
     let final_args = if let Some(visitor_spec) = &fixture.visitor {
         build_r_visitor(&mut setup_lines, visitor_spec);
-        // Strip any `options = NULL` placeholder that build_args_string may have emitted
-        // for the optional options arg — we replace it with the visitor options list.
-        let base = args_str
-            .replace(", options = NULL", "")
-            .replace("options = NULL, ", "")
-            .replace("options = NULL", "");
+        // R rejects duplicated named arguments ("matched by multiple actual arguments"), so
+        // strip any existing `options = ...` arg before appending the visitor-options list.
+        // Handles `options = NULL` (when no default) and `options = ConversionOptions$default()`
+        // (when build_args_string emits a default placeholder for an optional options arg).
+        let base = strip_options_arg(&args_str);
         let visitor_opts = "options = list(visitor = visitor)";
         let trimmed = base.trim_matches([' ', ',']);
         if trimmed.is_empty() {
@@ -372,6 +371,49 @@ fn render_test_case(
     }
 
     let _ = writeln!(out, "}})");
+}
+
+/// Remove the named `options = …` argument (if any) from an R call-args string.
+///
+/// Walks the string while tracking paren/quote depth so a comma inside a nested
+/// expression like `options = list(visitor = visitor)` isn't treated as the
+/// arg terminator. Returns the rebuilt args string with the `options =` arg
+/// dropped; callers append a fresh one.
+fn strip_options_arg(args_str: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut paren_depth: i32 = 0;
+    let mut in_single = false;
+    let mut in_double = false;
+    for c in args_str.chars() {
+        if !in_single && !in_double {
+            match c {
+                '(' | '[' | '{' => paren_depth += 1,
+                ')' | ']' | '}' => paren_depth -= 1,
+                '\'' => in_single = true,
+                '"' => in_double = true,
+                ',' if paren_depth == 0 => {
+                    parts.push(current.trim().to_string());
+                    current.clear();
+                    continue;
+                }
+                _ => {}
+            }
+        } else if in_single && c == '\'' {
+            in_single = false;
+        } else if in_double && c == '"' {
+            in_double = false;
+        }
+        current.push(c);
+    }
+    if !current.trim().is_empty() {
+        parts.push(current.trim().to_string());
+    }
+    parts
+        .into_iter()
+        .filter(|p| !p.starts_with("options ") && !p.starts_with("options="))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn build_args_string(
