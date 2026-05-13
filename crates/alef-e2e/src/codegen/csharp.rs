@@ -12,7 +12,7 @@ use alef_core::config::ResolvedCrateConfig;
 use alef_core::hash::{self, CommentStyle};
 use alef_core::template_versions as tv;
 use anyhow::Result;
-use heck::ToUpperCamelCase;
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::hash::{Hash, Hasher};
@@ -2754,8 +2754,15 @@ fn csharp_object_initializer(
                 .iter()
                 .find(|(k, _)| *k == key.as_str())
                 .map(|(_, t)| *t);
+            // Check enum_fields both with the original snake_case key AND with camelCase key.
+            // The alef.toml config uses camelCase keys (e.g., "codeBlockStyle"), but fixture
+            // JSON uses snake_case keys (e.g., "code_block_style"). So we check both.
+            let camel_key = key.to_lower_camel_case();
             let cs_val =
-                if let Some(enum_type) = enum_fields.get(key.as_str()).map(String::as_str).or(implicit_enum_type) {
+                if let Some(enum_type) = enum_fields.get(key.as_str())
+                    .or_else(|| enum_fields.get(camel_key.as_str()))
+                    .map(String::as_str)
+                    .or(implicit_enum_type) {
                     // Enum: EnumType.Member
                     if val.is_null() {
                         "null".to_string()
@@ -2766,7 +2773,8 @@ fn csharp_object_initializer(
                             .unwrap_or_else(|| "null".to_string());
                         format!("{enum_type}.{member}")
                     }
-                } else if let Some(nested_type) = nested_types.get(key.as_str()) {
+                } else if let Some(nested_type) = nested_types.get(key.as_str())
+                    .or_else(|| nested_types.get(camel_key.as_str())) {
                     // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
                     let normalized = normalize_csharp_enum_values(val, enum_fields);
                     let json_str = serde_json::to_string(&normalized).unwrap_or_default();
@@ -2796,7 +2804,10 @@ fn normalize_csharp_enum_values(value: &serde_json::Value, enum_fields: &HashMap
         serde_json::Value::Object(map) => {
             let mut result = map.clone();
             for (key, val) in result.iter_mut() {
-                if enum_fields.contains_key(key) {
+                // Check both snake_case and camelCase keys, since alef.toml uses camelCase
+                // but fixture JSON uses snake_case.
+                let camel_key = key.to_lower_camel_case();
+                if enum_fields.contains_key(key) || enum_fields.contains_key(camel_key.as_str()) {
                     // This is an enum field; convert the string value to lowercase.
                     if let Some(s) = val.as_str() {
                         *val = serde_json::Value::String(s.to_lowercase());
@@ -2825,7 +2836,7 @@ fn build_csharp_visitor(
     fixture_id: &str,
     visitor_spec: &crate::fixture::VisitorSpec,
 ) -> String {
-    use heck::ToUpperCamelCase;
+    use heck::{ToLowerCamelCase, ToUpperCamelCase};
     let class_name = format!("{}Visitor", fixture_id.to_upper_camel_case());
     let var_name = format!("_visitor_{}", fixture_id.replace('-', "_"));
 
@@ -2965,7 +2976,7 @@ fn emit_csharp_visitor_method(decl: &mut String, method_name: &str, action: &Cal
 
 /// Convert snake_case method names to C# PascalCase.
 fn method_to_camel(snake: &str) -> String {
-    use heck::ToUpperCamelCase;
+    use heck::{ToLowerCamelCase, ToUpperCamelCase};
     snake.to_upper_camel_case()
 }
 
@@ -3039,7 +3050,7 @@ fn build_csharp_method_call(
             format!("{class_name}.RunQuery({result_var}, \"{language}\", \"{query_source}\", source)")
         }
         _ => {
-            use heck::ToUpperCamelCase;
+            use heck::{ToLowerCamelCase, ToUpperCamelCase};
             let pascal = method_name.to_upper_camel_case();
             format!("{result_var}.{pascal}()")
         }
