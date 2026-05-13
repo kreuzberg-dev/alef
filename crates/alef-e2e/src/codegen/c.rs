@@ -48,6 +48,44 @@ fn is_primitive_c_type(t: &str) -> bool {
     )
 }
 
+/// Infer the opaque-handle PascalCase return type for a bare-field accessor.
+///
+/// Returns `Some(pascal_type)` when the accessor `{prefix}_{parent}_{field}`
+/// returns a pointer to an opaque struct (e.g. `LITERLLMUsage*`) rather than
+/// a `char*` or primitive scalar.
+///
+/// Detection strategy:
+/// 1. Direct lookup `fields_c_types["{parent}.{field}"]` — if present and
+///    NOT a primitive AND NOT `char*`, treat as an opaque handle of that
+///    PascalCase type.
+/// 2. Inferred lookup — when ANY key in `fields_c_types` starts with
+///    `"{field}."` (the snake_case of `field` as a parent type), the field
+///    must be a struct whose nested fields are mapped. Default the struct
+///    type to `field.to_pascal_case()`. This mirrors the fallback used by
+///    `emit_nested_accessor` for intermediate segments.
+///
+/// Returns `None` when the field looks like a `char*` string accessor.
+fn infer_opaque_handle_type(
+    fields_c_types: &HashMap<String, String>,
+    parent_snake_type: &str,
+    field_snake: &str,
+) -> Option<String> {
+    let lookup_key = format!("{parent_snake_type}.{field_snake}");
+    if let Some(t) = fields_c_types.get(&lookup_key) {
+        if !is_primitive_c_type(t) && t != "char*" {
+            return Some(t.clone());
+        }
+        // Primitive or explicit char* — caller handles those paths.
+        return None;
+    }
+    // Inferred: nested keys exist with `field_snake` as the parent type prefix.
+    let nested_prefix = format!("{field_snake}.");
+    if fields_c_types.keys().any(|k| k.starts_with(&nested_prefix)) {
+        return Some(field_snake.to_pascal_case());
+    }
+    None
+}
+
 /// Try to emit an enum-aware field accessor: when `raw_field`/`resolved_field`
 /// is registered in `fields_enum` AND `fields_c_types[parent.field]` resolves
 /// to a non-primitive PascalCase type name, treat the accessor return as an
@@ -1250,6 +1288,9 @@ fn render_test_function(
         // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
         // Locals not present here default to char* (heap-allocated accessor result).
         let mut primitive_locals: HashMap<String, String> = HashMap::new();
+        // Locals declared as opaque struct handles (e.g. LITERLLMUsage*).
+        // Keyed by local_var, value is the snake_case type name used for free().
+        let mut opaque_handle_locals: HashMap<String, String> = HashMap::new();
 
         for assertion in &fixture.assertions {
             if let Some(f) = &assertion.field {
@@ -1295,6 +1336,15 @@ fn render_test_function(
                             &mut intermediate_handles,
                         ) {
                             // accessor emitted with enum-to-string conversion
+                        } else if let Some(handle_pascal) =
+                            infer_opaque_handle_type(fields_c_types, &result_type_snake, resolved)
+                        {
+                            // Opaque struct handle: cannot be read as char*.
+                            let _ = writeln!(
+                                out,
+                                "    {prefix_upper}{handle_pascal}* {local_var} = {accessor_fn}({result_var});"
+                            );
+                            opaque_handle_locals.insert(local_var.clone(), handle_pascal.to_snake_case());
                         } else {
                             let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                         }
@@ -1313,11 +1363,16 @@ fn render_test_function(
                 field_resolver,
                 &accessed_fields,
                 &primitive_locals,
+                &opaque_handle_locals,
             );
         }
 
         for (_f, local_var, from_json) in &accessed_fields {
             if primitive_locals.contains_key(local_var) {
+                continue;
+            }
+            if let Some(snake_type) = opaque_handle_locals.get(local_var) {
+                let _ = writeln!(out, "    {prefix}_{snake_type}_free({local_var});");
                 continue;
             }
             if *from_json {
@@ -1605,6 +1660,8 @@ fn render_test_function(
     let mut intermediate_handles: Vec<(String, String)> = Vec::new();
     // Locals declared as primitive C scalars (uint64_t, double, bool, ...).
     let mut primitive_locals: HashMap<String, String> = HashMap::new();
+    // Locals declared as opaque struct handles (e.g. LITERLLMUsage*).
+    let mut opaque_handle_locals: HashMap<String, String> = HashMap::new();
 
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
@@ -1651,6 +1708,14 @@ fn render_test_function(
                         &mut intermediate_handles,
                     ) {
                         // accessor emitted with enum-to-string conversion
+                    } else if let Some(handle_pascal) =
+                        infer_opaque_handle_type(fields_c_types, &result_type_snake, resolved)
+                    {
+                        let _ = writeln!(
+                            out,
+                            "    {prefix_upper}{handle_pascal}* {local_var} = {accessor_fn}({result_var});"
+                        );
+                        opaque_handle_locals.insert(local_var.clone(), handle_pascal.to_snake_case());
                     } else {
                         let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                     }
@@ -1669,12 +1734,17 @@ fn render_test_function(
             field_resolver,
             &accessed_fields,
             &primitive_locals,
+            &opaque_handle_locals,
         );
     }
 
     // Free extracted leaf strings.
     for (_f, local_var, from_json) in &accessed_fields {
         if primitive_locals.contains_key(local_var) {
+            continue;
+        }
+        if let Some(snake_type) = opaque_handle_locals.get(local_var) {
+            let _ = writeln!(out, "    {prefix}_{snake_type}_free({local_var});");
             continue;
         }
         if *from_json {
@@ -1834,6 +1904,7 @@ fn render_engine_factory_test_function(
     let mut intermediate_handles: Vec<(String, String)> = Vec::new();
     let mut accessed_fields: Vec<(String, String, bool)> = Vec::new();
     let mut primitive_locals: HashMap<String, String> = HashMap::new();
+    let mut opaque_handle_locals: HashMap<String, String> = HashMap::new();
 
     for assertion in &fixture.assertions {
         if let Some(f) = &assertion.field {
@@ -1880,6 +1951,14 @@ fn render_engine_factory_test_function(
                         &mut intermediate_handles,
                     ) {
                         // accessor emitted with enum-to-string conversion
+                    } else if let Some(handle_pascal) =
+                        infer_opaque_handle_type(fields_c_types, &result_type_snake, resolved)
+                    {
+                        let _ = writeln!(
+                            out,
+                            "    {prefix_upper}{handle_pascal}* {local_var} = {accessor_fn}({result_var});"
+                        );
+                        opaque_handle_locals.insert(local_var.clone(), handle_pascal.to_snake_case());
                     } else {
                         let _ = writeln!(out, "    char* {local_var} = {accessor_fn}({result_var});");
                     }
@@ -1898,12 +1977,17 @@ fn render_engine_factory_test_function(
             field_resolver,
             &accessed_fields,
             &primitive_locals,
+            &opaque_handle_locals,
         );
     }
 
     // --- free locals ---
     for (_f, local_var, from_json) in &accessed_fields {
         if primitive_locals.contains_key(local_var) {
+            continue;
+        }
+        if let Some(snake_type) = opaque_handle_locals.get(local_var) {
+            let _ = writeln!(out, "    {prefix}_{snake_type}_free({local_var});");
             continue;
         }
         if *from_json {
@@ -2840,6 +2924,7 @@ fn render_assertion(
     _field_resolver: &FieldResolver,
     accessed_fields: &[(String, String, bool)],
     primitive_locals: &HashMap<String, String>,
+    opaque_handle_locals: &HashMap<String, String>,
 ) {
     // Skip assertions on fields that don't exist on the result type.
     if let Some(f) = &assertion.field {
@@ -2863,6 +2948,11 @@ fn render_assertion(
 
     let field_is_primitive = primitive_locals.contains_key(&field_expr);
     let field_primitive_type = primitive_locals.get(&field_expr).cloned();
+    // Opaque-handle fields (e.g. `usage` → LITERLLMUsage*) cannot be treated
+    // as C strings — `strlen` / `strcmp` on a struct pointer is undefined
+    // behavior (SIGABRT in practice). `not_empty` / `is_empty` collapse to
+    // NULL checks; other string assertions are skipped for these fields.
+    let field_is_opaque_handle = opaque_handle_locals.contains_key(&field_expr);
     // Map-access fields are extracted via `alef_json_get_string` and end up
     // as char*. When the assertion expects a numeric or boolean value, we
     // emit a parsed/literal comparison rather than `strcmp`.
@@ -2983,13 +3073,28 @@ fn render_assertion(
             }
         }
         "not_empty" => {
-            let _ = writeln!(
-                out,
-                "    assert({field_expr} != NULL && strlen({field_expr}) > 0 && \"expected non-empty value\");"
-            );
+            if field_is_opaque_handle {
+                // Opaque struct handle: `strlen` on a struct pointer is UB.
+                // Weaken to a non-null check — strictly weaker than the
+                // original intent but won't false-trigger SIGABRT.
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} != NULL && \"expected non-null handle\");"
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} != NULL && strlen({field_expr}) > 0 && \"expected non-empty value\");"
+                );
+            }
         }
         "is_empty" => {
-            if assertion_field_is_optional || !field_is_primitive {
+            if field_is_opaque_handle {
+                let _ = writeln!(
+                    out,
+                    "    assert({field_expr} == NULL && \"expected null handle\");"
+                );
+            } else if assertion_field_is_optional || !field_is_primitive {
                 // Optional string fields may return NULL — treat NULL as empty.
                 let _ = writeln!(
                     out,
