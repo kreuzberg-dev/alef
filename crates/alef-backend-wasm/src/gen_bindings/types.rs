@@ -90,6 +90,7 @@ pub(super) fn gen_opaque_struct_methods(
                 opaque_types,
                 prefix,
                 adapter_bodies,
+                typ,
             ));
         }
     }
@@ -105,8 +106,30 @@ fn gen_opaque_method(
     opaque_types: &AHashSet<String>,
     prefix: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    typ: &TypeDef,
 ) -> String {
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
+    let has_mut_methods = typ
+        .methods
+        .iter()
+        .any(|m| matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut)));
+
+    let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(ReceiverKind::RefMut));
+
+    // For opaque types, allow delegation of RefMut methods if the type is Mutex-wrapped.
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate_base = shared::can_auto_delegate(method, opaque_types);
+    let can_delegate = if is_ref_mut_receiver && has_mut_methods {
+        // RefMut methods are delegatable if the type has Mutex wrapping
+        !method.sanitized
+            && method
+                .params
+                .iter()
+                .all(|p| !p.sanitized && alef_codegen::shared::is_delegatable_param(&p.ty, opaque_types))
+            && alef_codegen::shared::is_opaque_delegatable_type(&method.return_type)
+    } else {
+        can_delegate_base
+    };
     let adapter_key = format!("{type_name}.{}", method.name);
     let has_adapter = adapter_bodies.contains_key(&adapter_key);
 
@@ -141,7 +164,13 @@ fn gen_opaque_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let core_call = if needs_clone {
+        let core_call = if has_mut_methods && is_ref_mut_receiver {
+            // For Mutex-wrapped types with RefMut methods, lock the mutex
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
+        } else if has_mut_methods && !is_ref_mut_receiver {
+            // For Mutex-wrapped types, access via lock() even for immutable methods
+            format!("self.inner.lock().unwrap().{}({})", method.name, call_args)
+        } else if needs_clone {
             format!("(*self.inner).clone().{}({})", method.name, call_args)
         } else {
             format!("self.inner.{}({})", method.name, call_args)
