@@ -121,31 +121,18 @@ fn assertion_value_is_numeric(assertion: &Assertion) -> bool {
     }
 }
 
-/// Convert a snake_case fixture string to PascalCase for enum variant lookup.
-fn snake_to_pascal(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut upper_next = true;
-    for ch in s.chars() {
-        if ch == '_' || ch == '-' {
-            upper_next = true;
-        } else if upper_next {
-            out.extend(ch.to_uppercase());
-            upper_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-/// Render an enum-typed result assertion using `EnumClass.Variant` comparison.
+/// Render an enum-typed result assertion. WASM optional-enum getters return
+/// `Option<String>` (the serde wire format) rather than the wasm-bindgen enum
+/// discriminant, so we compare against the original snake_case string value
+/// rather than the `EnumClass.Variant` reference. The `enum_class` is no longer
+/// referenced in the emitted code but is retained in the signature for clarity
+/// at the call site.
 /// Returns `true` if the assertion was rendered.
-fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_expr: &str, enum_class: &str) -> bool {
+fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_expr: &str, _enum_class: &str) -> bool {
     match assertion.assertion_type.as_str() {
         "equals" => {
             if let Some(serde_json::Value::String(s)) = &assertion.value {
-                let variant = snake_to_pascal(s);
-                out.push_str(&format!("    expect({field_expr}).toBe({enum_class}.{variant});\n"));
+                out.push_str(&format!("    expect({field_expr}).toBe(\"{s}\");\n"));
                 return true;
             }
         }
