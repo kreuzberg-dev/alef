@@ -776,7 +776,7 @@ fn main() -> Result<()> {
             let config_toml = std::fs::read_to_string(config_path)?;
             let mut grand_total: usize = 0;
             for resolved_cfg in &crates_to_process {
-                let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
+                let languages = resolve_readme_languages(resolved_cfg, lang.as_deref())?;
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let ir_json = serde_json::to_string(&api)?;
                 let stage_hash = cache::compute_stage_hash(&ir_json, "readme", &config_toml, &[]);
@@ -1923,6 +1923,19 @@ fn resolve_languages(
 /// Like `resolve_languages` but also allows `rust` regardless of the config languages list.
 /// Docs can always be generated for Rust since it's the source language.
 fn resolve_doc_languages(
+    config: &alef_core::config::ResolvedCrateConfig,
+    filter: Option<&[String]>,
+) -> Result<Vec<alef_core::config::Language>> {
+    resolve_languages_inner(config, filter, true)
+}
+
+/// Like `resolve_languages` but also allows `rust` regardless of the config languages list.
+///
+/// Every Rust crate that publishes to crates.io needs a `crates/<lib>/README.md`,
+/// so the readme command must regenerate it from the same templates that produce
+/// the per-binding READMEs. Configure with `[crates.readme.languages.rust]` in
+/// `alef.toml` to opt in.
+fn resolve_readme_languages(
     config: &alef_core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
 ) -> Result<Vec<alef_core::config::Language>> {
