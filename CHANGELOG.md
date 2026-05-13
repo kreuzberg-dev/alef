@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-csharp**: serialize enum values as strings via JsonStringEnumConverter (matches python/node/go/java/ruby/php). All C# enums now emit `[JsonConverter(typeof(JsonStringEnumConverter))]` to serialize as JSON strings (e.g. `"function"`) instead of numeric discriminants (e.g. `0`), matching other language bindings.
+
 ## [0.15.54] - 2026-05-13
 
 ### Added
