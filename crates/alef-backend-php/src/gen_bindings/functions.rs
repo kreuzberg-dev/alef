@@ -389,11 +389,13 @@ pub(crate) fn gen_instance_method_non_opaque(
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
-    // Skip RefMut receivers — can't delegate because we don't have a mutable reference.
+    // RefMut methods can be delegated if the type is Mutex-wrapped (present in mutex_types).
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+    let has_mut_methods = mutex_types.contains(&typ.name);
 
     let can_delegate = !method.sanitized
-        && !is_ref_mut_receiver
+        && (!is_ref_mut_receiver || has_mut_methods)
         && method
             .params
             .iter()
