@@ -432,16 +432,15 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         let binding_to_core = alef_codegen::conversions::convertible_types(api);
         let core_to_binding = alef_codegen::conversions::core_to_binding_convertible_types(api);
         let input_types = alef_codegen::conversions::input_type_names(api);
-        // Trait-bridge fields whose binding-side wrapper holds `inner: Arc<core::T>`
-        // (every OptionsField-style bridge in alef follows this convention). Used by
-        // `binding_to_core` to emit `val.{f}.map(|v| (*v.inner).clone())` instead of
-        // `Default::default()` so the JS visitor handle survives `.into()`.
-        let trait_bridge_arc_wrapper_field_names: Vec<String> = config
-            .trait_bridges
-            .iter()
-            .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
-            .filter_map(|b| b.resolved_options_field().map(String::from))
-            .collect();
+        // NOTE: NAPI does NOT populate `trait_bridge_arc_wrapper_field_names`. Unlike
+        // PHP/WASM which wrap their visitor handle as `WrapperType { inner: Arc<...> }`,
+        // the NAPI binding stores the raw JS `napi::bindgen_prelude::Object` directly on
+        // `JsConversionOptions.visitor`. There is no `.inner` field to dereference, so
+        // the `(*v.inner).clone()` substitution would emit code that fails to compile.
+        // Instead, the NAPI `convert` codegen attaches the visitor in a post-process
+        // step after the `From<JsConversionOptions>` impl runs (`o.visitor = None;`
+        // then `result.visitor = visitor_handle.clone()`), so the From impl harmlessly
+        // emits `Default::default()` for the visitor field.
         let napi_conv_config = alef_codegen::conversions::ConversionConfig {
             type_name_prefix: &prefix,
             cast_large_ints_to_i64: true,
@@ -460,7 +459,6 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             // callers can pass objects/arrays/scalars directly.
             json_as_value: true,
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
-            trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
             ..Default::default()
         };
         // From/Into conversions using shared parameterized generators
