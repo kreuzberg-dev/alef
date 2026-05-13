@@ -735,6 +735,9 @@ fn render_test_case(
         String::new()
     };
 
+    // Streaming detection (call-level `streaming` opt-out is honored).
+    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+
     // Build assertions body
     let mut assertions_body = String::new();
     for assertion in &fixture.assertions {
@@ -749,11 +752,9 @@ fn render_test_case(
             result_is_simple,
             &effective_result_enum_fields,
             lang,
+            is_streaming,
         );
     }
-
-    // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
 
     let has_usable_assertion = fixture.assertions.iter().any(|a| {
         if a.assertion_type == "not_error" || a.assertion_type == "error" {

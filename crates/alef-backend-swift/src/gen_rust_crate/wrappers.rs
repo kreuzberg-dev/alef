@@ -988,13 +988,14 @@ pub(crate) fn emit_streaming_adapter_shims(
             .collect();
         let call_args_str = call_args.join(", ");
 
-        // Resolve the core Rust path. `adapter.core_path` may be a bare name or a
-        // fully-qualified path.  If it already contains `::` use it as-is; otherwise
-        // prefix with the source crate so rustc can resolve it.
+        // Resolve the core Rust call. A bare `core_path` (no `::`) names a method
+        // on the owner type — invoke it as `client.0.<method>(args)` because the
+        // `client` parameter is the swift-bridge newtype wrapper. A fully-qualified
+        // `core_path` is invoked as a free function.
         let core_call = if adapter.core_path.contains("::") {
             format!("{}({call_args_str})", adapter.core_path)
         } else {
-            format!("{source_crate}::{}({call_args_str})", adapter.core_path)
+            format!("client.0.{}({call_args_str})", adapter.core_path)
         };
 
         // The body: block on a Tokio runtime, drive the stream to completion (or
