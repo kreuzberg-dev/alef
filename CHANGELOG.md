@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **alef-cli**: `alef readme` now includes Rust in the regeneration loop when
+  `[crates.readme.languages.rust]` is configured in `alef.toml`. Previously the
+  command called `resolve_languages` which excluded Rust (matching the policy
+  for binding generation), so the Rust crate's `crates/<lib>/README.md` was
+  silently skipped and stayed frozen — drifting the moment templates changed.
+  Introduces a dedicated `resolve_readme_languages` helper that mirrors
+  `resolve_doc_languages` (Rust is the source language; its crates.io README
+  needs the same regen path as every binding's README). Opt-in via the existing
+  `[crates.readme.languages.rust]` block in `alef.toml`.
+
 ### Fixed
 
 ## [0.15.57] - 2026-05-13
