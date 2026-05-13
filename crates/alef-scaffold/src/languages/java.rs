@@ -536,6 +536,12 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     <suppress checks="ConstantName" files=".*FFI\.java"/>
     <suppress checks="MagicNumber" files=".*FFI\.java"/>
 
+    <!-- alef-emitted facade files (everything under packages/java/dev/): the
+         generator chains FFI/JSON shims that don't reflow cleanly within 140
+         chars. Each file carries a generated-code header and must not be
+         hand-edited. -->
+    <suppress checks="LineLength" files=".*/packages/java/dev/.*\.java"/>
+
     <!-- Allow star imports and magic numbers in test files -->
     <suppress checks="AvoidStarImport" files=".*Test\.java"/>
     <suppress checks="MagicNumber" files=".*Test\.java"/>
