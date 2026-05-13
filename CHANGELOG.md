@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(alef-e2e/r): wrap array-valued fields in `I(...)` when emitting `jsonlite::toJSON(list(...), auto_unbox = TRUE)` for the `Type$from_json(...)` typed-config code path. Without the `AsIs` marker, single-element vectors were unboxed to scalars (`c("foo")` → `"foo"`) and empty vectors collapsed to `{}`, causing serde to reject `Vec<T>` fields with `invalid type: string "foo", expected a sequence`. Non-empty arrays now emit as `I(c(...))` (→ `[...]`) and empty arrays as `I(list())` (→ `[]`), fixing 9 R e2e failures across `exclude_selectors`, `strip_tags`, `preserve_tags`, and `keep_inline_images_in`.
 
+- fix(alef-e2e/r): visitor-test arg builder now strips any pre-existing `options = …` argument before appending `options = list(visitor = visitor)`, instead of only stripping the literal `options = NULL`. The previous code left `options = ConversionOptions$default()` in place when `build_args_string` emitted a default placeholder, producing duplicated named args that R rejects with `formal argument "options" matched by multiple actual arguments`. New `strip_options_arg` helper walks the args string while tracking paren/quote depth so nested commas inside `options = list(visitor = visitor)` aren't treated as arg separators.
+
+- fix(alef-backend-csharp): include `api.enums` (alongside `api.types`) when building the `visible_type_names` set passed to trait-bridge codegen. Without this, enum types like `VisitResult` were treated as non-API by `csharp_type_visible`, which substituted them with `string` in generated trait-method signatures (`string VisitFigureEnd(...)`). E2e visitor tests that returned `VisitResult.Continue` then failed to compile with CS0738 "does not have the matching return type of 'string'".
+
 ## [0.15.52] - 2026-05-13
 
 ### Added

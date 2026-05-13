@@ -261,12 +261,15 @@ impl Backend for CsharpBackend {
                 .collect();
 
             if !bridges.is_empty() {
-                // Collect visible type names (non-trait types that have C# bindings)
+                // Collect visible type names (non-trait types that have C# bindings).
+                // Includes both `api.types` and `api.enums` so trait-bridge method signatures
+                // can reference enum types (e.g. `VisitResult`) without falling back to `string`.
                 let visible_type_names: HashSet<&str> = api
                     .types
                     .iter()
                     .filter(|t| !t.is_trait)
                     .map(|t| t.name.as_str())
+                    .chain(api.enums.iter().map(|e| e.name.as_str()))
                     .collect();
                 let (filename, content) =
                     crate::trait_bridge::gen_trait_bridges_file(&namespace, &prefix, &bridges, &visible_type_names);
