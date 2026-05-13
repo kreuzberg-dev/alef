@@ -1,7 +1,11 @@
 #[derive(Clone)]
 #[magnus::wrap(class = "{{ class_path }}")]
 pub struct {{ struct_name }} {
+    {%- if needs_mutex %}
+    inner: Arc<std::sync::Mutex<{{ core_path }}>>,
+    {%- else %}
     inner: Arc<{{ core_path }}>,
+    {%- endif %}
 }
 
 unsafe impl IntoValueFromNative for {{ struct_name }} {}

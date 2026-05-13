@@ -77,9 +77,8 @@ pub(super) fn render_test_function(
     // The Python binding returns the iterator synchronously; errors only surface when
     // iterating via __anext__.  Make the test async and drain the iterator inside
     // `pytest.raises` so the error propagates before the `with` block exits.
-    let is_streaming_error_call = has_error_assertion
-        && !is_streaming
-        && function_name.to_lowercase().contains("stream");
+    let is_streaming_error_call =
+        has_error_assertion && !is_streaming && function_name.to_lowercase().contains("stream");
     let is_async = is_streaming
         || is_streaming_error_call
         || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
@@ -197,7 +196,13 @@ pub(super) fn render_test_function(
         // call ever runs). Pass arg_bindings_str to emit_error_assertion so it
         // can emit them indented one level deeper, inside the with block.
         let mut error_assertion_block = String::new();
-        emit_error_assertion(&mut error_assertion_block, fixture, &arg_bindings_str, &call_expr, is_streaming_error_call);
+        emit_error_assertion(
+            &mut error_assertion_block,
+            fixture,
+            &arg_bindings_str,
+            &call_expr,
+            is_streaming_error_call,
+        );
 
         let ctx = minijinja::context! {
             skip_decorator => skip_decorator,
@@ -274,10 +279,13 @@ fn emit_error_assertion(
         let _ = writeln!(out, "    with pytest.raises(Exception) as exc_info:  # noqa: B017");
         out.push_str(&indented_bindings);
         if is_streaming_error_call {
-            // The streaming iterator returns synchronously; errors only appear when
-            // iterating via __anext__.  Drain the iterator inside the raises block
-            // so the exception propagates before the with-block exits.
-            let _ = writeln!(out, "        _iterator = {call_expr}");
+            // The streaming iterator returns synchronously (chat_stream returns the
+            // iterator without await); errors only appear when iterating via
+            // __anext__. Strip the `await ` prefix the async-call codegen would
+            // attach, then drain the iterator inside the raises block so the
+            // exception propagates before the with-block exits.
+            let sync_call_expr = call_expr.strip_prefix("await ").unwrap_or(call_expr);
+            let _ = writeln!(out, "        _iterator = {sync_call_expr}");
             let _ = writeln!(out, "        async for _ in _iterator:");
             let _ = writeln!(out, "            pass");
         } else {
