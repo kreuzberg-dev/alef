@@ -15,6 +15,7 @@ pub(super) fn render_assertion(
     result_is_simple: bool,
     result_enum_fields: &std::collections::HashMap<String, String>,
     lang: &str,
+    is_streaming: bool,
 ) {
     // For simple-result methods (e.g., `speech` returning bytes/Buffer), every
     // field-based assertion targets the result itself — there is no struct to
@@ -62,7 +63,7 @@ pub(super) fn render_assertion(
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct property accesses on the result.
     if let Some(f) = &assertion.field {
-        if render_synthetic_field_assertion(out, assertion, result_var, f) {
+        if render_synthetic_field_assertion(out, assertion, result_var, f, is_streaming) {
             return;
         }
     }
@@ -146,7 +147,7 @@ fn render_wasm_enum_assertion(out: &mut String, assertion: &Assertion, field_exp
 }
 
 /// Try to render a synthetic/virtual field assertion. Returns `true` when the field was handled.
-fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field: &str) -> bool {
+fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, result_var: &str, field: &str, is_streaming: bool) -> bool {
     match field {
         "chunks_have_content" => {
             let pred = format!("({result_var}.chunks ?? []).every((c: {{ content?: string }}) => !!c.content)");
@@ -196,7 +197,11 @@ fn render_synthetic_field_assertion(out: &mut String, assertion: &Assertion, res
             true
         }
         // Streaming virtual fields resolve against the `chunks` collected-list variable.
-        f if crate::codegen::streaming_assertions::is_streaming_virtual_field(f) => {
+        // Skip the streaming interception entirely when the call has opted out
+        // (`[e2e.calls.<name>] streaming = false`) — `chunks` then names a plain
+        // field on the synchronous result struct and must flow through normal
+        // accessor resolution (e.g. `result.chunks`).
+        f if is_streaming && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) => {
             // lang is always "node" or "wasm" here; both use the same JS expressions.
             if let Some(expr) =
                 crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "node", "chunks")
@@ -807,6 +812,7 @@ mod tests {
             false,
             &std::collections::HashMap::new(),
             "node",
+            false,
         );
         assert!(out.contains(".length"), "got: {out}");
     }
@@ -824,6 +830,7 @@ mod tests {
             false,
             &std::collections::HashMap::new(),
             "node",
+            false,
         );
         assert!(out.contains(".trim()"), "got: {out}");
     }
@@ -841,6 +848,7 @@ mod tests {
             false,
             &std::collections::HashMap::new(),
             "node",
+            false,
         );
         assert!(out.contains("(result ?? \"\").length"), "got: {out}");
     }
@@ -862,6 +870,7 @@ mod tests {
             false,
             &std::collections::HashMap::new(),
             "node",
+            false,
         );
         assert!(out.contains("_alefE2eItemTexts(item)"), "got: {out}");
     }
