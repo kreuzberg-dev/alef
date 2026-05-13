@@ -919,8 +919,21 @@ pub fn gen_options_field_bridge_function(
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
     // Generate dispatch: if second arg is a Hash → deserialize as ConversionOptions;
+    // if it's a `ConversionOptions` Ruby class instance → clone + .into() to core;
     // otherwise treat as visitor object and wire into options.
     let options_name = &func.params[options_param_idx].name;
+    let options_type = {
+        let raw = &func.params[options_param_idx].ty;
+        let inner = match raw {
+            TypeRef::Optional(b) => b.as_ref(),
+            other => other,
+        };
+        if let TypeRef::Named(n) = inner {
+            n.clone()
+        } else {
+            "ConversionOptions".to_string()
+        }
+    };
     let visitor_extract = format!(
         "let {options_name}_core = match visitor {{\n    \
          Some(v) if !v.is_nil() => {{\n        \
@@ -931,26 +944,29 @@ pub fn gen_options_field_bridge_function(
          format!(\"failed to serialize Ruby options to JSON: {{}}\", e),\n                \
          )\n            \
          }})?;\n            \
-         serde_json::from_str::<{core_import}::ConversionOptions>(&json).map_err(|e| {{\n                \
+         serde_json::from_str::<{core_import}::{options_type}>(&json).map_err(|e| {{\n                \
          magnus::Error::new(\n                    \
          unsafe {{ magnus::Ruby::get_unchecked() }}.exception_runtime_error(),\n                    \
          format!(\"failed to deserialize options JSON: {{}}\", e),\n                \
          )\n            \
          }})?\n        \
+         }} else if let Ok(opts_binding) = <&{options_type} as magnus::TryConvert>::try_convert(v) {{\n            \
+         opts_binding.clone().into()\n        \
          }} else {{\n            \
          let bridge = {struct_name}::new(v);\n            \
          let handle = std::rc::Rc::new(std::cell::RefCell::new(bridge)) as {handle_path};\n            \
-         let mut opts = {core_import}::ConversionOptions::default();\n            \
+         let mut opts = {core_import}::{options_type}::default();\n            \
          opts.visitor = Some(handle);\n            \
          opts\n        \
          }}\n    \
          }},\n    \
-         _ => {core_import}::ConversionOptions::default(),\n    \
+         _ => {core_import}::{options_type}::default(),\n    \
          }};",
         struct_name = struct_name,
         handle_path = handle_path,
         core_import = core_import,
         options_name = options_name,
+        options_type = options_type,
     );
 
     // Build call args: non-options params + the _core options (wrapped in Some)
