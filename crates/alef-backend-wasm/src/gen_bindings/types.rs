@@ -430,6 +430,7 @@ pub(super) fn gen_struct_methods(
                 core_import,
                 opaque_types,
                 prefix,
+                typ,
             ));
         }
     }
