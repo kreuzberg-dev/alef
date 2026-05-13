@@ -3,7 +3,7 @@
 //! Covers type declarations, enum declarations, and top-level function declarations.
 //! Trait bridge extern blocks live in `trait_bridge.rs`.
 
-use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge};
+use crate::gen_rust_crate::type_bridge::{bridge_type, bridge_type_with_handles, needs_json_bridge};
 use crate::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
@@ -241,7 +241,10 @@ pub(crate) fn emit_extern_block_for_type_constructor(ty: &TypeDef) -> Option<Str
     Some(block)
 }
 
-pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> String {
+pub(crate) fn emit_extern_block_for_functions(
+    functions: &[FunctionDef],
+    handle_returned_types: &HashSet<String>,
+) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
@@ -265,16 +268,18 @@ pub(crate) fn emit_extern_block_for_functions(functions: &[FunctionDef]) -> Stri
             .collect();
         let params_str = params.join(", ");
 
+        // Returns route through the handle-aware bridge mapper so that Named types
+        // returned from public functions (e.g. `Option<EmbeddingPreset>`) stay as
+        // opaque handles instead of getting JSON-collapsed to `String`.
         let return_ty = if f.error_type.is_some() {
-            // Result<ReturnType, String> for error-throwing functions
-            let ok_ty = bridge_type(&f.return_type);
+            let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
             if matches!(f.return_type, TypeRef::Unit) {
                 "Result<(), String>".to_string()
             } else {
                 format!("Result<{ok_ty}, String>")
             }
         } else {
-            bridge_type(&f.return_type)
+            bridge_type_with_handles(&f.return_type, handle_returned_types)
         };
 
         // swift-bridge 0.1.59 does not support the `#[swift_bridge(async)]`

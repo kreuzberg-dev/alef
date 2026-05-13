@@ -229,6 +229,13 @@ fn emit_lib_rs(
         .map(|t| t.name.as_str())
         .collect();
 
+    // api types that are returned by value from public functions/methods.  These appear as
+    // `*mut T` opaque handles in the FFI; swift-bridge must declare them as the bare
+    // Named type so the Swift side wraps them in the opaque class instead of receiving
+    // a `RustString` (the JSON fallback).  Mirrors `compute_handle_returned_types` in
+    // alef-backend-csharp's errors.rs.
+    let handle_returned_types: HashSet<String> = type_bridge::compute_handle_returned_types(api);
+
     // Filter to only functions that can be fully bridged without emitting unimplemented!().
     // Unbridgeable functions (enum params, Vec<u8> tuple params, non-serde return types)
     // are silently excluded from both the extern block and the shim impl — callers in Swift
@@ -237,7 +244,7 @@ fn emit_lib_rs(
         .functions
         .iter()
         .filter(|f| !exclude_functions.contains(&f.name))
-        .filter(|f| shims::is_bridgeable_fn(f, &enum_names, &type_paths, &no_serde_names))
+        .filter(|f| shims::is_bridgeable_fn(f, &enum_names, &type_paths, &no_serde_names, &handle_returned_types))
         .collect();
 
     // Collect trait bridge definitions for configured traits.
@@ -288,7 +295,7 @@ fn emit_lib_rs(
     }
     if !visible_functions.is_empty() {
         let visible: Vec<FunctionDef> = visible_functions.iter().map(|f| (*f).clone()).collect();
-        extern_blocks.push(extern_block::emit_extern_block_for_functions(&visible));
+        extern_blocks.push(extern_block::emit_extern_block_for_functions(&visible, &handle_returned_types));
     }
     for (_bridge_cfg, trait_def) in &active_bridges {
         extern_blocks.push(trait_bridge::emit_extern_block_for_trait_bridge(
@@ -403,6 +410,7 @@ fn emit_lib_rs(
             &type_paths,
             &enum_names,
             &no_serde_names,
+            &handle_returned_types,
         ));
         out.push('\n');
     }
