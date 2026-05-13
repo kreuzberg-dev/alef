@@ -255,6 +255,8 @@ impl Backend for MagnusBackend {
                     typ,
                     &mapper,
                     &opaque_types,
+                    &mutex_types,
+                    &core_import,
                     &streaming_method_names,
                 ));
                 // Append streaming methods in a separate impl block so they sit

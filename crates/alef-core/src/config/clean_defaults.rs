@@ -104,6 +104,11 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
             before: None,
             clean: Some(StringOrVec::Single("rm -rf zig-out zig-cache .zig-cache".to_string())),
         },
+        Language::Gleam => CleanConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            clean: Some(StringOrVec::Single(format!("cd {output_dir} && gleam clean"))),
+        },
         Language::C => CleanConfig {
             precondition: None,
             before: None,

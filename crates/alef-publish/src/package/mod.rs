@@ -5,6 +5,7 @@ pub mod cli;
 pub mod csharp;
 pub mod dart;
 pub mod elixir;
+pub mod gleam;
 pub mod go;
 pub mod java;
 pub mod kotlin;

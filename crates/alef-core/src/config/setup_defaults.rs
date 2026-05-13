@@ -149,6 +149,12 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             install: Some(StringOrVec::Single("zig build --fetch".to_string())),
             timeout_seconds: 600,
         },
+        Language::Gleam => SetupConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            install: Some(StringOrVec::Single(format!("cd {output_dir} && gleam deps download"))),
+            timeout_seconds: 600,
+        },
     }
 }
 

@@ -1,0 +1,5 @@
+{% if optional -%}
+let {{ name }}_core: Option<Vec<&str>> = {{ name }}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect());
+{%- else -%}
+let {{ name }}_core: Vec<&str> = {{ name }}.iter().map(|s| s.as_str()).collect();
+{%- endif %}

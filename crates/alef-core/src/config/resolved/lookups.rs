@@ -50,6 +50,7 @@ impl ResolvedCrateConfig {
             Language::Kotlin => self.kotlin.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             Language::Dart => self.dart.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             Language::Swift => self.swift.as_ref().and_then(|c| c.run_wrapper.as_deref()),
+            Language::Gleam => self.gleam.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             Language::Zig => self.zig.as_ref().and_then(|c| c.run_wrapper.as_deref()),
             Language::Ffi | Language::Rust | Language::C => None,
         }
@@ -88,6 +89,11 @@ impl ResolvedCrateConfig {
             Language::Dart => self.dart.as_ref().map(|c| c.extra_lint_paths.as_slice()).unwrap_or(&[]),
             Language::Swift => self
                 .swift
+                .as_ref()
+                .map(|c| c.extra_lint_paths.as_slice())
+                .unwrap_or(&[]),
+            Language::Gleam => self
+                .gleam
                 .as_ref()
                 .map(|c| c.extra_lint_paths.as_slice())
                 .unwrap_or(&[]),

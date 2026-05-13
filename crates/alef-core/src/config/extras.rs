@@ -18,6 +18,7 @@ pub enum Language {
     Kotlin,
     Swift,
     Dart,
+    Gleam,
     Zig,
     /// C consumer of the FFI layer — e2e test target, not a generated binding.
     C,
@@ -41,6 +42,7 @@ impl std::fmt::Display for Language {
             Self::Kotlin => write!(f, "kotlin"),
             Self::Swift => write!(f, "swift"),
             Self::Dart => write!(f, "dart"),
+            Self::Gleam => write!(f, "gleam"),
             Self::Zig => write!(f, "zig"),
             Self::C => write!(f, "c"),
         }

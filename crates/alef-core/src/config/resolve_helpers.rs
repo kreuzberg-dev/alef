@@ -42,6 +42,7 @@ pub(crate) fn per_crate_explicit_output(output: &OutputConfig, lang: &Language) 
         Language::Kotlin => output.kotlin.as_ref(),
         Language::Dart => output.dart.as_ref(),
         Language::Swift => output.swift.as_ref(),
+        Language::Gleam => output.gleam.as_ref(),
         Language::Csharp => output.csharp.as_ref(),
         Language::R => output.r.as_ref(),
         Language::Zig => output.zig.as_ref(),

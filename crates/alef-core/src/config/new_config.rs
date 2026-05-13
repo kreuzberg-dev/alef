@@ -178,6 +178,7 @@ impl NewAlefConfig {
             dart: krate.dart.clone(),
             kotlin: krate.kotlin.clone(),
             swift: krate.swift.clone(),
+            gleam: krate.gleam.clone(),
             csharp: krate.csharp.clone(),
             r: krate.r.clone(),
             zig: krate.zig.clone(),

@@ -30,6 +30,7 @@ const CRATE_SCOPED_KEYS: &[&str] = &[
     "elixir",
     "wasm",
     "ffi",
+    "gleam",
     "go",
     "java",
     "dart",

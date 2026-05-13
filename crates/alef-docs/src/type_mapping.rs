@@ -17,6 +17,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Rust => "String".to_string(),
             Language::Ffi | Language::C => "const char*".to_string(),
             Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
+            Language::Gleam => "String".to_string(),
             Language::Zig => "[:0]const u8".to_string(),
         },
         TypeRef::Bytes => match lang {
@@ -34,6 +35,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
             Language::Kotlin => "ByteArray".to_string(),
             Language::Swift => "Data".to_string(),
             Language::Dart => "Uint8List".to_string(),
+            Language::Gleam => "BitArray".to_string(),
             Language::Zig => "[]const u8".to_string(),
         },
         TypeRef::Primitive(p) => doc_primitive(p, lang),
@@ -55,6 +57,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Rust => format!("Option<{inner_ty}>"),
                 Language::Ffi | Language::C => format!("{inner_ty}*"),
                 Language::Kotlin | Language::Swift | Language::Dart => format!("{inner_ty}?"),
+                Language::Gleam => format!("Option({inner_ty})"),
                 Language::Zig => format!("?{inner_ty}"),
             }
         }
@@ -84,6 +87,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                         Language::Java | Language::Csharp => unreachable!(),
                         Language::Kotlin | Language::Dart => format!("List<{inner_ty}>"),
                         Language::Swift => format!("[{inner_ty}]"),
+                        Language::Gleam => format!("List({inner_ty})"),
                         Language::Zig => format!("[]const {inner_ty}"),
                     }
                 }
@@ -113,6 +117,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                 Language::Kotlin => format!("Map<{kty}, {vty}>"),
                 Language::Swift => format!("[{kty}: {vty}]"),
                 Language::Dart => format!("Map<{kty}, {vty}>"),
+                Language::Gleam => format!("Dict({kty}, {vty})"),
                 Language::Zig => format!("std.StringHashMap({vty})"),
             }
         }
@@ -154,6 +159,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::Kotlin => "Long".to_string(),
                                 Language::Swift => swift_name.to_string(),
                                 Language::Dart => "int".to_string(),
+                                Language::Gleam => "Int".to_string(),
                                 Language::Zig => "i64".to_string(),
                             }
                         }
@@ -170,6 +176,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                             Language::Rust => s.to_string(),
                             Language::Ffi | Language::C => "const char*".to_string(),
                             Language::Kotlin | Language::Swift | Language::Dart => "String".to_string(),
+                            Language::Gleam => "String".to_string(),
                             Language::Zig => "[]const u8".to_string(),
                         },
                         // Slice of strings — &[&str], &'static [&'static str], Vec<String>, etc.
@@ -193,6 +200,7 @@ pub fn doc_type(ty: &TypeRef, lang: Language, ffi_prefix: &str) -> String {
                                 Language::Rust => s.to_string(),
                                 Language::Ffi | Language::C => "const char**".to_string(),
                                 Language::Kotlin | Language::Swift | Language::Dart => "List<String>".to_string(),
+                                Language::Gleam => "List(String)".to_string(),
                                 Language::Zig => "[]const []const u8".to_string(),
                             }
                         }
