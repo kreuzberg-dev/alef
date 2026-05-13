@@ -156,9 +156,8 @@ pub(super) fn emit_return_marshalling_indented(
                 out.push_str(&render("free_native_string.jinja", minijinja::context! { indent }));
                 return;
             }
-            // Optional<Named<T>> where T is an opaque-handle return: emit constructor wrapper.
-            // (The IntPtr.Zero null-check has already been emitted by the caller via
-            // `emit_named_param_setup` / the wrapper template's null-sentinel handling.)
+            // Optional<Named<T>>: route either through the opaque-handle wrapper (no serde)
+            // or through the to_json round-trip (serde-capable data struct returned as *mut T).
             if let TypeRef::Named(type_name) = inner.as_ref() {
                 let pascal = type_name.to_pascal_case();
                 if true_opaque_types.contains(type_name) || handle_returned_types.contains(type_name) {
@@ -168,6 +167,34 @@ pub(super) fn emit_return_marshalling_indented(
                     ));
                     return;
                 }
+                // Serde-capable api type returned as `*mut T` (FFI export emits
+                // `<type>_to_json` + `<type>_free`). Call to_json, deserialise, then free
+                // both pointers — mirrors the bare TypeRef::Named branch above so that
+                // Optional<T> doesn't misinterpret the handle pointer as a UTF-8 string.
+                let to_json_method = format!("{pascal}ToJson");
+                let free_method = format!("{pascal}Free");
+                let cs_ty = csharp_type(return_type);
+                out.push_str(&render(
+                    "native_to_json_ptr.jinja",
+                    minijinja::context! { indent, to_json_method },
+                ));
+                out.push_str(&render(
+                    "json_from_ptr.jinja",
+                    minijinja::context! { indent, ptr_var => "jsonPtr" },
+                ));
+                out.push_str(&render(
+                    "free_string_ptr.jinja",
+                    minijinja::context! { indent, ptr_var => "jsonPtr" },
+                ));
+                out.push_str(&render(
+                    "free_native_handle.jinja",
+                    minijinja::context! { indent, free_method },
+                ));
+                out.push_str(&render(
+                    "deserialize_json.jinja",
+                    minijinja::context! { indent, cs_type => cs_ty },
+                ));
+                return;
             }
         }
         // IntPtr → JSON string → deserialized object, then free the native buffer.
