@@ -1770,18 +1770,46 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
         if !path_so_far.is_empty() {
             path_so_far.push('.');
         }
+        // Build the base path (without subscript) for the optional check. When the
+        // segment is e.g. `tool_calls[0]`, we want to check `is_optional` against
+        // "choices[0].message.tool_calls" not "choices[0].message.tool_calls[0]".
+        let base_path = {
+            let mut p = path_so_far.clone();
+            p.push_str(field_name);
+            p
+        };
+        // Now push the full part (with subscript if any) so path_so_far is correct
+        // for subsequent segment checks.
         path_so_far.push_str(part);
+
         out.push('.');
         out.push_str(field_name);
-        out.push_str("()");
         if let Some(sub) = subscript {
+            // When the getter for this subscripted field is itself optional
+            // (e.g. tool_calls returns Optional<RustVec<T>>), insert `?` before
+            // the subscript so Swift unwraps the Optional before indexing.
+            let field_is_optional = field_resolver.is_optional(&base_path);
+            if field_is_optional {
+                out.push_str("()?");
+                has_optional = true;
+            } else {
+                out.push_str("()");
+            }
             out.push_str(sub);
-        }
-        // Insert `?` after the last `()` (or subscript) for any non-leaf optional field
-        // so the next member access becomes `?.`.
-        if !is_leaf && field_resolver.is_optional(&path_so_far) {
-            out.push('?');
-            has_optional = true;
+            // If not the leaf and the field is optional, append `?` so the next
+            // member access becomes `?.` (subscript on an optional chain yields
+            // Optional<T>, requiring optional chaining for the next segment).
+            if !is_leaf && field_is_optional {
+                out.push('?');
+            }
+        } else {
+            out.push_str("()");
+            // Insert `?` after `()` for non-leaf optional fields so the next
+            // member access becomes `?.`.
+            if !is_leaf && field_resolver.is_optional(&base_path) {
+                out.push('?');
+                has_optional = true;
+            }
         }
     }
     (out, has_optional)
