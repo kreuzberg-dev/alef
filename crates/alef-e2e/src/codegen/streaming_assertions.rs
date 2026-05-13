@@ -38,7 +38,6 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
     "no_chunks_after_done",
     "tool_calls",
     "finish_reason",
-    "usage",
 ];
 
 /// The set of streaming-virtual root names that may have deep-path continuations.
@@ -50,7 +49,7 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
 /// `usage` is a stream-level root: `usage.total_tokens` resolves against the
 /// last chunk that carried a usage payload (accessed via the collected chunks
 /// list). Python accessor: `(chunks[-1].usage if chunks else None)`.
-const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason", "usage"];
+const STREAMING_VIRTUAL_ROOTS: &[&str] = &["tool_calls", "finish_reason"];
 
 /// Returns `true` when `field` is a streaming-virtual field name, including
 /// deep-nested paths that start with a known streaming-virtual root.
@@ -752,18 +751,13 @@ mod tests {
     }
 
     #[test]
-    fn is_streaming_virtual_field_recognizes_usage_paths() {
-        // `usage` is a streaming virtual root — deep paths like `usage.total_tokens`
-        // resolve against the last chunk's usage payload.
-        assert!(is_streaming_virtual_field("usage"), "bare 'usage' must be recognized");
-        assert!(
-            is_streaming_virtual_field("usage.total_tokens"),
-            "usage.total_tokens must be recognized as streaming virtual"
-        );
-        assert!(
-            is_streaming_virtual_field("usage.prompt_tokens"),
-            "usage.prompt_tokens must be recognized as streaming virtual"
-        );
+    fn is_streaming_virtual_field_does_not_match_usage() {
+        // `usage` is intentionally NOT a streaming-virtual root: chat/embed
+        // responses carry `usage.total_tokens` at the response root, so treating
+        // it as virtual would drag non-streaming tests into the chunks accessor.
+        assert!(!is_streaming_virtual_field("usage"));
+        assert!(!is_streaming_virtual_field("usage.total_tokens"));
+        assert!(!is_streaming_virtual_field("usage.prompt_tokens"));
     }
 
     #[test]
@@ -986,19 +980,11 @@ mod tests {
     }
 
     #[test]
-    fn accessor_usage_total_tokens_deep_path_python() {
-        // `usage.total_tokens` is a deep path: root=`usage`, tail=`.total_tokens`.
-        // Python accessor must produce an expression that resolves .total_tokens on
-        // the last chunk's usage object.
-        let expr = StreamingFieldResolver::accessor("usage.total_tokens", "python", "chunks").unwrap();
-        assert!(
-            expr.contains("chunks[-1].usage"),
-            "python usage.total_tokens: expected chunks[-1].usage in expr, got: {expr}"
-        );
-        assert!(
-            expr.contains(".total_tokens"),
-            "python usage.total_tokens: expected .total_tokens suffix, got: {expr}"
-        );
+    fn accessor_usage_total_tokens_does_not_route_via_chunks() {
+        // `usage` is intentionally NOT a streaming-virtual root (it overlaps the
+        // non-streaming response shape). The accessor must return None so the
+        // assertion falls through to the normal field-path codegen.
+        assert!(StreamingFieldResolver::accessor("usage.total_tokens", "python", "chunks").is_none());
     }
 
     #[test]
