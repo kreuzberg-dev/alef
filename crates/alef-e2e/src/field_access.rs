@@ -485,9 +485,29 @@ fn render_swift_with_optionals(
                     path_so_far.push('.');
                 }
                 path_so_far.push_str(name);
+                // Check optionality before appending `[0]` to path_so_far so the
+                // lookup key matches the entry in optional_fields (e.g.
+                // "choices[0].message.tool_calls" not "choices[0].message.tool_calls[0]").
+                let is_optional = optional_fields.contains(&path_so_far);
                 out.push('.');
                 out.push_str(name);
-                out.push_str(&format!("()[{index}]"));
+                if is_optional {
+                    // The getter returns Optional<RustVec<T>>; use `?` before the
+                    // subscript so Swift unwraps the Optional before indexing.
+                    out.push_str(&format!("()?[{index}]"));
+                } else {
+                    out.push_str(&format!("()[{index}]"));
+                }
+                // Append the normalised `[0]` suffix to path_so_far so that
+                // subsequent Field segments build paths like "choices[0].message"
+                // which match optional_fields entries that use indexed keys.
+                path_so_far.push_str("[0]");
+                // When the array field is optional and not the leaf, append `?`
+                // so the next member access becomes `?.` (the subscript result is
+                // Optional<T> because the vec itself was Optional).
+                if !is_leaf && is_optional {
+                    out.push('?');
+                }
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
