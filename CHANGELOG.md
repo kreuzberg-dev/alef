@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(napi,pyo3,wasm,php): allow `clippy::should_implement_trait` at the crate level so opaque-type wrappers carrying a `pub fn clone(&self) -> Self` method (lifted from the upstream `Clone` derive on the wrapped Rust type) compile under `-D warnings`. Without the allow, NAPI/PyO3/wasm-bindgen/ext-php-rs surfaces fail clippy because the inherent method shadows `std::clone::Clone::clone`; the bindings still derive `Clone` for the wrapper type so trait dispatch is unaffected.
+
 - fix(alef-backend-magnus): unit-enum `TryConvert` now also accepts the PascalCase Rust variant name (e.g. `"Tildes"`, `"AtxClosed"`) alongside the serde wire form (e.g. `"tildes"`). Fixtures and tests written in either style now deserialize correctly.
 - fix(alef-e2e/ruby): emit string-equals assertions as `expr.to_s.strip == expected.strip` to match Python's pattern, masking trailing-newline differences fixture authors don't write into expected values. Drops ~10 ruby e2e failures in html-to-markdown.
 - fix(alef-e2e/field_access): render Ruby hash map-access as `["key"]` instead of `.get("key")`. Ruby's `Hash` has no `get` method, so previously-generated assertions like `result.metadata.document.open_graph.get("title")` raised `NoMethodError`.
