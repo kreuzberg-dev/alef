@@ -938,7 +938,10 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_conf
         ("equals", Kind::Str) => {
             if let Some(val) = &assertion.value {
                 let rb_val = json_to_ruby(val);
-                out.push_str(&format!("    expect({expr}.to_s).to eq({rb_val})\n"));
+                // Mirror Python's `expr.strip() == expected.strip()` pattern: converters
+                // commonly emit a trailing newline that fixture authors don't write into the
+                // expected string, so strip both sides for the equality check.
+                out.push_str(&format!("    expect({expr}.to_s.strip).to eq({rb_val}.strip)\n"));
             }
         }
         ("contains", Kind::Str) => {
@@ -1609,15 +1612,28 @@ fn render_assertion(
                     .map(|b| if b { "true" } else { "false" })
                     .unwrap_or("");
                 let rb_val = json_to_ruby(expected);
+                // Mirror Python's `expr.strip() == expected.strip()` pattern when comparing
+                // string values: converters commonly emit a trailing newline that fixture
+                // authors don't write into the expected string.
+                let cmp_expr = if expected.is_string() && !field_is_enum {
+                    format!("{stripped_field_expr}.to_s.strip")
+                } else {
+                    stripped_field_expr.clone()
+                };
+                let cmp_expected = if expected.is_string() && !field_is_enum {
+                    format!("{rb_val}.strip")
+                } else {
+                    rb_val
+                };
 
                 let rendered = crate::template_env::render(
                     "ruby/assertion.jinja",
                     minijinja::context! {
                         assertion_type => "equals",
-                        stripped_field_expr => stripped_field_expr.clone(),
+                        stripped_field_expr => cmp_expr,
                         is_boolean_val => is_boolean_val,
                         bool_val => bool_val,
-                        expected_val => rb_val,
+                        expected_val => cmp_expected,
                     },
                 );
                 out.push_str(&rendered);

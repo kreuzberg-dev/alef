@@ -569,7 +569,9 @@ fn render_dot_access(segments: &[PathSegment], result_var: &str, language: &str)
                     if is_numeric {
                         let idx: usize = key.parse().unwrap_or(0);
                         out.push_str(&format!("[{idx}]"));
-                    } else if language == "elixir" {
+                    } else if language == "elixir" || language == "ruby" {
+                        // Ruby/Elixir hashes use `["key"]` bracket access (Ruby's Hash has
+                        // no `get` method; Elixir maps use bracket access too).
                         out.push_str(&format!("[\"{key}\"]"));
                     } else {
                         out.push_str(&format!(".get(\"{key}\")"));
