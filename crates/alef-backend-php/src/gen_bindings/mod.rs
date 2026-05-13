@@ -462,6 +462,16 @@ impl Backend for PhpBackend {
             .filter(|b| b.bind_via == alef_core::config::BridgeBinding::OptionsField)
             .filter_map(|b| b.resolved_options_field().map(String::from))
             .collect();
+        // Set of opaque type names for ConversionConfig. Combines Rust `#[opaque]`
+        // types in the API with trait-bridge type aliases (e.g. VisitorHandle) so the
+        // `is_opaque_no_wrapper_field` branch in binding_to_core fires for those
+        // fields and emits the Arc-wrapper forwarding pattern.
+        let mut conv_opaque_types: AHashSet<String> = opaque_types.clone();
+        for bridge in &config.trait_bridges {
+            if let Some(alias) = &bridge.type_alias {
+                conv_opaque_types.insert(alias.clone());
+            }
+        }
         let php_conv_config = ConversionConfig {
             cast_large_ints_to_i64: true,
             enum_string_names: Some(enum_names_ref),
@@ -474,6 +484,7 @@ impl Backend for PhpBackend {
             option_duration_on_defaults: true,
             from_binding_skip_types: &bridge_skip_types,
             never_skip_cfg_field_names: &never_skip_cfg_field_names,
+            opaque_types: Some(&conv_opaque_types),
             trait_bridge_arc_wrapper_field_names: &trait_bridge_arc_wrapper_field_names,
             ..Default::default()
         };
