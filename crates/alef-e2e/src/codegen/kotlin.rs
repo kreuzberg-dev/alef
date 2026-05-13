@@ -267,6 +267,8 @@ tasks.test {{
     val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
     systemProperty("java.library.path", libPath)
     systemProperty("jna.library.path", libPath)
+    // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/.
+    workingDir = file("${{rootDir}}/../../test_documents")
 }}
 "#
     )
@@ -1231,10 +1233,14 @@ fn build_args_and_setup(
                     parts.push(arg.name.clone());
                     continue;
                 }
-                // bytes args must be passed as ByteArray.
+                // bytes args carry a relative file path (e.g. "docx/fake.docx") that the
+                // e2e harness resolves against test_documents/. Read the file at runtime
+                // instead of converting the path string to its UTF-8 bytes.
                 if arg.arg_type == "bytes" {
                     let val = json_to_kotlin(v);
-                    parts.push(format!("{val}.toByteArray()"));
+                    parts.push(format!(
+                        "java.nio.file.Files.readAllBytes(java.nio.file.Path.of({val}))"
+                    ));
                     continue;
                 }
                 // file_path args must be wrapped in java.nio.file.Path.of(),
