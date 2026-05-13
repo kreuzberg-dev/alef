@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+### Fixed
+
+## [0.15.52] - 2026-05-13
+
+### Added
+
 - feat(scaffold/node): add `futures-util` to generated Node binding `Cargo.toml` so `chat_stream` compiles without requiring a manual dependency addition
 
 ### Fixed
@@ -64,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(alef-e2e/wasm): in `templates/wasm/globalSetup.ts.jinja`, parse `MOCK_SERVERS={...}` from the spawned mock-server's stdout and export per-fixture `MOCK_SERVER_<UPPER_FIXTURE_ID>` env vars so host-root fixtures (robots/sitemap) reach their dedicated listener instead of the shared base port.
 - fix(alef-e2e/brew): emit `${MOCK_SERVER_<UPPER_FIXTURE_ID>:-${MOCK_SERVER_URL}/fixtures/<id>}` for `mock_url` args so host-root fixtures route correctly when the mock-server allocates a per-fixture listener; the generated `*.sh` tests fall back to the shared `MOCK_SERVER_URL/fixtures/<id>` form for fixtures without isolation.
 - fix(alef-e2e/brew): when fixture `input.config` is non-empty, append `--config '<minified json>'` to the generated CLI command so the kreuzcrawl CLI honors fixture-specified config (e.g. `respect_robots_txt: true`, validation fixtures). Pairs with the kreuzcrawl-side `--config` flag added to `scrape`/`crawl`/`map`.
+
 
 ## [0.15.51] - 2026-05-13
 
