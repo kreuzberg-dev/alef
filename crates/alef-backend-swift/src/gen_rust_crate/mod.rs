@@ -89,6 +89,10 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .and_then(|s| s.license.as_deref())
         .unwrap_or("MIT");
+    let has_streaming_adapters = config
+        .adapters
+        .iter()
+        .any(|a| matches!(a.pattern, alef_core::config::AdapterPattern::Streaming));
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
@@ -99,6 +103,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         &core_path,
         features,
         license,
+        has_streaming_adapters,
     );
     let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(

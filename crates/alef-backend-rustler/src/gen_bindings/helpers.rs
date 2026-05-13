@@ -41,6 +41,7 @@ pub(super) fn gen_rustler_unimplemented_body(return_type: &TypeRef, fn_name: &st
 }
 
 /// Map a return type, wrapping opaque Named types in ResourceArc.
+/// Handles both bare opaque returns (T) and optional opaque returns (Option<T>).
 pub(super) fn map_return_type(
     ty: &TypeRef,
     mapper: &crate::type_map::RustlerMapper,
@@ -48,6 +49,14 @@ pub(super) fn map_return_type(
 ) -> String {
     match ty {
         TypeRef::Named(n) if opaque_types.contains(n) => format!("ResourceArc<{n}>"),
+        TypeRef::Optional(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                if opaque_types.contains(n) {
+                    return format!("Option<ResourceArc<{n}>>");
+                }
+            }
+            mapper.map_type(ty)
+        }
         _ => mapper.map_type(ty),
     }
 }

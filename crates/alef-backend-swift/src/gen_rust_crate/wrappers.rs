@@ -951,7 +951,7 @@ pub(crate) fn emit_type_method_shims(
 /// as Swift throws.
 pub(crate) fn emit_streaming_adapter_shims(
     adapters: &[alef_core::config::AdapterConfig],
-    source_crate: &str,
+    _source_crate: &str,
 ) -> String {
     use alef_core::config::AdapterPattern;
     use heck::ToSnakeCase;
