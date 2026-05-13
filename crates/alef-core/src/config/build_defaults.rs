@@ -180,6 +180,18 @@ pub(crate) fn default_build_config(
                 ctx.run_wrapper,
             ))),
         },
+        Language::Gleam => BuildCommandConfig {
+            precondition: Some(require_tool("gleam")),
+            before: None,
+            build: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gleam build"),
+                ctx.run_wrapper,
+            ))),
+            build_release: Some(StringOrVec::Single(wrap(
+                format!("cd {output_dir} && gleam build"),
+                ctx.run_wrapper,
+            ))),
+        },
         Language::C => BuildCommandConfig {
             precondition: None,
             before: None,

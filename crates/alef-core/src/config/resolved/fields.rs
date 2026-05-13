@@ -36,6 +36,7 @@ impl ResolvedCrateConfig {
             Language::Zig => self.zig.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Dart => self.dart.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Swift => self.swift.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
+            Language::Gleam => self.gleam.as_ref().and_then(|c| c.rename_fields.get(&explicit_key)),
             Language::Rust | Language::C => None,
         };
         if let Some(renamed) = explicit {
@@ -79,6 +80,7 @@ impl ResolvedCrateConfig {
             Language::Zig => self.zig.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Dart => self.dart.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Swift => self.swift.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
+            Language::Gleam => self.gleam.as_ref().and_then(|c| c.serde_rename_all.as_deref()),
             Language::Rust | Language::C => None,
         };
 
@@ -102,6 +104,7 @@ impl ResolvedCrateConfig {
             | Language::Elixir
             | Language::R
             | Language::Rust
+            | Language::Gleam
             | Language::Zig
             | Language::C => "snake_case".to_string(),
         }

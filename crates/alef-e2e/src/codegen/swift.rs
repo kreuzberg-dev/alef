@@ -583,8 +583,25 @@ fn render_test_method(
     let result_var = &call_config.result_var;
     let args = &call_config.args;
     // Per-call flags: base call flag OR per-language override OR global flag.
-    let result_is_simple =
-        call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
+    // Also treat the call as simple when *any* language override marks it as bytes.
+    // Calls like `speech()` have `result_is_bytes = true` on C/C#/Java overrides but
+    // no explicit `result_is_simple` on the Swift override — yet the Swift binding
+    // returns `Data` directly (not a struct), so assertions must use `result.isEmpty`
+    // rather than `result.audio().toString().isEmpty`.
+    let result_is_bytes_any_lang = call_config.result_is_bytes
+        || call_config.overrides.values().any(|o| o.result_is_bytes);
+    eprintln!(
+        "[swift debug] fixture={} call={:?} result_is_bytes={} any_override_bytes={} overrides={}",
+        fixture.id,
+        fixture.call,
+        call_config.result_is_bytes,
+        call_config.overrides.values().any(|o| o.result_is_bytes),
+        call_config.overrides.len()
+    );
+    let result_is_simple = call_config.result_is_simple
+        || call_overrides.is_some_and(|o| o.result_is_simple)
+        || result_is_simple
+        || result_is_bytes_any_lang;
     let result_is_array = call_config.result_is_array;
     // When the call returns `Option<T>` the Swift binding exposes the result as
     // `Optional<…>` (e.g. `getEmbeddingPreset(...) -> EmbeddingPreset?`). Bare-result
@@ -1995,9 +2012,10 @@ mod tests {
         let (accessor, has_optional) =
             swift_build_accessor("choices[0].message.tool_calls[0].function.name", "result", &resolver);
         // `?` before `[0]` is correct (tool_calls is optional).
+        // swift_build_accessor uses the raw field name without camelCase conversion.
         assert!(
-            accessor.contains("toolCalls()?[0]"),
-            "expected `?[0]` for optional tool_calls, got: {accessor}"
+            accessor.contains("tool_calls()?[0]"),
+            "expected `tool_calls()?[0]` for optional tool_calls, got: {accessor}"
         );
         // There must NOT be `?[0]?` (trailing `?` after the index).
         assert!(

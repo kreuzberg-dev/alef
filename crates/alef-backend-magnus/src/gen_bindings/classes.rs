@@ -59,6 +59,8 @@ pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
     mapper: &MagnusMapper,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
     streaming_method_names: &AHashSet<String>,
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
@@ -79,6 +81,8 @@ pub(super) fn gen_opaque_struct_methods(
                     mapper,
                     &typ.name,
                     opaque_types,
+                    mutex_types,
+                    core_import,
                     needs_mutex,
                 ));
             } else {
@@ -88,6 +92,8 @@ pub(super) fn gen_opaque_struct_methods(
                     mapper,
                     &typ.name,
                     opaque_types,
+                    mutex_types,
+                    core_import,
                     needs_mutex,
                 ));
             }
@@ -97,6 +103,55 @@ pub(super) fn gen_opaque_struct_methods(
     impl_builder.build()
 }
 
+/// Build let-binding preamble for non-opaque Named ref params and Vec<String> ref params.
+/// Emits `let {name}_core: core::Type = {name}.into();` for Named non-opaque is_ref params,
+/// and `let {name}_refs: Vec<&str> = ...;` for Vec<String>/Vec<Char> is_ref params.
+fn build_method_preamble(
+    params: &[alef_core::ir::ParamDef],
+    opaque_types: &AHashSet<String>,
+    core_import: &str,
+) -> String {
+    let mut out = String::new();
+    for p in params {
+        if p.sanitized {
+            continue;
+        }
+        match &p.ty {
+            TypeRef::Named(n) if !opaque_types.contains(n.as_str()) && p.is_ref => {
+                let core_path = format!("{}::{}", core_import, n);
+                if p.optional {
+                    out.push_str(&format!(
+                        "let {}_core: Option<{core_path}> = {}.map(Into::into);\n        ",
+                        p.name, p.name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "let {}_core: {core_path} = {}.into();\n        ",
+                        p.name, p.name
+                    ));
+                }
+            }
+            TypeRef::Vec(inner)
+                if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char) && p.is_ref =>
+            {
+                if p.optional {
+                    out.push_str(&format!(
+                        "let {}_refs: Vec<&str> = {}.as_ref().map(|v| v.iter().map(|s| s.as_str()).collect()).unwrap_or_default();\n        ",
+                        p.name, p.name
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "let {}_refs: Vec<&str> = {}.iter().map(|s| s.as_str()).collect();\n        ",
+                        p.name, p.name
+                    ));
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Generate an opaque sync instance method for Magnus (delegates to self.inner).
 fn gen_opaque_instance_method(
     typ: &TypeDef,
@@ -104,6 +159,8 @@ fn gen_opaque_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
     needs_mutex: bool,
 ) -> String {
     use alef_codegen::shared;
@@ -123,7 +180,14 @@ fn gen_opaque_instance_method(
         && shared::is_delegatable_return(&method.return_type);
 
     let body = if can_delegate {
-        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let preamble = build_method_preamble(&method.params, opaque_types, core_import);
+        let needs_let_bindings = !preamble.is_empty();
+        let call_args = if needs_let_bindings {
+            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+        } else {
+            generators::gen_call_args(&method.params, opaque_types)
+        };
+        let refs_preamble = preamble;
         // For owned-receiver (consuming) methods, clone the Arc's inner value before calling,
         // since we cannot move out of an Arc from a &self method.
         // For Mutex-wrapped types (has_mut_methods), all methods need .lock().unwrap().
@@ -142,32 +206,35 @@ fn gen_opaque_instance_method(
         if method.error_type.is_some() {
             if matches!(method.return_type, TypeRef::Unit) {
                 format!(
-                    "{core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(())"
+                    "{refs_preamble}{core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok(())"
                 )
             } else {
-                let wrap = generators::wrap_return(
+                let wrap = generators::wrap_return_with_mutex(
                     "result",
                     &method.return_type,
                     type_name,
                     opaque_types,
+                    mutex_types,
                     true,
                     method.returns_ref,
                     method.returns_cow,
                 );
                 format!(
-                    "let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok({wrap})"
+                    "{refs_preamble}let result = {core_call}.map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        Ok({wrap})"
                 )
             }
         } else {
-            generators::wrap_return(
+            let wrapped = generators::wrap_return_with_mutex(
                 &core_call,
                 &method.return_type,
                 type_name,
                 opaque_types,
+                mutex_types,
                 true,
                 method.returns_ref,
                 method.returns_cow,
-            )
+            );
+            format!("{refs_preamble}{wrapped}")
         }
     } else {
         gen_magnus_unimplemented_body(&method.return_type, &method.name, method.error_type.is_some())
@@ -191,6 +258,8 @@ fn gen_opaque_async_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    core_import: &str,
     needs_mutex: bool,
 ) -> String {
     use alef_codegen::shared;
@@ -210,7 +279,14 @@ fn gen_opaque_async_instance_method(
         && shared::is_delegatable_return(&method.return_type);
 
     let body = if can_delegate {
-        let call_args = generators::gen_call_args(&method.params, opaque_types);
+        let preamble = build_method_preamble(&method.params, opaque_types, core_import);
+        let needs_let_bindings = !preamble.is_empty();
+        let call_args = if needs_let_bindings {
+            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+        } else {
+            generators::gen_call_args(&method.params, opaque_types)
+        };
+        let refs_preamble = preamble;
         let has_mut_methods = typ.methods.iter().any(|m|
             matches!(m.receiver.as_ref(), Some(ReceiverKind::RefMut))
         );
@@ -220,24 +296,25 @@ fn gen_opaque_async_instance_method(
             "let inner = self.inner.clone();\n        ".to_string()
         };
         let core_call = format!("inner.{}({})", method.name, call_args);
-        let result_wrap = generators::wrap_return(
+        let result_wrap = generators::wrap_return_with_mutex(
             "result",
             &method.return_type,
             type_name,
             opaque_types,
+            mutex_types,
             true,
             method.returns_ref,
             method.returns_cow,
         );
         if method.error_type.is_some() {
             format!(
-                "{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }}).map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  Ok({result_wrap})"
             )
         } else {
             format!(
-                "{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
+                "{refs_preamble}{inner_setup}let rt = tokio::runtime::Runtime::new().map_err(|e| magnus::Error::new(unsafe {{ Ruby::get_unchecked() }}.exception_runtime_error(), e.to_string()))?;\n        \
                  let result = rt.block_on(async {{ {core_call}.await }});\n        \
                  {result_wrap}"
             )
