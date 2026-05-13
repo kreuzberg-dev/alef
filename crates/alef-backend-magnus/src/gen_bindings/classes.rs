@@ -32,10 +32,11 @@ fn is_thread_unsafe_field(field: &FieldDef) -> bool {
         || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
 }
 
-/// Generate an opaque Magnus-wrapped struct with inner Arc.
+/// Generate an opaque Magnus-wrapped struct with inner Arc or Arc<Mutex<>>.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &str) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
     let core_path = alef_codegen::conversions::core_type_path(typ, core_import);
+    let needs_mutex = alef_codegen::generators::type_needs_mutex(typ);
 
     crate::template_env::render(
         "opaque_struct.rs.jinja",
@@ -43,6 +44,7 @@ pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, module_name: &
             struct_name => &typ.name,
             class_path => &class_path,
             core_path => &core_path,
+            needs_mutex => needs_mutex,
         },
     )
 }
@@ -61,11 +63,8 @@ pub(super) fn gen_opaque_struct_methods(
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
-    // Check if this opaque type has any RefMut methods (indicating Mutex-wrapping).
-    let has_mut_methods = typ
-        .methods
-        .iter()
-        .any(|m| matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut)));
+    // Check if this opaque type needs Mutex wrapping (has any RefMut methods).
+    let needs_mutex = alef_codegen::generators::type_needs_mutex(typ);
 
     for method in &typ.methods {
         if !method.is_static {
@@ -79,7 +78,7 @@ pub(super) fn gen_opaque_struct_methods(
                     mapper,
                     &typ.name,
                     opaque_types,
-                    has_mut_methods,
+                    needs_mutex,
                 ));
             } else {
                 impl_builder.add_method(&gen_opaque_instance_method(
@@ -87,7 +86,7 @@ pub(super) fn gen_opaque_struct_methods(
                     mapper,
                     &typ.name,
                     opaque_types,
-                    has_mut_methods,
+                    needs_mutex,
                 ));
             }
         }
@@ -102,7 +101,7 @@ fn gen_opaque_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
-    has_mut_methods: bool,
+    needs_mutex: bool,
 ) -> String {
     use alef_codegen::shared;
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
@@ -110,10 +109,10 @@ fn gen_opaque_instance_method(
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let is_ref_mut_receiver = matches!(method.receiver, Some(alef_core::ir::ReceiverKind::RefMut));
-    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
+    // RefMut methods can be delegated if the type is Mutex-wrapped (needs_mutex).
     // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let can_delegate = !method.sanitized
-        && (!is_ref_mut_receiver || has_mut_methods)
+        && (!is_ref_mut_receiver || needs_mutex)
         && method
             .params
             .iter()
@@ -128,7 +127,7 @@ fn gen_opaque_instance_method(
         let is_owned_receiver = matches!(method.receiver, Some(ReceiverKind::Owned));
         let inner_access = if is_owned_receiver {
             "self.inner.as_ref().clone()".to_string()
-        } else if is_ref_mut_receiver && has_mut_methods {
+        } else if is_ref_mut_receiver && needs_mutex {
             "self.inner.lock().unwrap()".to_string()
         } else {
             "self.inner".to_string()
@@ -185,7 +184,7 @@ fn gen_opaque_async_instance_method(
     mapper: &MagnusMapper,
     type_name: &str,
     opaque_types: &AHashSet<String>,
-    has_mut_methods: bool,
+    needs_mutex: bool,
 ) -> String {
     use alef_codegen::shared;
     let params = function_params(&method.params, &|ty| mapper.map_type(ty));
@@ -193,10 +192,10 @@ fn gen_opaque_async_instance_method(
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
 
     let is_ref_mut_receiver = matches!(method.receiver, Some(alef_core::ir::ReceiverKind::RefMut));
-    // RefMut methods can be delegated if the type is Mutex-wrapped (has_mut_methods).
+    // RefMut methods can be delegated if the type is Mutex-wrapped (needs_mutex).
     // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
     let can_delegate = !method.sanitized
-        && (!is_ref_mut_receiver || has_mut_methods)
+        && (!is_ref_mut_receiver || needs_mutex)
         && method
             .params
             .iter()
@@ -205,7 +204,7 @@ fn gen_opaque_async_instance_method(
 
     let body = if can_delegate {
         let call_args = generators::gen_call_args(&method.params, opaque_types);
-        let inner_setup = if is_ref_mut_receiver && has_mut_methods {
+        let inner_setup = if is_ref_mut_receiver && needs_mutex {
             "let inner = self.inner.lock().unwrap();\n        ".to_string()
         } else {
             "let inner = self.inner.clone();\n        ".to_string()

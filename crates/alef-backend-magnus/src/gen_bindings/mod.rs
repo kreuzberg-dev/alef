@@ -166,8 +166,17 @@ impl Backend for MagnusBackend {
             .filter(|t| t.is_opaque)
             .map(|t| t.name.clone())
             .collect();
+        let mutex_types: AHashSet<String> = api
+            .types
+            .iter()
+            .filter(|t| t.is_opaque && generators::type_needs_mutex(t))
+            .map(|t| t.name.clone())
+            .collect();
         if !opaque_types.is_empty() {
             builder.add_import("std::sync::Arc");
+        }
+        if !mutex_types.is_empty() {
+            builder.add_import("std::sync::Mutex");
         }
 
         // Check if any data enum exists (needs json_to_ruby helper)
