@@ -4,7 +4,7 @@ use crate::type_map::WasmMapper;
 use ahash::AHashSet;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_codegen::{generators, naming::to_node_name, shared};
-use alef_core::ir::{MethodDef, TypeRef};
+use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 
 use super::functions::{emit_rustdoc, format_param_unused, wasm_wrap_return};
 
@@ -16,8 +16,30 @@ pub(super) fn gen_method(
     core_import: &str,
     opaque_types: &AHashSet<String>,
     prefix: &str,
+    typ: &TypeDef,
 ) -> String {
-    let can_delegate = shared::can_auto_delegate(method, opaque_types);
+    // Check if the type has any RefMut methods (which means inner is wrapped in Mutex).
+    let has_mut_methods = typ
+        .methods
+        .iter()
+        .any(|m| matches!(m.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut)));
+
+    let is_ref_mut_receiver = matches!(method.receiver.as_ref(), Some(alef_core::ir::ReceiverKind::RefMut));
+
+    // For opaque types, allow delegation of RefMut methods if the type is Mutex-wrapped.
+    // Arc<T> doesn't support &mut T directly, but Arc<Mutex<T>> does via lock().
+    let can_delegate_base = shared::can_auto_delegate(method, opaque_types);
+    let can_delegate = if is_ref_mut_receiver && has_mut_methods {
+        // RefMut methods are delegatable if the type has Mutex wrapping
+        !method.sanitized
+            && method
+                .params
+                .iter()
+                .all(|p| !p.sanitized && alef_codegen::shared::is_delegatable_param(&p.ty, opaque_types))
+            && alef_codegen::shared::is_opaque_delegatable_type(&method.return_type)
+    } else {
+        can_delegate_base
+    };
 
     let params: Vec<String> = method
         .params
@@ -126,10 +148,18 @@ pub(super) fn gen_method(
         } else {
             generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
         };
-        let core_call = format!(
-            "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
-            method_name = method.name
-        );
+        let core_call = if has_mut_methods && !is_ref_mut_receiver {
+            // For Mutex-wrapped types, access via lock() even for immutable methods
+            format!(
+                "self.inner.lock().unwrap().{method_name}({call_args})",
+                method_name = method.name
+            )
+        } else {
+            format!(
+                "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
+                method_name = method.name
+            )
+        };
         let body = if method.error_type.is_some() {
             format!(
                 "{let_bindings}let result = {core_call}.await\n        \
@@ -221,10 +251,18 @@ pub(super) fn gen_method(
             } else {
                 generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
             };
-            let core_call = format!(
-                "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
-                method_name = method.name
-            );
+            let core_call = if has_mut_methods && !is_ref_mut_receiver {
+                // For Mutex-wrapped types, access via lock() even for immutable methods
+                format!(
+                    "self.inner.lock().unwrap().{method_name}({call_args})",
+                    method_name = method.name
+                )
+            } else {
+                format!(
+                    "{core_import}::{type_name}::from(self.clone()).{method_name}({call_args})",
+                    method_name = method.name
+                )
+            };
             if method.error_type.is_some() {
                 let wrap = wasm_wrap_return(
                     "result",
