@@ -7,7 +7,9 @@
 //!   - converts the return value back to a bridge type
 //!   - for async fns, blocks on a current-thread Tokio runtime
 
-use crate::gen_rust_crate::type_bridge::{bridge_type, needs_json_bridge, swift_bridge_rust_type};
+use crate::gen_rust_crate::type_bridge::{
+    bridge_type, bridge_type_with_handles, needs_json_bridge, needs_json_bridge_with_handles, swift_bridge_rust_type,
+};
 use alef_core::ir::{FunctionDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::ToSnakeCase;
@@ -23,6 +25,7 @@ pub(crate) fn is_bridgeable_fn(
     enum_names: &std::collections::HashSet<&str>,
     type_paths: &HashMap<String, String>,
     no_serde_names: &std::collections::HashSet<&str>,
+    handle_returned_types: &HashSet<String>,
 ) -> bool {
     // Enum parameter: no reverse From generated.
     if f.params
@@ -61,7 +64,7 @@ pub(crate) fn is_bridgeable_fn(
             _ => None,
         }
     }
-    if needs_json_bridge(&f.return_type) {
+    if needs_json_bridge_with_handles(&f.return_type, handle_returned_types) {
         if let Some(inner_name) = inner_named(&f.return_type) {
             if !type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name) {
                 return false;
@@ -204,6 +207,7 @@ pub(crate) fn emit_function_shim(
     type_paths: &HashMap<String, String>,
     enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
+    handle_returned_types: &HashSet<String>,
 ) -> String {
     // Match the extern block's escaping so the wrapper fn matches the extern decl.
     let fn_name = swift_ident(&f.name.to_snake_case());
@@ -223,15 +227,16 @@ pub(crate) fn emit_function_shim(
         .collect();
     let params_str = params.join(", ");
 
+    // Mirror the extern-block return mapper so the shim signature matches.
     let return_ty = if f.error_type.is_some() {
-        let ok_ty = bridge_type(&f.return_type);
+        let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
         if matches!(f.return_type, TypeRef::Unit) {
             "Result<(), String>".to_string()
         } else {
             format!("Result<{ok_ty}, String>")
         }
     } else {
-        bridge_type(&f.return_type)
+        bridge_type_with_handles(&f.return_type, handle_returned_types)
     };
 
     // Build call args, deserializing JSON-bridged params before passing to the real fn
@@ -283,7 +288,7 @@ pub(crate) fn emit_function_shim(
             _ => None,
         }
     }
-    if needs_json_bridge(&f.return_type) {
+    if needs_json_bridge_with_handles(&f.return_type, handle_returned_types) {
         if let Some(inner_name) = inner_named_type(&f.return_type) {
             if !type_paths.contains_key(inner_name) || no_serde_names.contains(inner_name) {
                 // The inner Named type is not in the visible type table or lacks serde.
@@ -303,7 +308,7 @@ pub(crate) fn emit_function_shim(
     // supported by swift-bridge 0.1.59 (nested generics, HashMap). Named return
     // types must be wrapped in their swift-bridge newtype (`pub struct T(pub kreuzberg::T)`).
     // Async fns must `.await` before mapping; sync fns can chain directly.
-    let json_wrap_ok = needs_json_bridge(&f.return_type);
+    let json_wrap_ok = needs_json_bridge_with_handles(&f.return_type, handle_returned_types);
 
     // Build a wrapper expression for a Named type `t`.
     // Enum wrappers implement From<kreuzberg::T> — use T::from(val) or val.map(T::from).

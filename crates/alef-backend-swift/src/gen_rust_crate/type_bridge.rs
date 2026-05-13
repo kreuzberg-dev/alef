@@ -4,7 +4,71 @@
 //! `is_bridge_leaf`, and `rust_primitive_str` — pure functions with no
 //! side effects used across all other submodules.
 
-use alef_core::ir::{PrimitiveType, TypeRef};
+use alef_core::ir::{ApiSurface, PrimitiveType, TypeRef};
+use std::collections::HashSet;
+
+/// Compute the set of api type names that are directly returned as opaque handles.
+///
+/// Mirrors `compute_handle_returned_types` in the C# backend.  Any api type that
+/// appears as a `Named(T)` return on a public function/method — possibly wrapped
+/// in `Optional` or `Vec` — is exposed as `*mut T` in the FFI, so the Swift side
+/// must route it through the opaque-class wrapper instead of a JSON String.
+///
+/// Without this set, `Option<Named(T)>` returns hit `needs_json_bridge(Optional) ==
+/// true` and get collapsed to `String` (RustString in Swift), losing the handle.
+pub(crate) fn compute_handle_returned_types(api: &ApiSurface) -> HashSet<String> {
+    fn inner_named(ty: &TypeRef) -> Option<&str> {
+        match ty {
+            TypeRef::Named(n) => Some(n.as_str()),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => inner_named(inner),
+            _ => None,
+        }
+    }
+
+    let mut handle_types = HashSet::new();
+    for func in &api.functions {
+        if let Some(name) = inner_named(&func.return_type) {
+            handle_types.insert(name.to_string());
+        }
+    }
+    for typ in &api.types {
+        for method in &typ.methods {
+            if let Some(name) = inner_named(&method.return_type) {
+                handle_types.insert(name.to_string());
+            }
+        }
+    }
+    handle_types
+}
+
+/// Like `needs_json_bridge` but lets `Optional<Named(T)>` / `Vec<Named(T)>` through
+/// when T is a known opaque-handle-returned type.  swift-bridge supports these forms
+/// natively when T is declared as `type T;` in the extern block.
+pub(crate) fn needs_json_bridge_with_handles(ty: &TypeRef, handle_types: &HashSet<String>) -> bool {
+    match ty {
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if handle_types.contains(n) => false,
+            _ => needs_json_bridge(ty),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) if handle_types.contains(n) => false,
+            _ => needs_json_bridge(ty),
+        },
+        _ => needs_json_bridge(ty),
+    }
+}
+
+/// `bridge_type` variant that respects the handle-returned type set.
+pub(crate) fn bridge_type_with_handles(ty: &TypeRef, handle_types: &HashSet<String>) -> String {
+    if needs_json_bridge_with_handles(ty, handle_types) {
+        return "String".to_string();
+    }
+    match ty {
+        TypeRef::Optional(inner) => format!("Option<{}>", bridge_type_with_handles(inner, handle_types)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", bridge_type_with_handles(inner, handle_types)),
+        _ => swift_bridge_rust_type(ty),
+    }
+}
 
 /// Returns true for types that swift-bridge 0.1.59 cannot handle inside `extern "Rust"` blocks.
 ///
