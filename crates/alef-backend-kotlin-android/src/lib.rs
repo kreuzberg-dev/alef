@@ -22,6 +22,7 @@
 
 pub mod gen_bindings;
 pub mod gen_build_gradle;
+pub mod gen_editorconfig;
 pub mod gen_gitignore;
 pub mod gen_java_facade;
 pub mod gen_jni_skeleton;
@@ -104,6 +105,11 @@ impl Backend for KotlinAndroidBackend {
             GeneratedFile {
                 path: layout.package_root.join(".gitignore"),
                 content: gen_gitignore::emit(),
+                generated_header: false,
+            },
+            GeneratedFile {
+                path: layout.package_root.join(".editorconfig"),
+                content: gen_editorconfig::emit(),
                 generated_header: false,
             },
         ];

@@ -38,6 +38,32 @@ pub(super) fn is_skipped(fixture: &Fixture, language: &str) -> bool {
     fixture.skip.as_ref().is_some_and(|s| s.should_skip(language))
 }
 
+/// Returns true when the rendered test body contains a word-boundary reference to `symbol`.
+/// Used to decide whether a `use ...::Symbol;` import is needed; emitting it unconditionally
+/// trips `-D unused_imports` for fixtures whose bodies never reference the symbol.
+fn body_references_symbol(body: &str, symbol: &str) -> bool {
+    let bytes = body.as_bytes();
+    let sym = symbol.as_bytes();
+    let n = bytes.len();
+    let m = sym.len();
+    if m == 0 || m > n {
+        return false;
+    }
+    let is_word = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let mut i = 0;
+    while i + m <= n {
+        if bytes[i..i + m] == *sym {
+            let before_ok = i == 0 || !is_word(bytes[i - 1]);
+            let after_ok = i + m == n || !is_word(bytes[i + m]);
+            if before_ok && after_ok {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
+
 pub fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -121,16 +147,34 @@ pub fn render_test_file(
         let _ = writeln!(out, "use {module}::{{App, RequestContext}};");
     }
 
+    // Render test function bodies into a side buffer so we can gate optional imports
+    // on whether the body actually references each imported symbol. Emitting unused
+    // imports trips `-D unused_imports` in the consumer crate.
+    let mut body_buf = String::new();
+    for fixture in fixtures {
+        render_test_function(
+            &mut body_buf,
+            fixture,
+            e2e_config,
+            dep_name,
+            &field_resolver,
+            client_factory,
+        );
+        let _ = writeln!(body_buf);
+    }
+
     // Import handle constructor functions and the config type they use.
     let has_handle_args = e2e_config.call.args.iter().any(|a| a.arg_type == "handle");
-    if has_handle_args {
+    if has_handle_args && body_references_symbol(&body_buf, "CrawlConfig") {
         let _ = writeln!(out, "use {module}::CrawlConfig;");
     }
     for arg in &e2e_config.call.args {
         if arg.arg_type == "handle" {
             use heck::ToSnakeCase;
             let constructor_name = format!("create_{}", arg.name.to_snake_case());
-            let _ = writeln!(out, "use {module}::{constructor_name};");
+            if body_references_symbol(&body_buf, &constructor_name) {
+                let _ = writeln!(out, "use {module}::{constructor_name};");
+            }
         }
     }
 
@@ -195,7 +239,7 @@ pub fn render_test_file(
             // Only emit if the call has a json_object arg (the type annotation is only
             // added to json_object bindings).
             let has_json_object_arg = e2e_config.call.args.iter().any(|a| a.arg_type == "json_object");
-            if has_json_object_arg {
+            if has_json_object_arg && body_references_symbol(&body_buf, opts_type) {
                 let _ = writeln!(out, "use {module}::{opts_type};");
             }
         }
@@ -252,16 +296,14 @@ pub fn render_test_file(
             ) {
                 continue;
             }
-            let _ = writeln!(out, "use {module}::{elem_type};");
+            if body_references_symbol(&body_buf, elem_type) {
+                let _ = writeln!(out, "use {module}::{elem_type};");
+            }
         }
     }
 
     let _ = writeln!(out);
-
-    for fixture in fixtures {
-        render_test_function(&mut out, fixture, e2e_config, dep_name, &field_resolver, client_factory);
-        let _ = writeln!(out);
-    }
+    out.push_str(&body_buf);
 
     if !out.ends_with('\n') {
         out.push('\n');
