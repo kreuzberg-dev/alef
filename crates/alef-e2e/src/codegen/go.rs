@@ -272,18 +272,28 @@ fn render_main_test_go(test_documents_dir: &str) -> String {
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "\t// Change to the configured test-documents directory so that fixture file paths like"
+        "\t// Change to the configured test-documents directory (if it exists) so that fixture"
     );
     let _ = writeln!(
         out,
-        "\t// \"pdf/fake_memo.pdf\" resolve correctly when running go test from e2e/go/."
+        "\t// file paths like \"pdf/fake_memo.pdf\" resolve correctly when running go test"
     );
+    let _ = writeln!(
+        out,
+        "\t// from e2e/go/. Repos without document fixtures (web crawler, network clients) do"
+    );
+    let _ = writeln!(out, "\t// not ship this directory — skip chdir and run from e2e/go/.");
     let _ = writeln!(
         out,
         "\ttestDocumentsDir := filepath.Join(dir, \"..\", \"..\", \"{test_documents_dir}\")"
     );
-    let _ = writeln!(out, "\tif err := os.Chdir(testDocumentsDir); err != nil {{");
-    let _ = writeln!(out, "\t\tpanic(err)");
+    let _ = writeln!(
+        out,
+        "\tif info, err := os.Stat(testDocumentsDir); err == nil && info.IsDir() {{"
+    );
+    let _ = writeln!(out, "\t\tif err := os.Chdir(testDocumentsDir); err != nil {{");
+    let _ = writeln!(out, "\t\t\tpanic(err)");
+    let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "\t// Start the mock HTTP server if it exists.");
