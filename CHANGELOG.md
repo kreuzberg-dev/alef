@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.15.67] - 2026-05-14
+## [0.15.68] - 2026-05-14
 
 ### Fixed
 
@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-scaffold (swift.rs)**: write `Sources/{module}/{module}.swift` stub so SwiftPM
   can register the `.library` product; without a source file in the target directory
   `swift test` fails with "product not found in package".
+
+## [0.15.67] - 2026-05-14
+
+Version bump only — no functional changes.
 
 ## [0.15.66] - 2026-05-14
 
