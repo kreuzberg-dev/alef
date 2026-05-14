@@ -54,6 +54,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Snapshot tests cover every emitted file for a representative API
     (struct, enum, error, sync fn, async fn). insta-based, `cargo test
     -p alef-backend-kotlin-android`.
+  - **ktlint compliance out of the box**: the emitted `build.gradle.kts`
+    applies the `org.jlleitschuh.gradle.ktlint` plugin (pinned via
+    `template_versions::maven::KTLINT_GRADLE_PLUGIN` / `KTLINT`) and the
+    emitted `.editorconfig` disables `ktlint_standard_package-name` so the
+    co-located Java facade — whose package is reverse-DNS-derived from the
+    repo's `repository` URL and may carry underscores (e.g.
+    `com.github.kreuzberg_dev`) — does not trip the strict
+    `standard:package-name` rule. All other ktlint rules remain on; after
+    `alef generate --format`, `gradle ktlintCheck` passes clean on the
+    full emission.
+  - **`maven-publish` singleVariant("release")**: `android { publishing }`
+    block configures the `release` variant with `withSourcesJar()` so the
+    `publishAndReleaseToMavenCentral` task (vanniktech-compatible) finds
+    a valid publication.
+  - **AGP 8.x compatibility**: builds with `com.android.library` 8.x +
+    explicit `kotlin("android")` plugin. The deprecated `kotlinOptions`
+    DSL was dropped; AGP's `compileOptions` (sourceCompatibility /
+    targetCompatibility) drives the Kotlin compile JVM target.
 
 ### Fixed
 

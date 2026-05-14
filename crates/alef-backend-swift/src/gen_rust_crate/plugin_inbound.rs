@@ -412,7 +412,16 @@ fn emit_inbound_method_impl(
     let method_snake = method.name.to_snake_case();
 
     // Build signature matching the original trait method.
-    let mut sig_params = vec!["&self".to_string()];
+    // Use the receiver kind from the IR so that `&mut self` methods are not silently
+    // emitted as `&self`, which would cause E0053 ("incompatible type for trait").
+    let receiver_token = match &method.receiver {
+        Some(alef_core::ir::ReceiverKind::RefMut) => "&mut self",
+        Some(alef_core::ir::ReceiverKind::Owned) => "self",
+        // Default to `&self` for `Ref` and for the `None` case (static methods
+        // should not reach here, but be defensive).
+        _ => "&self",
+    };
+    let mut sig_params = vec![receiver_token.to_string()];
     for p in &method.params {
         let ty = inbound_native_ty(&p.ty, source_crate, type_paths);
         let mut prefix = String::new();
