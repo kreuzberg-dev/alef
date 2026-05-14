@@ -225,26 +225,33 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> Strin
     out.push_str("    {\n");
     let _ = writeln!(
         out,
-        "        // Walk up from the assembly directory until we find the repo root"
+        "        // Walk up from the assembly directory until we find the repo root."
     );
     let _ = writeln!(
         out,
-        "        // (the directory containing {test_documents_dir}/) so that fixture paths"
+        "        // Prefer a sibling {test_documents_dir}/ directory (chdir into it so that"
     );
-    out.push_str("        // like \"docx/fake.docx\" resolve regardless of where dotnet test\n");
-    out.push_str("        // launched the runner from.\n");
+    out.push_str("        // fixture paths like \"docx/fake.docx\" resolve relative to it). If that\n");
+    out.push_str("        // is absent (web-crawler-style repos with no document fixtures), fall\n");
+    out.push_str("        // back to a sibling alef.toml or fixtures/ marker as the repo root.\n");
     out.push_str("        var dir = new DirectoryInfo(AppContext.BaseDirectory);\n");
     out.push_str("        DirectoryInfo? repoRoot = null;\n");
     out.push_str("        while (dir != null)\n");
     out.push_str("        {\n");
     let _ = writeln!(
         out,
-        "            var candidate = Path.Combine(dir.FullName, \"{test_documents_dir}\");"
+        "            var documentsCandidate = Path.Combine(dir.FullName, \"{test_documents_dir}\");"
     );
-    out.push_str("            if (Directory.Exists(candidate))\n");
+    out.push_str("            if (Directory.Exists(documentsCandidate))\n");
     out.push_str("            {\n");
     out.push_str("                repoRoot = dir;\n");
-    out.push_str("                Directory.SetCurrentDirectory(candidate);\n");
+    out.push_str("                Directory.SetCurrentDirectory(documentsCandidate);\n");
+    out.push_str("                break;\n");
+    out.push_str("            }\n");
+    out.push_str("            if (File.Exists(Path.Combine(dir.FullName, \"alef.toml\"))\n");
+    out.push_str("                || Directory.Exists(Path.Combine(dir.FullName, \"fixtures\")))\n");
+    out.push_str("            {\n");
+    out.push_str("                repoRoot = dir;\n");
     out.push_str("                break;\n");
     out.push_str("            }\n");
     out.push_str("            dir = dir.Parent;\n");
@@ -266,7 +273,7 @@ fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str) -> Strin
         out.push_str("        {\n");
         let _ = writeln!(
             out,
-            "            throw new InvalidOperationException(\"TestSetup: could not locate repo root ({test_documents_dir}/ not found)\");"
+            "            throw new InvalidOperationException(\"TestSetup: could not locate repo root ({test_documents_dir}/, alef.toml, or fixtures/ not found in any ancestor of \" + AppContext.BaseDirectory + \")\");"
         );
         out.push_str("        }\n");
         out.push_str("        var bin = Path.Combine(\n");
