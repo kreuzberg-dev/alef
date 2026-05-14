@@ -1,15 +1,8 @@
 //! Swift e2e test generator using XCTest.
 //!
-//! Generates test files for the swift package in `packages/swift/Tests/<Module>Tests/`.
-//!
-//! IMPORTANT: Due to SwiftPM 6.0 limitations (forbids inter-package `.package(path:)`
-//! references within a monorepo), generated test files are placed directly inside
-//! the `packages/swift` package (not in a separate `e2e/swift` package). This allows
-//! tests to depend on the library target without an explicit package dependency.
-//!
-//! The generated `Package.swift` is placed in `e2e/swift/` for documentation and CI
-//! reference but is NOT used for running tests — tests are run from the
-//! `packages/swift/` directory using `swift test`.
+//! Generates test files in `e2e/swift/Tests/KreuzbergE2ETests/` along with a
+//! self-contained `Package.swift` that declares a `.package(path:)` dependency
+//! on the kreuzberg-swift library in `packages/swift`.
 
 use crate::config::E2eConfig;
 use crate::escape::{escape_java as escape_swift_str, expand_fixture_templates, sanitize_filename, sanitize_ident};
@@ -87,28 +80,17 @@ impl E2eCodegen for SwiftE2eCodegen {
             })
             .unwrap_or_else(|_| format!("https://example.invalid/{module_name}.git"));
 
-        // Generate Package.swift (kept for tooling/CI reference but not used
-        // for running tests — see note below).
+        // Generate Package.swift with a path-based dependency on packages/swift.
         files.push(GeneratedFile {
             path: output_base.join("Package.swift"),
             content: render_package_swift(module_name, &registry_url, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
-        // Swift e2e tests are written into the *packages/swift* package rather
-        // than into the separate e2e/swift package.  SwiftPM 6.0 forbids local
-        // `.package(path:)` references between packages inside the same git
-        // repository, so a standalone e2e/swift package cannot depend on
-        // packages/swift.  Placing the test files directly inside
-        // packages/swift/Tests/<Module>Tests/ sidesteps the restriction: the
-        // tests are part of the same SwiftPM package that defines the library
-        // target, so no inter-package dependency is needed.
-        //
-        // `pkg_path` is expressed relative to the e2e/<lang> directory (e.g.
-        // "../../packages/swift").  Joining it onto `output_base` and
-        // normalising collapses the traversals to the actual project-root-
-        // relative path (e.g. "packages/swift").
-        let tests_base = normalize_path(&output_base.join(&pkg_path));
+        // Swift e2e tests are written into `e2e/swift/Tests/KreuzbergE2ETests/`.
+        // The Package.swift declares `.package(path: "../../packages/swift")` to depend
+        // on the kreuzberg-swift library, which works fine with SwiftPM 6.0.
+        let tests_base = output_base.clone();
 
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
@@ -150,10 +132,7 @@ impl E2eCodegen for SwiftE2eCodegen {
                 client_factory,
             );
             files.push(GeneratedFile {
-                path: tests_base
-                    .join("Tests")
-                    .join(format!("{module_name}Tests"))
-                    .join(filename),
+                path: tests_base.join("Tests").join("KreuzbergE2ETests").join(filename),
                 content,
                 generated_header: true,
             });
@@ -226,7 +205,7 @@ let package = Package(
     ],
     targets: [
         .testTarget(
-            name: "{module_name}Tests",
+            name: "KreuzbergE2ETests",
             dependencies: [{product_dep}]
         ),
     ]
@@ -278,17 +257,17 @@ fn render_test_file(
         // Chdir once at class setUp so all fixture file_path arguments resolve relative
         // to the repository's test_documents directory.
         //
-        // #filePath = <repo>/packages/swift/Tests/<Module>Tests/<Class>.swift
-        // 5 deletingLastPathComponent() calls climb to the repo root before appending
+        // #filePath = <repo>/e2e/swift/Tests/KreuzbergE2ETests/<Class>.swift
+        // 4 deletingLastPathComponent() calls climb to the repo root before appending
         // "test_documents". Mirrors the Ruby/Python conftest pattern that chdirs to
         // test_documents.
         let _ = writeln!(out, "    override class func setUp() {{");
         let _ = writeln!(out, "        super.setUp()");
         let _ = writeln!(out, "        let _testDocs = URL(fileURLWithPath: #filePath)");
-        let _ = writeln!(out, "            .deletingLastPathComponent() // <Module>Tests/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // KreuzbergE2ETests/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // Tests/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // swift/");
-        let _ = writeln!(out, "            .deletingLastPathComponent() // packages/");
+        let _ = writeln!(out, "            .deletingLastPathComponent() // e2e/");
         let _ = writeln!(out, "            .deletingLastPathComponent() // <repo root>");
         let _ = writeln!(
             out,
@@ -1959,26 +1938,6 @@ fn swift_array_count_expr(field: Option<&str>, result_var: &str, field_resolver:
 /// This mirrors what `std::fs::canonicalize` does but works on paths that do
 /// not yet exist on disk (generated-file paths).  Only `..` traversals are
 /// collapsed; `.` components are dropped; nothing else is changed.
-fn normalize_path(path: &std::path::Path) -> std::path::PathBuf {
-    let mut components = std::path::PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                // Pop the last pushed component if there is one that isn't
-                // already a `..` (avoids over-collapsing `../../foo`).
-                if !components.as_os_str().is_empty() {
-                    components.pop();
-                } else {
-                    components.push(component);
-                }
-            }
-            std::path::Component::CurDir => {}
-            other => components.push(other),
-        }
-    }
-    components
-}
-
 /// Convert a `serde_json::Value` to a Swift literal string.
 fn json_to_swift(value: &serde_json::Value) -> String {
     match value {
