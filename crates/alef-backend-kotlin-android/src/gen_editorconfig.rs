@@ -43,6 +43,8 @@ ktlint_standard_function-expression-body = disabled
 ktlint_standard_no-empty-class-body = disabled
 ktlint_standard_no-empty-first-line-in-method-block = disabled
 ktlint_standard_indent = disabled
+# `string-template-indent` depends on `indent`; must be disabled together.
+ktlint_standard_string-template-indent = disabled
 ktlint_standard_filename = disabled
 
 [*.gradle.kts]
@@ -57,6 +59,8 @@ ktlint_standard_function-expression-body = disabled
 ktlint_standard_no-empty-class-body = disabled
 ktlint_standard_no-empty-first-line-in-method-block = disabled
 ktlint_standard_indent = disabled
+# `string-template-indent` depends on `indent`; must be disabled together.
+ktlint_standard_string-template-indent = disabled
 ktlint_standard_filename = disabled
 
 [*.{xml,pro,gitignore}]
