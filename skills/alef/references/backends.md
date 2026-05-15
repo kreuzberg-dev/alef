@@ -29,12 +29,12 @@ Every backend implements:
 
 Configured via `[dto] python = "..."` and optionally `[dto] python_output = "..."` (output types can differ from input types).
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `@dataclass` | `"dataclass"` (default) | Standard immutable data containers. Good general-purpose choice. |
-| `TypedDict` | `"typed-dict"` | When consumers prefer plain dicts. Useful for output/return types. |
-| `pydantic.BaseModel` | `"pydantic"` | When validation, serialization, and schema generation are needed. |
-| `msgspec.Struct` | `"msgspec"` | When high-performance serialization is the priority. |
+| Style                | TOML value              | When to use                                                        |
+| -------------------- | ----------------------- | ------------------------------------------------------------------ |
+| `@dataclass`         | `"dataclass"` (default) | Standard immutable data containers. Good general-purpose choice.   |
+| `TypedDict`          | `"typed-dict"`          | When consumers prefer plain dicts. Useful for output/return types. |
+| `pydantic.BaseModel` | `"pydantic"`            | When validation, serialization, and schema generation are needed.  |
+| `msgspec.Struct`     | `"msgspec"`             | When high-performance serialization is the priority.               |
 
 ### Generated output
 
@@ -74,10 +74,10 @@ output = "packages/python/src/my_lib/"
 
 Configured via `[dto] node = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `interface` | `"interface"` (default) | Standard TypeScript interfaces. Best for most use cases. |
-| `zod` | `"zod"` | When runtime validation schemas are needed alongside type definitions. |
+| Style       | TOML value              | When to use                                                            |
+| ----------- | ----------------------- | ---------------------------------------------------------------------- |
+| `interface` | `"interface"` (default) | Standard TypeScript interfaces. Best for most use cases.               |
+| `zod`       | `"zod"`                 | When runtime validation schemas are needed alongside type definitions. |
 
 ### Generated output
 
@@ -146,11 +146,11 @@ serde_rename_all = "camelCase"       # Field naming (default: camelCase)
 
 Configured via `[dto] ruby = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `Struct` | `"struct"` (default) | Ruby `Struct` class. Simple and idiomatic. |
-| `Dry::Struct` | `"dry-struct"` | When using the dry-rb ecosystem with type coercion and validation. |
-| `Data` | `"data"` | Ruby 3.2+ `Data` class for frozen value objects. |
+| Style         | TOML value           | When to use                                                        |
+| ------------- | -------------------- | ------------------------------------------------------------------ |
+| `Struct`      | `"struct"` (default) | Ruby `Struct` class. Simple and idiomatic.                         |
+| `Dry::Struct` | `"dry-struct"`       | When using the dry-rb ecosystem with type coercion and validation. |
+| `Data`        | `"data"`             | Ruby 3.2+ `Data` class for frozen value objects.                   |
 
 ### Generated output
 
@@ -187,10 +187,10 @@ output = "packages/ruby/sig/"
 
 Configured via `[dto] php = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `readonly class` | `"readonly-class"` (default) | PHP 8.2+ readonly classes. Type-safe and immutable. |
-| `array` | `"array"` | When consumers prefer associative arrays over objects. |
+| Style            | TOML value                   | When to use                                            |
+| ---------------- | ---------------------------- | ------------------------------------------------------ |
+| `readonly class` | `"readonly-class"` (default) | PHP 8.2+ readonly classes. Type-safe and immutable.    |
+| `array`          | `"array"`                    | When consumers prefer associative arrays over objects. |
 
 ### Generated output
 
@@ -267,8 +267,8 @@ serde_rename_all = "snake_case"  # Field naming (default: snake_case)
 
 Configured via `[dto] go = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
+| Style    | TOML value           | When to use                                                |
+| -------- | -------------------- | ---------------------------------------------------------- |
 | `struct` | `"struct"` (default) | Standard Go structs with JSON tags. Only option currently. |
 
 ### Generated output
@@ -305,8 +305,8 @@ serde_rename_all = "snake_case"              # JSON field naming (default: snake
 
 Configured via `[dto] java = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
+| Style    | TOML value           | When to use                                                                                           |
+| -------- | -------------------- | ----------------------------------------------------------------------------------------------------- |
 | `record` | `"record"` (default) | Java 17+ records. Immutable, concise, with auto-generated `equals`/`hashCode`. Only option currently. |
 
 ### Generated output
@@ -346,8 +346,8 @@ serde_rename_all = "camelCase"   # Field naming (default: camelCase)
 
 Configured via `[dto] csharp = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
+| Style    | TOML value           | When to use                                                          |
+| -------- | -------------------- | -------------------------------------------------------------------- |
 | `record` | `"record"` (default) | C# record types with `PascalCase` properties. Only option currently. |
 
 ### Generated output
@@ -385,10 +385,10 @@ serde_rename_all = "camelCase"       # Field naming (default: camelCase)
 
 Configured via `[dto] elixir = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `struct` | `"struct"` (default) | Elixir `defstruct`. Standard and idiomatic. |
-| `typed_struct` | `"typed-struct"` | When using the `TypedStruct` library for compile-time type enforcement. |
+| Style          | TOML value           | When to use                                                             |
+| -------------- | -------------------- | ----------------------------------------------------------------------- |
+| `struct`       | `"struct"` (default) | Elixir `defstruct`. Standard and idiomatic.                             |
+| `typed_struct` | `"typed-struct"`     | When using the `TypedStruct` library for compile-time type enforcement. |
 
 ### Generated output
 
@@ -422,10 +422,10 @@ serde_rename_all = "snake_case"  # Field naming (default: snake_case)
 
 Configured via `[dto] r = "..."`.
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `list` | `"list"` (default) | R named lists. Simple, works with all R code. |
-| `R6` | `"r6"` | R6 reference classes for OOP-style APIs with mutable state. |
+| Style  | TOML value         | When to use                                                 |
+| ------ | ------------------ | ----------------------------------------------------------- |
+| `list` | `"list"` (default) | R named lists. Simple, works with all R code.               |
+| `R6`   | `"r6"`             | R6 reference classes for OOP-style APIs with mutable state. |
 
 ### Generated output
 
@@ -457,10 +457,10 @@ serde_rename_all = "snake_case"    # Field naming (default: snake_case)
 
 ### DTO styles
 
-| Style | TOML value | When to use |
-|-------|-----------|-------------|
-| `data class` | `"data-class"` (default) | Idiomatic Kotlin records with structural equality and copy semantics |
-| `sealed class` | `"sealed-class"` | Polymorphic enum-with-data shapes |
+| Style          | TOML value               | When to use                                                          |
+| -------------- | ------------------------ | -------------------------------------------------------------------- |
+| `data class`   | `"data-class"` (default) | Idiomatic Kotlin records with structural equality and copy semantics |
+| `sealed class` | `"sealed-class"`         | Polymorphic enum-with-data shapes                                    |
 
 ### Generated output
 
@@ -662,6 +662,6 @@ r = "list"
 
 ### Serde rename defaults
 
-| Default `camelCase` | Default `snake_case` |
-|---------------------|---------------------|
+| Default `camelCase`                       | Default `snake_case`                              |
+| ----------------------------------------- | ------------------------------------------------- |
 | Node, WASM, Java, Kotlin, C#, Swift, Dart | Python, Ruby, PHP, Go, FFI, Elixir, Gleam, R, Zig |

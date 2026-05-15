@@ -215,14 +215,35 @@ pub(crate) fn emit_default_construction_body(
                     },
                 ));
             } else if matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes) {
-                // Vec<Primitive> or Vec<Bytes> in non-serde struct: types should match.
-                out.push_str(&crate::template_env::render(
-                    "default_field_vec_primitive_assign.jinja",
-                    minijinja::context! {
-                        param => &param,
-                        name => &name,
-                    },
-                ));
+                // Vec<Primitive> or Vec<Bytes>: two sub-cases.
+                //
+                // (a) sanitized=true means the IR rewrote a Rust tuple (e.g. `(usize, usize)`)
+                //     to `Vec<Primitive>` via `parse_homogeneous_tuple`.  The bridge parameter
+                //     arrives as `Vec<ElemT>` but the source field is still a tuple — direct
+                //     assignment would produce a type-mismatch compile error.  When the struct
+                //     implements serde (which it always does for homogeneous-tuple fields in
+                //     practice), a JSON round-trip is the safest way to convert: serde serialises
+                //     `Vec<usize>` → `[1,3]` and deserialises `[1,3]` → `(usize,usize)` using
+                //     the target field's inferred type.
+                //
+                // (b) sanitized=false: types match (plain Vec<Primitive>); direct assignment.
+                if f.sanitized && ty.has_serde {
+                    out.push_str(&crate::template_env::render(
+                        "default_field_vec_serde_round_trip.jinja",
+                        minijinja::context! {
+                            param => &param,
+                            name => &name,
+                        },
+                    ));
+                } else {
+                    out.push_str(&crate::template_env::render(
+                        "default_field_vec_primitive_assign.jinja",
+                        minijinja::context! {
+                            param => &param,
+                            name => &name,
+                        },
+                    ));
+                }
             } else {
                 // Vec<non-Primitive> in non-serde struct: actual type may differ from IR.
                 // Leave at Default to avoid type mismatches.
@@ -381,6 +402,22 @@ pub(crate) fn emit_direct_field_inits(
                         } else {
                             format!("            {name}: {name}.into_iter().map(|w| {unwrap_expr}).collect()")
                         }
+                    }
+                } else if f.sanitized && ty.has_serde && matches!(inner.as_ref(), TypeRef::Primitive(_)) {
+                    // sanitized=true on a Vec<Primitive> field means the source Rust type is a
+                    // homogeneous tuple (e.g. `(usize, usize)`) rewritten by the IR sanitizer.
+                    // The bridge parameter is `Vec<ElemT>` but the target field is still a
+                    // tuple — direct assignment would be a type-mismatch compile error.
+                    // Use a serde JSON round-trip: Vec → JSON array → tuple, with the target
+                    // field type inferred by the compiler from `__target.{name}`.
+                    if f.optional {
+                        format!(
+                            "            {name}: {name}.and_then(|v| ::serde_json::to_value(v).ok()).and_then(|j| ::serde_json::from_value(j).ok())"
+                        )
+                    } else {
+                        format!(
+                            "            {name}: ::serde_json::to_value({name}).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()"
+                        )
                     }
                 } else {
                     format!("            {name}")

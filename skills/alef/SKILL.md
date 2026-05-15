@@ -146,19 +146,19 @@ This rewrites your config to the new `[workspace]` + `[[crates]]` layout atomica
 
 ## Supported Languages
 
-| Language | Framework | DTO Styles |
-|----------|-----------|------------|
-| Python | PyO3 | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
-| TypeScript/Node.js | NAPI-RS | `interface`, `zod` |
-| WebAssembly | wasm-bindgen | -- |
-| Ruby | Magnus | `struct`, `dry-struct`, `data` |
-| PHP | ext-php-rs | `readonly-class`, `array` |
-| Go | cgo + C FFI | `struct` |
-| Java | Panama FFM | `record` |
-| C# | P/Invoke | `record` |
-| Elixir | Rustler | `struct`, `typed-struct` |
-| R | extendr | `list`, `r6` |
-| C | cbindgen | -- |
+| Language           | Framework    | DTO Styles                                       |
+| ------------------ | ------------ | ------------------------------------------------ |
+| Python             | PyO3         | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
+| TypeScript/Node.js | NAPI-RS      | `interface`, `zod`                               |
+| WebAssembly        | wasm-bindgen | --                                               |
+| Ruby               | Magnus       | `struct`, `dry-struct`, `data`                   |
+| PHP                | ext-php-rs   | `readonly-class`, `array`                        |
+| Go                 | cgo + C FFI  | `struct`                                         |
+| Java               | Panama FFM   | `record`                                         |
+| C#                 | P/Invoke     | `record`                                         |
+| Elixir             | Rustler      | `struct`, `typed-struct`                         |
+| R                  | extendr      | `list`, `r6`                                     |
+| C                  | cbindgen     | --                                               |
 
 ## Common Workflows
 
@@ -201,11 +201,11 @@ repos:
   - repo: https://github.com/kreuzberg-dev/alef
     rev: v0.7.9
     hooks:
-      - id: alef-verify    # Check-only: fails if any output (incl. README) is stale
+      - id: alef-verify # Check-only: fails if any output (incl. README) is stale
       # OR
-      - id: alef-generate  # Auto-regenerate on .rs/.toml change
+      - id: alef-generate # Auto-regenerate on .rs/.toml change
       # OR
-      - id: alef-readme    # README-only refresh (template / snippets changes)
+      - id: alef-readme # README-only refresh (template / snippets changes)
 ```
 
 ## Caching
@@ -226,7 +226,7 @@ alef:hash:<hex> = blake3( sources_hash || file_content_without_hash_line )
 sources_hash    = blake3( sorted(rust_source_files) )
 ```
 
-`alef generate` writes whitespace-normalised codegen output and finalises the hash *after* the optional formatter pass (`--format`) has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes. Without `--format`, `alef generate` does not invoke any formatter; if you keep formatters in pre-commit hooks, run `alef fmt` (or `alef generate --format`) before committing so the hash matches the formatted bytes.
+`alef generate` writes whitespace-normalised codegen output and finalises the hash _after_ the optional formatter pass (`--format`) has run, so the on-disk hash always describes the on-disk byte content. `alef verify` reads each alef-headered file, strips the `alef:hash:` line, recomputes the same hash, and compares — no regeneration, no writes. Without `--format`, `alef generate` does not invoke any formatter; if you keep formatters in pre-commit hooks, run `alef fmt` (or `alef generate --format`) before committing so the hash matches the formatted bytes.
 
 The hash deliberately does **not** include the alef CLI version or `alef.toml`. Bumping the alef CLI on a tagged repo does not by itself flag any file as stale; verify only goes red when (a) a crate's `sources` rust file changed, (b) an alef-generated file was edited or mutated by something post-format, or (c) `alef generate` would now produce a different file body. The IR cache (`.alef/<crate>/ir.json`) keys on `sources_hash` alone — pass `--clean` to bust it when the alef extractor itself has changed.
 

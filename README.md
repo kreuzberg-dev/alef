@@ -46,29 +46,29 @@ Generate fully-typed, lint-clean language bindings for Rust libraries across 16 
 - **Visitor FFI** -- Generates a 40-method visitor callback interface via C FFI, enabling the visitor pattern in Go, Java, C#, and other FFI-based languages.
 - **Config validation** -- `alef.toml` is validated at load time. Custom command tables that override a main field must declare a `precondition` so warn-and-skip behavior is preserved on user systems. Fields whose value matches the built-in default emit a `tracing::warn!` so consumer configs stay minimal.
 - **Caching** -- blake3-based content hashing skips regeneration when source and config haven't changed.
-- **Version-idempotent verify** -- `alef verify` is a pure read+strip+rehash+compare. The hash baked into every generated file is `blake3(sources_hash || file_content_without_hash_line)` -- per-file, derived from the rust sources and the on-disk byte content; deliberately *no* alef CLI version dimension. Upgrading the alef CLI does not by itself invalidate verify on a tagged repo. `alef generate` finalises the embedded hash after the optional formatter pass (`--format`) runs, so the on-disk hash always matches the on-disk content. See [Verify model](#verify-model) below for details.
+- **Version-idempotent verify** -- `alef verify` is a pure read+strip+rehash+compare. The hash baked into every generated file is `blake3(sources_hash || file_content_without_hash_line)` -- per-file, derived from the rust sources and the on-disk byte content; deliberately _no_ alef CLI version dimension. Upgrading the alef CLI does not by itself invalidate verify on a tagged repo. `alef generate` finalises the embedded hash after the optional formatter pass (`--format`) runs, so the on-disk hash always matches the on-disk content. See [Verify model](#verify-model) below for details.
 - **Opt-in formatting + live output** -- `alef generate` writes whitespace-normalised output without invoking external formatters by default; pass `--format` to also run `cargo fmt`, `ruff format`, `oxfmt`, etc. Long-running commands (`alef setup`, `alef update`, `alef lint`, `alef test`) stream stdout/stderr live with `[<lang>]` prefixes — no more multi-minute blackouts during `pnpm install` / `bundle install` / `cargo update`. Global flags `--verbose` / `--quiet` / `--no-color` and `--version` give standard CLI ergonomics.
 
 ## Supported Languages
 
-| Language | Framework | Package Format | Test Framework | DTO Styles |
-|----------|-----------|----------------|----------------|------------|
-| Python | [PyO3](https://pyo3.rs) | PyPI (.whl) | pytest | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
-| TypeScript/Node.js | [NAPI-RS](https://napi.rs) | npm | vitest | `interface`, `zod` |
-| WebAssembly | [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/) | npm | vitest | -- |
-| Ruby | [Magnus](https://github.com/matsadler/magnus) | RubyGems (.gem) | RSpec | `struct`, `dry-struct`, `data` |
-| PHP | [ext-php-rs](https://github.com/davidcole1340/ext-php-rs) | Composer | PHPUnit | `readonly-class`, `array` |
-| Go | cgo + C FFI | Go modules | go test | `struct` |
-| Java | [Panama FFM](https://openjdk.org/jeps/454) | Maven (.jar) | JUnit | `record` |
-| C# | P/Invoke | NuGet (.nupkg) | xUnit | `record` |
-| Elixir | [Rustler](https://github.com/rusterlium/rustler) | Hex | ExUnit | `struct`, `typed-struct` |
-| R | [extendr](https://extendr.github.io/extendr/) | CRAN | testthat | `list`, `r6` |
-| Kotlin/JVM | [Panama FFM](https://openjdk.org/jeps/454) (shared with Java) | Maven (.jar) | JUnit | `data-class`, `sealed-class` |
-| Gleam | [Rustler](https://github.com/rusterlium/rustler) NIF + `@external` | Hex | gleeunit | record types |
-| Zig | C FFI via `@cImport` | tarball | `std.testing` | structs |
-| C | [cbindgen](https://github.com/mozilla/cbindgen) | Header (.h) | -- | -- |
-| Swift | [swift-bridge](https://github.com/chinedufn/swift-bridge) | SwiftPM (RustBridge + RustBridgeC targets) | XCTest | structs with `Codable` |
-| Dart | [flutter_rust_bridge](https://cjycode.com/flutter_rust_bridge/) v2 | pub.dev | `package:test` | classes |
+| Language           | Framework                                                          | Package Format                             | Test Framework | DTO Styles                                       |
+| ------------------ | ------------------------------------------------------------------ | ------------------------------------------ | -------------- | ------------------------------------------------ |
+| Python             | [PyO3](https://pyo3.rs)                                            | PyPI (.whl)                                | pytest         | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
+| TypeScript/Node.js | [NAPI-RS](https://napi.rs)                                         | npm                                        | vitest         | `interface`, `zod`                               |
+| WebAssembly        | [wasm-bindgen](https://rustwasm.github.io/wasm-bindgen/)           | npm                                        | vitest         | --                                               |
+| Ruby               | [Magnus](https://github.com/matsadler/magnus)                      | RubyGems (.gem)                            | RSpec          | `struct`, `dry-struct`, `data`                   |
+| PHP                | [ext-php-rs](https://github.com/davidcole1340/ext-php-rs)          | Composer                                   | PHPUnit        | `readonly-class`, `array`                        |
+| Go                 | cgo + C FFI                                                        | Go modules                                 | go test        | `struct`                                         |
+| Java               | [Panama FFM](https://openjdk.org/jeps/454)                         | Maven (.jar)                               | JUnit          | `record`                                         |
+| C#                 | P/Invoke                                                           | NuGet (.nupkg)                             | xUnit          | `record`                                         |
+| Elixir             | [Rustler](https://github.com/rusterlium/rustler)                   | Hex                                        | ExUnit         | `struct`, `typed-struct`                         |
+| R                  | [extendr](https://extendr.github.io/extendr/)                      | CRAN                                       | testthat       | `list`, `r6`                                     |
+| Kotlin/JVM         | [Panama FFM](https://openjdk.org/jeps/454) (shared with Java)      | Maven (.jar)                               | JUnit          | `data-class`, `sealed-class`                     |
+| Gleam              | [Rustler](https://github.com/rusterlium/rustler) NIF + `@external` | Hex                                        | gleeunit       | record types                                     |
+| Zig                | C FFI via `@cImport`                                               | tarball                                    | `std.testing`  | structs                                          |
+| C                  | [cbindgen](https://github.com/mozilla/cbindgen)                    | Header (.h)                                | --             | --                                               |
+| Swift              | [swift-bridge](https://github.com/chinedufn/swift-bridge)          | SwiftPM (RustBridge + RustBridgeC targets) | XCTest         | structs with `Codable`                           |
+| Dart               | [flutter_rust_bridge](https://cjycode.com/flutter_rust_bridge/) v2 | pub.dev                                    | `package:test` | classes                                          |
 
 ## Quick Start
 
@@ -124,28 +124,28 @@ alef test --lang python,go # Specific languages
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `alef init` | Initialize `alef.toml` for your crate |
-| `alef extract` | Extract API surface from Rust source into IR JSON |
-| `alef generate` | Generate language bindings from IR |
-| `alef stubs` | Generate type stubs (`.pyi`, `.rbs`, `.d.ts`) |
-| `alef scaffold` | Generate package manifests (`pyproject.toml`, `package.json`, etc.) |
-| `alef readme` | Generate per-language README files |
-| `alef build` | Build bindings with native tools (`maturin`, `napi`, `wasm-pack`, etc.) |
-| `alef test` | Run per-language test suites (`--e2e` for e2e tests, `--coverage` for coverage) |
-| `alef lint` | Run configured linters on generated output |
-| `alef fmt` | Run only the format phase of lint |
-| `alef update` | Update dependencies per language (`--latest` for aggressive upgrades) |
-| `alef setup` | Install dependencies per language |
-| `alef clean` | Clean build artifacts per language |
-| `alef sync-versions` | Sync version from `Cargo.toml` to all manifests (use `--set <version>` to override) |
-| `alef verify` | Recompute the per-file `blake3(sources_hash \|\| file_content)` hash on every alef-headered file and compare against the embedded value. Idempotent across alef CLI versions. `--exit-code` for CI. |
-| `alef diff` | Show what would change without writing |
-| `alef all` | Run full pipeline: generate + stubs + scaffold + readme + e2e + docs + sync |
-| `alef e2e` | Generate e2e test projects from JSON fixtures (subcommands: `generate`, `init`, `scaffold`, `list`, `validate`) |
-| `alef publish` | Vendor, cross-compile, and package release artifacts (subcommands: `prepare`, `build`, `package`, `validate`) |
-| `alef cache` | Manage build cache (subcommands: `clear`, `status`) |
+| Command              | Description                                                                                                                                                                                         |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `alef init`          | Initialize `alef.toml` for your crate                                                                                                                                                               |
+| `alef extract`       | Extract API surface from Rust source into IR JSON                                                                                                                                                   |
+| `alef generate`      | Generate language bindings from IR                                                                                                                                                                  |
+| `alef stubs`         | Generate type stubs (`.pyi`, `.rbs`, `.d.ts`)                                                                                                                                                       |
+| `alef scaffold`      | Generate package manifests (`pyproject.toml`, `package.json`, etc.)                                                                                                                                 |
+| `alef readme`        | Generate per-language README files                                                                                                                                                                  |
+| `alef build`         | Build bindings with native tools (`maturin`, `napi`, `wasm-pack`, etc.)                                                                                                                             |
+| `alef test`          | Run per-language test suites (`--e2e` for e2e tests, `--coverage` for coverage)                                                                                                                     |
+| `alef lint`          | Run configured linters on generated output                                                                                                                                                          |
+| `alef fmt`           | Run only the format phase of lint                                                                                                                                                                   |
+| `alef update`        | Update dependencies per language (`--latest` for aggressive upgrades)                                                                                                                               |
+| `alef setup`         | Install dependencies per language                                                                                                                                                                   |
+| `alef clean`         | Clean build artifacts per language                                                                                                                                                                  |
+| `alef sync-versions` | Sync version from `Cargo.toml` to all manifests (use `--set <version>` to override)                                                                                                                 |
+| `alef verify`        | Recompute the per-file `blake3(sources_hash \|\| file_content)` hash on every alef-headered file and compare against the embedded value. Idempotent across alef CLI versions. `--exit-code` for CI. |
+| `alef diff`          | Show what would change without writing                                                                                                                                                              |
+| `alef all`           | Run full pipeline: generate + stubs + scaffold + readme + e2e + docs + sync                                                                                                                         |
+| `alef e2e`           | Generate e2e test projects from JSON fixtures (subcommands: `generate`, `init`, `scaffold`, `list`, `validate`)                                                                                     |
+| `alef publish`       | Vendor, cross-compile, and package release artifacts (subcommands: `prepare`, `build`, `package`, `validate`)                                                                                       |
+| `alef cache`         | Manage build cache (subcommands: `clear`, `status`)                                                                                                                                                 |
 
 ## Verify model
 
@@ -165,10 +165,10 @@ Every alef-generated file carries a comment-style header:
 
 The `alef:hash:<hex>` value is a per-file `blake3(sources_hash || file_content_without_hash_line)`, where:
 
-- `sources_hash = blake3(sorted(rust_source_files))` — both each file's path *and* its content are mixed in, sorted by path so the order in `[crate].sources` doesn't matter.
+- `sources_hash = blake3(sorted(rust_source_files))` — both each file's path _and_ its content are mixed in, sorted by path so the order in `[crate].sources` doesn't matter.
 - `file_content_without_hash_line` is the actual on-disk byte content of the file with the existing `alef:hash:` line stripped (so the function is symmetric: calling it on content that already carries a hash line is the same as calling it on the bare content).
 
-The hash deliberately does **not** include the alef CLI version or `alef.toml`: any input change that affects the generated bytes is already reflected by hashing the file content itself, and excluding the alef version is what makes verify idempotent across alef upgrades. `alef generate` finalises the embedded hash *after* the optional formatter pass — formatters run only when invoked with `--format`, in which case rustfmt, rubocop, dotnet format, spotless, oxfmt, oxlint, mix format, php-cs-fixer, ruff, taplo, etc. mutate the file before the hash is stamped. Without `--format`, the hash describes the raw whitespace-normalised codegen output. Either way, the on-disk hash always describes the actual on-disk byte content.
+The hash deliberately does **not** include the alef CLI version or `alef.toml`: any input change that affects the generated bytes is already reflected by hashing the file content itself, and excluding the alef version is what makes verify idempotent across alef upgrades. `alef generate` finalises the embedded hash _after_ the optional formatter pass — formatters run only when invoked with `--format`, in which case rustfmt, rubocop, dotnet format, spotless, oxfmt, oxlint, mix format, php-cs-fixer, ruff, taplo, etc. mutate the file before the hash is stamped. Without `--format`, the hash describes the raw whitespace-normalised codegen output. Either way, the on-disk hash always describes the actual on-disk byte content.
 
 ### How verify works
 
@@ -343,16 +343,16 @@ This converts the legacy schema to `[workspace]` + `[[crates]]` automatically. S
 
 ### `[[crates]]` -- Source Configuration
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | *required* | Rust crate name (used with `--crate <name>` filter) |
-| `sources` | string[] | *required* | Rust source files to extract |
-| `version_from` | string | `"Cargo.toml"` | File to read version from (supports workspace Cargo.toml) |
-| `core_import` | string | `{name}` with `-` replaced by `_` | Import path for the core crate in generated bindings |
-| `workspace_root` | string | -- | Workspace root for resolving `pub use` re-exports from sibling crates |
-| `skip_core_import` | bool | `false` | Skip adding `use {core_import};` to generated bindings |
-| `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
-| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`) |
+| Field              | Type     | Default                           | Description                                                                      |
+| ------------------ | -------- | --------------------------------- | -------------------------------------------------------------------------------- |
+| `name`             | string   | _required_                        | Rust crate name (used with `--crate <name>` filter)                              |
+| `sources`          | string[] | _required_                        | Rust source files to extract                                                     |
+| `version_from`     | string   | `"Cargo.toml"`                    | File to read version from (supports workspace Cargo.toml)                        |
+| `core_import`      | string   | `{name}` with `-` replaced by `_` | Import path for the core crate in generated bindings                             |
+| `workspace_root`   | string   | --                                | Workspace root for resolving `pub use` re-exports from sibling crates            |
+| `skip_core_import` | bool     | `false`                           | Skip adding `use {core_import};` to generated bindings                           |
+| `features`         | string[] | `[]`                              | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
+| `path_mappings`    | map      | `{}`                              | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`)        |
 
 ### `[workspace]` and `languages` -- Target Languages
 
@@ -431,54 +431,54 @@ Language-specific configuration is nested under `[[crates]]`. For example, `[cra
 <details>
 <summary><strong>[crates.python]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `module_name` | string | `_{name}` | Python module name (the native extension name) |
-| `async_runtime` | string | -- | Async runtime spec for `pyo3_async_runtimes` |
-| `stubs.output` | string | -- | Output directory for `.pyi` stub files |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field           | Type     | Default                        | Description                                    |
+| --------------- | -------- | ------------------------------ | ---------------------------------------------- |
+| `module_name`   | string   | `_{name}`                      | Python module name (the native extension name) |
+| `async_runtime` | string   | --                             | Async runtime spec for `pyo3_async_runtimes`   |
+| `stubs.output`  | string   | --                             | Output directory for `.pyi` stub files         |
+| `features`      | string[] | inherits `[[crates]] features` | Per-language Cargo feature override            |
 
 </details>
 
 <details>
 <summary><strong>[crates.node]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package_name` | string | `{name}` | npm package name |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field          | Type     | Default                        | Description                         |
+| -------------- | -------- | ------------------------------ | ----------------------------------- |
+| `package_name` | string   | `{name}`                       | npm package name                    |
+| `features`     | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
 <summary><strong>[crates.ruby]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `gem_name` | string | `{name}` with `_` | Ruby gem name |
-| `stubs.output` | string | -- | Output directory for `.rbs` type stubs |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field          | Type     | Default                        | Description                            |
+| -------------- | -------- | ------------------------------ | -------------------------------------- |
+| `gem_name`     | string   | `{name}` with `_`              | Ruby gem name                          |
+| `stubs.output` | string   | --                             | Output directory for `.rbs` type stubs |
+| `features`     | string[] | inherits `[[crates]] features` | Per-language Cargo feature override    |
 
 </details>
 
 <details>
 <summary><strong>[crates.php]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `extension_name` | string | `{name}` with `_` | PHP extension name |
-| `feature_gate` | string | `"extension-module"` | Feature gate wrapping all generated code |
-| `stubs.output` | string | -- | Output directory for PHP facades/stubs |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field            | Type     | Default                        | Description                              |
+| ---------------- | -------- | ------------------------------ | ---------------------------------------- |
+| `extension_name` | string   | `{name}` with `_`              | PHP extension name                       |
+| `feature_gate`   | string   | `"extension-module"`           | Feature gate wrapping all generated code |
+| `stubs.output`   | string   | --                             | Output directory for PHP facades/stubs   |
+| `features`       | string[] | inherits `[[crates]] features` | Per-language Cargo feature override      |
 
 </details>
 
 <details>
 <summary><strong>[crates.elixir]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `app_name` | string | `{name}` with `_` | Elixir application name |
+| Field      | Type     | Default                        | Description                         |
+| ---------- | -------- | ------------------------------ | ----------------------------------- |
+| `app_name` | string   | `{name}` with `_`              | Elixir application name             |
 | `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
@@ -486,69 +486,69 @@ Language-specific configuration is nested under `[[crates]]`. For example, `[cra
 <details>
 <summary><strong>[crates.wasm]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `exclude_functions` | string[] | `[]` | Functions to exclude from WASM bindings |
-| `exclude_types` | string[] | `[]` | Types to exclude from WASM bindings |
-| `type_overrides` | map | `{}` | Override types (e.g., `{ "DOMNode" = "JsValue" }`) |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field               | Type     | Default                        | Description                                        |
+| ------------------- | -------- | ------------------------------ | -------------------------------------------------- |
+| `exclude_functions` | string[] | `[]`                           | Functions to exclude from WASM bindings            |
+| `exclude_types`     | string[] | `[]`                           | Types to exclude from WASM bindings                |
+| `type_overrides`    | map      | `{}`                           | Override types (e.g., `{ "DOMNode" = "JsValue" }`) |
+| `features`          | string[] | inherits `[[crates]] features` | Per-language Cargo feature override                |
 
 </details>
 
 <details>
 <summary><strong>[crates.ffi]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `prefix` | string | `{name}` with `_` | C symbol prefix for all exported functions |
-| `error_style` | string | `"last_error"` | Error reporting convention |
-| `header_name` | string | `{prefix}.h` | Generated C header filename |
-| `lib_name` | string | `{prefix}_ffi` | Native library name (for Go/Java/C# linking) |
-| `visitor_callbacks` | bool | `false` | Generate visitor/callback FFI support |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field               | Type     | Default                        | Description                                  |
+| ------------------- | -------- | ------------------------------ | -------------------------------------------- |
+| `prefix`            | string   | `{name}` with `_`              | C symbol prefix for all exported functions   |
+| `error_style`       | string   | `"last_error"`                 | Error reporting convention                   |
+| `header_name`       | string   | `{prefix}.h`                   | Generated C header filename                  |
+| `lib_name`          | string   | `{prefix}_ffi`                 | Native library name (for Go/Java/C# linking) |
+| `visitor_callbacks` | bool     | `false`                        | Generate visitor/callback FFI support        |
+| `features`          | string[] | inherits `[[crates]] features` | Per-language Cargo feature override          |
 
 </details>
 
 <details>
 <summary><strong>[crates.go]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `module` | string | `github.com/kreuzberg-dev/{name}` | Go module path |
-| `package_name` | string | derived from module path | Go package name |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field          | Type     | Default                           | Description                         |
+| -------------- | -------- | --------------------------------- | ----------------------------------- |
+| `module`       | string   | `github.com/kreuzberg-dev/{name}` | Go module path                      |
+| `package_name` | string   | derived from module path          | Go package name                     |
+| `features`     | string[] | inherits `[[crates]] features`    | Per-language Cargo feature override |
 
 </details>
 
 <details>
 <summary><strong>[crates.java]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package` | string | `dev.kreuzberg` | Java package name |
-| `ffi_style` | string | `"panama"` | FFI binding style (Panama Foreign Function & Memory API) |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field       | Type     | Default                        | Description                                              |
+| ----------- | -------- | ------------------------------ | -------------------------------------------------------- |
+| `package`   | string   | `dev.kreuzberg`                | Java package name                                        |
+| `ffi_style` | string   | `"panama"`                     | FFI binding style (Panama Foreign Function & Memory API) |
+| `features`  | string[] | inherits `[[crates]] features` | Per-language Cargo feature override                      |
 
 </details>
 
 <details>
 <summary><strong>[crates.csharp]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `namespace` | string | PascalCase of `{name}` | C# namespace |
-| `target_framework` | string | -- | Target framework version |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field              | Type     | Default                        | Description                         |
+| ------------------ | -------- | ------------------------------ | ----------------------------------- |
+| `namespace`        | string   | PascalCase of `{name}`         | C# namespace                        |
+| `target_framework` | string   | --                             | Target framework version            |
+| `features`         | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
 <details>
 <summary><strong>[crates.r]</strong></summary>
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package_name` | string | `{name}` | R package name |
-| `features` | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
+| Field          | Type     | Default                        | Description                         |
+| -------------- | -------- | ------------------------------ | ----------------------------------- |
+| `package_name` | string   | `{name}`                       | R package name                      |
+| `features`     | string[] | inherits `[[crates]] features` | Per-language Cargo feature override |
 
 </details>
 
@@ -775,28 +775,28 @@ Rust Source Files
 
 ### Crate Structure
 
-| Crate | Role |
-|-------|------|
-| [`alef-core`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-core) | IR types, config schema, `Backend` trait |
-| [`alef-extract`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-extract) | Rust source to IR extraction via `syn` |
-| [`alef-codegen`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-codegen) | Shared code generation (type mappers, converters, builders) |
-| [`alef-adapters`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-adapters) | Adapter pattern code generators |
-| [`alef-cli`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-cli) | CLI binary with all commands |
-| [`alef-docs`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-docs) | API reference documentation generator |
-| [`alef-e2e`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-e2e) | Fixture-driven e2e test generator |
-| [`alef-readme`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-readme) | Per-language README generator |
-| [`alef-scaffold`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-scaffold) | Package manifest generator |
-| [`alef-backend-pyo3`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-pyo3) | Python backend |
-| [`alef-backend-napi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-napi) | TypeScript/Node.js backend |
-| [`alef-backend-wasm`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-wasm) | WebAssembly backend |
-| [`alef-backend-ffi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-ffi) | C FFI backend (used by Go, Java, C#) |
-| [`alef-backend-magnus`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-magnus) | Ruby backend |
-| [`alef-backend-php`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-php) | PHP backend |
-| [`alef-backend-rustler`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-rustler) | Elixir backend |
-| [`alef-backend-extendr`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-extendr) | R backend |
-| [`alef-backend-go`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-go) | Go backend |
-| [`alef-backend-java`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-java) | Java backend |
-| [`alef-backend-csharp`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-csharp) | C# backend |
+| Crate                                                                                                 | Role                                                        |
+| ----------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| [`alef-core`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-core)                       | IR types, config schema, `Backend` trait                    |
+| [`alef-extract`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-extract)                 | Rust source to IR extraction via `syn`                      |
+| [`alef-codegen`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-codegen)                 | Shared code generation (type mappers, converters, builders) |
+| [`alef-adapters`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-adapters)               | Adapter pattern code generators                             |
+| [`alef-cli`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-cli)                         | CLI binary with all commands                                |
+| [`alef-docs`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-docs)                       | API reference documentation generator                       |
+| [`alef-e2e`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-e2e)                         | Fixture-driven e2e test generator                           |
+| [`alef-readme`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-readme)                   | Per-language README generator                               |
+| [`alef-scaffold`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-scaffold)               | Package manifest generator                                  |
+| [`alef-backend-pyo3`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-pyo3)       | Python backend                                              |
+| [`alef-backend-napi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-napi)       | TypeScript/Node.js backend                                  |
+| [`alef-backend-wasm`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-wasm)       | WebAssembly backend                                         |
+| [`alef-backend-ffi`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-ffi)         | C FFI backend (used by Go, Java, C#)                        |
+| [`alef-backend-magnus`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-magnus)   | Ruby backend                                                |
+| [`alef-backend-php`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-php)         | PHP backend                                                 |
+| [`alef-backend-rustler`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-rustler) | Elixir backend                                              |
+| [`alef-backend-extendr`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-extendr) | R backend                                                   |
+| [`alef-backend-go`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-go)           | Go backend                                                  |
+| [`alef-backend-java`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-java)       | Java backend                                                |
+| [`alef-backend-csharp`](https://github.com/kreuzberg-dev/alef/tree/main/crates/alef-backend-csharp)   | C# backend                                                  |
 
 ## Pre-commit Hooks
 

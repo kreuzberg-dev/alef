@@ -192,16 +192,16 @@ pub(super) fn trait_impl_return_conversion(ty: &TypeRef, _source_crate_name: &st
             }
         }
         TypeRef::Named(_) => {
-            // Mirror type → core type: the mirror DartFnFuture returns a mirror struct,
-            // but the trait method must return the core type. We drop the mirror result
-            // and return Default since a proper reverse conversion requires a separate
-            // implementation path. Trait bridge return types should be primitive or ()
-            // for full correctness.
-            // TODO: implement mirror → core conversion for named return types.
-            // The suffix form: `{ let _ = __RESULT; Default::default() }` is not a
-            // clean suffix, so we use a named-return sentinel instead.
-            // Use a special marker that emit_trait_bridge_method will detect.
-            "__NAMED_RETURN_DEFAULT__".to_string()
+            // Mirror type → core type: the mirror DartFnFuture returns a mirror struct
+            // (e.g. `VisitResult`), but the trait method must return the core type
+            // (e.g. `html_to_markdown_rs::VisitResult`). Convert via the
+            // `From<Mirror> for Core` impl emitted by `emit_from_mirror_to_core_enum` /
+            // `emit_from_mirror_to_core_struct` — the type is added to the
+            // `param_types_needing_from` closure in `gen_rust_crate::mod` so the impl
+            // is in scope. `.into()` resolves to the right direction because the
+            // caller binds `let __result: MirrorType = (closure)(...).await;` and
+            // the method's declared return is the core type.
+            ".into()".to_string()
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Vec(inner2) = inner.as_ref() {

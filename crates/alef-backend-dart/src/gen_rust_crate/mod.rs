@@ -322,6 +322,22 @@ fn emit_lib_rs(
                 .filter(|p| !p.sanitized)
                 .flat_map(|p| collect_named_types_from_type_ref(&p.ty)),
         )
+        .chain(
+            // Trait-bridge method return types: when a trait is bridged (e.g. HtmlVisitor),
+            // each Dart callback returns a mirror value, and the bridge impl needs to convert
+            // it back to the core type. Include those return types so a `From<Mirror> for
+            // Core` impl is emitted. Without this, the bridge silently drops the result and
+            // returns Default::default(), making visitors no-op (see
+            // `trait_impl_return_conversion`'s `__NAMED_RETURN_DEFAULT__` fallback).
+            config
+                .trait_bridges
+                .iter()
+                .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
+                .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
+                .flat_map(|trait_def| trait_def.methods.iter())
+                .filter(|m| m.trait_source.is_none())
+                .flat_map(|m| collect_named_types_from_type_ref(&m.return_type)),
+        )
         .filter(|name| types_needing_from_conversion.contains(name))
         .collect();
 

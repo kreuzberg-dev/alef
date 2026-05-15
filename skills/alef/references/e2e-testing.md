@@ -26,16 +26,16 @@ Each JSON file contains either a single fixture object or an array of fixtures.
 
 ### Fields
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | Yes | Unique snake_case identifier. Used as the test function name. Pattern: `^[a-z][a-z0-9_]*$` |
-| `description` | string | Yes | Human-readable test description |
-| `category` | string | No | Test category. Defaults to the parent directory name if omitted |
-| `tags` | string[] | No | Optional labels for filtering during test runs |
-| `skip` | object | No | Conditions for skipping the test (see below) |
-| `call` | string | No | Named call config to use. References `[e2e.calls.<name>]`. Falls back to `[e2e.call]` when omitted |
-| `input` | object | No | Input data passed to the function under test. Fields map to function args via `[e2e.call.args]` |
-| `assertions` | array | No | List of assertions to check on the result |
+| Field         | Type     | Required | Description                                                                                        |
+| ------------- | -------- | -------- | -------------------------------------------------------------------------------------------------- |
+| `id`          | string   | Yes      | Unique snake*case identifier. Used as the test function name. Pattern: `^[a-z]a-z0-9*]\*$`         |
+| `description` | string   | Yes      | Human-readable test description                                                                    |
+| `category`    | string   | No       | Test category. Defaults to the parent directory name if omitted                                    |
+| `tags`        | string[] | No       | Optional labels for filtering during test runs                                                     |
+| `skip`        | object   | No       | Conditions for skipping the test (see below)                                                       |
+| `call`        | string   | No       | Named call config to use. References `[e2e.calls.<name>]`. Falls back to `[e2e.call]` when omitted |
+| `input`       | object   | No       | Input data passed to the function under test. Fields map to function args via `[e2e.call.args]`    |
+| `assertions`  | array    | No       | List of assertions to check on the result                                                          |
 
 ### Example Fixture
 
@@ -74,66 +74,66 @@ Every assertion object has a required `type` field and optional `field`, `value`
 
 ### Error assertions
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `not_error` | The function call must succeed (no exception/error) | None |
-| `error` | The function call must fail | None |
+| Type        | Description                                         | Fields Used |
+| ----------- | --------------------------------------------------- | ----------- |
+| `not_error` | The function call must succeed (no exception/error) | None        |
+| `error`     | The function call must fail                         | None        |
 
 ### Equality assertions
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `equals` | Field value must equal expected value | `field`, `value` |
+| Type         | Description                               | Fields Used      |
+| ------------ | ----------------------------------------- | ---------------- |
+| `equals`     | Field value must equal expected value     | `field`, `value` |
 | `not_equals` | Field value must not equal expected value | `field`, `value` |
 
 ### String/collection containment
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `contains` | Field value must contain the expected substring or element | `field`, `value` |
-| `contains_all` | Field value must contain all expected values | `field`, `values` |
-| `contains_any` | Field value must contain at least one expected value | `field`, `values` |
-| `not_contains` | Field value must not contain any of the expected values | `field`, `values` |
+| Type           | Description                                                | Fields Used       |
+| -------------- | ---------------------------------------------------------- | ----------------- |
+| `contains`     | Field value must contain the expected substring or element | `field`, `value`  |
+| `contains_all` | Field value must contain all expected values               | `field`, `values` |
+| `contains_any` | Field value must contain at least one expected value       | `field`, `values` |
+| `not_contains` | Field value must not contain any of the expected values    | `field`, `values` |
 
 ### Emptiness checks
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `not_empty` | Field value must not be empty (string, list, etc.) | `field` |
-| `is_empty` | Field value must be empty | `field` |
+| Type        | Description                                        | Fields Used |
+| ----------- | -------------------------------------------------- | ----------- |
+| `not_empty` | Field value must not be empty (string, list, etc.) | `field`     |
+| `is_empty`  | Field value must be empty                          | `field`     |
 
 ### String pattern assertions
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `starts_with` | Field value must start with expected string | `field`, `value` |
-| `ends_with` | Field value must end with expected string | `field`, `value` |
+| Type            | Description                                   | Fields Used      |
+| --------------- | --------------------------------------------- | ---------------- |
+| `starts_with`   | Field value must start with expected string   | `field`, `value` |
+| `ends_with`     | Field value must end with expected string     | `field`, `value` |
 | `matches_regex` | Field value must match the regular expression | `field`, `value` |
 
 ### Length/count assertions
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `min_length` | Field length must be >= expected value | `field`, `value` |
-| `max_length` | Field length must be <= expected value | `field`, `value` |
-| `count_min` | Collection size must be >= expected value | `field`, `value` |
+| Type           | Description                               | Fields Used      |
+| -------------- | ----------------------------------------- | ---------------- |
+| `min_length`   | Field length must be >= expected value    | `field`, `value` |
+| `max_length`   | Field length must be <= expected value    | `field`, `value` |
+| `count_min`    | Collection size must be >= expected value | `field`, `value` |
 | `count_equals` | Collection size must equal expected value | `field`, `value` |
 
 ### Boolean assertions
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `is_true` | Field value must be truthy/true | `field` |
-| `is_false` | Field value must be falsy/false | `field` |
+| Type       | Description                     | Fields Used |
+| ---------- | ------------------------------- | ----------- |
+| `is_true`  | Field value must be truthy/true | `field`     |
+| `is_false` | Field value must be falsy/false | `field`     |
 
 ### Numeric comparison
 
-| Type | Description | Fields Used |
-|------|-------------|-------------|
-| `greater_than` | Field value must be > expected | `field`, `value` |
-| `less_than` | Field value must be < expected | `field`, `value` |
+| Type                    | Description                     | Fields Used      |
+| ----------------------- | ------------------------------- | ---------------- |
+| `greater_than`          | Field value must be > expected  | `field`, `value` |
+| `less_than`             | Field value must be < expected  | `field`, `value` |
 | `greater_than_or_equal` | Field value must be >= expected | `field`, `value` |
-| `less_than_or_equal` | Field value must be <= expected | `field`, `value` |
+| `less_than_or_equal`    | Field value must be <= expected | `field`, `value` |
 
 ## Field Path Resolution
 
@@ -194,13 +194,13 @@ Fields listed in `[e2e.fields_enum]` receive special handling in languages that 
 
 Fixtures are organized into categories by directory structure. Conventional categories:
 
-| Category | Purpose |
-|----------|---------|
-| `smoke` | Basic sanity checks -- function runs and returns without error |
-| `basic` | Core functionality with simple inputs |
-| `parsing` | Input parsing correctness |
-| `edge-case` | Boundary conditions, unusual inputs, large files |
-| `error-handling` | Invalid inputs, expected failures |
+| Category         | Purpose                                                        |
+| ---------------- | -------------------------------------------------------------- |
+| `smoke`          | Basic sanity checks -- function runs and returns without error |
+| `basic`          | Core functionality with simple inputs                          |
+| `parsing`        | Input parsing correctness                                      |
+| `edge-case`      | Boundary conditions, unusual inputs, large files               |
+| `error-handling` | Invalid inputs, expected failures                              |
 
 Category is automatically derived from the parent directory name unless explicitly set in the fixture's `category` field.
 
@@ -291,10 +291,10 @@ alef e2e generate --lang rust,python  # Specific languages
 alef e2e generate --registry   # Use published registry packages instead of local path dependencies
 ```
 
-| Flag | Type | Default | Description |
-|------|------|---------|-------------|
-| `--lang` | string (comma-separated) | all from `[e2e].languages` | Languages to generate tests for |
-| `--registry` | bool | `false` | Generate standalone test apps using published registry package versions instead of local path dependencies |
+| Flag         | Type                     | Default                    | Description                                                                                                |
+| ------------ | ------------------------ | -------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `--lang`     | string (comma-separated) | all from `[e2e].languages` | Languages to generate tests for                                                                            |
+| `--registry` | bool                     | `false`                    | Generate standalone test apps using published registry package versions instead of local path dependencies |
 
 ### `alef e2e init`
 
@@ -382,10 +382,7 @@ Use named call configs when your library exposes multiple functions:
   "description": "Basic embedding test",
   "call": "embed",
   "input": { "text": "Hello world" },
-  "assertions": [
-    { "type": "not_error" },
-    { "type": "not_empty", "field": "embedding" }
-  ]
+  "assertions": [{ "type": "not_error" }, { "type": "not_empty", "field": "embedding" }]
 }
 ```
 
