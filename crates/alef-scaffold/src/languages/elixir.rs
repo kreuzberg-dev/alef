@@ -120,7 +120,7 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
             let pkg_depth = pkg.components().count();
             let out_path = out.display().to_string();
             let relative = format!("{}{}", "../".repeat(pkg_depth), out_path.trim_start_matches('/'));
-            format!("\n      elixirc_paths: [\"lib\", \"{relative}\"],")
+            format!("\n      elixirc_paths: [\"lib\", Path.expand(\"{relative}\", __DIR__)],")
         } else {
             String::new()
         }

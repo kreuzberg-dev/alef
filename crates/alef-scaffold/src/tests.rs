@@ -801,7 +801,7 @@ elixir = "/crates/my-lib-elixir/src/"
     assert!(
         mix_exs
             .content
-            .contains(r#"elixirc_paths: ["lib", "../../crates/my-lib-elixir/src"],"#),
+            .contains(r#"elixirc_paths: ["lib", Path.expand("../../crates/my-lib-elixir/src", __DIR__)],"#),
         "content: {}",
         mix_exs.content
     );

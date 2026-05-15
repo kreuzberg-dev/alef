@@ -724,10 +724,7 @@ fn render_test_case(
         let mut _scratch: Vec<String> = Vec::new();
         let _ = super::dart_visitors::build_dart_visitor(&mut _scratch, visitor_spec);
         let skip_reason = "pending dart-binding visitor wiring (alef issue)";
-        let _ = writeln!(
-            out,
-            "  test('{description}', () async {{}}, skip: '{skip_reason}');"
-        );
+        let _ = writeln!(out, "  test('{description}', () async {{}}, skip: '{skip_reason}');");
         let _ = writeln!(out);
         return;
     }
