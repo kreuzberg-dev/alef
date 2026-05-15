@@ -264,11 +264,11 @@ fn render_test_file(
     // RustLib is the flutter_rust_bridge entrypoint; must be initialized before any FRB call.
     // FRB places its generated dart sources under `lib/src/{module_name}_bridge_generated/`,
     // where `module_name` is the snake_cased crate name (independent of the pubspec `name`,
-    // which may be a short alias like `h2m`). `lib.dart` re-exports `RustLib` so we can
-    // import the package-public barrel rather than the internal `frb_generated.dart`.
+    // which may be a short alias like `h2m`). `RustLib` lives in `frb_generated.dart` and
+    // is not re-exported by the FRB barrel `lib.dart`, so we import it directly.
     let _ = writeln!(
         out,
-        "import 'package:{pkg_name}/src/{frb_module_name}_bridge_generated/lib.dart' show RustLib;"
+        "import 'package:{pkg_name}/src/{frb_module_name}_bridge_generated/frb_generated.dart' show RustLib;"
     );
     if has_http_fixtures {
         let _ = writeln!(out, "import 'dart:async';");
