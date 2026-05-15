@@ -191,6 +191,10 @@ impl StreamingFieldResolver {
                         "{chunks_var}.joinToString(\"\") {{ it.choices()?.firstOrNull()?.delta()?.content() ?: \"\" }}"
                     )
                 }
+                "kotlin_android" => {
+                    // kotlin-android: data classes use Kotlin property access (no parens).
+                    format!("{chunks_var}.joinToString(\"\") {{ it.choices?.firstOrNull()?.delta?.content ?: \"\" }}")
+                }
                 "elixir" => {
                     // StreamDelta has all fields optional with skip_serializing_if, so
                     // absent fields are not present as keys in the Jason-decoded map.
@@ -247,6 +251,12 @@ impl StreamingFieldResolver {
                     // Kotlin: use isNotEmpty() + last() + safe-call chain
                     format!(
                         "{chunks_var}.isNotEmpty() && {chunks_var}.last().choices()?.firstOrNull()?.finishReason() != null"
+                    )
+                }
+                "kotlin_android" => {
+                    // kotlin-android: data classes use Kotlin property access (no parens).
+                    format!(
+                        "{chunks_var}.isNotEmpty() && {chunks_var}.last().choices?.firstOrNull()?.finishReason != null"
                     )
                 }
                 "python" => {
@@ -317,6 +327,12 @@ impl StreamingFieldResolver {
                         "{chunks_var}.flatMap {{ c -> c.choices()?.flatMap {{ ch -> ch.delta()?.toolCalls() ?: emptyList() }} ?: emptyList() }}"
                     )
                 }
+                "kotlin_android" => {
+                    // kotlin-android: data classes use Kotlin property access (no parens).
+                    format!(
+                        "{chunks_var}.flatMap {{ c -> c.choices?.flatMap {{ ch -> ch.delta?.toolCalls ?: emptyList() }} ?: emptyList() }}"
+                    )
+                }
                 "python" => {
                     format!(
                         "[t for c in {chunks_var} for ch in (c.choices or []) for t in (ch.delta.tool_calls or [])]"
@@ -379,6 +395,12 @@ impl StreamingFieldResolver {
                         "(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().choices()?.firstOrNull()?.finishReason()?.getValue())"
                     )
                 }
+                "kotlin_android" => {
+                    // kotlin-android: plain Kotlin enum class uses .name.lowercase() for wire string.
+                    format!(
+                        "(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().choices?.firstOrNull()?.finishReason?.name?.lowercase())"
+                    )
+                }
                 "python" => {
                     // FinishReason is a PyO3 enum object, not a plain string.
                     // Wrap in str() so callers can do `.strip()` / string comparisons
@@ -436,6 +458,10 @@ impl StreamingFieldResolver {
                 }
                 "kotlin" => {
                     format!("(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().usage())")
+                }
+                "kotlin_android" => {
+                    // kotlin-android: data classes use Kotlin property access (no parens).
+                    format!("(if ({chunks_var}.isEmpty()) null else {chunks_var}.last().usage)")
                 }
                 "php" => {
                     format!("(!empty(${chunks_var}) ? end(${chunks_var})->usage ?? null : null)")
@@ -513,6 +539,11 @@ impl StreamingFieldResolver {
                 // Kotlin: chatStream returns Iterator<ChatCompletionChunk> (from Java bridge).
                 // Drain into a Kotlin List using asSequence().toList().
                 Some(format!("val {chunks_var} = {stream_var}.asSequence().toList()"))
+            }
+            "kotlin_android" => {
+                // kotlin-android: chatStream returns Flow<ChatCompletionChunk> (kotlinx.coroutines).
+                // Collect inside a runBlocking coroutine scope using Flow.toList().
+                Some(format!("val {chunks_var} = {stream_var}.toList()"))
             }
             "elixir" => Some(format!("{chunks_var} = Enum.to_list({stream_var})")),
             "node" | "wasm" | "typescript" => Some(format!(
@@ -710,6 +741,13 @@ fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
                     out = format!("({out}).get({n})");
                 }
             }
+            (TailSeg::Index(n), "kotlin_android") => {
+                if *n == 0 {
+                    out = format!("({out}).first()");
+                } else {
+                    out = format!("({out})[{n}]");
+                }
+            }
             (TailSeg::Index(n), "elixir") => {
                 out = format!("Enum.at({out}, {n})");
             }
@@ -747,6 +785,11 @@ fn render_deep_tail(root_expr: &str, tail: &str, lang: &str) -> String {
                 out.push_str("?.");
                 out.push_str(&f.to_lower_camel_case());
                 out.push_str("()");
+            }
+            (TailSeg::Field(f), "kotlin_android") => {
+                // kotlin-android: Kotlin data classes use property access (no parens).
+                out.push_str("?.");
+                out.push_str(&f.to_lower_camel_case());
             }
             (TailSeg::Field(f), "csharp") => {
                 out.push('.');
@@ -1391,6 +1434,112 @@ mod tests {
         assert!(
             !expr.contains(".length"),
             "swift usage must not use JS .length, got: {expr}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Bug regression: kotlin_android streaming assertions use property access
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn kotlin_android_collect_snippet_uses_flow_to_list() {
+        let snip = StreamingFieldResolver::collect_snippet("kotlin_android", "result", "chunks").unwrap();
+        // Flow.toList() — not Iterator.asSequence().toList()
+        assert!(
+            snip.contains("result.toList()"),
+            "kotlin_android collect must use Flow.toList(), got: {snip}"
+        );
+        assert!(
+            !snip.contains("asSequence()"),
+            "kotlin_android collect must NOT use asSequence(), got: {snip}"
+        );
+    }
+
+    #[test]
+    fn kotlin_android_stream_content_uses_property_access() {
+        let expr = StreamingFieldResolver::accessor("stream_content", "kotlin_android", "chunks").unwrap();
+        assert!(
+            expr.contains(".choices"),
+            "kotlin_android stream_content must use .choices property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".choices()"),
+            "kotlin_android stream_content must NOT use .choices() getter, got: {expr}"
+        );
+        assert!(
+            expr.contains(".delta"),
+            "kotlin_android stream_content must use .delta property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".delta()"),
+            "kotlin_android stream_content must NOT use .delta() getter, got: {expr}"
+        );
+        assert!(
+            expr.contains(".content"),
+            "kotlin_android stream_content must use .content property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".content()"),
+            "kotlin_android stream_content must NOT use .content() getter, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn kotlin_android_finish_reason_uses_name_lowercase_not_get_value() {
+        let expr = StreamingFieldResolver::accessor("finish_reason", "kotlin_android", "chunks").unwrap();
+        assert!(
+            expr.contains(".finishReason"),
+            "kotlin_android finish_reason must use .finishReason property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".finishReason()"),
+            "kotlin_android finish_reason must NOT use .finishReason() getter, got: {expr}"
+        );
+        assert!(
+            expr.contains(".name"),
+            "kotlin_android finish_reason must use .name for enum wire value, got: {expr}"
+        );
+        assert!(
+            expr.contains(".lowercase()"),
+            "kotlin_android finish_reason must use .lowercase(), got: {expr}"
+        );
+        assert!(
+            !expr.contains(".getValue()"),
+            "kotlin_android finish_reason must NOT use .getValue(), got: {expr}"
+        );
+    }
+
+    #[test]
+    fn kotlin_android_usage_uses_property_access() {
+        let expr = StreamingFieldResolver::accessor("usage", "kotlin_android", "chunks").unwrap();
+        assert!(
+            expr.contains(".usage"),
+            "kotlin_android usage must use .usage property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".usage()"),
+            "kotlin_android usage must NOT use .usage() getter, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn kotlin_android_deep_tool_calls_uses_property_access() {
+        let expr = StreamingFieldResolver::accessor("tool_calls[0].function.name", "kotlin_android", "chunks").unwrap();
+        assert!(
+            expr.contains(".function"),
+            "kotlin_android deep tool_calls must use .function property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".function()"),
+            "kotlin_android deep tool_calls must NOT use .function() getter, got: {expr}"
+        );
+        assert!(
+            expr.contains(".name"),
+            "kotlin_android deep tool_calls must use .name property, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".name()"),
+            "kotlin_android deep tool_calls must NOT use .name() getter, got: {expr}"
         );
     }
 }

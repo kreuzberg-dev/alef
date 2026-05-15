@@ -1143,8 +1143,13 @@ fn render_test_method(
 
     // Streaming detection (call-level `streaming` opt-out is honored).
     let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let stream_lang = if kotlin_android_style {
+        "kotlin_android"
+    } else {
+        "kotlin"
+    };
     let collect_snippet = if is_streaming && !expects_error {
-        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet("kotlin", result_var, "chunks")
+        crate::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet(stream_lang, result_var, "chunks")
             .unwrap_or_default()
     } else {
         String::new()
@@ -1549,17 +1554,37 @@ fn render_assertion(
     if is_streaming {
         if let Some(f) = &assertion.field {
             if f == "usage" || f.starts_with("usage.") {
-                let base_expr =
-                    crate::codegen::streaming_assertions::StreamingFieldResolver::accessor("usage", "kotlin", "chunks")
-                        .unwrap_or_else(|| "(if (chunks.isEmpty()) null else chunks.last().usage())".to_string());
+                let stream_lang = if kotlin_android_style {
+                    "kotlin_android"
+                } else {
+                    "kotlin"
+                };
+                let base_expr = crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(
+                    "usage",
+                    stream_lang,
+                    "chunks",
+                )
+                .unwrap_or_else(|| {
+                    if kotlin_android_style {
+                        "(if (chunks.isEmpty()) null else chunks.last().usage)".to_string()
+                    } else {
+                        "(if (chunks.isEmpty()) null else chunks.last().usage())".to_string()
+                    }
+                });
 
                 // For a deep path like `usage.total_tokens`, render the tail `.total_tokens`
-                // in a Kotlin-idiomatic style (safe-call + camelCase method).
+                // in a language-appropriate accessor style.
                 let expr = if let Some(tail) = f.strip_prefix("usage.") {
                     use heck::ToLowerCamelCase;
-                    // Each segment in the tail is a field accessor using `?.` (nullable base).
-                    tail.split('.')
-                        .fold(base_expr, |acc, seg| format!("{acc}?.{}()", seg.to_lower_camel_case()))
+                    if kotlin_android_style {
+                        // kotlin-android: data classes use Kotlin property access (no parens).
+                        tail.split('.')
+                            .fold(base_expr, |acc, seg| format!("{acc}?.{}", seg.to_lower_camel_case()))
+                    } else {
+                        // Kotlin/Java: accessor methods have parens.
+                        tail.split('.')
+                            .fold(base_expr, |acc, seg| format!("{acc}?.{}()", seg.to_lower_camel_case()))
+                    }
                 } else {
                     base_expr
                 };
@@ -1596,8 +1621,13 @@ fn render_assertion(
     // Intercept before is_valid_for_result so they are never skipped.
     if let Some(f) = &assertion.field {
         if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
+            let stream_lang = if kotlin_android_style {
+                "kotlin_android"
+            } else {
+                "kotlin"
+            };
             if let Some(expr) =
-                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "kotlin", "chunks")
+                crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, stream_lang, "chunks")
             {
                 let line = match assertion.assertion_type.as_str() {
                     "count_min" => {
