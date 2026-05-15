@@ -118,7 +118,7 @@ impl Backend for DartBackend {
             ));
             body.push('\n');
 
-            let bridge_class = dart_bridge_class_name(&config.name);
+            let bridge_class = config.dart_bridge_class_name();
             body.push_str(&crate::template_env::render(
                 "dart_bridge_class_open.jinja",
                 minijinja::context! {
@@ -315,22 +315,4 @@ fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
 /// Converts a crate name like `"my-lib"` to snake_case `"my_lib"`.
 fn dart_module_name(crate_name: &str) -> String {
     crate_name.replace('-', "_")
-}
-
-/// Converts a crate name like `"my-lib"` to `"MyLibBridge"` for the bridge class.
-fn dart_bridge_class_name(crate_name: &str) -> String {
-    let mut out = String::new();
-    let mut upper_next = true;
-    for ch in crate_name.chars() {
-        if ch == '-' || ch == '_' {
-            upper_next = true;
-        } else if upper_next {
-            out.extend(ch.to_uppercase());
-            upper_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out.push_str("Bridge");
-    out
 }
