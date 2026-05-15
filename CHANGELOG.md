@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.16.5 - Unreleased]
 
+### Fixed
+
+- **alef-e2e/dart**: emit `import 'dart:io';` for non-HTTP fixtures that build mock-server
+  URLs (`mock_url` args and `client_factory` configurations). These reference
+  `Platform.environment` but were not covered by the prior import condition, causing
+  generated Dart tests (e.g., `cookies_test.dart`, `error_test.dart`) to fail to compile
+  with `Error: Undefined name 'Platform'`.
+
 ## [0.16.4] - 2026-05-15
 
 ### Added
