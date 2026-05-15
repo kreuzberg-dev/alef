@@ -438,6 +438,7 @@ fn emit_method_param_conversion(
             out,
             "        const {name}_z: ?[:0]u8 = if ({name}) |s| try std.heap.c_allocator.dupeZ(u8, s) else null;"
         );
+        let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
         return;
     }
 
@@ -459,6 +460,7 @@ fn emit_method_param_conversion(
             out,
             "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
         );
+        let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
         let _ = writeln!(
             out,
             "        const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
@@ -472,12 +474,14 @@ fn emit_method_param_conversion(
                 out,
                 "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
             );
+            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             let _ = writeln!(
                 out,
                 "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
             );
+            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
         }
         TypeRef::Named(n) if struct_names.contains(n) => {
             let snake = AsSnakeCase(n).to_string();
@@ -485,6 +489,7 @@ fn emit_method_param_conversion(
                 out,
                 "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
             );
+            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
             let _ = writeln!(
                 out,
                 "        const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
@@ -496,6 +501,7 @@ fn emit_method_param_conversion(
                     out,
                     "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
                 );
+                let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
             }
         }
         _ => {}
@@ -517,6 +523,10 @@ fn emit_method_param_free(
                 if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
         );
 
+    // String/Path/Vec/Map and optional-String/Path are freed via `defer` emitted
+    // immediately after the dupeZ/allocPrintSentinel call in emit_method_param_conversion.
+    // Only struct handles require an explicit post-call C FFI free here.
+
     if is_optional_string
         && matches!(
             match &p.ty {
@@ -526,7 +536,7 @@ fn emit_method_param_free(
             TypeRef::String | TypeRef::Path
         )
     {
-        let _ = writeln!(out, "        if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        // Freed by defer in emit_method_param_conversion.
         return;
     }
 
@@ -542,7 +552,7 @@ fn emit_method_param_free(
     };
     if let Some(n) = optional_named {
         let snake = AsSnakeCase(n).to_string();
-        let _ = writeln!(out, "        if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        // _z freed by defer; only the opaque handle needs an explicit free.
         let _ = writeln!(
             out,
             "        if ({name}_handle != null) c.{prefix}_{snake}_free({name}_handle);"
@@ -551,18 +561,16 @@ fn emit_method_param_free(
     }
 
     match &p.ty {
-        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            let _ = writeln!(out, "        std.heap.c_allocator.free({name}_z);");
-        }
+        // String/Path/Vec/Map: freed by defer in emit_method_param_conversion.
+        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {}
         TypeRef::Named(n) if struct_names.contains(n) => {
+            // _z freed by defer; only the opaque handle needs an explicit free.
             let snake = AsSnakeCase(n).to_string();
-            let _ = writeln!(out, "        std.heap.c_allocator.free({name}_z);");
             let _ = writeln!(out, "        c.{prefix}_{snake}_free({name}_handle);");
         }
+        // Optional Vec/Map: freed by defer in emit_method_param_conversion.
         TypeRef::Optional(inner) => {
-            if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
-                let _ = writeln!(out, "        if ({name}_z) |z| std.heap.c_allocator.free(z);");
-            }
+            let _ = inner; // suppress unused variable warning
         }
         _ => {}
     }

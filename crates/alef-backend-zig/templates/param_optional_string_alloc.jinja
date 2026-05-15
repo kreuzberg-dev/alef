@@ -1,2 +1,3 @@
     const {{ name }}_z: ?[:0]u8 = if ({{ name }}) |v| try std.fmt.allocPrintSentinel(
         std.heap.c_allocator, "{s}", .{v}, 0) else null;
+    defer if ({{ name }}_z) |z| std.heap.c_allocator.free(z);

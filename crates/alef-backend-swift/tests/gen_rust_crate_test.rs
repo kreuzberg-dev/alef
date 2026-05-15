@@ -1709,7 +1709,8 @@ fn vec_string_ref_param_on_method_converts_to_str_slice() {
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
     assert!(
-        lib.content.contains("&names.iter().map(|s| s.as_str()).collect::<Vec<_>>()"),
+        lib.content
+            .contains("&names.iter().map(|s| s.as_str()).collect::<Vec<_>>()"),
         "Vec<String>+is_ref param must convert to &[&str]; got:\n{}",
         lib.content
     );

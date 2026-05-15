@@ -529,7 +529,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         rust_path: "demo::Language".to_string(),
         original_rust_path: String::new(),
         fields: vec![],
-        methods: vec![],      // <-- no methods: the key regression trigger
+        methods: vec![], // <-- no methods: the key regression trigger
         is_opaque: true,
         is_clone: false,
         is_copy: false,
@@ -718,4 +718,137 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
         content.contains("_result != 0"),
         "fallible bool return must emit `_result != 0` conversion: {content}"
     );
+}
+
+/// An infallible function with a String parameter must emit `defer` free
+/// immediately after the allocPrintSentinel call, so the sentinel buffer is
+/// alive when the C function is called.
+///
+/// Regression test for the free-before-use bug: previously the codegen emitted
+/// `c_allocator.free(name_z)` before the C call, which passed a dangling pointer.
+#[test]
+fn string_param_infallible_defers_free_after_c_call() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "has_feature".into(),
+            rust_path: "demo::has_feature".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("name", TypeRef::String)],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // `defer` must appear after allocPrintSentinel and before the C call.
+    let alloc_pos = content
+        .find("allocPrintSentinel")
+        .expect("must allocate sentinel string");
+    let defer_pos = content.find("defer std.heap.c_allocator.free(name_z)");
+    let c_call_pos = content.find("c.demo_has_feature(name_z)");
+
+    assert!(
+        defer_pos.is_some(),
+        "must emit `defer std.heap.c_allocator.free(name_z)` for infallible String param: {content}"
+    );
+    let defer_pos = defer_pos.unwrap();
+    let c_call_pos = c_call_pos.expect("C call must use name_z as argument: {content}");
+
+    assert!(
+        alloc_pos < defer_pos,
+        "defer must come after allocPrintSentinel: {content}"
+    );
+    assert!(
+        defer_pos < c_call_pos,
+        "defer must come before the C call (free-before-use bug): {content}"
+    );
+
+    // Must NOT have a bare (non-deferred) free before the C call.
+    let pre_call = &content[..c_call_pos];
+    assert!(
+        !pre_call.contains("c_allocator.free(name_z)") || pre_call.contains("defer std.heap.c_allocator.free(name_z)"),
+        "must not emit bare (non-deferred) free before C call: {content}"
+    );
+}
+
+/// A fallible function with a String parameter must also defer the free, so
+/// the sentinel buffer is alive across the C call AND the error-code check.
+#[test]
+fn string_param_fallible_defers_free_after_c_call() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "lookup".into(),
+            rust_path: "demo::lookup".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("key", TypeRef::String)],
+            return_type: TypeRef::Optional(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: Some("DemoError".into()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    let alloc_pos = content
+        .find("allocPrintSentinel")
+        .expect("must allocate sentinel string");
+    let defer_pos = content.find("defer std.heap.c_allocator.free(key_z)");
+    let c_call_pos = content.find("c.demo_lookup(key_z)");
+
+    assert!(
+        defer_pos.is_some(),
+        "must emit `defer std.heap.c_allocator.free(key_z)` for fallible String param: {content}"
+    );
+    let defer_pos = defer_pos.unwrap();
+    let c_call_pos = c_call_pos.expect("C call must use key_z as argument");
+
+    assert!(
+        alloc_pos < defer_pos,
+        "defer must come after allocPrintSentinel: {content}"
+    );
+    assert!(defer_pos < c_call_pos, "defer must come before the C call: {content}");
 }

@@ -20,7 +20,9 @@ pub fn generate_body(
         Language::Java => gen_java_body(adapter, config),
         Language::Csharp => gen_csharp_body(adapter, config),
         Language::R => gen_r_body(adapter, config),
-        Language::Rust | Language::C | Language::Jni => anyhow::bail!("Rust/C/JNI do not need generated binding adapters"),
+        Language::Rust | Language::C | Language::Jni => {
+            anyhow::bail!("Rust/C/JNI do not need generated binding adapters")
+        }
         Language::Kotlin
         | Language::KotlinAndroid
         | Language::Swift

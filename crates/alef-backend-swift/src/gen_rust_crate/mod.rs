@@ -442,7 +442,12 @@ fn emit_lib_rs(
                 ));
                 out.push('\n');
             }
-            out.push_str(&wrappers::emit_type_method_shims(ty, &source_crate, &type_paths, &handle_returned_types));
+            out.push_str(&wrappers::emit_type_method_shims(
+                ty,
+                &source_crate,
+                &type_paths,
+                &handle_returned_types,
+            ));
             out.push('\n');
         }
     }

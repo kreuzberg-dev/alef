@@ -1,3 +1,4 @@
+use alef_backend_jni::JniBackend;
 use alef_backend_kotlin::KotlinBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
@@ -721,4 +722,150 @@ fn snapshot_jni_unit_return() {
 
     insta::assert_snapshot!("snapshot_jni_unit_return_bridge", bridge_content);
     insta::assert_snapshot!("snapshot_jni_unit_return_client", client_content);
+}
+
+// ---------------------------------------------------------------------------
+// Pairing-drift sentinel
+// ---------------------------------------------------------------------------
+
+/// Build a config that both backends can consume:
+/// - `[crates.kotlin]` with `ffi_style = "jni"` → KotlinBackend emits Bridge.kt
+/// - `[crates.kotlin_android]` with the same package → JniBackend reads package for symbols
+fn make_pairing_config() -> ResolvedCrateConfig {
+    resolved_one(
+        r#"
+[workspace]
+languages = ["kotlin", "kotlin_android", "jni"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[crates.kotlin]
+package = "dev.kreuzberg"
+ffi_style = "jni"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg"
+namespace = "dev.kreuzberg"
+"#,
+    )
+}
+
+/// Pairing-drift sentinel: every Kotlin `external fun native<Name>` must have a
+/// matching Rust `Java_*_native<Name>` symbol, and vice-versa.
+///
+/// This test fails whenever someone adds a method to the Kotlin bridge without
+/// adding the matching Rust shim (or vice versa), preventing silent runtime link
+/// failures.
+#[test]
+fn kotlin_jni_pairing_sentinel() {
+    let api = make_jni_api_with_client_and_function();
+    let config = make_pairing_config();
+    let package = "dev.kreuzberg";
+    let bridge_class = alef_core::jni::bridge_class_name("demo");
+
+    // --- Kotlin side: generate bridge + DefaultClient, collect all native names ---
+    let kotlin_files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let bridge_file = kotlin_files
+        .iter()
+        .find(|f| {
+            f.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.ends_with("Bridge.kt"))
+                .unwrap_or(false)
+        })
+        .expect("DemoBridge.kt must be emitted by KotlinBackend");
+
+    // Parse `external fun <name>(` from the Kotlin Bridge file (instance methods + streaming).
+    let mut kotlin_native_names: std::collections::BTreeSet<String> = extract_kotlin_native_names(&bridge_file.content);
+
+    // The destructor (nativeFree<Type>) is called from DefaultClient.close() but is NOT
+    // declared as `external fun` in the Bridge object — scan all non-Bridge Kotlin files
+    // for any `DemoBridge.nativeFree*` call patterns.
+    let bridge_name = alef_core::jni::bridge_class_name("demo");
+    let free_call_prefix = format!("{bridge_name}.native");
+    for file in &kotlin_files {
+        if let Some(name) = file.path.file_name().and_then(|n| n.to_str()) {
+            if name.ends_with(".kt") && !name.ends_with("Bridge.kt") {
+                for line in file.content.lines() {
+                    // Find occurrences of `DemoBridge.native` anywhere in the line.
+                    let mut search = line;
+                    while let Some(pos) = search.find(&free_call_prefix) {
+                        let rest = &search[pos + free_call_prefix.len()..];
+                        if let Some(paren) = rest.find('(') {
+                            let method_name = format!("native{}", &rest[..paren]);
+                            if method_name.starts_with("nativeFree") {
+                                kotlin_native_names.insert(method_name);
+                            }
+                        }
+                        // Advance past the found position to avoid infinite loop.
+                        search = &search[pos + 1..];
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Rust side: generate JNI shims, extract `fn Java_*` symbol names ---
+    let rust_files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let lib_content = &rust_files[0].content;
+
+    // Parse `pub unsafe extern "system" fn Java_<sym>(` from the Rust shim file.
+    let rust_java_symbols: std::collections::BTreeSet<String> = extract_rust_java_symbols(lib_content);
+
+    // --- Convert Kotlin names → expected Rust symbols using alef_core::jni ---
+    let kotlin_expected_symbols: std::collections::BTreeSet<String> = kotlin_native_names
+        .iter()
+        .map(|name| alef_core::jni::jni_symbol(package, &bridge_class, name))
+        .collect();
+
+    // --- Assert set equality ---
+    let missing_in_rust: Vec<_> = kotlin_expected_symbols.difference(&rust_java_symbols).collect();
+    let extra_in_rust: Vec<_> = rust_java_symbols.difference(&kotlin_expected_symbols).collect();
+
+    assert!(
+        missing_in_rust.is_empty() && extra_in_rust.is_empty(),
+        "JNI symbol pairing drift detected!\n\
+         Kotlin declared but Rust missing: {missing_in_rust:?}\n\
+         Rust emitted but Kotlin missing: {extra_in_rust:?}\n\
+         \nKotlin `external fun` names: {kotlin_native_names:?}\n\
+         Rust `Java_*` symbols: {rust_java_symbols:?}"
+    );
+}
+
+/// Extract `external fun <name>(` names from Kotlin Bridge source.
+fn extract_kotlin_native_names(content: &str) -> std::collections::BTreeSet<String> {
+    let mut names = std::collections::BTreeSet::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("external fun ") {
+            if let Some(paren) = rest.find('(') {
+                let name = rest[..paren].trim().to_string();
+                if !name.is_empty() {
+                    names.insert(name);
+                }
+            }
+        }
+    }
+    names
+}
+
+/// Extract `pub unsafe extern "system" fn Java_<sym>(` symbol names from Rust source.
+fn extract_rust_java_symbols(content: &str) -> std::collections::BTreeSet<String> {
+    let mut syms = std::collections::BTreeSet::new();
+    let marker = "pub unsafe extern \"system\" fn ";
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix(marker) {
+            if let Some(paren) = rest.find('(') {
+                let sym = rest[..paren].trim().to_string();
+                if sym.starts_with("Java_") {
+                    syms.insert(sym);
+                }
+            }
+        }
+    }
+    syms
 }

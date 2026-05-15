@@ -17,8 +17,10 @@ use std::path::PathBuf;
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
-use alef_core::ir::{ApiSurface, PrimitiveType, TypeDef, TypeRef};
-use alef_core::jni::{bridge_class_name, bridge_method_name, destructor_method_name, jni_symbol, streaming_method_names};
+use alef_core::ir::{ApiSurface, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::jni::{
+    bridge_class_name, bridge_method_name, destructor_method_name, jni_symbol, streaming_method_names,
+};
 
 /// Backend that emits the Rust JNI shim crate source.
 #[derive(Debug, Default, Clone, Copy)]
@@ -46,6 +48,13 @@ impl Backend for JniBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Require kotlin_android config — the package is needed for JNI symbol names.
+        if config.kotlin_android.is_none() {
+            anyhow::bail!(
+                "kotlin-android config required for JNI shim generation: \
+                 add [crates.kotlin_android] with package = \"...\" to alef.toml"
+            );
+        }
         let output_path = jni_output_path(config);
         let content = emit_lib_rs(api, config);
         Ok(vec![GeneratedFile {
@@ -84,6 +93,7 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     let package = jni_kotlin_package(config);
     let bridge = bridge_class_name(&config.name);
     let core_crate = core_use_path(config);
+    let error_class = resolve_error_class(config, &package);
 
     let mut out = String::new();
 
@@ -95,12 +105,29 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     out.push('\n');
     out.push_str("#![allow(non_snake_case)]\n");
     out.push_str("#![allow(clippy::too_many_arguments)]\n");
+    out.push_str("#![allow(clippy::missing_safety_doc)]\n");
+    out.push_str("#![allow(unused_imports)]\n");
+    out.push_str("#![allow(unused_variables)]\n");
     out.push('\n');
+    out.push_str("use std::sync::OnceLock;\n");
+    out.push_str("use std::sync::Mutex;\n");
+    out.push_str("use futures_util::stream::BoxStream;\n");
+    out.push_str("use futures_util::StreamExt;\n");
     out.push_str("use jni::JNIEnv;\n");
-    out.push_str("use jni::objects::{JClass, JString};\n");
-    out.push_str("use jni::sys::{jboolean, jbyte, jdouble, jfloat, jint, jlong, jshort};\n");
-    out.push_str(&format!("use {core_crate};\n"));
+    out.push_str("use jni::objects::{JClass, JObject, JString};\n");
+    out.push_str("use jni::sys::{jboolean, jbyteArray, jlong, jstring};\n");
+    out.push_str("use tokio::runtime::Runtime;\n");
     out.push('\n');
+    out.push_str(&format!("use {core_crate} as core_crate;\n"));
+    out.push_str("use core_crate::*; // bring trait methods into scope\n");
+    out.push('\n');
+
+    // ERROR_CLASS constant.
+    out.push_str(&format!("const ERROR_CLASS: &str = \"{error_class}\";\n"));
+    out.push('\n');
+
+    // Shared runtime helpers.
+    emit_runtime_helpers(&mut out);
 
     // Collect visible top-level functions.
     let exclude_functions: std::collections::HashSet<&str> = config
@@ -119,7 +146,15 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     for f in &visible_functions {
         let method_name = bridge_method_name("", &f.name);
         let symbol = jni_symbol(&package, &bridge, &method_name);
-        emit_function_shim(&mut out, &symbol, f.params.iter().map(|p| (&p.name, &p.ty)).collect(), &f.return_type, config);
+        emit_function_shim(
+            &mut out,
+            &symbol,
+            &f.name,
+            &f.params,
+            &f.return_type,
+            f.is_async,
+            f.error_type.is_some(),
+        );
     }
 
     // Opaque client type shims.
@@ -134,6 +169,39 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     }
 
     out
+}
+
+// ---------------------------------------------------------------------------
+// Inline helper emission
+// ---------------------------------------------------------------------------
+
+fn emit_runtime_helpers(out: &mut String) {
+    out.push_str("fn runtime() -> &'static Runtime {\n");
+    out.push_str("    static RT: OnceLock<Runtime> = OnceLock::new();\n");
+    out.push_str("    RT.get_or_init(|| Runtime::new().expect(\"create tokio runtime\"))\n");
+    out.push_str("}\n");
+    out.push('\n');
+
+    out.push_str(
+        "fn jstring_to_string(env: &mut JNIEnv, s: JString) -> std::result::Result<String, jni::errors::Error> {\n",
+    );
+    out.push_str("    let jstr = env.get_string(&s)?;\n");
+    out.push_str("    Ok(jstr.into())\n");
+    out.push_str("}\n");
+    out.push('\n');
+
+    out.push_str("fn string_to_jstring(env: &mut JNIEnv, s: &str) -> jstring {\n");
+    out.push_str("    match env.new_string(s) {\n");
+    out.push_str("        Ok(o) => o.into_raw(),\n");
+    out.push_str("        Err(_) => std::ptr::null_mut(),\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out.push('\n');
+
+    out.push_str("fn throw_jni_error(env: &mut JNIEnv, msg: &str) {\n");
+    out.push_str("    let _ = env.throw_new(ERROR_CLASS, msg);\n");
+    out.push_str("}\n");
+    out.push('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -156,7 +224,15 @@ fn emit_client_shims(
         }
         let method_name = bridge_method_name(&ty.name, &method.name);
         let symbol = jni_symbol(package, bridge, &method_name);
-        emit_method_shim(out, &symbol, &ty.name, &method.name, method.params.iter().map(|p| (&p.name, &p.ty)).collect(), &method.return_type, config);
+        emit_method_shim(
+            out,
+            &symbol,
+            &ty.name,
+            &method.name,
+            &method.params,
+            &method.return_type,
+            method.is_async,
+        );
     }
 
     // Destructor shim.
@@ -168,17 +244,14 @@ fn emit_client_shims(
     let streaming: Vec<_> = config
         .adapters
         .iter()
-        .filter(|a| {
-            matches!(a.pattern, AdapterPattern::Streaming)
-                && a.owner_type.as_deref() == Some(ty.name.as_str())
-        })
+        .filter(|a| matches!(a.pattern, AdapterPattern::Streaming) && a.owner_type.as_deref() == Some(ty.name.as_str()))
         .collect();
     for adapter in &streaming {
         let (start_name, next_name, free_adapter_name) = streaming_method_names(&ty.name, &adapter.name);
         let start_sym = jni_symbol(package, bridge, &start_name);
         let next_sym = jni_symbol(package, bridge, &next_name);
         let free_sym = jni_symbol(package, bridge, &free_adapter_name);
-        emit_streaming_shims(out, &start_sym, &next_sym, &free_sym, ty, adapter, config, api);
+        emit_streaming_shims(out, &start_sym, &next_sym, &free_sym, ty, adapter, api);
     }
 
     let _ = api; // suppress unused warning if no streaming adapters
@@ -189,26 +262,155 @@ fn emit_client_shims(
 // ---------------------------------------------------------------------------
 
 /// Emit a shim for a top-level API function.
+///
+/// Top-level functions typically create an opaque handle (e.g. `createClient`).
+/// The return type is `jstring` carrying a JSON `{"handle": <raw_ptr_as_long>}`.
 fn emit_function_shim(
     out: &mut String,
     symbol: &str,
-    params: Vec<(&String, &TypeRef)>,
+    rust_fn_name: &str,
+    params: &[ParamDef],
     return_type: &TypeRef,
-    config: &ResolvedCrateConfig,
+    is_async: bool,
+    has_error: bool,
 ) {
-    let jni_params = render_jni_params(&params);
-    let jni_ret = jni_return_type(return_type);
-    let ret_suffix = if matches!(return_type, TypeRef::Unit) {
-        String::new()
-    } else {
-        format!(" -> {jni_ret}")
-    };
+    let core_fn = format!("core_crate::{}", rust_fn_name.replace('-', "_"));
+
+    // Collect param signatures and unmarshal logic.
+    let mut param_sigs = String::new();
+    let mut unmarshal = String::new();
+    let mut call_args = String::new();
+
+    for p in params {
+        let rust_name = p.name.replace('-', "_");
+        // The base type (unwrap Optional to its inner type for JNI marshaling decisions).
+        let base_ty = match &p.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        match base_ty {
+            TypeRef::String => {
+                param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
+                unmarshal.push_str(&format!(
+                    "    let {rust_name} = match jstring_to_string(&mut env, {rust_name}) {{\n"
+                ));
+                unmarshal.push_str("        Ok(s) => s,\n");
+                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str("    };\n");
+                // Build call-site expression: optional → Some(name), is_ref → &name, else name.
+                if p.optional {
+                    call_args.push_str(&format!("Some({rust_name})"));
+                } else if p.is_ref {
+                    call_args.push_str(&format!("&{rust_name}"));
+                } else {
+                    call_args.push_str(&rust_name);
+                }
+            }
+            TypeRef::Primitive(prim) => {
+                let jni_ty = jni_primitive_type(prim);
+                param_sigs.push_str(&format!("    {rust_name}: {jni_ty},\n"));
+                let cast = primitive_cast(prim);
+                let cast_expr = if cast.is_empty() {
+                    rust_name.clone()
+                } else {
+                    format!("{rust_name} as {cast}")
+                };
+                if p.optional {
+                    call_args.push_str(&format!("Some({cast_expr})"));
+                } else {
+                    call_args.push_str(&cast_expr);
+                }
+            }
+            _ => {
+                // Complex types passed as JSON string from Kotlin side.
+                param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
+                unmarshal.push_str(&format!(
+                    "    let {rust_name}_str = match jstring_to_string(&mut env, {rust_name}) {{\n"
+                ));
+                unmarshal.push_str("        Ok(s) => s,\n");
+                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str("    };\n");
+                let type_path = type_ref_to_core_path(base_ty, "core_crate");
+                unmarshal.push_str(&format!(
+                    "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
+                ));
+                unmarshal.push_str("        Ok(v) => v,\n");
+                unmarshal.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"deserialize: {e}\")); return std::ptr::null_mut(); }\n");
+                unmarshal.push_str("    };\n");
+                if p.optional {
+                    call_args.push_str(&format!("Some({rust_name})"));
+                } else if p.is_ref {
+                    call_args.push_str(&format!("&{rust_name}"));
+                } else {
+                    call_args.push_str(&rust_name);
+                }
+            }
+        }
+        call_args.push_str(", ");
+    }
+    // Remove trailing ", "
+    if call_args.ends_with(", ") {
+        call_args.truncate(call_args.len() - 2);
+    }
+
+    // For opaque handle returns (Named type), emit handle boxing.
+    let is_opaque_return = matches!(return_type, TypeRef::Named(_));
 
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{jni_params}){ret_suffix} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}) -> jstring {{\n"
     ));
 
-    emit_todo_body(out, return_type, config);
+    out.push_str(&unmarshal);
+
+    // Build the raw call expression (without async wrapping yet).
+    let raw_call = if call_args.is_empty() {
+        format!("{core_fn}()")
+    } else {
+        format!("{core_fn}({call_args})")
+    };
+
+    // Wrap in block_on for async functions.
+    let call_expr = if is_async {
+        format!("runtime().block_on({raw_call})")
+    } else {
+        raw_call
+    };
+
+    if has_error {
+        // Function returns Result<T, E>: match on Ok/Err.
+        out.push_str(&format!("    let result = {call_expr};\n"));
+        out.push_str("    match result {\n");
+        out.push_str("        Err(e) => {\n");
+        out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+        out.push_str("            std::ptr::null_mut()\n");
+        out.push_str("        }\n");
+        out.push_str("        Ok(v) => {\n");
+        if is_opaque_return {
+            out.push_str("            let handle_raw = Box::into_raw(Box::new(v)) as jlong;\n");
+            out.push_str("            let json = format!(\"{{\\\"handle\\\": {}}}\", handle_raw);\n");
+            out.push_str("            string_to_jstring(&mut env, &json)\n");
+        } else if matches!(return_type, TypeRef::Unit) {
+            out.push_str("            string_to_jstring(&mut env, \"null\")\n");
+        } else {
+            out.push_str("            let s = serde_json::to_string(&v).unwrap_or_default();\n");
+            out.push_str("            string_to_jstring(&mut env, &s)\n");
+        }
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+    } else {
+        // Function returns T directly (no Result wrapping).
+        out.push_str(&format!("    let v = {call_expr};\n"));
+        if is_opaque_return {
+            out.push_str("    let handle_raw = Box::into_raw(Box::new(v)) as jlong;\n");
+            out.push_str("    let json = format!(\"{{\\\"handle\\\": {}}}\", handle_raw);\n");
+            out.push_str("    string_to_jstring(&mut env, &json)\n");
+        } else if matches!(return_type, TypeRef::Unit) {
+            out.push_str("    string_to_jstring(&mut env, \"null\")\n");
+        } else {
+            out.push_str("    let s = serde_json::to_string(&v).unwrap_or_default();\n");
+            out.push_str("    string_to_jstring(&mut env, &s)\n");
+        }
+    }
 
     out.push_str("}\n\n");
 }
@@ -217,44 +419,203 @@ fn emit_function_shim(
 fn emit_method_shim(
     out: &mut String,
     symbol: &str,
-    _type_name: &str,
-    _method_name: &str,
-    params: Vec<(&String, &TypeRef)>,
+    type_name: &str,
+    method_name: &str,
+    params: &[ParamDef],
     return_type: &TypeRef,
-    config: &ResolvedCrateConfig,
+    is_async: bool,
 ) {
-    let handle_param = "    handle: jlong,\n";
-    let jni_ret = jni_return_type(return_type);
-    let ret_suffix = if matches!(return_type, TypeRef::Unit) {
-        String::new()
-    } else {
-        format!(" -> {jni_ret}")
-    };
+    let rust_method = method_name.replace('-', "_");
+    let has_params = !params.is_empty();
 
-    // Methods with params also receive requestJson.
-    let request_param = if params.is_empty() {
-        String::new()
-    } else {
+    let ret_decl = method_return_type_decl(return_type);
+    let ret_null = method_return_null(return_type);
+
+    let request_param = if has_params {
         "    request_json: JString,\n".to_string()
+    } else {
+        String::new()
     };
 
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{handle_param}{request_param}){ret_suffix} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n"
     ));
 
-    emit_todo_body(out, return_type, config);
+    // Dereference handle.
+    out.push_str("    // SAFETY: handle was allocated by the matching constructor shim and remains\n");
+    out.push_str("    // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee\n");
+    out.push_str("    // ensures the handle outlives this call.\n");
+    out.push_str(&format!(
+        "    let client: &core_crate::{type_name} = unsafe {{ &*(handle as *const core_crate::{type_name}) }};\n"
+    ));
+
+    // Unmarshal params and build call_args with is_ref/optional adjustments.
+    let call_args: String = if !has_params {
+        String::new()
+    } else if params.len() == 1 {
+        let p = &params[0];
+        let rust_name = p.name.replace('-', "_");
+        // Unwrap Optional wrapper for the JNI unmarshal type.
+        let base_ty = match &p.ty {
+            TypeRef::Optional(inner) => inner.as_ref(),
+            other => other,
+        };
+        emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null);
+        // Apply optional/is_ref at the call site.
+        if p.optional {
+            format!("Some({rust_name})")
+        } else if p.is_ref {
+            format!("&{rust_name}")
+        } else {
+            rust_name
+        }
+    } else {
+        // Multi-param: decode JSON map.
+        out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+        out.push_str("        Ok(s) => s,\n");
+        out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"invalid request_json: {{e}}\")); return {ret_null}; }}\n"));
+        out.push_str("    };\n");
+        out.push_str(
+            "    let req_map: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(&req_str) {\n",
+        );
+        out.push_str("        Ok(m) => m,\n");
+        out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"param deserialize: {{e}}\")); return {ret_null}; }}\n"));
+        out.push_str("    };\n");
+        let mut args = Vec::new();
+        for p in params {
+            let rust_name = p.name.replace('-', "_");
+            // Unwrap Optional for the deserialization type.
+            let base_ty = match &p.ty {
+                TypeRef::Optional(inner) => inner.as_ref(),
+                other => other,
+            };
+            let type_path = type_ref_to_core_path(base_ty, "core_crate");
+            out.push_str(&format!(
+                "    let {rust_name}: {type_path} = match req_map.get(\"{rust_name}\").and_then(|v| serde_json::from_value(v.clone()).ok()) {{\n"
+            ));
+            out.push_str("        Some(v) => v,\n");
+            out.push_str(&format!(
+                "        None => {{ throw_jni_error(&mut env, \"missing param: {rust_name}\"); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            let call_arg = if p.optional {
+                format!("Some({rust_name})")
+            } else if p.is_ref {
+                format!("&{rust_name}")
+            } else {
+                rust_name
+            };
+            args.push(call_arg);
+        }
+        args.join(", ")
+    };
+
+    // Build the call.
+    let call_expr = if call_args.is_empty() {
+        format!("client.{rust_method}()")
+    } else {
+        format!("client.{rust_method}({call_args})")
+    };
+
+    if is_async {
+        out.push_str(&format!("    let result = runtime().block_on({call_expr});\n"));
+    } else {
+        out.push_str(&format!("    let result = {call_expr};\n"));
+    }
+
+    out.push_str("    match result {\n");
+    out.push_str("        Err(e) => {\n");
+    out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+    out.push_str(&format!("            {ret_null}\n"));
+    out.push_str("        }\n");
+    out.push_str("        Ok(v) => {\n");
+    emit_return_marshal(out, return_type);
+    out.push_str("        }\n");
+    out.push_str("    }\n");
 
     out.push_str("}\n\n");
 }
 
+/// Emit unmarshal code for a single param, returning the rust variable name to use in the call.
+fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, ret_null: &str) {
+    match ty {
+        TypeRef::String => {
+            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            // A JSON-encoded string from Kotlin: `MAPPER.writeValueAsString(strParam)` → `"\"hello\""`
+            out.push_str(&format!(
+                "    let {rust_name}: String = match serde_json::from_str(&req_str) {{\n"
+            ));
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str("        Err(_) => req_str,\n");
+            out.push_str("    };\n");
+        }
+        _ => {
+            out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+            out.push_str("        Ok(s) => s,\n");
+            out.push_str(&format!(
+                "        Err(e) => {{ throw_jni_error(&mut env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str("    };\n");
+            let type_path = type_ref_to_core_path(ty, "core_crate");
+            out.push_str(&format!(
+                "    let {rust_name}: {type_path} = match serde_json::from_str(&req_str) {{\n"
+            ));
+            out.push_str("        Ok(v) => v,\n");
+            out.push_str(&format!("        Err(e) => {{ throw_jni_error(&mut env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
+            out.push_str("    };\n");
+        }
+    }
+}
+
+/// Emit the return marshalling code inside the `Ok(v) =>` arm.
+fn emit_return_marshal(out: &mut String, return_type: &TypeRef) {
+    match return_type {
+        TypeRef::Unit => {
+            // No return value.
+        }
+        TypeRef::Primitive(PrimitiveType::Bool) => {
+            out.push_str("            v as jboolean\n");
+        }
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+            // Vec<u8> → jbyteArray
+            out.push_str("            match env.byte_array_from_slice(&v) {\n");
+            out.push_str("                Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }\n");
+            out.push_str("                Err(_) => std::ptr::null_mut(),\n");
+            out.push_str("            }\n");
+        }
+        TypeRef::Bytes => {
+            // bytes::Bytes → jbyteArray (same as Vec<u8>)
+            out.push_str("            match env.byte_array_from_slice(v.as_ref()) {\n");
+            out.push_str("                Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }\n");
+            out.push_str("                Err(_) => std::ptr::null_mut(),\n");
+            out.push_str("            }\n");
+        }
+        TypeRef::Primitive(_) => {
+            out.push_str("            v\n");
+        }
+        _ => {
+            out.push_str("            let s = serde_json::to_string(&v).unwrap_or_default();\n");
+            out.push_str("            string_to_jstring(&mut env, &s)\n");
+        }
+    }
+}
+
 /// Emit the destructor shim for an opaque type.
-fn emit_destructor_shim(out: &mut String, symbol: &str, _type_name: &str) {
+fn emit_destructor_shim(out: &mut String, symbol: &str, type_name: &str) {
     out.push_str(&format!(
         "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    _env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n) {{\n"
     ));
+    out.push_str("    if handle == 0 { return; }\n");
     out.push_str("    // SAFETY: `handle` was allocated by the matching constructor shim and\n");
-    out.push_str("    // ownership is transferred back here for drop.\n");
-    out.push_str("    let _ = handle; // TODO: drop(Box::from_raw(handle as *mut _));\n");
+    out.push_str("    // ownership is transferred back here for drop via Box::from_raw.\n");
+    out.push_str(&format!(
+        "    unsafe {{ let _ = Box::from_raw(handle as *mut core_crate::{type_name}); }}\n"
+    ));
     out.push_str("}\n\n");
 }
 
@@ -265,123 +626,236 @@ fn emit_streaming_shims(
     start_sym: &str,
     next_sym: &str,
     free_sym: &str,
-    _ty: &TypeDef,
-    _adapter: &alef_core::config::AdapterConfig,
-    _config: &ResolvedCrateConfig,
+    ty: &TypeDef,
+    adapter: &alef_core::config::AdapterConfig,
     _api: &ApiSurface,
 ) {
-    // Start: (clientHandle: Long, requestJson: String) -> Long
+    let type_name = &ty.name;
+    let adapter_pascal = {
+        use heck::ToUpperCamelCase;
+        adapter.name.to_upper_camel_case()
+    };
+    let stream_handle_type = format!("{type_name}{adapter_pascal}StreamHandle");
+    let adapter_method = adapter.name.replace('-', "_");
+
+    // Determine item type path.
+    let item_type = adapter
+        .item_type
+        .as_deref()
+        .map(|t| format!("core_crate::{t}"))
+        .unwrap_or_else(|| "serde_json::Value".to_string());
+
+    // Emit StreamHandle struct.
+    out.push_str(&format!("struct {stream_handle_type} {{\n"));
+    out.push_str("    rt: &'static Runtime,\n");
+    out.push_str(&format!(
+        "    stream: Mutex<Option<BoxStream<'static, std::result::Result<{item_type}, Box<dyn std::error::Error + Send + Sync + 'static>>>>>,\n"
+    ));
+    out.push_str("}\n\n");
+
+    // Start shim: (clientHandle: Long, requestJson: String) -> Long
     out.push_str(&format!(
         "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n"
     ));
-    out.push_str("    let _ = (client_handle, request_json); // TODO: spawn stream, return handle\n");
-    out.push_str("    0\n");
-    out.push_str("}\n\n");
-
-    // Next: (streamHandle: Long) -> String?  — null pointer signals end
+    out.push_str("    // SAFETY: client_handle was produced by the matching constructor shim.\n");
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jni::sys::jobject {{\n"
+        "    let client: &core_crate::{type_name} = unsafe {{ &*(client_handle as *const core_crate::{type_name}) }};\n"
     ));
-    out.push_str("    let _ = stream_handle; // TODO: poll next chunk, return JSON or null\n");
-    out.push_str("    std::ptr::null_mut()\n");
+    out.push_str("    let req_str = match jstring_to_string(&mut env, request_json) {\n");
+    out.push_str("        Ok(s) => s,\n");
+    out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+    out.push_str("    };\n");
+    // Build request arg.
+    if let Some(first_param) = adapter.params.first() {
+        let param_type = first_param.ty.rsplit("::").next().unwrap_or(&first_param.ty);
+        out.push_str(&format!(
+            "    let request: core_crate::{param_type} = match serde_json::from_str(&req_str) {{\n"
+        ));
+        out.push_str("        Ok(v) => v,\n");
+        out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+        out.push_str("    };\n");
+        out.push_str(&format!(
+            "    let stream_result = runtime().block_on(async {{ client.{adapter_method}(request).await }});\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "    let stream_result = runtime().block_on(async {{ client.{adapter_method}().await }});\n"
+        ));
+    }
+    out.push_str("    let stream = match stream_result {\n");
+    out.push_str("        Ok(s) => s,\n");
+    out.push_str("        Err(e) => { throw_jni_error(&mut env, &format!(\"{e}\")); return 0; }\n");
+    out.push_str("    };\n");
+    out.push_str("    // Map the concrete error type to Box<dyn Error> so the handle type is\n");
+    out.push_str("    // independent of the stream's error associated type.\n");
+    out.push_str("    let mapped = {\n");
+    out.push_str("        use futures_util::StreamExt;\n");
+    out.push_str("        Box::pin(stream.map(|r| r.map_err(|e| -> Box<dyn std::error::Error + Send + Sync + 'static> { Box::new(e) })))\n");
+    out.push_str("    };\n");
+    out.push_str(&format!("    let handle = Box::new({stream_handle_type} {{\n"));
+    out.push_str("        rt: runtime(),\n");
+    out.push_str("        stream: Mutex::new(Some(mapped)),\n");
+    out.push_str("    });\n");
+    out.push_str("    Box::into_raw(handle) as jlong\n");
     out.push_str("}\n\n");
 
-    // Free: (streamHandle: Long)
+    // Next shim: (streamHandle: Long) -> jstring (null = end / error)
+    out.push_str(&format!(
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n"
+    ));
+    out.push_str("    if stream_handle == 0 { return std::ptr::null_mut(); }\n");
+    out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
+    out.push_str(&format!(
+        "    let h = unsafe {{ &*(stream_handle as *const {stream_handle_type}) }};\n"
+    ));
+    out.push_str("    let mut guard = match h.stream.lock() {\n");
+    out.push_str("        Ok(g) => g,\n");
+    out.push_str("        Err(_) => return std::ptr::null_mut(),\n");
+    out.push_str("    };\n");
+    out.push_str("    let Some(stream) = guard.as_mut() else { return std::ptr::null_mut(); };\n");
+    out.push_str("    let next = h.rt.block_on(stream.next());\n");
+    out.push_str("    match next {\n");
+    out.push_str("        None => std::ptr::null_mut(),\n");
+    out.push_str("        Some(Err(e)) => {\n");
+    out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+    out.push_str("            std::ptr::null_mut()\n");
+    out.push_str("        }\n");
+    out.push_str("        Some(Ok(chunk)) => {\n");
+    out.push_str("            let s = serde_json::to_string(&chunk).unwrap_or_default();\n");
+    out.push_str("            string_to_jstring(&mut env, &s)\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    // Free shim: (streamHandle: Long)
     out.push_str(&format!(
         "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {free_sym}(\n    _env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) {{\n"
     ));
-    out.push_str("    let _ = stream_handle; // TODO: drop stream handle\n");
+    out.push_str("    if stream_handle == 0 { return; }\n");
+    out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
+    out.push_str(&format!(
+        "    unsafe {{ let _ = Box::from_raw(stream_handle as *mut {stream_handle_type}); }}\n"
+    ));
     out.push_str("}\n\n");
+}
+
+// ---------------------------------------------------------------------------
+// Return type helpers
+// ---------------------------------------------------------------------------
+
+/// Return the ` -> <JniReturnType>` suffix for a method shim signature.
+fn method_return_type_decl(return_type: &TypeRef) -> String {
+    match return_type {
+        TypeRef::Unit => String::new(),
+        TypeRef::Primitive(PrimitiveType::Bool) => " -> jboolean".to_string(),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+            " -> jbyteArray".to_string()
+        }
+        TypeRef::Bytes => " -> jbyteArray".to_string(),
+        TypeRef::Primitive(_) => {
+            let jni_ty = jni_return_type(return_type);
+            format!(" -> {jni_ty}")
+        }
+        _ => " -> jstring".to_string(),
+    }
+}
+
+/// Return the "null" / zero value for a method return type (used in error paths).
+fn method_return_null(return_type: &TypeRef) -> &'static str {
+    match return_type {
+        TypeRef::Unit => "()",
+        TypeRef::Primitive(PrimitiveType::Bool) => "0u8",
+        TypeRef::Primitive(PrimitiveType::F32) => "0.0f32",
+        TypeRef::Primitive(PrimitiveType::F64) => "0.0f64",
+        TypeRef::Primitive(_) => "0",
+        TypeRef::Bytes => "std::ptr::null_mut()",
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+            "std::ptr::null_mut()"
+        }
+        _ => "std::ptr::null_mut()",
+    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Emit a minimal function body that satisfies the compiler for the stub.
-///
-/// All shims are scaffolded as `todo!()` placeholders — consumers must fill in
-/// the actual bridge logic. The return expression must typecheck, so we emit a
-/// typed zero/null depending on the return type.
-fn emit_todo_body(out: &mut String, return_type: &TypeRef, _config: &ResolvedCrateConfig) {
-    match return_type {
-        TypeRef::Unit => {
-            out.push_str("    todo!(\"JNI shim body\")\n");
-        }
-        TypeRef::Primitive(p) => {
-            let zero = match p {
-                PrimitiveType::Bool => "0u8",
-                PrimitiveType::F32 => "0.0f32",
-                PrimitiveType::F64 => "0.0f64",
-                _ => "0",
-            };
-            out.push_str(&format!("    todo!(\"JNI shim body\"); #[allow(unreachable_code)] {zero}\n"));
-        }
-        TypeRef::String
-        | TypeRef::Named(_)
-        | TypeRef::Optional(_)
-        | TypeRef::Vec(_)
-        | TypeRef::Map(_, _) => {
-            out.push_str("    todo!(\"JNI shim body\"); #[allow(unreachable_code)] std::ptr::null_mut()\n");
-        }
-        _ => {
-            // Opaque handle → Long
-            out.push_str("    todo!(\"JNI shim body\"); #[allow(unreachable_code)] 0i64\n");
-        }
-    }
-}
-
-/// Render a parameter list for a JNI function signature.
-///
-/// Each complex-type parameter is rendered as `JString`; primitives use the
-/// matching JNI numeric type.
-fn render_jni_params(params: &[(&String, &TypeRef)]) -> String {
-    let mut out = String::new();
-    for (name, ty) in params {
-        let jni_ty = jni_param_type(ty);
-        // Convert snake_case param name to a valid Rust identifier.
-        let rust_name = name.replace('-', "_");
-        out.push_str(&format!("    {rust_name}: {jni_ty},\n"));
-    }
-    out
-}
-
 /// Map a TypeRef to a JNI return type string.
 fn jni_return_type(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Unit => "()",
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "jboolean",
-            PrimitiveType::I8 | PrimitiveType::U8 => "jbyte",
-            PrimitiveType::I16 | PrimitiveType::U16 => "jshort",
-            PrimitiveType::I32 | PrimitiveType::U32 => "jint",
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "jlong",
-            PrimitiveType::F32 => "jfloat",
-            PrimitiveType::F64 => "jdouble",
-        },
+        TypeRef::Primitive(p) => jni_primitive_type(p),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => "jbyteArray",
         // String and complex types cross the boundary as Java objects.
-        TypeRef::String | TypeRef::Named(_) | TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            "jni::sys::jobject"
-        }
+        TypeRef::String | TypeRef::Named(_) | TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "jstring",
         // Opaque handles → Long.
         _ => "jlong",
     }
 }
 
-/// Map a TypeRef to a JNI parameter type string.
-fn jni_param_type(ty: &TypeRef) -> &'static str {
+fn jni_primitive_type(p: &PrimitiveType) -> &'static str {
+    match p {
+        PrimitiveType::Bool => "jboolean",
+        PrimitiveType::I8 | PrimitiveType::U8 => "jni::sys::jbyte",
+        PrimitiveType::I16 | PrimitiveType::U16 => "jni::sys::jshort",
+        PrimitiveType::I32 | PrimitiveType::U32 => "jni::sys::jint",
+        PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "jlong",
+        PrimitiveType::F32 => "jni::sys::jfloat",
+        PrimitiveType::F64 => "jni::sys::jdouble",
+    }
+}
+
+/// Return a Rust cast target for a JNI primitive → Rust type conversion, or "" if no cast needed.
+fn primitive_cast(p: &PrimitiveType) -> &'static str {
+    match p {
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::I8 => "i8",
+        PrimitiveType::U8 => "u8",
+        PrimitiveType::I16 => "i16",
+        PrimitiveType::U16 => "u16",
+        PrimitiveType::I32 => "i32",
+        PrimitiveType::U32 => "u32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::U64 => "u64",
+        PrimitiveType::F32 => "f32",
+        PrimitiveType::F64 => "f64",
+        PrimitiveType::Usize => "usize",
+        PrimitiveType::Isize => "isize",
+    }
+}
+
+/// Map a TypeRef to a Rust type path for serde deserialization.
+fn type_ref_to_core_path(ty: &TypeRef, core_prefix: &str) -> String {
     match ty {
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "jboolean",
-            PrimitiveType::I8 | PrimitiveType::U8 => "jbyte",
-            PrimitiveType::I16 | PrimitiveType::U16 => "jshort",
-            PrimitiveType::I32 | PrimitiveType::U32 => "jint",
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "jlong",
-            PrimitiveType::F32 => "jfloat",
-            PrimitiveType::F64 => "jdouble",
-        },
-        TypeRef::String | TypeRef::Named(_) | TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "JString",
-        _ => "jlong",
+        TypeRef::String => "String".to_string(),
+        TypeRef::Primitive(p) => primitive_rust_type(p).to_string(),
+        TypeRef::Named(n) => format!("{core_prefix}::{n}"),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_core_path(inner, core_prefix)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_core_path(inner, core_prefix)),
+        TypeRef::Map(k, v) => format!(
+            "std::collections::HashMap<{}, {}>",
+            type_ref_to_core_path(k, core_prefix),
+            type_ref_to_core_path(v, core_prefix)
+        ),
+        _ => "serde_json::Value".to_string(),
+    }
+}
+
+fn primitive_rust_type(p: &PrimitiveType) -> &'static str {
+    match p {
+        PrimitiveType::Bool => "bool",
+        PrimitiveType::I8 => "i8",
+        PrimitiveType::U8 => "u8",
+        PrimitiveType::I16 => "i16",
+        PrimitiveType::U16 => "u16",
+        PrimitiveType::I32 => "i32",
+        PrimitiveType::U32 => "u32",
+        PrimitiveType::I64 => "i64",
+        PrimitiveType::U64 => "u64",
+        PrimitiveType::F32 => "f32",
+        PrimitiveType::F64 => "f64",
+        PrimitiveType::Usize => "usize",
+        PrimitiveType::Isize => "isize",
     }
 }
 
@@ -396,6 +870,15 @@ fn jni_kotlin_package(config: &ResolvedCrateConfig) -> String {
         .and_then(|a| a.package.clone())
         .or_else(|| config.kotlin.as_ref().and_then(|k| k.package.clone()))
         .unwrap_or_else(|| config.kotlin_package())
+}
+
+/// Resolve the fully-qualified error class name for `ERROR_CLASS`.
+///
+/// Uses `<package_slashed>/<BridgeName>Exception` as default.
+fn resolve_error_class(config: &ResolvedCrateConfig, package: &str) -> String {
+    let package_slashed = package.replace('.', "/");
+    let bridge = bridge_class_name(&config.name);
+    format!("{package_slashed}/{bridge}Exception")
 }
 
 /// Return the `use` path for the core crate from the JNI shim.
@@ -422,6 +905,14 @@ mod tests {
 
     #[test]
     fn jni_return_type_string() {
-        assert_eq!(jni_return_type(&TypeRef::String), "jni::sys::jobject");
+        assert_eq!(jni_return_type(&TypeRef::String), "jstring");
+    }
+
+    #[test]
+    fn jni_return_type_vec_u8() {
+        assert_eq!(
+            jni_return_type(&TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8)))),
+            "jbyteArray"
+        );
     }
 }

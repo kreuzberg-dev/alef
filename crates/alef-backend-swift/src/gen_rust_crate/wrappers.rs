@@ -859,10 +859,7 @@ pub(crate) fn emit_type_method_shims(
                 format!("Result<{ok_ty}, String>")
             }
         } else {
-            crate::gen_rust_crate::type_bridge::bridge_type_with_handles(
-                &method.return_type,
-                handle_returned_types,
-            )
+            crate::gen_rust_crate::type_bridge::bridge_type_with_handles(&method.return_type, handle_returned_types)
         };
 
         // Build call args for each method param (excluding the receiver).
