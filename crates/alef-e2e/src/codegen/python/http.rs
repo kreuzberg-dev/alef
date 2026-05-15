@@ -259,6 +259,7 @@ mod tests {
             "got: {out}"
         );
         assert!(out.contains("method=\"GET\")\n    class _NoRedirect"), "got: {out}");
+        assert!(!out.contains("E704"), "got: {out}");
     }
 
     #[test]
@@ -269,5 +270,6 @@ mod tests {
 
         assert!(out.contains("_headers = {}\n    import json"), "got: {out}");
         assert!(out.contains("method=\"GET\")\n    class _NoRedirect"), "got: {out}");
+        assert!(!out.contains("E704"), "got: {out}");
     }
 }

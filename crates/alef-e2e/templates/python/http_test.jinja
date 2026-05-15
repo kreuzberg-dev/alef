@@ -35,7 +35,8 @@ def test_{{ fn_name }}(mock_server: str) -> None:
     _req = urllib.request.Request(url, headers=_headers, method="{{ method }}")
 {% endif %}
     class _NoRedirect(urllib.request.HTTPRedirectHandler):  # noqa: N801
-        def redirect_request(self, *args, **kwargs): return None  # noqa: E704
+        def redirect_request(self, *args, **kwargs):
+            return None
     _opener = urllib.request.build_opener(_NoRedirect())
     try:
         response = _opener.open(_req)  # noqa: S310
