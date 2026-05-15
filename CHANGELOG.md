@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.11] - 2026-05-15
+
+### Fixed
+
+- **kotlin-android e2e codegen: emit `Flow.toList()` and Kotlin property access
+  in streaming assertions**: the `kotlin_android` streaming codegen path in
+  `StreamingFieldResolver` was already correct (`result.toList()` via the
+  `kotlin_android` branch), but the installed alef binary was stale (0.16.10).
+  Added regression test
+  `kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence` covering:
+  (a) `result.toList()` used to collect the `Flow<T>` (not `asSequence().toList()`),
+  (b) chunk field assertions use Kotlin property access (`it.choices?.firstOrNull()?.delta?.content`
+  not Java getter calls), and (c) `import kotlinx.coroutines.flow.toList` is
+  emitted. (`crates/alef-e2e/tests/kotlin_android_codegen.rs`)
+
 ## [0.16.10] - 2026-05-15
 
 ### Fixed
