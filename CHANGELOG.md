@@ -32,7 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reference excluded types.
 - **alef-backend-java**: honor FFI and Java `exclude_types` settings when
   generating Panama bindings, including record fields, functions, and methods
-  whose signatures reference excluded types.
+  whose signatures reference excluded types. Deduplicate generated exception
+  classes when multiple Rust error enums contain variants with the same name.
 - **alef-backend-csharp**: honor FFI and C# `exclude_types` settings when
   generating P/Invoke bindings, and map named IR types through C# class casing
   so acronym-heavy types resolve to their generated class names. Opaque methods
