@@ -22,6 +22,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Kotlin inferring `Any!` for the Java generic return type.
   (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
 
+- **kotlin-android: emit `JavaType` for `List<T>` in untagged sealed-class deserializer**:
+  the emitter for serde-untagged sealed classes (`#[serde(untagged)]`) emitted
+  `ctx.readTreeAsValue(node, List::class.java)` for `Vec<T>` variants, producing a raw
+  `List<*>` at runtime (Jackson cannot reconstruct the element type from a raw class
+  literal). The fix uses `ctx.typeFactory.constructCollectionType(List::class.java,
+  T::class.java)` to carry the element type through to Jackson. Struct-variant branches
+  in the untagged deserializer return `ctx.readTreeAsValue<T>` directly (no constructor
+  wrap). Adds regression tests for `List<String>` and `List<NamedType>` variants.
+  (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
+
 - **kotlin-android: add Jackson runtime deps to `build.gradle.kts`
   template**: alef v0.16.11 added `@JsonDeserialize` to sealed-class Kotlin
   DTOs for serde-tagged polymorphism, but the kotlin-android `build.gradle.kts`
