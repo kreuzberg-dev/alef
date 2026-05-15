@@ -64,6 +64,9 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         .collect();
 
     let mut body = String::new();
+    // Suppress detekt TooManyFunctions: the bridge object has one external fun
+    // per API function; large APIs naturally exceed the default threshold of 11.
+    body.push_str("@Suppress(\"TooManyFunctions\")\n");
     body.push_str(&format!("object {bridge_name} {{\n"));
     body.push_str(&format!("    init {{ System.loadLibrary(\"{lib_name}\") }}\n"));
 
@@ -317,6 +320,9 @@ pub fn emit_jni_client_class(
         body.push_str(&format!(
             "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
         ));
+        // Suppress detekt TooManyFunctions: the number of methods scales with
+        // the API surface; large APIs naturally exceed the default threshold of 11.
+        body.push_str("@Suppress(\"TooManyFunctions\")\n");
         body.push_str(&format!(
             "class {class_name} internal constructor(internal val handle: Long) : AutoCloseable {{\n"
         ));
@@ -571,6 +577,10 @@ fn emit_jni_streaming_client_method(
         .map(|p| to_lower_camel(&p.name))
         .unwrap_or_else(|| "request".to_string());
 
+    // Suppress detekt TooGenericExceptionCaught: the callbackFlow catch intentionally
+    // catches Throwable to forward JNI RuntimeException, OOM Error, and any other
+    // throwable into the Flow as a terminal signal for proper collector error handling.
+    out.push_str("    @Suppress(\"TooGenericExceptionCaught\")\n");
     out.push_str(&format!(
         "    fun {method_name}({}): kotlinx.coroutines.flow.Flow<{item_type}> = kotlinx.coroutines.flow.callbackFlow {{\n",
         params.join(", ")
