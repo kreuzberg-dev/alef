@@ -262,6 +262,7 @@ fn emit_client_shims(
             &method.params,
             &method.return_type,
             method.is_async,
+            method.error_type.is_some(),
         );
     }
 
@@ -478,6 +479,7 @@ fn emit_method_shim(
     params: &[ParamDef],
     return_type: &TypeRef,
     is_async: bool,
+    has_error: bool,
 ) {
     let rust_method = method_name.replace('-', "_");
     let has_params = !params.is_empty();
@@ -571,21 +573,30 @@ fn emit_method_shim(
         format!("client.{rust_method}({call_args})")
     };
 
-    if is_async {
-        out.push_str(&format!("    let result = runtime().block_on({call_expr});\n"));
+    if has_error {
+        if is_async {
+            out.push_str(&format!("    let result = runtime().block_on({call_expr});\n"));
+        } else {
+            out.push_str(&format!("    let result = {call_expr};\n"));
+        }
+        out.push_str("    match result {\n");
+        out.push_str("        Err(e) => {\n");
+        out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
+        out.push_str(&format!("            {ret_null}\n"));
+        out.push_str("        }\n");
+        out.push_str("        Ok(v) => {\n");
+        emit_return_marshal(out, return_type);
+        out.push_str("        }\n");
+        out.push_str("    }\n");
     } else {
-        out.push_str(&format!("    let result = {call_expr};\n"));
+        // Method returns T directly (no Result wrapping).
+        if is_async {
+            out.push_str(&format!("    let v = runtime().block_on({call_expr});\n"));
+        } else {
+            out.push_str(&format!("    let v = {call_expr};\n"));
+        }
+        emit_return_marshal_with_indent(out, return_type, "    ");
     }
-
-    out.push_str("    match result {\n");
-    out.push_str("        Err(e) => {\n");
-    out.push_str("            throw_jni_error(&mut env, &format!(\"{e}\"));\n");
-    out.push_str(&format!("            {ret_null}\n"));
-    out.push_str("        }\n");
-    out.push_str("        Ok(v) => {\n");
-    emit_return_marshal(out, return_type);
-    out.push_str("        }\n");
-    out.push_str("    }\n");
 
     out.push_str("}\n\n");
 }
@@ -628,33 +639,45 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
 
 /// Emit the return marshalling code inside the `Ok(v) =>` arm.
 fn emit_return_marshal(out: &mut String, return_type: &TypeRef) {
+    emit_return_marshal_with_indent(out, return_type, "            ");
+}
+
+/// Emit the return marshalling code with a configurable leading indent.
+///
+/// Use the 12-space variant from inside an `Ok(v) =>` match arm; pass a
+/// 4-space indent for the no-error code path that binds `v` directly.
+fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, indent: &str) {
     match return_type {
         TypeRef::Unit => {
             // No return value.
         }
         TypeRef::Primitive(PrimitiveType::Bool) => {
-            out.push_str("            v as jboolean\n");
+            out.push_str(&format!("{indent}v as jboolean\n"));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // Vec<u8> → jbyteArray
-            out.push_str("            match env.byte_array_from_slice(&v) {\n");
-            out.push_str("                Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }\n");
-            out.push_str("                Err(_) => std::ptr::null_mut(),\n");
-            out.push_str("            }\n");
+            out.push_str(&format!("{indent}match env.byte_array_from_slice(&v) {{\n"));
+            out.push_str(&format!(
+                "{indent}    Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            ));
+            out.push_str(&format!("{indent}    Err(_) => std::ptr::null_mut(),\n"));
+            out.push_str(&format!("{indent}}}\n"));
         }
         TypeRef::Bytes => {
             // bytes::Bytes → jbyteArray (same as Vec<u8>)
-            out.push_str("            match env.byte_array_from_slice(v.as_ref()) {\n");
-            out.push_str("                Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }\n");
-            out.push_str("                Err(_) => std::ptr::null_mut(),\n");
-            out.push_str("            }\n");
+            out.push_str(&format!("{indent}match env.byte_array_from_slice(v.as_ref()) {{\n"));
+            out.push_str(&format!(
+                "{indent}    Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            ));
+            out.push_str(&format!("{indent}    Err(_) => std::ptr::null_mut(),\n"));
+            out.push_str(&format!("{indent}}}\n"));
         }
         TypeRef::Primitive(_) => {
-            out.push_str("            v\n");
+            out.push_str(&format!("{indent}v\n"));
         }
         _ => {
-            out.push_str("            let s = serde_json::to_string(&v).unwrap_or_default();\n");
-            out.push_str("            string_to_jstring(&mut env, &s)\n");
+            out.push_str(&format!("{indent}let s = serde_json::to_string(&v).unwrap_or_default();\n"));
+            out.push_str(&format!("{indent}string_to_jstring(&mut env, &s)\n"));
         }
     }
 }

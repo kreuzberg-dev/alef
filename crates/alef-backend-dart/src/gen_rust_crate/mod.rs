@@ -905,8 +905,7 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
         // surface). Treat those like other sanitized fields and fall back to
         // Default::default(). Only the Cow case (core `Cow<'static, str>` extracted
         // as Named("str") and sanitized to String) safely roundtrips via .into().
-        let safe_sanitized_string =
-            matches!(field.ty, TypeRef::String) && field.core_wrapper == CoreWrapper::Cow;
+        let safe_sanitized_string = matches!(field.ty, TypeRef::String) && field.core_wrapper == CoreWrapper::Cow;
         if field.sanitized && !safe_sanitized_string {
             // Sanitized fields have an unknown core type simplified in the IR.
             // Only types in the transitive closure from input-parameter types get this
