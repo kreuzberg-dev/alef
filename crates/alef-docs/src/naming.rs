@@ -105,7 +105,9 @@ pub(crate) fn func_name(name: &str, lang: Language, ffi_prefix: &str) -> String 
         Language::Python | Language::Ruby | Language::Elixir | Language::R | Language::Rust => name.to_snake_case(),
         Language::Node | Language::Wasm | Language::Java | Language::Php => to_camel_case(name),
         Language::Csharp | Language::Go => name.to_pascal_case(),
-        Language::Ffi | Language::C | Language::Jni => format!("{}_{}", ffi_prefix.to_snake_case(), name.to_snake_case()),
+        Language::Ffi | Language::C | Language::Jni => {
+            format!("{}_{}", ffi_prefix.to_snake_case(), name.to_snake_case())
+        }
         Language::Kotlin
         | Language::KotlinAndroid
         | Language::Swift
@@ -183,7 +185,9 @@ pub(crate) fn enum_variant_name(name: &str, lang: Language, ffi_prefix: &str) ->
         Language::R => name.to_snake_case(),
         // Rust: PascalCase enum variants
         Language::Rust => name.to_pascal_case(),
-        Language::Ffi | Language::C | Language::Jni => format!("{}_{}", ffi_prefix.to_shouty_snake_case(), name.to_shouty_snake_case()),
+        Language::Ffi | Language::C | Language::Jni => {
+            format!("{}_{}", ffi_prefix.to_shouty_snake_case(), name.to_shouty_snake_case())
+        }
     }
 }
 

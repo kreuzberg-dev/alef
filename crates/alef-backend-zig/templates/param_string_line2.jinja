@@ -1,1 +1,2 @@
         std.heap.c_allocator, "{s}", .{{ '{' }}{{ name }}{{ '}' }}, 0);
+    defer std.heap.c_allocator.free({{ name }}_z);

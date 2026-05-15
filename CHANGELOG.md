@@ -35,6 +35,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-zig (free-before-use on C-string sentinel params)**: wrapper
+  functions that converted a `[]const u8` parameter to a null-terminated C string
+  via `allocPrintSentinel` / `dupeZ` were emitting `c_allocator.free(name_z)`
+  _before_ the C function call, passing a dangling pointer. Affected all infallible
+  top-level functions (e.g. `has_language`, `detect_language_from_content`,
+  `detect_language_from_extension`, `detect_language_from_path`) and all infallible
+  opaque-handle methods (e.g. `LanguageRegistry.has_language`, `Parser.parse`,
+  `Node.child_by_field_name`). Fallible functions (those with an `error_type`) were
+  already correct (free came after the error-code check). Fix: emit
+  `defer std.heap.c_allocator.free(name_z);` immediately after each
+  `allocPrintSentinel` / `dupeZ` alloc — the deferred free runs on function exit
+  regardless of control flow, so the buffer is always alive during the C call.
+  (`crates/alef-backend-zig/src/gen_bindings/functions.rs`,
+  `crates/alef-backend-zig/src/gen_bindings/opaque_handles.rs`,
+  `crates/alef-backend-zig/templates/param_string_line2.jinja`,
+  `crates/alef-backend-zig/templates/param_optional_string_alloc.jinja`)
+
 - **alef-backend-dart (String→Cow From-impl)**: `Cow<'static, str>` struct
   fields were silently dropped in the generated `From<MirrorT> for CoreT`
   implementation. The type resolver resolves `Cow<'static, str>` to
@@ -83,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `extern "Swift"` block (`Swift<Trait>Box` declaration + per-method FFI shims),
   the corresponding `extern "Rust"` register/unregister entry points, and the
   Rust-side `Swift<Trait>Wrapper` newtype + `register_<trait>` fn on
-  `bind_via = "function_param"`. Previously, *every* configured trait bridge
+  `bind_via = "function_param"`. Previously, _every_ configured trait bridge
   emitted the inbound plugin block unconditionally, including `bind_via = "options_field"`
   bridges (e.g. h2m's `HtmlVisitor`). The swift-bridge crate then declared
   `type Swift<Trait>Box;` in the `extern "Swift"` block, but there was no
@@ -174,7 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   returns, producing a valid Zig boolean. Two new tests cover the infallible and
   fallible (error-union) cases.
   (`crates/alef-backend-zig/src/gen_bindings/functions.rs`,
-   `crates/alef-backend-zig/tests/gen_bindings_test.rs`)
+  `crates/alef-backend-zig/tests/gen_bindings_test.rs`)
 
 - **alef-e2e/zig (infallible function try emission)**: the Zig e2e codegen
   unconditionally emitted `try` before every call, but functions that are
@@ -185,7 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   allocate and/or can fail) and requires an explicit per-language opt-out:
   `[crates.e2e.calls.<name>.overrides.zig] returns_result = false`.
   (`crates/alef-e2e/src/codegen/zig.rs`,
-   `crates/alef-e2e/tests/zig_infallible_no_try.rs`)
+  `crates/alef-e2e/tests/zig_infallible_no_try.rs`)
 
 - **alef-e2e/zig (streaming-virtual field intercept in non-streaming path)**:
   `render_json_assertion` intercepted field names matching `is_streaming_virtual_field`

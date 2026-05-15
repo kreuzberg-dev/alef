@@ -1336,14 +1336,16 @@ fn render_assertion(
                         // Enum fields: `to_string()` (snake_case) returns RustString;
                         // `.toString()` converts it to a Swift String.
                         // `string_expr` already incorporates this call chain.
-                        let trim_expr = format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)");
+                        let trim_expr =
+                            format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)");
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     } else {
                         // For optional strings (String?), use ?? to coalesce before trimming.
                         // `.toString()` converts RustString → Swift String before calling
                         // `.trimmingCharacters`, which requires a concrete String type.
                         // string_expr already incorporates field_is_optional via ?.toString() ?? "".
-                        let trim_expr = format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)");
+                        let trim_expr =
+                            format!("{string_expr}.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines)");
                         let _ = writeln!(out, "        XCTAssertEqual({trim_expr}, {swift_val})");
                     }
                 } else {

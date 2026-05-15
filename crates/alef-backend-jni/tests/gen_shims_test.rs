@@ -2,8 +2,8 @@ use alef_backend_jni::JniBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{AdapterConfig, AdapterParam, AdapterPattern, NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef,
-    ParamDef, PrimitiveType, TypeDef, TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, TypeDef, TypeRef,
 };
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
@@ -65,7 +65,16 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
     }
 }
 
-/// A minimal API: one top-level function + one opaque client type with instance methods.
+// ---------------------------------------------------------------------------
+// Shared Demo fixture (richer surface for snapshot coverage)
+// ---------------------------------------------------------------------------
+
+/// Build the Demo fixture API surface:
+/// - one top-level function: `create_client(api_key: String) -> Named("DemoClient")` [async, opaque return]
+/// - TypeDef `DemoClient` (opaque) with:
+///   * `do_thing(input: String) -> String`  (async, 1 param, String return)
+///   * `ping() -> bool`                      (async, no params, Bool return)
+///   * `fetch_blob() -> Vec<u8>`             (async, no params, ByteArray return)
 fn make_demo_api() -> ApiSurface {
     let client_type = TypeDef {
         name: "DemoClient".to_string(),
@@ -74,12 +83,18 @@ fn make_demo_api() -> ApiSurface {
         fields: vec![],
         methods: vec![
             make_method(
-                "create",
-                vec![make_param("api_key", TypeRef::String)],
-                TypeRef::Named("DemoClient".to_string()),
+                "do_thing",
+                vec![make_param("input", TypeRef::String)],
+                TypeRef::String,
                 true,
             ),
             make_method("ping", vec![], TypeRef::Primitive(PrimitiveType::Bool), true),
+            make_method(
+                "fetch_blob",
+                vec![],
+                TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::U8))),
+                true,
+            ),
         ],
         is_opaque: true,
         is_clone: false,
@@ -101,7 +116,10 @@ fn make_demo_api() -> ApiSurface {
         original_rust_path: String::new(),
         fields: vec![
             make_field("model", TypeRef::String),
-            make_field("timeout_secs", TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32)))),
+            make_field(
+                "timeout_secs",
+                TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U32))),
+            ),
         ],
         methods: vec![],
         is_opaque: false,
@@ -123,8 +141,8 @@ fn make_demo_api() -> ApiSurface {
         version: "0.1.0".into(),
         types: vec![client_type, config_type],
         functions: vec![FunctionDef {
-            name: "new_client".into(),
-            rust_path: "demo::new_client".into(),
+            name: "create_client".into(),
+            rust_path: "demo::create_client".into(),
             original_rust_path: String::new(),
             params: vec![make_param("api_key", TypeRef::String)],
             return_type: TypeRef::Named("DemoClient".to_string()),
@@ -194,12 +212,40 @@ namespace = "dev.kreuzberg.demo"
     )
 }
 
-/// Snapshot test: verify the emitted `lib.rs` content for a basic API with an
-/// opaque client type and a top-level function.
+/// Build a demo config with a streaming adapter.
+fn make_demo_config_with_streaming() -> ResolvedCrateConfig {
+    let mut config = make_demo_config();
+    config.adapters.push(AdapterConfig {
+        name: "stream_data".to_string(),
+        pattern: AdapterPattern::Streaming,
+        core_path: "demo::DemoClient::stream_data".to_string(),
+        params: vec![AdapterParam {
+            name: "request".to_string(),
+            ty: "StreamRequest".to_string(),
+            optional: false,
+        }],
+        returns: Some("DataChunk".to_string()),
+        error_type: None,
+        owner_type: Some("DemoClient".to_string()),
+        item_type: Some("DataChunk".to_string()),
+        gil_release: false,
+        trait_name: None,
+        trait_method: None,
+        detect_async: false,
+        request_type: None,
+    });
+    config
+}
+
+// ---------------------------------------------------------------------------
+// 1. Full lib.rs snapshot
+// ---------------------------------------------------------------------------
+
+/// Snapshot: the entire emitted `lib.rs` for the richer Demo fixture with streaming.
 #[test]
-fn snapshot_demo_lib_rs() {
+fn snapshot_full_lib_rs() {
     let api = make_demo_api();
-    let config = make_demo_config();
+    let config = make_demo_config_with_streaming();
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     assert_eq!(files.len(), 1, "JNI backend should emit exactly one file");
     let lib = &files[0];
@@ -208,8 +254,269 @@ fn snapshot_demo_lib_rs() {
         "emitted file must be lib.rs, got {:?}",
         lib.path
     );
-    insta::assert_snapshot!("snapshot_demo_lib_rs", &lib.content);
+    insta::assert_snapshot!("snapshot_full_lib_rs", &lib.content);
 }
+
+// ---------------------------------------------------------------------------
+// 2. Runtime helpers present
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_runtime_helpers_present() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(content.contains("fn runtime()"), "must contain runtime() helper");
+    assert!(
+        content.contains("fn jstring_to_string"),
+        "must contain jstring_to_string helper"
+    );
+    assert!(
+        content.contains("fn throw_jni_error"),
+        "must contain throw_jni_error helper"
+    );
+    assert!(
+        content.contains("const ERROR_CLASS: &str = \"dev/kreuzberg/demo/DemoBridgeException\""),
+        "must contain correct ERROR_CLASS; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_runtime_helpers_present", content);
+}
+
+// ---------------------------------------------------------------------------
+// 3. Constructor symbol and body
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_constructor_symbol_and_body() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient"),
+        "constructor symbol missing; got:\n{content}"
+    );
+    // Must do Box::into_raw to return a handle.
+    assert!(
+        content.contains("Box::into_raw(Box::new(v)) as jlong"),
+        "constructor must Box::into_raw the result; got:\n{content}"
+    );
+    // Must return jstring (JSON-encoded handle).
+    assert!(
+        content.contains("string_to_jstring(&mut env, &json)"),
+        "constructor must return jstring; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_constructor_symbol_and_body", content);
+}
+
+// ---------------------------------------------------------------------------
+// 4. Method with String param
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_method_with_param() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // `do_thing` takes a String input, returns String.
+    assert!(
+        content.contains("nativeDemoClientDoThing"),
+        "nativeDemoClientDoThing must be emitted; got:\n{content}"
+    );
+    // Must unmarshal request_json.
+    assert!(
+        content.contains("request_json: JString"),
+        "do_thing must accept request_json: JString; got:\n{content}"
+    );
+    assert!(
+        content.contains("serde_json::to_string(&v)"),
+        "do_thing must serialize return value via serde_json; got:\n{content}"
+    );
+    assert!(
+        content.contains("string_to_jstring(&mut env, &s)"),
+        "do_thing must return jstring; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_method_with_param", content);
+}
+
+// ---------------------------------------------------------------------------
+// 5. No-param method returning bool
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_method_no_params_bool() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // `ping` takes no params, returns bool.
+    assert!(
+        content.contains("nativeDemoClientPing"),
+        "nativeDemoClientPing must be emitted; got:\n{content}"
+    );
+    // No request_json param.
+    let ping_section = extract_fn_section(content, "nativeDemoClientPing");
+    assert!(
+        !ping_section.contains("request_json"),
+        "ping must NOT have request_json param; section:\n{ping_section}"
+    );
+    assert!(
+        content.contains("-> jboolean"),
+        "ping must return jboolean; got:\n{content}"
+    );
+    assert!(
+        content.contains("v as jboolean"),
+        "ping must cast bool to jboolean; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_method_no_params_bool", content);
+}
+
+// ---------------------------------------------------------------------------
+// 6. No-param method returning Vec<u8>
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_method_no_params_bytes() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // `fetch_blob` takes no params, returns Vec<u8>.
+    assert!(
+        content.contains("nativeDemoClientFetchBlob"),
+        "nativeDemoClientFetchBlob must be emitted; got:\n{content}"
+    );
+    assert!(
+        content.contains("-> jbyteArray"),
+        "fetch_blob must return jbyteArray; got:\n{content}"
+    );
+    assert!(
+        content.contains("env.byte_array_from_slice(&v)"),
+        "fetch_blob must use byte_array_from_slice; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_method_no_params_bytes", content);
+}
+
+// ---------------------------------------------------------------------------
+// 7. Streaming Start/Next/Free
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_streaming_start_next_free() {
+    let api = make_demo_api();
+    let config = make_demo_config_with_streaming();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // All three streaming symbols present.
+    assert!(
+        content.contains("nativeDemoClientStreamDataStart"),
+        "Start shim missing; got:\n{content}"
+    );
+    assert!(
+        content.contains("nativeDemoClientStreamDataNext"),
+        "Next shim missing; got:\n{content}"
+    );
+    assert!(
+        content.contains("nativeDemoClientStreamDataFree"),
+        "Free shim missing; got:\n{content}"
+    );
+
+    // Start: returns jlong.
+    assert!(
+        content.contains("nativeDemoClientStreamDataStart(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong"),
+        "Start must have correct signature; got:\n{content}"
+    );
+    // Next: polls stream, returns jstring.
+    assert!(
+        content.contains("stream.next()"),
+        "Next must poll stream.next(); got:\n{content}"
+    );
+    assert!(
+        content.contains("serde_json::to_string(&chunk)"),
+        "Next must serialize chunk; got:\n{content}"
+    );
+    // Free: drops the handle.
+    assert!(
+        content.contains("Box::from_raw(stream_handle as *mut"),
+        "Free must Box::from_raw the handle; got:\n{content}"
+    );
+
+    insta::assert_snapshot!("snapshot_streaming_start_next_free", content);
+}
+
+// ---------------------------------------------------------------------------
+// 8. Destructor
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_destructor() {
+    let api = make_demo_api();
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("nativeFreeDemoClient"),
+        "destructor must be emitted; got:\n{content}"
+    );
+    assert!(
+        content.contains("Box::from_raw(handle as *mut core_crate::DemoClient)"),
+        "destructor must drop via Box::from_raw; got:\n{content}"
+    );
+    insta::assert_snapshot!("snapshot_destructor", content);
+}
+
+// ---------------------------------------------------------------------------
+// 9. Validation: kotlin_android required
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_validation_requires_kotlin_android() {
+    let api = make_demo_api();
+    // Build a config via kotlin_android + jni, then strip the kotlin_android field
+    // to simulate a "jni only" scenario that the backend itself must reject.
+    let mut config = make_demo_config();
+    config.kotlin_android = None;
+
+    let result = JniBackend.generate_bindings(&api, &config);
+    assert!(result.is_err(), "must return Err when kotlin_android is missing");
+    let msg = result.unwrap_err().to_string();
+    assert!(
+        msg.contains("kotlin-android"),
+        "error must mention 'kotlin-android'; got: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 10. No liter_llm leakage
+// ---------------------------------------------------------------------------
+
+#[test]
+fn snapshot_no_liter_llm_leakage() {
+    let api = make_demo_api();
+    let config = make_demo_config_with_streaming();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    for forbidden in &["liter_llm", "LiterLlm", "literllm"] {
+        assert!(
+            !content.contains(forbidden),
+            "emitted output must not contain '{forbidden}'; got:\n{content}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Legacy non-snapshot tests (kept from original file)
+// ---------------------------------------------------------------------------
 
 /// Verify that every JNI symbol in the emitted output starts with `Java_` and
 /// uses the package from `[crates.kotlin_android] package`.
@@ -232,7 +539,7 @@ fn emitted_symbols_match_kotlin_package() {
     );
 }
 
-/// Verify that the top-level `new_client` function emits a `nativeNewClient` symbol.
+/// Verify that the top-level `create_client` function emits a `nativeCreateClient` symbol.
 #[test]
 fn top_level_function_emits_native_prefix() {
     let api = make_demo_api();
@@ -240,8 +547,8 @@ fn top_level_function_emits_native_prefix() {
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("nativeNewClient"),
-        "top-level function must emit `nativeNewClient` symbol; got:\n{content}"
+        content.contains("nativeCreateClient"),
+        "top-level function must emit `nativeCreateClient` symbol; got:\n{content}"
     );
 }
 
@@ -288,9 +595,9 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
     assert_eq!(&bridge, "DemoBridge");
 
     // Top-level function symbol.
-    let fn_method = bridge_method_name("", "new_client");
+    let fn_method = bridge_method_name("", "create_client");
     let fn_sym = jni_symbol(package, &bridge, &fn_method);
-    assert_eq!(fn_sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeNewClient");
+    assert_eq!(fn_sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeCreateClient");
 
     // Instance method symbol.
     let method = bridge_method_name("DemoClient", "ping");
@@ -308,43 +615,252 @@ fn jni_symbols_agree_with_alef_core_jni_helpers() {
 #[test]
 fn streaming_adapter_shims_are_emitted() {
     let api = make_demo_api();
-    let mut config = make_demo_config();
-
-    // Inject a streaming adapter owned by DemoClient.
-    config.adapters.push(AdapterConfig {
-        name: "chat_stream".to_string(),
-        pattern: AdapterPattern::Streaming,
-        core_path: "demo::DemoClient::chat_stream".to_string(),
-        params: vec![AdapterParam {
-            name: "request".to_string(),
-            ty: "String".to_string(),
-            optional: false,
-        }],
-        returns: Some("String".to_string()),
-        error_type: None,
-        owner_type: Some("DemoClient".to_string()),
-        item_type: Some("StreamChunk".to_string()),
-        gil_release: false,
-        trait_name: None,
-        trait_method: None,
-        detect_async: false,
-        request_type: None,
-    });
+    let config = make_demo_config_with_streaming();
 
     let files = JniBackend.generate_bindings(&api, &config).unwrap();
     let content = &files[0].content;
 
     assert!(
-        content.contains("nativeDemoClientChatStreamStart"),
+        content.contains("nativeDemoClientStreamDataStart"),
         "Start shim must be emitted; got:\n{content}"
     );
     assert!(
-        content.contains("nativeDemoClientChatStreamNext"),
+        content.contains("nativeDemoClientStreamDataNext"),
         "Next shim must be emitted; got:\n{content}"
     );
     assert!(
-        content.contains("nativeDemoClientChatStreamFree"),
+        content.contains("nativeDemoClientStreamDataFree"),
         "Free shim must be emitted; got:\n{content}"
     );
+}
 
+// ---------------------------------------------------------------------------
+// 11. Real-IR-shape test: Optional<String>, &str, Result, async
+// ---------------------------------------------------------------------------
+
+/// Verifies the emitter handles liter-llm-like IR shapes:
+///   - Optional<String> params → `Some(name)` at the call site
+///   - `&str` params (is_ref=true, String ty) → `&name` at the call site
+///   - functions with error_type → `match result { Ok(v) => ..., Err(e) => ... }`
+///   - async top-level functions → `runtime().block_on(...)`
+///   - `use core_crate::*;` in the import block
+#[test]
+fn real_ir_shape_optional_ref_result_async() {
+    // Build an API surface resembling liter-llm's public surface.
+    let client_type = TypeDef {
+        name: "DemoClient".to_string(),
+        rust_path: "demo::DemoClient".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![make_method(
+            "chat_stream",
+            vec![make_param("request", TypeRef::Named("ChatRequest".to_string()))],
+            TypeRef::Named("ChatResponse".to_string()),
+            true, // async
+        )],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+
+    // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
+    //               max_retries: Option<u32>, model_hint: Option<String>) -> DemoClient
+    let create_client = FunctionDef {
+        name: "create_client".to_string(),
+        rust_path: "demo::create_client".to_string(),
+        original_rust_path: String::new(),
+        params: vec![
+            ParamDef {
+                name: "api_key".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "base_url".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+            ParamDef {
+                name: "timeout_secs".to_string(),
+                ty: TypeRef::Optional(Box::new(TypeRef::Primitive(PrimitiveType::U64))),
+                optional: true,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+            },
+        ],
+        return_type: TypeRef::Named("DemoClient".to_string()),
+        is_async: false,
+        error_type: Some("DemoError".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    // unregister_custom_provider(name: &str) -> bool
+    let unregister_fn = FunctionDef {
+        name: "unregister_custom_provider".to_string(),
+        rust_path: "demo::unregister_custom_provider".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "name".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: true, // &str in core
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Primitive(PrimitiveType::Bool),
+        is_async: false,
+        error_type: Some("DemoError".to_string()),
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![create_client, unregister_fn],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".to_string(),
+            rust_path: "demo::DemoError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Fail".to_string(),
+                message_template: Some("fail".to_string()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let config = make_demo_config();
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // Fix 1: glob import present.
+    assert!(
+        content.contains("use core_crate::*;"),
+        "must contain `use core_crate::*;`; got:\n{content}"
+    );
+
+    // Fix 2: Optional<String> params wrapped with Some().
+    assert!(
+        content.contains("Some(api_key)") && content.contains("Some(base_url)"),
+        "Optional<String> params must be wrapped with Some(...); got:\n{content}"
+    );
+
+    // Fix 2b: Optional<u64> wrapped with Some().
+    assert!(
+        content.contains("Some(timeout_secs as u64)"),
+        "Optional<u64> param must be wrapped with Some(timeout_secs as u64); got:\n{content}"
+    );
+
+    // Fix 3: &str params passed with & reference.
+    assert!(
+        content.contains("&name"),
+        "`name` (is_ref=true, String) must be passed as `&name`; got:\n{content}"
+    );
+
+    // Fix 2+3 combined: Result-bearing functions use match result.
+    assert!(
+        content.contains("match result {"),
+        "Result-bearing functions must emit 'match result {{'; got:\n{content}"
+    );
+
+    // The create_client call must pass Some(...) for optional params.
+    let create_section = extract_fn_section(content, "nativeCreateClient");
+    assert!(
+        create_section.contains("Some(api_key)"),
+        "createClient must wrap api_key with Some(); section:\n{create_section}"
+    );
+    assert!(
+        create_section.contains("Some(base_url)"),
+        "createClient must wrap base_url with Some(); section:\n{create_section}"
+    );
+
+    // The unregister call must pass &name.
+    let unreg_section = extract_fn_section(content, "nativeUnregisterCustomProvider");
+    assert!(
+        unreg_section.contains("&name"),
+        "unregisterCustomProvider must pass &name; section:\n{unreg_section}"
+    );
+    assert!(
+        unreg_section.contains("match result {"),
+        "unregisterCustomProvider (has error_type) must match result; section:\n{unreg_section}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Helper: extract the function body section for a named symbol
+// ---------------------------------------------------------------------------
+
+/// Extract the text from just before the `fn <sym>` line through the closing `}`.
+fn extract_fn_section(content: &str, symbol: &str) -> String {
+    let start = content.find(symbol).unwrap_or(0);
+    // Walk forward to find the final closing brace of this function.
+    let rest = &content[start..];
+    let mut depth = 0usize;
+    let mut end = rest.len();
+    for (i, c) in rest.char_indices() {
+        match c {
+            '{' => depth += 1,
+            '}' if depth > 0 => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i + 1;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    rest[..end].to_string()
 }

@@ -547,33 +547,11 @@ fn emit_param_free(
                     },
                 ));
             }
-            return;
         }
     }
-    let is_optional_string = p.optional
-        || matches!(
-                &p.ty,
-                TypeRef::Optional(inner)
-                    if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
-        );
-    if is_optional_string && matches!(unwrap_optional(&p.ty), TypeRef::String | TypeRef::Path) {
-        out.push_str(&crate::template_env::render(
-            "param_optional_free.jinja",
-            minijinja::context! { name => name },
-        ));
-        return;
-    }
-    match &p.ty {
-        TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            out.push_str(&crate::template_env::render(
-                "param_free.jinja",
-                minijinja::context! {
-                    name => name,
-                },
-            ));
-        }
-        _ => {}
-    }
+    // String/Path/Vec/Map and optional-String/Path are freed via `defer` emitted
+    // immediately after the allocPrintSentinel call in emit_param_conversion.
+    // No explicit free is needed here.
 }
 
 /// The C argument name(s) to use for a given wrapper parameter.
