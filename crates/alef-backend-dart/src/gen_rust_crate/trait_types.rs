@@ -35,7 +35,7 @@ pub(super) fn trait_impl_param_type(
 ) -> String {
     if p.is_ref {
         // Reference parameters: use the slice/ref form for Bytes/Vec, plain ref for others.
-        match &p.ty {
+        let base = match &p.ty {
             TypeRef::Bytes => {
                 if p.is_mut {
                     "&mut [u8]".to_string()
@@ -73,14 +73,15 @@ pub(super) fn trait_impl_param_type(
                 }
             }
             _ => {
-                let base = owned_ty(&p.ty, source_crate_name, type_paths);
+                let owned = owned_ty(&p.ty, source_crate_name, type_paths);
                 if p.is_mut {
-                    format!("&mut {base}")
+                    format!("&mut {owned}")
                 } else {
-                    format!("&{base}")
+                    format!("&{owned}")
                 }
             }
-        }
+        };
+        if p.optional { format!("Option<{base}>") } else { base }
     } else if p.optional {
         format!("Option<{}>", owned_ty(&p.ty, source_crate_name, type_paths))
     } else {
@@ -97,6 +98,35 @@ pub(super) fn trait_impl_param_conversion(
 ) -> String {
     let name = &p.name;
     if p.is_ref {
+        if p.optional {
+            // Optional reference params: propagate the Option through with `.map(...)`.
+            return match &p.ty {
+                TypeRef::Bytes => format!("let {name} = {name}.map(|x| x.to_vec());"),
+                TypeRef::String | TypeRef::Char => format!("let {name} = {name}.map(|x| x.to_string());"),
+                TypeRef::Path => format!("let {name} = {name}.map(|x| x.to_string_lossy().into_owned());"),
+                TypeRef::Vec(inner) => {
+                    let orig = match inner.as_ref() {
+                        TypeRef::Primitive(prim) => primitive_name(prim).to_string(),
+                        _ => return format!("let {name} = {name}.map(|x| x.to_vec());"),
+                    };
+                    let target = frb_rust_type_inner(inner);
+                    if target != orig {
+                        format!(
+                            "let {name} = {name}.map(|x| x.iter().map(|y| *y as {target}).collect::<Vec<_>>());"
+                        )
+                    } else {
+                        format!("let {name} = {name}.map(|x| x.to_vec());")
+                    }
+                }
+                TypeRef::Named(type_name) if excluded_type_paths.contains_key(type_name) => {
+                    format!("let {name} = {name}.map(|x| x.clone());")
+                }
+                TypeRef::Named(type_name) => {
+                    format!("let {name} = {name}.map(|x| {type_name}::from(x.clone()));")
+                }
+                _ => String::new(),
+            };
+        }
         match &p.ty {
             TypeRef::Bytes => format!("let {name} = {name}.to_vec();"),
             TypeRef::String | TypeRef::Char => format!("let {name} = {name}.to_string();"),
