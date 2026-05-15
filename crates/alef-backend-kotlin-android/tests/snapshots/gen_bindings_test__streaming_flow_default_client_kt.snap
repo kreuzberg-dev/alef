@@ -13,11 +13,13 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 
 /** JNI-backed wrapper holding a native `DefaultClient` handle. */
+@Suppress("TooManyFunctions")
 class DefaultClient internal constructor(internal val handle: Long) : AutoCloseable {
     suspend fun chat(): String {
         return withContext(Dispatchers.IO) { DemoBridge.nativeDefaultClientChat(handle) }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     fun chatStream(req: ChatCompletionRequest): kotlinx.coroutines.flow.Flow<ChatCompletionChunk> = kotlinx.coroutines.flow.callbackFlow {
         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
             .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())

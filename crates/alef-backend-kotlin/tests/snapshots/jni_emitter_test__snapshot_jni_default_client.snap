@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.withContext
 
 /** JNI-backed wrapper holding a native `DefaultClient` handle. */
+@Suppress("TooManyFunctions")
 class DefaultClient internal constructor(internal val handle: Long) : AutoCloseable {
     companion object {
         private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()
@@ -25,6 +26,7 @@ class DefaultClient internal constructor(internal val handle: Long) : AutoClosea
         return withContext(Dispatchers.IO) { DemoBridge.nativeDefaultClientDoThing(handle, MAPPER.writeValueAsString(input)) }
     }
 
+    @Suppress("TooGenericExceptionCaught")
     fun streamData(req: StreamRequest): kotlinx.coroutines.flow.Flow<DataChunk> = kotlinx.coroutines.flow.callbackFlow {
         val mapper = com.fasterxml.jackson.databind.ObjectMapper()
             .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())

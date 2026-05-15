@@ -6,6 +6,7 @@ expression: bridge_content
 
 package dev.kreuzberg
 
+@Suppress("TooManyFunctions")
 object DemoBridge {
     init { System.loadLibrary("demo_jni") }
 
