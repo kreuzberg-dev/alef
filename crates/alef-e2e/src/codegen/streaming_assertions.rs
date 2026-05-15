@@ -264,9 +264,7 @@ impl StreamingFieldResolver {
                 // choices() → RustVec<StreamChoice> (Collection), .first is Optional.
                 // finish_reason() → RustString? (non-nil when the stream completed).
                 "swift" => {
-                    format!(
-                        "!{chunks_var}.isEmpty && {chunks_var}.last!.choices().first?.finish_reason() != nil"
-                    )
+                    format!("!{chunks_var}.isEmpty && {chunks_var}.last!.choices().first?.finish_reason() != nil")
                 }
                 // node/wasm/typescript
                 _ => {
@@ -1380,14 +1378,8 @@ mod tests {
     fn accessor_usage_swift_uses_swift_syntax() {
         let expr = StreamingFieldResolver::accessor("usage", "swift", "chunks").unwrap();
         // Must use Swift isEmpty / last! syntax, not JS .length / undefined
-        assert!(
-            expr.contains("isEmpty"),
-            "swift usage must use .isEmpty, got: {expr}"
-        );
-        assert!(
-            expr.contains(".last!"),
-            "swift usage must use .last!, got: {expr}"
-        );
+        assert!(expr.contains("isEmpty"), "swift usage must use .isEmpty, got: {expr}");
+        assert!(expr.contains(".last!"), "swift usage must use .last!, got: {expr}");
         assert!(
             expr.contains("usage()"),
             "swift usage must use .usage() method call, got: {expr}"

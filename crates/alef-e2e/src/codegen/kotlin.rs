@@ -224,7 +224,7 @@ fn is_enum_typed(ty: &alef_core::ir::TypeRef, struct_names: &HashSet<&str>) -> b
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_build_gradle(
+pub(crate) fn render_build_gradle(
     pkg_name: &str,
     kotlin_pkg_id: &str,
     pkg_version: &str,
@@ -325,7 +325,7 @@ tasks.test {{
 /// generated test bodies read `System.getenv("MOCK_SERVER_URL")` (which the
 /// listener also honours to skip spawning when the caller already has the
 /// server running).
-fn render_mock_server_listener_kt(kotlin_pkg_id: &str) -> String {
+pub(crate) fn render_mock_server_listener_kt(kotlin_pkg_id: &str) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     format!(
         r#"{header}package {kotlin_pkg_id}.e2e
@@ -471,7 +471,7 @@ class MockServerListener : LauncherSessionListener {{
 }
 
 #[allow(clippy::too_many_arguments)]
-fn render_test_file(
+pub(crate) fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
     class_name: &str,
@@ -687,7 +687,7 @@ fn render_test_file(
 
 /// Renderer that emits JUnit 5 `@Test fun testFoo()` blocks using
 /// `java.net.http.HttpClient` against `System.getenv("MOCK_SERVER_URL")`.
-struct KotlinTestClientRenderer;
+pub(crate) struct KotlinTestClientRenderer;
 
 impl client::TestClientRenderer for KotlinTestClientRenderer {
     fn language_name(&self) -> &'static str {
