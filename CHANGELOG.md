@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-dart**: the FRB bridge class name now honors
+  `[crates.dart] lib_name` instead of always deriving from the crate name.
+  Previously the dart backend's local `dart_bridge_class_name` helper used
+  `config.name` (e.g. `html_to_markdown_rs` → `HtmlToMarkdownRsBridge`),
+  while the alef-e2e dart codegen used the
+  `ResolvedCrateConfig::dart_bridge_class_name` method which DOES honor
+  `lib_name` (e.g. `lib_name = "h2m"` → `H2mBridge`). The mismatch left
+  e2e tests referencing an undefined `H2mBridge` symbol. The backend now
+  calls the same shared method; the local helper is removed.
 - **alef e2e generate (rust)**: replace `cargo sort .` with `taplo fmt Cargo.toml`
   in the default rust e2e formatter, and unconditionally run taplo as a post-pass
   on the e2e crate's `Cargo.toml` regardless of user override. `cargo sort` was
