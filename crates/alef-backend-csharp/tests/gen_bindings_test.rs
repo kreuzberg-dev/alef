@@ -2,8 +2,8 @@ use alef_backend_csharp::CsharpBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
-    ApiSurface, DefaultValue, EnumDef, EnumVariant, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType,
-    ReceiverKind, TypeDef, TypeRef,
+    ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 #[test]
@@ -315,6 +315,117 @@ fn test_ffi_excluded_types_are_not_generated_for_pinvoke() {
         assert!(!file.content.contains("HiddenHandle"));
         assert!(!file.content.contains("VisibleHandleHidden"));
     }
+}
+
+#[test]
+fn test_opaque_method_return_wraps_handle_without_to_json() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "GraphQLRouteConfig".to_string(),
+            rust_path: "test::GraphQLRouteConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "path".to_string(),
+                params: vec![ParamDef {
+                    name: "path".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("GraphQLRouteConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: Some("GraphQLError".to_string()),
+                doc: "Set the path.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+            }],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let graph_ql_route_config = files
+        .iter()
+        .find(|file| file.path.ends_with("GraphQlRouteConfig.cs"))
+        .unwrap();
+
+    assert!(
+        graph_ql_route_config
+            .content
+            .contains("var returnValue = new GraphQlRouteConfig(nativeResult);")
+    );
+    assert!(!graph_ql_route_config.content.contains("GraphQlRouteConfigToJson"));
+}
+
+#[test]
+fn test_error_helper_preserves_base_error_acronym_class_name() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "GraphQLError".to_string(),
+            rust_path: "test::GraphQLError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "InvalidInput".to_string(),
+                message_template: Some("invalid input: {0}".to_string()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files.iter().find(|file| file.path.ends_with("TestLib.cs")).unwrap();
+
+    assert!(
+        wrapper
+            .content
+            .contains("if (code == 2) return new GraphQLErrorException(message);")
+    );
+    assert!(!wrapper.content.contains("GraphQlErrorException"));
 }
 
 #[test]

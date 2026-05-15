@@ -100,7 +100,11 @@ pub(super) fn emit_return_marshalling_indented(
         out.push_str(&render("return_bool_from_int.jinja", minijinja::context! { indent }));
     } else if let TypeRef::Named(type_name) = return_type {
         let pascal = type_name.to_pascal_case();
-        if true_opaque_types.contains(type_name) || handle_returned_types.contains(type_name) {
+        if true_opaque_types.contains(type_name)
+            || true_opaque_types.contains(&pascal)
+            || handle_returned_types.contains(type_name)
+            || handle_returned_types.contains(&pascal)
+        {
             // Truly opaque handle (is_opaque = true) OR returned from a public function (as *mut T).
             // Both are wrapped in the C# handle class.
             out.push_str(&render(
@@ -160,7 +164,11 @@ pub(super) fn emit_return_marshalling_indented(
             // or through the to_json round-trip (serde-capable data struct returned as *mut T).
             if let TypeRef::Named(type_name) = inner.as_ref() {
                 let pascal = type_name.to_pascal_case();
-                if true_opaque_types.contains(type_name) || handle_returned_types.contains(type_name) {
+                if true_opaque_types.contains(type_name)
+                    || true_opaque_types.contains(&pascal)
+                    || handle_returned_types.contains(type_name)
+                    || handle_returned_types.contains(&pascal)
+                {
                     out.push_str(&render(
                         "return_opaque_ctor.jinja",
                         minijinja::context! { indent, pascal },
