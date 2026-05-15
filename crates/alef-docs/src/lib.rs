@@ -1473,7 +1473,8 @@ mod tests {
                 None => header_cells = Some(cells),
                 Some(expected) => {
                     assert_eq!(
-                        cells, expected,
+                        cells,
+                        expected,
                         "table row {} has {} cells, expected {} (MD056 violation):\n  {}",
                         idx + 1,
                         cells,

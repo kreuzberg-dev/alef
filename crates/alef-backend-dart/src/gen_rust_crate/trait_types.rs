@@ -111,9 +111,7 @@ pub(super) fn trait_impl_param_conversion(
                     };
                     let target = frb_rust_type_inner(inner);
                     if target != orig {
-                        format!(
-                            "let {name} = {name}.map(|x| x.iter().map(|y| *y as {target}).collect::<Vec<_>>());"
-                        )
+                        format!("let {name} = {name}.map(|x| x.iter().map(|y| *y as {target}).collect::<Vec<_>>());")
                     } else {
                         format!("let {name} = {name}.map(|x| x.to_vec());")
                     }
