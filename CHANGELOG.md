@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef e2e generate (python)**: preserve newlines in generated HTTP fixture
+  tests. Whitespace-trimming Jinja blocks in `python/http_test.jinja` could
+  concatenate adjacent statements such as `_headers = {}` and `_req = ...`,
+  producing invalid Python syntax.
 - **alef-backend-dart**: the FRB bridge class name now honors
   `[crates.dart] lib_name` instead of always deriving from the crate name.
   Previously the dart backend's local `dart_bridge_class_name` helper used
