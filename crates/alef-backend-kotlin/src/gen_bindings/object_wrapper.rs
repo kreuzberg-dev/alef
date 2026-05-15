@@ -75,6 +75,16 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
         }
         out.push_str("}\n");
     } else {
+        // Sealed classes with data variants need a Jackson custom deserializer so that
+        // Jackson (used by e2e tests via ObjectMapper) can reconstruct the correct
+        // subtype.  Unit-only sealed classes use a simple `when` dispatch and do not
+        // need deserialization support.
+        let needs_deserializer = en.serde_tag.is_some() || en.serde_untagged;
+        if needs_deserializer {
+            out.push_str("@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = ");
+            out.push_str(&en.name);
+            out.push_str("Deserializer::class)\n");
+        }
         out.push_str(&crate::template_env::render(
             "sealed_class_header.jinja",
             minijinja::context! {
@@ -119,7 +129,218 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             }
         }
         out.push_str("}\n");
+
+        // Emit the custom Jackson deserializer immediately after the sealed class.
+        if needs_deserializer {
+            if let Some(tag_field) = &en.serde_tag {
+                emit_kotlin_tagged_deserializer(out, en, tag_field);
+            } else if en.serde_untagged {
+                emit_kotlin_untagged_deserializer(out, en);
+            }
+        }
     }
+}
+
+/// Derive the JSON discriminator value for a variant, applying `rename_all` or
+/// defaulting to the variant name in lowercase (serde's default for enums).
+fn variant_discriminator(variant: &alef_core::ir::EnumVariant, rename_all: Option<&str>) -> String {
+    if let Some(r) = &variant.serde_rename {
+        return r.clone();
+    }
+    match rename_all {
+        Some("snake_case") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()),
+        Some("camelCase") => heck::ToLowerCamelCase::to_lower_camel_case(variant.name.as_str()),
+        Some("PascalCase") => heck::ToPascalCase::to_pascal_case(variant.name.as_str()),
+        Some("SCREAMING_SNAKE_CASE") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()).to_uppercase(),
+        Some("kebab-case") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()),
+        Some("SCREAMING-KEBAB-CASE") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()).to_uppercase(),
+        Some("lowercase") => variant.name.to_lowercase(),
+        Some("UPPERCASE") => variant.name.to_uppercase(),
+        // serde default for enums: use the variant name as-is (PascalCase).
+        // Most enums in this codebase use explicit serde_rename per variant, so
+        // this fallback is rarely hit.
+        _ => variant.name.clone(),
+    }
+}
+
+/// True when a field's name is a tuple-field index (e.g. `"0"`, `"_0"`).
+fn is_tuple_field_name(name: &str) -> bool {
+    let stripped = name.trim_start_matches('_');
+    !stripped.is_empty() && stripped.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Return the simple Kotlin class name that Jackson can deserialise a TypeRef into
+/// using `readTreeAsValue(node, <name>::class.java)`.
+/// For user-defined Named types it is the short class name (same package, no import needed).
+fn kotlin_class_name_for_type(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String => "String".to_string(),
+        TypeRef::Primitive(p) => {
+            use alef_core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "Boolean".to_string(),
+                PrimitiveType::U8 | PrimitiveType::I8 => "Byte".to_string(),
+                PrimitiveType::U16 | PrimitiveType::I16 => "Short".to_string(),
+                PrimitiveType::U32 | PrimitiveType::I32 => "Int".to_string(),
+                PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                    "Long".to_string()
+                }
+                PrimitiveType::F32 => "Float".to_string(),
+                PrimitiveType::F64 => "Double".to_string(),
+            }
+        }
+        TypeRef::Named(n) => n.clone(),
+        TypeRef::Vec(_) => "List".to_string(),
+        TypeRef::Map(_, _) => "Map".to_string(),
+        _ => "Any".to_string(),
+    }
+}
+
+/// Emit a Jackson `StdDeserializer` for an internally-tagged (`#[serde(tag = ...)]`)
+/// sealed class.  The deserializer reads the tag field from the JSON object and
+/// dispatches to the correct variant by calling `ctx.readTreeAsValue`.
+fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &str) {
+    let name = &en.name;
+    out.push('\n');
+    out.push_str("private class ");
+    out.push_str(name);
+    out.push_str("Deserializer : com.fasterxml.jackson.databind.deser.std.StdDeserializer<");
+    out.push_str(name);
+    out.push_str(">(");
+    out.push_str(name);
+    out.push_str("::class.java) {\n");
+    out.push_str("    override fun deserialize(\n");
+    out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
+    out.push_str("        ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
+    out.push_str("    ): ");
+    out.push_str(name);
+    out.push_str(" {\n");
+    out.push_str("        val node = parser.codec.readTree<com.fasterxml.jackson.databind.node.ObjectNode>(parser)\n");
+    out.push_str("        return when (node.get(\"");
+    out.push_str(tag_field);
+    out.push_str("\")?.asText()) {\n");
+
+    for variant in &en.variants {
+        let discriminator = variant_discriminator(variant, en.serde_rename_all.as_deref());
+        out.push_str("            \"");
+        out.push_str(&discriminator);
+        out.push_str("\" -> ");
+
+        if variant.fields.is_empty() {
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push('\n');
+        } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Newtype/tuple variant: inner type wraps the whole object (minus the tag field).
+            let inner_class = kotlin_class_name_for_type(&variant.fields[0].ty);
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("(ctx.readTreeAsValue(node, ");
+            out.push_str(&inner_class);
+            out.push_str("::class.java))\n");
+        } else {
+            // Named-field variant: the whole node is the data class.
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("(ctx.readTreeAsValue(node, ");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str("::class.java))\n");
+        }
+    }
+
+    out.push_str("            else -> throw com.fasterxml.jackson.databind.exc.InvalidFormatException(\n");
+    out.push_str("                parser, \"Unknown ");
+    out.push_str(name);
+    out.push_str(" tag\", node.get(\"");
+    out.push_str(tag_field);
+    out.push_str("\")?.asText(), ");
+    out.push_str(name);
+    out.push_str("::class.java,\n");
+    out.push_str("            )\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
+/// Emit a Jackson `StdDeserializer` for an untagged (`#[serde(untagged)]`) sealed
+/// class.  The deserializer inspects the JSON node kind and tries variants in order.
+fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
+    let name = &en.name;
+    out.push('\n');
+    out.push_str("private class ");
+    out.push_str(name);
+    out.push_str("Deserializer : com.fasterxml.jackson.databind.deser.std.StdDeserializer<");
+    out.push_str(name);
+    out.push_str(">(");
+    out.push_str(name);
+    out.push_str("::class.java) {\n");
+    out.push_str("    override fun deserialize(\n");
+    out.push_str("        parser: com.fasterxml.jackson.core.JsonParser,\n");
+    out.push_str("        ctx: com.fasterxml.jackson.databind.DeserializationContext,\n");
+    out.push_str("    ): ");
+    out.push_str(name);
+    out.push_str(" {\n");
+    out.push_str("        val node = parser.codec.readTree<com.fasterxml.jackson.databind.JsonNode>(parser)\n");
+
+    for variant in &en.variants {
+        if variant.fields.is_empty() {
+            // Unit variant in an untagged enum — skip shape-based dispatch; cannot match.
+            continue;
+        }
+
+        // Determine what JSON shape this variant expects based on its first field.
+        let (condition, inner_expr) = if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
+            // Tuple/newtype variant — the JSON IS the inner value.
+            let ty = &variant.fields[0].ty;
+            let (cond, class_name) = match ty {
+                TypeRef::String => ("node.isTextual", "String".to_string()),
+                TypeRef::Vec(_) => ("node.isArray", kotlin_class_name_for_type(ty)),
+                TypeRef::Primitive(_) => ("node.isNumber", kotlin_class_name_for_type(ty)),
+                TypeRef::Named(n) => ("node.isObject", n.clone()),
+                _ => ("node.isObject", kotlin_class_name_for_type(ty)),
+            };
+            let expr = if matches!(ty, TypeRef::String) {
+                format!("{name}.{}(node.asText())", variant.name)
+            } else {
+                format!(
+                    "{name}.{}(ctx.readTreeAsValue(node, {class_name}::class.java))",
+                    variant.name
+                )
+            };
+            (cond, expr)
+        } else {
+            // Struct variant with named fields — JSON must be an object.
+            let struct_class = format!("{name}.{}", variant.name);
+            (
+                "node.isObject",
+                format!(
+                    "{name}.{}(ctx.readTreeAsValue(node, {struct_class}::class.java))",
+                    variant.name
+                ),
+            )
+        };
+
+        out.push_str("        if (");
+        out.push_str(condition);
+        out.push_str(") return ");
+        out.push_str(&inner_expr);
+        out.push('\n');
+    }
+
+    out.push_str("        throw com.fasterxml.jackson.databind.exc.InvalidFormatException(\n");
+    out.push_str("            parser, \"Cannot deserialize ");
+    out.push_str(name);
+    out.push_str(": no matching variant for JSON shape\", null, ");
+    out.push_str(name);
+    out.push_str("::class.java,\n");
+    out.push_str("        )\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
 }
 
 pub(crate) fn emit_error_type_with_imports(
@@ -357,5 +578,186 @@ fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static st
             )
         }
         _ => mapper.map_type(ty),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{CoreWrapper, EnumVariant, FieldDef};
+
+    fn make_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_variant(name: &str, serde_rename: Option<&str>, fields: Vec<FieldDef>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            doc: String::new(),
+            is_default: false,
+            serde_rename: serde_rename.map(str::to_string),
+            is_tuple: false,
+        }
+    }
+
+    fn make_enum(
+        name: &str,
+        serde_tag: Option<&str>,
+        serde_untagged: bool,
+        serde_rename_all: Option<&str>,
+        variants: Vec<EnumVariant>,
+    ) -> EnumDef {
+        EnumDef {
+            name: name.to_string(),
+            rust_path: format!("crate::{name}"),
+            original_rust_path: format!("crate::{name}"),
+            variants,
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: serde_tag.map(str::to_string),
+            serde_untagged,
+            serde_rename_all: serde_rename_all.map(str::to_string),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    /// Regression: sealed classes with `#[serde(tag = ...)]` must emit
+    /// `@JsonDeserialize` annotation and a companion deserializer that reads the
+    /// tag field and dispatches per variant.
+    #[test]
+    fn emit_enum_tagged_sealed_class_emits_json_deserialize_annotation() {
+        let en = make_enum(
+            "Message",
+            Some("role"),
+            false,
+            None,
+            vec![
+                make_variant(
+                    "System",
+                    Some("system"),
+                    vec![make_field("_0", TypeRef::Named("SystemMessage".to_string()))],
+                ),
+                make_variant(
+                    "User",
+                    Some("user"),
+                    vec![make_field("_0", TypeRef::Named("UserMessage".to_string()))],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains(
+                "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = MessageDeserializer::class)"
+            ),
+            "missing @JsonDeserialize annotation on tagged sealed class; got:\n{out}",
+        );
+        assert!(
+            out.contains("private class MessageDeserializer"),
+            "missing MessageDeserializer class; got:\n{out}",
+        );
+        assert!(
+            out.contains("node.get(\"role\")"),
+            "deserializer must read the 'role' tag field; got:\n{out}",
+        );
+        assert!(
+            out.contains("\"system\" ->"),
+            "deserializer must dispatch on variant 'system'; got:\n{out}",
+        );
+        assert!(
+            out.contains("Message.System(ctx.readTreeAsValue(node, SystemMessage::class.java))"),
+            "deserializer must construct Message.System via readTreeAsValue; got:\n{out}",
+        );
+    }
+
+    /// Regression: sealed classes with `#[serde(untagged)]` must emit
+    /// `@JsonDeserialize` annotation and a companion deserializer that tries
+    /// variants by JSON shape.
+    #[test]
+    fn emit_enum_untagged_sealed_class_emits_json_deserialize_annotation() {
+        let en = make_enum(
+            "EmbeddingInput",
+            None,
+            true,
+            None,
+            vec![
+                make_variant("Single", None, vec![make_field("_0", TypeRef::String)]),
+                make_variant(
+                    "Multiple",
+                    None,
+                    vec![make_field("_0", TypeRef::Vec(Box::new(TypeRef::String)))],
+                ),
+            ],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            out.contains(
+                "@com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = EmbeddingInputDeserializer::class)"
+            ),
+            "missing @JsonDeserialize annotation on untagged sealed class; got:\n{out}",
+        );
+        assert!(
+            out.contains("private class EmbeddingInputDeserializer"),
+            "missing EmbeddingInputDeserializer class; got:\n{out}",
+        );
+        assert!(
+            out.contains("node.isTextual"),
+            "untagged deserializer must check isTextual for String variant; got:\n{out}",
+        );
+        assert!(
+            out.contains("node.isArray"),
+            "untagged deserializer must check isArray for List variant; got:\n{out}",
+        );
+    }
+
+    /// Unit-only enums (Kotlin `enum class`) must NOT get a `@JsonDeserialize`
+    /// annotation — they serialise to/from string values and Jackson handles
+    /// them natively.
+    #[test]
+    fn emit_enum_unit_only_does_not_emit_json_deserialize() {
+        let en = make_enum(
+            "FinishReason",
+            None,
+            false,
+            None,
+            vec![make_variant("Stop", None, vec![]), make_variant("Length", None, vec![])],
+        );
+        let mut out = String::new();
+        emit_enum(&en, &mut out);
+        assert!(
+            !out.contains("@JsonDeserialize") && !out.contains("Deserializer"),
+            "unit-only enum must not emit a deserializer; got:\n{out}",
+        );
+        assert!(
+            out.contains("enum class FinishReason"),
+            "must emit enum class; got:\n{out}"
+        );
     }
 }
