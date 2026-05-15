@@ -40,9 +40,7 @@ external-default-features = "allow"
 
 # hashbrown 0.16 (via referencing/jsonschema) and 0.17 (via indexmap/serde_yaml)
 # coexist as transitive deps — can't resolve without upstream changes.
-skip = [
-  { crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" },
-]
+skip = [{ crate = "hashbrown@0.16", reason = "transitive via referencing/jsonschema" }]
 allow = []
 deny = []
 skip-tree = []

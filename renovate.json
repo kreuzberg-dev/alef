@@ -10,9 +10,7 @@
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": [
-        "/^crates/alef-core/src/template_versions\\.rs$/"
-      ],
+      "managerFilePatterns": ["/^crates/alef-core/src/template_versions\\.rs$/"],
       "matchStrings": [
         "// renovate:\\s*datasource=(?<datasource>\\S+)(?:\\s+depName=(?<depName>\\S+))?(?:\\s+packageName=(?<packageName>\\S+))?(?:\\s+versioning=(?<versioning>\\S+))?(?:\\s+extractVersion=(?<extractVersion>\\S+))?\\s*\\n\\s*pub const [A-Z_]+: &str = \"(?<currentValue>[^\"]+)\";"
       ],

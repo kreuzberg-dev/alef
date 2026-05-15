@@ -1,8 +1,37 @@
 //! FFI-related methods for `ResolvedCrateConfig`.
 
+use crate::config::KotlinFfiStyle;
+
 use super::ResolvedCrateConfig;
 
 impl ResolvedCrateConfig {
+    /// Get the JNI native library name used by Android JNI Bridge objects.
+    ///
+    /// Returns `<ffi_prefix>_jni`, parallel to [`Self::ffi_lib_name`].
+    /// This is the library name passed to `System.loadLibrary(...)` in the
+    /// emitted Kotlin Bridge object when `KotlinFfiStyle::Jni` is active.
+    pub fn jni_lib_name(&self) -> String {
+        format!("{}_jni", self.ffi_prefix())
+    }
+
+    /// Returns the configured Kotlin FFI emission style.
+    ///
+    /// Reads `[crates.kotlin] ffi_style`; defaults to `KotlinFfiStyle::Panama`.
+    /// The `alef-backend-kotlin-android` backend overrides this to `Jni`
+    /// unconditionally via [`Self::with_kotlin_ffi_style`].
+    pub fn kotlin_ffi_style(&self) -> KotlinFfiStyle {
+        self.kotlin.as_ref().map(|k| k.ffi_style).unwrap_or_default()
+    }
+
+    /// Return a clone of this config with the Kotlin FFI style forced to `style`.
+    ///
+    /// Used by the Android backend so all downstream emitters see `Jni` mode
+    /// regardless of what the user wrote in `[crates.kotlin] ffi_style`.
+    pub fn with_kotlin_ffi_style(mut self, style: KotlinFfiStyle) -> Self {
+        self.kotlin.get_or_insert_with(Default::default).ffi_style = style;
+        self
+    }
+
     /// Get the FFI prefix (e.g., `"kreuzberg"`). Used by FFI, Go, Java, C# backends.
     ///
     /// Returns `[ffi] prefix` if set, otherwise derives from the crate name by

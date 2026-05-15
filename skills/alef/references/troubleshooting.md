@@ -243,9 +243,9 @@ repos:
   - repo: https://github.com/kreuzberg-dev/alef
     rev: v0.5.1
     hooks:
-      - id: alef-verify    # Check only (CI-friendly)
+      - id: alef-verify # Check only (CI-friendly)
       # OR
-      - id: alef-generate  # Auto-regenerate
+      - id: alef-generate # Auto-regenerate
 ```
 
 ## DTO Style Mismatch Errors
@@ -343,5 +343,5 @@ env:
 - run: alef all --clean
 - run: alef verify --exit-code --compile --lint
 - run: alef test --e2e
-- run: git diff --exit-code  # No uncommitted changes
+- run: git diff --exit-code # No uncommitted changes
 ```

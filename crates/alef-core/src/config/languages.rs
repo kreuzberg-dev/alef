@@ -573,6 +573,23 @@ fn default_java_ffi_style() -> String {
     "panama".to_string()
 }
 
+/// FFI strategy for Kotlin JVM / Android binding emission.
+///
+/// - `"panama"` (default): consumes the Java/Panama FFM facade emitted by
+///   `alef-backend-java`. Requires JDK 22+ at runtime. Not supported on
+///   Android Runtime.
+/// - `"jni"`: emits a `object <Module>Bridge { external fun native<...>(...) }`
+///   object with JNI declarations and a `DefaultClient` class holding a `Long`
+///   handle. Compatible with Android Runtime (JDK 11). Consumers must ship a
+///   `<crate>-jni` Rust crate exporting matching `Java_*` JNI symbols.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum KotlinFfiStyle {
+    #[default]
+    Panama,
+    Jni,
+}
+
 /// Target platform for Kotlin code generation.
 ///
 /// - `"jvm"` (default): emits source consuming the Java/Panama FFM facade.
@@ -588,7 +605,7 @@ pub enum KotlinTarget {
     Multiplatform,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct KotlinConfig {
     pub package: Option<String>,
     #[serde(default)]
@@ -629,6 +646,12 @@ pub struct KotlinConfig {
     /// When `None`, defaults to `"jvm"`.
     #[serde(default)]
     pub mode: Option<String>,
+    /// FFI strategy. `"panama"` (default) consumes the Java/Panama FFM facade.
+    /// `"jni"` emits a Kotlin Bridge object with `external fun` declarations
+    /// and a `DefaultClient` class holding a `Long` handle. Android backend
+    /// forces `"jni"` regardless of this setting.
+    #[serde(default)]
+    pub ffi_style: KotlinFfiStyle,
 }
 
 /// Configuration for the dedicated Kotlin/Android backend (`alef-backend-kotlin-android`).

@@ -28,7 +28,7 @@ Every step has a hard verification — never assume; always check.
    bullet per user-visible change. Move entries from `[Unreleased]` into the new
    version section. Group under `### Added`, `### Changed (BREAKING)`,
    `### Fixed`, `### Removed`. Never tag a version with an empty section.
-2. **Always run `prek run --all-files`** to fix lint/format issues *before*
+2. **Always run `prek run --all-files`** to fix lint/format issues _before_
    committing. Re-stage anything the hooks rewrite. Only commit with
    `--no-verify` if a hook is genuinely broken in a way unrelated to the change
    — and then file an issue.
@@ -40,7 +40,7 @@ Every step has a hard verification — never assume; always check.
 5. **Add tests for any fix that changed behavior.** A release that includes a
    fix without a regression test is a release that will regress.
 6. **Use the Taskfile** for version setting — never hand-edit cargo manifests
-   if a task target exists. Verify the bump propagated to *every* workspace
+   if a task target exists. Verify the bump propagated to _every_ workspace
    member's `Cargo.toml`.
 7. **Publish with `gh release create`** — a bare `git tag` is not a release.
    The GitHub release is what triggers downstream automation and what users
@@ -173,13 +173,13 @@ PR that bumps the pin. Don't bundle that into the release commit.
 
 ## Quick reference
 
-| Step | Command | What it verifies |
-|------|---------|------------------|
-| Pre-flight | `cargo check --workspace --all-features && cargo test --workspace` | Clean build + green tests |
-| Changelog | manual edit of `CHANGELOG.md` | Every change is documented |
-| Version | `task version:...` then `grep -E '^version' Cargo.toml` | Workspace version updated |
-| Lint | `prek run --all-files` | Pre-commit clean |
-| Commit | `git commit -m "chore(release): X.Y.Z"` | Atomic release commit |
-| Tag | `git tag -a vX.Y.Z -m "vX.Y.Z" && git push --tags` | Tag exists remotely |
-| Publish | `gh release create vX.Y.Z --notes-from-tag --verify-tag` | GitHub release exists |
-| Verify | `gh release view vX.Y.Z` | Release is discoverable |
+| Step       | Command                                                            | What it verifies           |
+| ---------- | ------------------------------------------------------------------ | -------------------------- |
+| Pre-flight | `cargo check --workspace --all-features && cargo test --workspace` | Clean build + green tests  |
+| Changelog  | manual edit of `CHANGELOG.md`                                      | Every change is documented |
+| Version    | `task version:...` then `grep -E '^version' Cargo.toml`            | Workspace version updated  |
+| Lint       | `prek run --all-files`                                             | Pre-commit clean           |
+| Commit     | `git commit -m "chore(release): X.Y.Z"`                            | Atomic release commit      |
+| Tag        | `git tag -a vX.Y.Z -m "vX.Y.Z" && git push --tags`                 | Tag exists remotely        |
+| Publish    | `gh release create vX.Y.Z --notes-from-tag --verify-tag`           | GitHub release exists      |
+| Verify     | `gh release view vX.Y.Z`                                           | Release is discoverable    |

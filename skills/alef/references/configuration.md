@@ -81,11 +81,11 @@ rust_dev_tools = [                 # tools `alef setup rust` installs via `cargo
 ]
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `python_package_manager` | string | `"uv"` | One of `uv`, `pip`, `poetry`. Drives default Python `lint`, `test`, `setup`, `update`, `clean` commands. |
-| `node_package_manager` | string | `"pnpm"` | One of `pnpm`, `npm`, `yarn`. Drives default Node and Wasm pipeline commands. |
-| `rust_dev_tools` | string[] | see right | Defaults to `["cargo-edit", "cargo-sort", "cargo-machete", "cargo-deny", "cargo-llvm-cov"]`. Set to `[]` to skip dev-tool installation. |
+| Field                    | Type     | Default   | Description                                                                                                                             |
+| ------------------------ | -------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `python_package_manager` | string   | `"uv"`    | One of `uv`, `pip`, `poetry`. Drives default Python `lint`, `test`, `setup`, `update`, `clean` commands.                                |
+| `node_package_manager`   | string   | `"pnpm"`  | One of `pnpm`, `npm`, `yarn`. Drives default Node and Wasm pipeline commands.                                                           |
+| `rust_dev_tools`         | string[] | see right | Defaults to `["cargo-edit", "cargo-sort", "cargo-machete", "cargo-deny", "cargo-llvm-cov"]`. Set to `[]` to skip dev-tool installation. |
 
 The selection feeds every default that calls a package-manager-specific tool — switching to `pip` swaps `uv run pytest` for `pytest`, switching to `yarn` swaps `pnpm up` for `yarn upgrade`, etc.
 
@@ -95,22 +95,22 @@ The selection feeds every default that calls a package-manager-specific tool —
 
 Each `[[crates]]` entry defines one independently published binding package. Every field except `name` is optional and inherits from `[workspace]` defaults during resolution.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | *required* | Crate name; must be unique within the workspace |
-| `sources` | string[] | *required* (or `source_crates`) | Rust source files to extract |
-| `languages` | string[] | inherits `[workspace].languages` | Target languages for this crate only |
-| `version_from` | string | `"Cargo.toml"` | File to read version from (supports workspace Cargo.toml) |
-| `core_import` | string | `{name}` with `-` replaced by `_` | Import path for the core crate in generated bindings |
-| `workspace_root` | string | -- | Workspace root for resolving `pub use` re-exports from sibling crates |
-| `skip_core_import` | bool | `false` | Skip adding `use {core_import};` to generated bindings |
-| `features` | string[] | `[]` | Cargo features treated as always-present (`#[cfg(feature)]` fields are included) |
-| `path_mappings` | map | `{}` | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`) |
-| `extra_dependencies` | map | `{}` | Additional Cargo dependencies added to all binding crate Cargo.tomls (crate name to TOML dep spec) |
-| `auto_path_mappings` | bool | `true` | Auto-derive path_mappings from source file locations (`crates/{name}/src/` to `core_import`) |
-| `source_crates` | array | `[]` | Multi-crate source groups for workspaces (overrides `sources` when non-empty) |
-| `error_type` | string | `"Error"` | Crate error type name (e.g. `"KreuzbergError"`) |
-| `error_constructor` | string | -- | Pattern for constructing error values from a String in trait bridges. `{msg}` is replaced with `format!(...)` expression |
+| Field                | Type     | Default                           | Description                                                                                                              |
+| -------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `name`               | string   | _required_                        | Crate name; must be unique within the workspace                                                                          |
+| `sources`            | string[] | _required_ (or `source_crates`)   | Rust source files to extract                                                                                             |
+| `languages`          | string[] | inherits `[workspace].languages`  | Target languages for this crate only                                                                                     |
+| `version_from`       | string   | `"Cargo.toml"`                    | File to read version from (supports workspace Cargo.toml)                                                                |
+| `core_import`        | string   | `{name}` with `-` replaced by `_` | Import path for the core crate in generated bindings                                                                     |
+| `workspace_root`     | string   | --                                | Workspace root for resolving `pub use` re-exports from sibling crates                                                    |
+| `skip_core_import`   | bool     | `false`                           | Skip adding `use {core_import};` to generated bindings                                                                   |
+| `features`           | string[] | `[]`                              | Cargo features treated as always-present (`#[cfg(feature)]` fields are included)                                         |
+| `path_mappings`      | map      | `{}`                              | Rewrite extracted Rust path prefixes (e.g., `{ "mylib" = "mylib_http" }`)                                                |
+| `extra_dependencies` | map      | `{}`                              | Additional Cargo dependencies added to all binding crate Cargo.tomls (crate name to TOML dep spec)                       |
+| `auto_path_mappings` | bool     | `true`                            | Auto-derive path_mappings from source file locations (`crates/{name}/src/` to `core_import`)                             |
+| `source_crates`      | array    | `[]`                              | Multi-crate source groups for workspaces (overrides `sources` when non-empty)                                            |
+| `error_type`         | string   | `"Error"`                         | Crate error type name (e.g. `"KreuzbergError"`)                                                                          |
+| `error_constructor`  | string   | --                                | Pattern for constructing error values from a String in trait bridges. `{msg}` is replaced with `format!(...)` expression |
 
 ---
 
@@ -118,10 +118,10 @@ Each `[[crates]]` entry defines one independently published binding package. Eve
 
 For workspaces where types are spread across multiple Rust crates, `source_crates` lets you extract from each crate separately while preserving the actual defining crate in `rust_path`. This is per-binding-package, so use it within a single `[[crates]]` entry.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `name` | string | Rust crate name (hyphens converted to underscores for `rust_path`) |
-| `sources` | string[] | Source files belonging to this crate |
+| Field     | Type     | Description                                                        |
+| --------- | -------- | ------------------------------------------------------------------ |
+| `name`    | string   | Rust crate name (hyphens converted to underscores for `rust_path`) |
+| `sources` | string[] | Source files belonging to this crate                               |
 
 ```toml
 [[crates]]
@@ -203,120 +203,120 @@ Language sections appear under each `[[crates]]` entry as `[crates.python]`, `[c
 
 The fields below are accepted on every language section listed in this document (`[crates.python]`, `[crates.node]`, `[crates.ruby]`, `[crates.php]`, `[crates.elixir]`, `[crates.wasm]`, `[crates.ffi]`, `[crates.go]`, `[crates.java]`, `[crates.csharp]`, `[crates.r]`). They aren't duplicated in each table; the language-specific tables only list fields unique to that language. These can also be set at the workspace level (`[workspace.python]`, etc.) to apply to all crates.
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `features` | string[] | inherits `[crate].features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | language-idiomatic (`snake_case` for Python/Ruby/PHP/Elixir/Go/FFI; `camelCase` for Node/Wasm/Java/C#) | Override JSON field naming strategy |
-| `extra_dependencies` | map | `{}` | Additional Cargo deps for this language's binding crate (`{ "tokio" = "1" }` or full TOML spec). Not present on `[go]`, `[java]`, `[csharp]`, `[r]`. |
-| `scaffold_output` | path | derived from `[output].<lang>` | Override where this language's package files (`pyproject.toml`, `package.json`, …) are scaffolded. Not present on `[ffi]`, `[go]`, `[java]`, `[csharp]`, `[r]`. |
-| `rename_fields` | map | `{}` | Per-field name remapping. Key is `TypeName.field_name` (e.g. `"LayoutDetection.class"`), value is the desired binding field name. Applied after automatic keyword escaping. |
-| `exclude_functions` | string[] | `[]` | Functions to exclude from this language's bindings. Currently honoured by `[python]`, `[node]`, `[ruby]`, `[php]`, `[elixir]`, `[wasm]`, `[ffi]`, `[go]`. |
-| `exclude_types` | string[] | `[]` | Types to exclude from this language's bindings. Same backends as `exclude_functions`. |
-| `run_wrapper` | string | `None` | Prefix every default tool invocation with this string. Example: `[python] run_wrapper = "uv run --no-sync"` turns the default `ruff format packages/python` into `uv run --no-sync ruff format packages/python`. Applies across `lint`, `test`, `setup`, `update`, `clean`, `build` defaults. Not present on `[ffi]`. |
-| `extra_lint_paths` | string[] | `[]` | Append paths (space-separated) to default `format`, `check`, `typecheck` commands. Example: `[python] extra_lint_paths = ["scripts"]` makes `ruff format packages/python scripts`. Ignored on Java/C# when `project_file` is set. Not present on `[ffi]`. |
-| `project_file` | string | `None` | Java/C# only. When set, default lint/build/test commands target this file (`pom.xml`, `MyProject.csproj`, `MySolution.slnx`) instead of the package directory. |
+| Field                | Type     | Default                                                                                                | Description                                                                                                                                                                                                                                                                                                           |
+| -------------------- | -------- | ------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `features`           | string[] | inherits `[crate].features`                                                                            | Per-language Cargo feature override                                                                                                                                                                                                                                                                                   |
+| `serde_rename_all`   | string   | language-idiomatic (`snake_case` for Python/Ruby/PHP/Elixir/Go/FFI; `camelCase` for Node/Wasm/Java/C#) | Override JSON field naming strategy                                                                                                                                                                                                                                                                                   |
+| `extra_dependencies` | map      | `{}`                                                                                                   | Additional Cargo deps for this language's binding crate (`{ "tokio" = "1" }` or full TOML spec). Not present on `[go]`, `[java]`, `[csharp]`, `[r]`.                                                                                                                                                                  |
+| `scaffold_output`    | path     | derived from `[output].<lang>`                                                                         | Override where this language's package files (`pyproject.toml`, `package.json`, …) are scaffolded. Not present on `[ffi]`, `[go]`, `[java]`, `[csharp]`, `[r]`.                                                                                                                                                       |
+| `rename_fields`      | map      | `{}`                                                                                                   | Per-field name remapping. Key is `TypeName.field_name` (e.g. `"LayoutDetection.class"`), value is the desired binding field name. Applied after automatic keyword escaping.                                                                                                                                           |
+| `exclude_functions`  | string[] | `[]`                                                                                                   | Functions to exclude from this language's bindings. Currently honoured by `[python]`, `[node]`, `[ruby]`, `[php]`, `[elixir]`, `[wasm]`, `[ffi]`, `[go]`.                                                                                                                                                             |
+| `exclude_types`      | string[] | `[]`                                                                                                   | Types to exclude from this language's bindings. Same backends as `exclude_functions`.                                                                                                                                                                                                                                 |
+| `run_wrapper`        | string   | `None`                                                                                                 | Prefix every default tool invocation with this string. Example: `[python] run_wrapper = "uv run --no-sync"` turns the default `ruff format packages/python` into `uv run --no-sync ruff format packages/python`. Applies across `lint`, `test`, `setup`, `update`, `clean`, `build` defaults. Not present on `[ffi]`. |
+| `extra_lint_paths`   | string[] | `[]`                                                                                                   | Append paths (space-separated) to default `format`, `check`, `typecheck` commands. Example: `[python] extra_lint_paths = ["scripts"]` makes `ruff format packages/python scripts`. Ignored on Java/C# when `project_file` is set. Not present on `[ffi]`.                                                             |
+| `project_file`       | string   | `None`                                                                                                 | Java/C# only. When set, default lint/build/test commands target this file (`pom.xml`, `MyProject.csproj`, `MySolution.slnx`) instead of the package directory.                                                                                                                                                        |
 
 ### `[crates.python]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `module_name` | string | `_{name}` | Python module name (the native extension name) |
-| `async_runtime` | string | -- | Async runtime spec for `pyo3_async_runtimes` |
-| `stubs.output` | string | -- | Output directory for `.pyi` stub files |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `module_name`      | string   | `_{name}`                     | Python module name (the native extension name)        |
+| `async_runtime`    | string   | --                            | Async runtime spec for `pyo3_async_runtimes`          |
+| `stubs.output`     | string   | --                            | Output directory for `.pyi` stub files                |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.node]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package_name` | string | `{name}` | npm package name |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `package_name`     | string   | `{name}`                      | npm package name                                      |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"camelCase"`                 | Override JSON field naming strategy for this language |
 
 ### `[crates.ruby]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `gem_name` | string | `{name}` with `_` | Ruby gem name |
-| `stubs.output` | string | -- | Output directory for `.rbs` type stubs |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `gem_name`         | string   | `{name}` with `_`             | Ruby gem name                                         |
+| `stubs.output`     | string   | --                            | Output directory for `.rbs` type stubs                |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.php]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `extension_name` | string | `{name}` with `_` | PHP extension name |
-| `feature_gate` | string | `"extension-module"` | Feature gate wrapping all generated code |
-| `stubs.output` | string | -- | Output directory for PHP facades/stubs |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `extension_name`   | string   | `{name}` with `_`             | PHP extension name                                    |
+| `feature_gate`     | string   | `"extension-module"`          | Feature gate wrapping all generated code              |
+| `stubs.output`     | string   | --                            | Output directory for PHP facades/stubs                |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.elixir]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `app_name` | string | `{name}` with `_` | Elixir application name |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `app_name`         | string   | `{name}` with `_`             | Elixir application name                               |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.wasm]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `exclude_functions` | string[] | `[]` | Functions to exclude from WASM bindings |
-| `exclude_types` | string[] | `[]` | Types to exclude from WASM bindings |
-| `type_overrides` | map | `{}` | Override types (e.g., `{ "DOMNode" = "JsValue" }`) |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
+| Field               | Type     | Default                       | Description                                           |
+| ------------------- | -------- | ----------------------------- | ----------------------------------------------------- |
+| `exclude_functions` | string[] | `[]`                          | Functions to exclude from WASM bindings               |
+| `exclude_types`     | string[] | `[]`                          | Types to exclude from WASM bindings                   |
+| `type_overrides`    | map      | `{}`                          | Override types (e.g., `{ "DOMNode" = "JsValue" }`)    |
+| `features`          | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all`  | string   | `"camelCase"`                 | Override JSON field naming strategy for this language |
 
 ### `[crates.ffi]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `prefix` | string | `{name}` with `_` | C symbol prefix for all exported functions |
-| `error_style` | string | `"last_error"` | Error reporting convention |
-| `header_name` | string | `{prefix}.h` | Generated C header filename |
-| `lib_name` | string | `{prefix}_ffi` | Native library name (for Go/Java/C# linking) |
-| `visitor_callbacks` | bool | `false` | Generate visitor/callback FFI support |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field               | Type     | Default                       | Description                                           |
+| ------------------- | -------- | ----------------------------- | ----------------------------------------------------- |
+| `prefix`            | string   | `{name}` with `_`             | C symbol prefix for all exported functions            |
+| `error_style`       | string   | `"last_error"`                | Error reporting convention                            |
+| `header_name`       | string   | `{prefix}.h`                  | Generated C header filename                           |
+| `lib_name`          | string   | `{prefix}_ffi`                | Native library name (for Go/Java/C# linking)          |
+| `visitor_callbacks` | bool     | `false`                       | Generate visitor/callback FFI support                 |
+| `features`          | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all`  | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ### `[crates.go]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `module` | string | `github.com/kreuzberg-dev/{name}` | Go module path |
-| `package_name` | string | derived from module path | Go package name |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                           | Description                                           |
+| ------------------ | -------- | --------------------------------- | ----------------------------------------------------- |
+| `module`           | string   | `github.com/kreuzberg-dev/{name}` | Go module path                                        |
+| `package_name`     | string   | derived from module path          | Go package name                                       |
+| `features`         | string[] | inherits per-crate `features`     | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                    | Override JSON field naming strategy for this language |
 
 ### `[crates.java]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package` | string | `dev.kreuzberg` | Java package name |
-| `ffi_style` | string | `"panama"` | FFI binding style (Panama Foreign Function & Memory API) |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                              |
+| ------------------ | -------- | ----------------------------- | -------------------------------------------------------- |
+| `package`          | string   | `dev.kreuzberg`               | Java package name                                        |
+| `ffi_style`        | string   | `"panama"`                    | FFI binding style (Panama Foreign Function & Memory API) |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                      |
+| `serde_rename_all` | string   | `"camelCase"`                 | Override JSON field naming strategy for this language    |
 
 ### `[crates.csharp]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `namespace` | string | PascalCase of `{name}` | C# namespace |
-| `target_framework` | string | -- | Target framework version |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"camelCase"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `namespace`        | string   | PascalCase of `{name}`        | C# namespace                                          |
+| `target_framework` | string   | --                            | Target framework version                              |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"camelCase"`                 | Override JSON field naming strategy for this language |
 
 ### `[crates.r]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `package_name` | string | `{name}` | R package name |
-| `features` | string[] | inherits per-crate `features` | Per-language Cargo feature override |
-| `serde_rename_all` | string | `"snake_case"` | Override JSON field naming strategy for this language |
+| Field              | Type     | Default                       | Description                                           |
+| ------------------ | -------- | ----------------------------- | ----------------------------------------------------- |
+| `package_name`     | string   | `{name}`                      | R package name                                        |
+| `features`         | string[] | inherits per-crate `features` | Per-language Cargo feature override                   |
+| `serde_rename_all` | string   | `"snake_case"`                | Override JSON field naming strategy for this language |
 
 ---
 
@@ -346,17 +346,17 @@ name = "my-special-lib"
 python = "pydantic"  # use pydantic for this crate only
 ```
 
-| Language | Available Styles |
-|----------|-----------------|
-| Python | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
-| Node/TypeScript | `interface`, `zod` |
-| Ruby | `struct`, `dry-struct`, `data` |
-| PHP | `readonly-class`, `array` |
-| Elixir | `struct`, `typed-struct` |
-| Go | `struct` |
-| Java | `record` |
-| C# | `record` |
-| R | `list`, `r6` |
+| Language        | Available Styles                                 |
+| --------------- | ------------------------------------------------ |
+| Python          | `dataclass`, `typed-dict`, `pydantic`, `msgspec` |
+| Node/TypeScript | `interface`, `zod`                               |
+| Ruby            | `struct`, `dry-struct`, `data`                   |
+| PHP             | `readonly-class`, `array`                        |
+| Elixir          | `struct`, `typed-struct`                         |
+| Go              | `struct`                                         |
+| Java            | `record`                                         |
+| C#              | `record`                                         |
+| R               | `list`, `r6`                                     |
 
 ---
 
@@ -382,15 +382,15 @@ key = "value"
 key = "value"
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `template_dir` | string | -- | Directory containing minijinja README templates by language |
-| `snippets_dir` | string | -- | Directory containing reusable code snippets for embedding in READMEs |
-| `config` | map | `{}` | Global context variables for minijinja template rendering |
-| `output_pattern` | string | -- | Output path pattern using `{lang}` placeholder |
-| `discord_url` | string | -- | Discord community URL to include in generated READMEs |
-| `banner_url` | string | -- | Banner image URL to include in generated READMEs |
-| `languages.<lang>` | map | `{}` | Per-language key/value context variables for minijinja templates |
+| Field              | Type   | Default | Description                                                          |
+| ------------------ | ------ | ------- | -------------------------------------------------------------------- |
+| `template_dir`     | string | --      | Directory containing minijinja README templates by language          |
+| `snippets_dir`     | string | --      | Directory containing reusable code snippets for embedding in READMEs |
+| `config`           | map    | `{}`    | Global context variables for minijinja template rendering            |
+| `output_pattern`   | string | --      | Output path pattern using `{lang}` placeholder                       |
+| `discord_url`      | string | --      | Discord community URL to include in generated READMEs                |
+| `banner_url`       | string | --      | Banner image URL to include in generated READMEs                     |
+| `languages.<lang>` | map    | `{}`    | Per-language key/value context variables for minijinja templates     |
 
 ---
 
@@ -411,14 +411,14 @@ authors = ["Your Name"]
 keywords = ["parsing", "extraction"]
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `description` | string | -- | Package description used in all manifests |
-| `license` | string | -- | SPDX license identifier |
-| `repository` | string | -- | Source code repository URL |
-| `homepage` | string | -- | Project homepage or documentation URL |
-| `authors` | string[] | -- | List of package authors |
-| `keywords` | string[] | -- | Keywords/tags for package registries |
+| Field         | Type     | Default | Description                               |
+| ------------- | -------- | ------- | ----------------------------------------- |
+| `description` | string   | --      | Package description used in all manifests |
+| `license`     | string   | --      | SPDX license identifier                   |
+| `repository`  | string   | --      | Source code repository URL                |
+| `homepage`    | string   | --      | Project homepage or documentation URL     |
+| `authors`     | string[] | --      | List of package authors                   |
+| `keywords`    | string[] | --      | Keywords/tags for package registries      |
 
 ---
 
@@ -443,15 +443,15 @@ error_type = "ConvertError"
 gil_release = true    # Python: release GIL during call
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `name` | string | *required* | Adapter function/method name |
-| `pattern` | string | *required* | Adapter pattern type (see below) |
-| `core_path` | string | *required* | Fully-qualified Rust path to the core function |
-| `params` | array | `[]` | Parameter definitions with `name`, `type`, and optional `optional` flag |
-| `returns` | string | -- | Return type (`Result`, `Option`, concrete type, or omitted for void) |
-| `error_type` | string | -- | Error type name for `Result` returns |
-| `gil_release` | bool | `false` | Python: release the GIL during this call |
+| Field         | Type   | Default    | Description                                                             |
+| ------------- | ------ | ---------- | ----------------------------------------------------------------------- |
+| `name`        | string | _required_ | Adapter function/method name                                            |
+| `pattern`     | string | _required_ | Adapter pattern type (see below)                                        |
+| `core_path`   | string | _required_ | Fully-qualified Rust path to the core function                          |
+| `params`      | array  | `[]`       | Parameter definitions with `name`, `type`, and optional `optional` flag |
+| `returns`     | string | --         | Return type (`Result`, `Option`, concrete type, or omitted for void)    |
+| `error_type`  | string | --         | Error type name for `Result` returns                                    |
+| `gil_release` | bool   | `false`    | Python: release the GIL during this call                                |
 
 Supported patterns:
 
@@ -480,16 +480,16 @@ type_alias = "VisitorHandle"
 exclude_languages = ["wasm"]
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `trait_name` | string | *required* | Name of the Rust trait to bridge (e.g. `"OcrBackend"`) |
-| `super_trait` | string | -- | Super-trait that requires forwarding. When set, the bridge generates an `impl SuperTrait for Wrapper` block. |
-| `registry_getter` | string | -- | Rust path to the registry getter function. When set, the registration function inserts the bridge into a registry. |
-| `register_fn` | string | -- | Name of the registration function to generate. When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern). |
-| `type_alias` | string | -- | Named type alias in the IR that maps to this bridge (e.g. `"VisitorHandle"`). When a parameter has a `TypeRef::Named` matching this alias, the bridge type is substituted. |
-| `param_name` | string | -- | Parameter-name override for cases where the extractor sanitised the type (e.g. `VisitorHandle` becomes `String` because it is a type alias over `Rc<RefCell<dyn Trait>>`). |
-| `register_extra_args` | string | -- | Extra arguments appended to `registry.register(arc, …)`. E.g. `"0"` produces `registry.register(arc, 0)`. |
-| `exclude_languages` | string[] | `[]` | Backend names that should not generate this trait bridge. Backend names match `Backend::name()` (e.g. `["elixir", "wasm"]`). |
+| Field                 | Type     | Default    | Description                                                                                                                                                                |
+| --------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `trait_name`          | string   | _required_ | Name of the Rust trait to bridge (e.g. `"OcrBackend"`)                                                                                                                     |
+| `super_trait`         | string   | --         | Super-trait that requires forwarding. When set, the bridge generates an `impl SuperTrait for Wrapper` block.                                                               |
+| `registry_getter`     | string   | --         | Rust path to the registry getter function. When set, the registration function inserts the bridge into a registry.                                                         |
+| `register_fn`         | string   | --         | Name of the registration function to generate. When absent, only the wrapper struct and trait impl are emitted (per-call bridge pattern).                                  |
+| `type_alias`          | string   | --         | Named type alias in the IR that maps to this bridge (e.g. `"VisitorHandle"`). When a parameter has a `TypeRef::Named` matching this alias, the bridge type is substituted. |
+| `param_name`          | string   | --         | Parameter-name override for cases where the extractor sanitised the type (e.g. `VisitorHandle` becomes `String` because it is a type alias over `Rc<RefCell<dyn Trait>>`). |
+| `register_extra_args` | string   | --         | Extra arguments appended to `registry.register(arc, …)`. E.g. `"0"` produces `registry.register(arc, 0)`.                                                                  |
+| `exclude_languages`   | string[] | `[]`       | Backend names that should not generate this trait bridge. Backend names match `Backend::name()` (e.g. `["elixir", "wasm"]`).                                               |
 
 ---
 
@@ -514,15 +514,15 @@ name = "my-special-lib"
 public_api = false
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `bindings` | bool | `true` | Generate struct wrappers, `From` impls, and module init code |
-| `errors` | bool | `true` | Generate error type hierarchies from `thiserror` enums |
-| `configs` | bool | `true` | Generate config builder constructors from `Default` types |
-| `async_wrappers` | bool | `true` | Generate async/sync function pairs with runtime management |
-| `type_conversions` | bool | `true` | Generate recursive type marshaling helpers |
-| `package_metadata` | bool | `true` | Generate package manifests |
-| `public_api` | bool | `true` | Generate idiomatic public API wrappers |
+| Field              | Type | Default | Description                                                  |
+| ------------------ | ---- | ------- | ------------------------------------------------------------ |
+| `bindings`         | bool | `true`  | Generate struct wrappers, `From` impls, and module init code |
+| `errors`           | bool | `true`  | Generate error type hierarchies from `thiserror` enums       |
+| `configs`          | bool | `true`  | Generate config builder constructors from `Default` types    |
+| `async_wrappers`   | bool | `true`  | Generate async/sync function pairs with runtime management   |
+| `type_conversions` | bool | `true`  | Generate recursive type marshaling helpers                   |
+| `package_metadata` | bool | `true`  | Generate package manifests                                   |
+| `public_api`       | bool | `true`  | Generate idiomatic public API wrappers                       |
 
 Override per language with `[crates.generate_overrides.<lang>]`:
 
@@ -550,10 +550,10 @@ search = 'header = ".*"'
 replace = 'header = "/* v{version} */"'
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `extra_paths` | string[] | `[]` | Additional files to update version in (beyond auto-detected manifests) |
-| `text_replacements` | array | `[]` | Regex-based text replacements with `path`, `search`, and `replace` fields |
+| Field               | Type     | Default | Description                                                               |
+| ------------------- | -------- | ------- | ------------------------------------------------------------------------- |
+| `extra_paths`       | string[] | `[]`    | Additional files to update version in (beyond auto-detected manifests)    |
+| `text_replacements` | array    | `[]`    | Regex-based text replacements with `path`, `search`, and `replace` fields |
 
 The `{version}` placeholder in `replace` is substituted with the current version.
 
@@ -583,11 +583,11 @@ check = "oxlint packages/node/src/"
 check = ["golangci-lint run ./...", "go vet ./..."]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `format` | StringOrVec | Command(s) to format generated code (run by `alef fmt` and `alef lint`) |
-| `check` | StringOrVec | Command(s) to run lint checks (run by `alef lint`) |
-| `typecheck` | StringOrVec | Command(s) to run type checking (run by `alef lint`) |
+| Field       | Type        | Description                                                             |
+| ----------- | ----------- | ----------------------------------------------------------------------- |
+| `format`    | StringOrVec | Command(s) to format generated code (run by `alef fmt` and `alef lint`) |
+| `check`     | StringOrVec | Command(s) to run lint checks (run by `alef lint`)                      |
+| `typecheck` | StringOrVec | Command(s) to run type checking (run by `alef lint`)                    |
 
 The Node and WASM built-in defaults use the Oxc toolchain: `oxfmt` for formatting and `oxlint` for linting. Biome is no longer used in generated scaffolding.
 
@@ -617,10 +617,10 @@ coverage = "npx vitest run --coverage"
 command = ["cargo test", "cargo test --doc"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `command` | StringOrVec | Command(s) to run unit tests (used by `alef test`) |
-| `e2e` | StringOrVec | Command(s) to run e2e tests (used when `alef test --e2e` is passed) |
+| Field      | Type        | Description                                                                        |
+| ---------- | ----------- | ---------------------------------------------------------------------------------- |
+| `command`  | StringOrVec | Command(s) to run unit tests (used by `alef test`)                                 |
+| `e2e`      | StringOrVec | Command(s) to run e2e tests (used when `alef test --e2e` is passed)                |
 | `coverage` | StringOrVec | Command(s) to run tests with coverage (used when `alef test --coverage` is passed) |
 
 ---
@@ -648,9 +648,9 @@ upgrade = "pnpm up --latest"
 update = ["cargo update", "cargo deny check advisories"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `update` | StringOrVec | Command(s) for safe, compatible updates (run by `alef update`) |
+| Field     | Type        | Description                                                              |
+| --------- | ----------- | ------------------------------------------------------------------------ |
+| `update`  | StringOrVec | Command(s) for safe, compatible updates (run by `alef update`)           |
 | `upgrade` | StringOrVec | Command(s) for aggressive/latest updates (run by `alef update --latest`) |
 
 ---
@@ -676,8 +676,8 @@ install = "pnpm install"
 install = ["mvn dependency:resolve", "mvn dependency:resolve-sources"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field     | Type        | Description                                              |
+| --------- | ----------- | -------------------------------------------------------- |
 | `install` | StringOrVec | Command(s) to install dependencies (run by `alef setup`) |
 
 ---
@@ -703,8 +703,8 @@ clean = "rm -rf node_modules dist"
 clean = ["mvn clean", "rm -rf target"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field   | Type        | Description                                               |
+| ------- | ----------- | --------------------------------------------------------- |
 | `clean` | StringOrVec | Command(s) to clean build artifacts (run by `alef clean`) |
 
 ---
@@ -732,9 +732,9 @@ build_release = "napi build --platform --release"
 build_release = ["wasm-pack build --target web", "wasm-pack build --target nodejs"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `build` | StringOrVec | Command(s) for dev/debug builds (run by `alef build`) |
+| Field           | Type        | Description                                                   |
+| --------------- | ----------- | ------------------------------------------------------------- |
+| `build`         | StringOrVec | Command(s) for dev/debug builds (run by `alef build`)         |
 | `build_release` | StringOrVec | Command(s) for release builds (run by `alef build --release`) |
 
 ---
@@ -767,19 +767,19 @@ categories = ["smoke", "basic"]
 github_repo = "org/repo"
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `fixtures` | string | *required* | Directory containing JSON fixture files |
-| `output` | string | *required* | Output directory for generated e2e test projects |
-| `languages` | string[] | *required* | Languages to generate e2e tests for |
-| `call.function` | string | -- | Function name to invoke in generated tests |
-| `call.module` | string | -- | Module/package to import in generated tests |
-| `call.async` | bool | `false` | Whether the function is async |
-| `call.args` | array | `[]` | Argument mappings from fixture fields to function parameters |
-| `registry.output` | string | -- | Output directory for registry-based test projects (when `--registry` is used) |
-| `registry.packages` | map | `{}` | Map of language to published package name/identifier |
-| `registry.categories` | string[] | `[]` | Fixture categories to include in registry test generation |
-| `registry.github_repo` | string | -- | GitHub repository identifier for release artifacts |
+| Field                  | Type     | Default    | Description                                                                   |
+| ---------------------- | -------- | ---------- | ----------------------------------------------------------------------------- |
+| `fixtures`             | string   | _required_ | Directory containing JSON fixture files                                       |
+| `output`               | string   | _required_ | Output directory for generated e2e test projects                              |
+| `languages`            | string[] | _required_ | Languages to generate e2e tests for                                           |
+| `call.function`        | string   | --         | Function name to invoke in generated tests                                    |
+| `call.module`          | string   | --         | Module/package to import in generated tests                                   |
+| `call.async`           | bool     | `false`    | Whether the function is async                                                 |
+| `call.args`            | array    | `[]`       | Argument mappings from fixture fields to function parameters                  |
+| `registry.output`      | string   | --         | Output directory for registry-based test projects (when `--registry` is used) |
+| `registry.packages`    | map      | `{}`       | Map of language to published package name/identifier                          |
+| `registry.categories`  | string[] | `[]`       | Fixture categories to include in registry test generation                     |
+| `registry.github_repo` | string   | --         | GitHub repository identifier for release artifacts                            |
 
 ---
 
@@ -816,25 +816,25 @@ build_command = "cross build --release --target {target}"
 package_command = "custom-packager"
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `core_crate` | string | auto-detected from that crate's `sources` | Path to the core Rust crate to vendor |
-| `languages.<lang>` | map | `{}` | Per-language publish overrides (table below) |
+| Field              | Type   | Default                                   | Description                                  |
+| ------------------ | ------ | ----------------------------------------- | -------------------------------------------- |
+| `core_crate`       | string | auto-detected from that crate's `sources` | Path to the core Rust crate to vendor        |
+| `languages.<lang>` | map    | `{}`                                      | Per-language publish overrides (table below) |
 
 ### `[crates.publish.languages.<lang>]`
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `precondition` | string | -- | Shell command that must exit 0 for publish steps to run; skip with warning on failure |
-| `before` | StringOrVec | -- | Command(s) to run before main publish commands; aborts on failure |
-| `after` | StringOrVec | -- | Command(s) to run after main publish commands; aborts on failure |
-| `vendor_mode` | string | `"none"` | One of `"core-only"` (Ruby/Elixir), `"full"` (R), or `"none"` |
-| `nif_versions` | string[] | -- | Elixir NIF versions to build for (e.g. `["2.16", "2.17"]`) |
-| `build_command` | StringOrVec | per-language default | Override the cross-compilation build command |
-| `package_command` | StringOrVec | per-language default | Override the packaging command |
-| `archive_format` | string | per-language default | `"tar.gz"` or `"zip"` |
-| `pkg_config` | bool | `false` | C FFI: generate a pkg-config `.pc` file |
-| `cmake_config` | bool | `false` | C FFI: generate a CMake find module |
+| Field             | Type        | Default              | Description                                                                           |
+| ----------------- | ----------- | -------------------- | ------------------------------------------------------------------------------------- |
+| `precondition`    | string      | --                   | Shell command that must exit 0 for publish steps to run; skip with warning on failure |
+| `before`          | StringOrVec | --                   | Command(s) to run before main publish commands; aborts on failure                     |
+| `after`           | StringOrVec | --                   | Command(s) to run after main publish commands; aborts on failure                      |
+| `vendor_mode`     | string      | `"none"`             | One of `"core-only"` (Ruby/Elixir), `"full"` (R), or `"none"`                         |
+| `nif_versions`    | string[]    | --                   | Elixir NIF versions to build for (e.g. `["2.16", "2.17"]`)                            |
+| `build_command`   | StringOrVec | per-language default | Override the cross-compilation build command                                          |
+| `package_command` | StringOrVec | per-language default | Override the packaging command                                                        |
+| `archive_format`  | string      | per-language default | `"tar.gz"` or `"zip"`                                                                 |
+| `pkg_config`      | bool        | `false`              | C FFI: generate a pkg-config `.pc` file                                               |
+| `cmake_config`    | bool        | `false`              | C FFI: generate a CMake find module                                                   |
 
 Language keys recognised by `[crates.publish.languages]`: `python`, `node`, `ruby`, `php`, `elixir`, `wasm`, `go`, `java`, `csharp`, `r`, `c_ffi`. The `c_ffi` key configures the standalone C FFI distribution (header + shared library + pkg-config + CMake).
 
@@ -883,10 +883,10 @@ functions = ["custom_extract"]
 init_calls = ["register_custom_types(m)?;"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `classes` | string[] | Class/type names to register in the module init |
-| `functions` | string[] | Function names to register in the module init |
+| Field        | Type     | Description                                                 |
+| ------------ | -------- | ----------------------------------------------------------- |
+| `classes`    | string[] | Class/type names to register in the module init             |
+| `functions`  | string[] | Function names to register in the module init               |
 | `init_calls` | string[] | Raw Rust expressions to include in the module init function |
 
 ---
@@ -905,6 +905,6 @@ node = ["src/custom_bridge.ts"]
 all = ["LICENSE", "CHANGELOG.md"]
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
+| Field     | Type     | Description                                                                |
+| --------- | -------- | -------------------------------------------------------------------------- |
 | `<group>` | string[] | List of custom file paths to include (group can be language name or `all`) |

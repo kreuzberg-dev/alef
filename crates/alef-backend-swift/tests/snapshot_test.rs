@@ -578,6 +578,109 @@ unregister_fn = "unregister_ocr_backend"
     }
 }
 
+/// Snapshot a struct whose IR contains a sanitized homogeneous-tuple field.
+///
+/// In the real pipeline `parse_homogeneous_tuple` rewrites `(usize, usize)` to
+/// `Vec<Primitive(Usize)>` and sets `sanitized = true` on the `FieldDef`.  The
+/// swift backend must **not** emit a direct assignment (`__target.ngram_range =
+/// ngram_range;`) because the source field is still `(usize, usize)` — that
+/// would be a type-mismatch compile error.  Instead it must emit the serde
+/// JSON round-trip:
+///
+/// ```text
+/// if let Ok(__v) = ::serde_json::to_value(ngram_range) {
+///     if let Ok(t) = ::serde_json::from_value(__v) { __target.ngram_range = t; }
+/// }
+/// ```
+///
+/// This test locks down that code path so a future refactor cannot regress it.
+#[test]
+fn snapshot_tuple_field_as_vec() {
+    // Build a field whose IR type is Vec<Primitive(Usize)> with sanitized=true.
+    // This is the representation produced by `parse_homogeneous_tuple` for `(usize, usize)`.
+    let mut ngram_range_field = make_field(
+        "ngram_range",
+        TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::Usize))),
+        false,
+    );
+    ngram_range_field.sanitized = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "KeywordConfig".to_string(),
+            rust_path: "demo::KeywordConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("max_keywords", TypeRef::Primitive(PrimitiveType::Usize), false),
+                ngram_range_field,
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Keyword extraction configuration.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+        }],
+        functions: vec![FunctionDef {
+            name: "extract_keywords".into(),
+            rust_path: "demo::extract_keywords".into(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_param("text", TypeRef::String),
+                make_param("config", TypeRef::Named("KeywordConfig".to_string())),
+            ],
+            return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+            is_async: false,
+            error_type: Some("DemoError".to_string()),
+            doc: "Extract keywords from text.".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+        }],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".to_string(),
+            rust_path: "demo::DemoError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "ExtractionFailed".to_string(),
+                message_template: Some("keyword extraction failed".to_string()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: "Extraction encountered an error.".to_string(),
+            }],
+            doc: "Errors emitted by keyword extraction.".to_string(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_tuple_field__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
+
 /// Snapshot the full output of a streaming adapter: the generated swift-bridge
 /// Rust crate (which declares the opaque `StreamHandle` + `_start` + `next`)
 /// and the Swift host wrapper (which exposes an `AsyncThrowingStream<Item, Error>`).

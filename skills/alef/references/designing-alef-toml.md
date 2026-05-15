@@ -50,16 +50,16 @@ functions = ["internal_helper", "build_provider"]
 
 ### What to exclude — decision checklist
 
-| Category | Example | Why exclude |
-|----------|---------|-------------|
-| Traits | `LlmClient`, `BatchClient` | Can't cross FFI boundary |
-| `Arc<dyn Trait>` fields | `ClientConfig` (holds `Arc<dyn Provider>`) | Not serializable |
-| `BoxFuture` / `BoxStream` | Async wrapper types | Opaque, language-specific |
-| Generic middleware | `BudgetLayer<S>`, `CacheLayer<S>` | Unresolvable type params |
-| Raw/internal methods | `Client.chat_raw` | Expose high-level API only |
-| Constructors needing builders | `Client.new` | Use adapter pattern instead |
-| Methods returning `bytes::Bytes` | `Client.speech` | Not all languages handle raw bytes |
-| Feature-gated types | Types behind `#[cfg(feature = "tower")]` | May not be enabled |
+| Category                         | Example                                    | Why exclude                        |
+| -------------------------------- | ------------------------------------------ | ---------------------------------- |
+| Traits                           | `LlmClient`, `BatchClient`                 | Can't cross FFI boundary           |
+| `Arc<dyn Trait>` fields          | `ClientConfig` (holds `Arc<dyn Provider>`) | Not serializable                   |
+| `BoxFuture` / `BoxStream`        | Async wrapper types                        | Opaque, language-specific          |
+| Generic middleware               | `BudgetLayer<S>`, `CacheLayer<S>`          | Unresolvable type params           |
+| Raw/internal methods             | `Client.chat_raw`                          | Expose high-level API only         |
+| Constructors needing builders    | `Client.new`                               | Use adapter pattern instead        |
+| Methods returning `bytes::Bytes` | `Client.speech`                            | Not all languages handle raw bytes |
+| Feature-gated types              | Types behind `#[cfg(feature = "tower")]`   | May not be enabled                 |
 
 ### Method-level filtering
 

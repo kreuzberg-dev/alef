@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `VisitResult.preserveHtml()` / `VisitResult.custom(field0: '...')` body
   (with `${placeholder}` interpolation for `custom_template` actions).
   Visitor fixtures currently emit a `test(...,  skip: 'pending dart-binding
-  visitor wiring (alef issue)')` stub at the call site because the dart
+visitor wiring (alef issue)')` stub at the call site because the dart
   binding does not yet expose typed callback parameters for the
   `BoxFn...` opaque types, does not emit `VisitResult` factory variants
   (the enum is `#[frb-ignore]`d), and lacks a `HtmlVisitorDartImpl` →
@@ -79,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **alef-backend-swift**: emit `extension RustBridge.{Owner}{Adapter}StreamHandle:
-  @unchecked Sendable {}` for every streaming adapter's opaque handle type.
+@unchecked Sendable {}` for every streaming adapter's opaque handle type.
   swift-bridge generates opaque Swift classes without `Sendable` conformance; the
   generated `chatStream` wrapper captures the handle inside two nested
   `Task.detached` closures, which Swift 6 strict-concurrency rejects with "does
@@ -174,7 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-e2e (kotlin)**: clear four clippy warnings in
   `crates/alef-e2e/src/codegen/kotlin.rs` so `cargo clippy --workspace
-  -- -D warnings` is green again. Removed a duplicate
+-- -D warnings` is green again. Removed a duplicate
   `#[allow(clippy::too_many_arguments)]` attribute on
   `render_test_method`, added the same allow to the 13-arg
   `render_test_file_android` companion (matches the existing
@@ -187,9 +187,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   call. Generic `json_object` args without a special name (e.g. h2m's
   `options: ConversionOptions` on `convert(html, options)`) now build the
   mirror struct via the FRB-generated `create<OptionsType>FromJson(json:
-  ...)` helper and pass it as a named parameter when the arg is optional.
+...)` helper and pass it as a named parameter when the arg is optional.
   Previously fixtures providing `input.options.include_document_structure
-  = true` etc. silently dropped the options, so tests requiring document
+= true` etc. silently dropped the options, so tests requiring document
   structure, visitor registration, or metadata extraction returned `null`
   for the gated fields.
 - **alef-backend-kotlin-android**: alias the Kotlin wrapper's `Bridge`
@@ -218,7 +218,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   at a path that does not match what `addRunArtifact` computes via
   `getEmittedBin()`. Every test fails at run time with
   `error: failed to spawn and capture stdio from
-  .zig-cache/o/<hash>/<name>: FileNotFound` even though the compile
+.zig-cache/o/<hash>/<name>: FileNotFound` even though the compile
   step reports success. The previous fix (unique `.name` per test, see
   0.16.0) was necessary to avoid cache collisions but did not address
   the backend mismatch. Forcing the LLVM backend on every test pins the
@@ -364,7 +364,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-extract**: reverted the `Option<Option<T>>` → `Option<T>` IR flatten
   introduced in 0.16.0. The flatten produced cross-backend type mismatches
   (WASM and other passthrough backends saw `expected Option<Option<usize>>,
-  found Option<usize>` against the core `ConversionOptionsUpdate` shape).
+found Option<usize>` against the core `ConversionOptionsUpdate` shape).
   Nested optionals are now preserved in IR; per-backend renderers decide
   how to surface them.
 - **alef-backend-dart**: `Option<Option<T>>` core fields now render as a
@@ -422,7 +422,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     pulled from `template_versions::toolchain` so renovate keeps them current.
   - Snapshot tests cover every emitted file for a representative API
     (struct, enum, error, sync fn, async fn). insta-based, `cargo test
-    -p alef-backend-kotlin-android`.
+-p alef-backend-kotlin-android`.
   - **ktlint compliance out of the box**: the emitted `build.gradle.kts`
     applies the `org.jlleitschuh.gradle.ktlint` plugin (pinned via
     `template_versions::maven::KTLINT_GRADLE_PLUGIN` / `KTLINT`) and the
@@ -445,7 +445,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **BREAKING — alef-backend-kotlin**: the in-band `[crates.kotlin] mode =
-  "android"` dispatch path has been removed. Consumers that previously
+"android"` dispatch path has been removed. Consumers that previously
   emitted Android via the kotlin backend must migrate to
   `Language::KotlinAndroid` and `[crates.kotlin_android]`. Setting
   `mode = "android"` now raises a hard error pointing at the new slug.
@@ -462,9 +462,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `extern "Rust"` block declares the handle plus a `_start` free function
     returning `Result<Handle, String>` (HTTP head validation happens here, so
     pre-stream errors throw before any chunk arrives) and a `fn next(self:
-    &mut Handle) -> Result<String, String>` method that drains one chunk via
-    `runtime.block_on(stream.next())` and `serde_json::to_string`s it.
-    Empty-string EOF sentinel.
+&mut Handle) -> Result<String, String>` method that drains one chunk via
+  `runtime.block_on(stream.next())` and `serde_json::to_string`s it.
+  Empty-string EOF sentinel.
   - **Swift wrapper** emits a public method returning
     `AsyncThrowingStream<ItemType, Error>` backed by a detached drain `Task`
     that loops `try handle.next()`, decodes each JSON chunk via
@@ -478,10 +478,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     side. swift-bridge 0.1.59 bridges `Result<String, String>` cleanly; the
     JSON-string protocol avoids hitting the gaps in its `Option<OpaqueRust>`
     codegen.
-  Trade-offs documented in the shim: one tokio runtime per stream (heavier
-  than a shared runtime, but isolates lifetimes); back-pressure is not yet
-  implemented (Swift consumer slower than chunk arrival → unbounded
-  `AsyncThrowingStream` buffer growth).
+    Trade-offs documented in the shim: one tokio runtime per stream (heavier
+    than a shared runtime, but isolates lifetimes); back-pressure is not yet
+    implemented (Swift consumer slower than chunk arrival → unbounded
+    `AsyncThrowingStream` buffer growth).
 
 - **alef-core/alef-scaffold/backends**: Alef is less organization-specific by
   default. Workspace config can now provide scaffold metadata plus generated
@@ -537,7 +537,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[[crates]] name` is suffixed for crates.io disambiguation (e.g.
   `html-to-markdown-rs` package at `crates/html-to-markdown/`). Without the
   fix, `cargo check` errors with `no matching package found, searched package
-  name: "html-to-markdown"`. Use `crate_name` (the `[[crates]]` `name` field)
+name: "html-to-markdown"`. Use `crate_name` (the `[[crates]]` `name` field)
   for the rename target instead.
 - **alef-backend-swift**: emit method receivers from IR
   (`&self`/`&mut self`/`self`) instead of hardcoded `&self` — closes E0053 for
@@ -613,7 +613,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Zig 0.16+: any module that transitively references C stdlib (`c.getenv`,
   `c.malloc`, etc.) must declare libc explicitly in its build graph,
   otherwise `zig build test` fails with `error: dependency on libc must be
-  explicitly specified in the build command`.
+explicitly specified in the build command`.
 - **alef-e2e/wasm (wasm.rs)**: in `DependencyMode::Local`, the generated
   `e2e/wasm/package.json` now declares
   `"<crate>": "file:../../crates/<crate>-wasm/pkg/nodejs"` instead of just
@@ -683,11 +683,11 @@ Version bump only — no functional changes.
   for `TypeRef::Named` fields that lack an explicit `typed_default`. Magnus-
   wrapped structs (`#[magnus::wrap]`) do not implement `Default`, so the
   generated Ruby binding failed to compile with `E0599: no function or
-  associated item named 'default' found for struct 'FunctionDefinition'`
+associated item named 'default' found for struct 'FunctionDefinition'`
   (likewise `FunctionCall`, etc.). The hash constructor now treats such fields
   as required: when the caller does not provide the field, the constructor
   returns `magnus::Error::new(ruby.exception_arg_error(), "missing required
-  field: ...")` instead of synthesising a fictional default.
+field: ...")` instead of synthesising a fictional default.
 - **alef-e2e (swift)**: fix `Package.swift` for path-based local dependencies
   under SwiftPM 6.0. Previously the codegen emitted
   `.package(name: "<ModuleName>", path: ...)` paired with
@@ -696,14 +696,14 @@ Version bump only — no functional changes.
   identity from the path's last component (e.g. `packages/swift` → `swift`).
   The generated `Package.swift` therefore failed with
   `error: 'swift': product 'LiterLlm' required by package 'swift' target
-  'LiterLlmE2ETests' not found in package 'LiterLlm'`. The codegen now drops
+'LiterLlmE2ETests' not found in package 'LiterLlm'`. The codegen now drops
   the redundant `name:` parameter and references the inferred identity in the
   product dependency.
 - **alef-e2e (kotlin)**: emit `java` plugin alongside `kotlin("jvm")` in the
   generated `build.gradle.kts`. Under Gradle 9.x, `kotlin("jvm")` no longer
   implicitly applies the `java` base plugin, so the `test` task did not exist
   and `gradle test` failed with `Task 'test' not found in root project
-  'kotlin'.` Applying `java` restores the standard test/check lifecycle.
+'kotlin'.` Applying `java` restores the standard test/check lifecycle.
 
 ## [0.15.63] - 2026-05-14
 
@@ -822,7 +822,7 @@ Version bump only — no functional changes.
   `is_empty` assertions over a `?.` optional-chain accessor. Previously the
   generator emitted `XCTAssertGreaterThan(result.field()?.inner().len(), 0, ...)`
   which Swift rejects with `cannot convert value of type 'UInt?' to expected
-  argument type 'Int'` because optional chaining propagates `?` through the
+argument type 'Int'` because optional chaining propagates `?` through the
   whole expression. The not_empty / is_empty arms in
   `crates/alef-e2e/src/codegen/swift.rs` now check `accessor_is_optional` (the
   same heuristic already used by every other assertion arm) and wrap as
@@ -830,7 +830,7 @@ Version bump only — no functional changes.
   in kreuzcrawl's swift test target where `result.markdown()?.content().len()`
   failed to compile across MarkdownTests.swift.
 - **alef-backend-swift**: emit `[package.metadata.cargo-machete] ignored =
-  ["async-trait", "serde"]` in the swift-bridge Cargo.toml. Those deps are
+["async-trait", "serde"]` in the swift-bridge Cargo.toml. Those deps are
   conditionally referenced (only when the umbrella crate declares trait
   bridges or `Serialize`/`Deserialize`-derived response types); downstream
   consumers without those features (kreuzcrawl) saw cargo-machete false-
@@ -902,7 +902,7 @@ Version bump only — no functional changes.
 - fix(alef-backend-wasm): gate the `self.inner.lock().unwrap()` call path on the receiver type actually being opaque. Methods on transparent (named-field) structs whose type happens to have a sibling `&mut self` method (e.g. `WasmDocumentStructure::is_empty` alongside `finalize_node_types`) were emitting `self.inner.lock().unwrap().is_empty()` even though the struct has direct fields and no `inner: Arc<Mutex<T>>`. Codegen now checks `opaque_types.contains(type_name)` before taking the Mutex branch; transparent structs fall back to `Type::from(self.clone()).method(...)`.
 - fix(alef-backend-csharp): pass length argument alongside pinned pointer when delegating byte-slice params to native P/Invoke. Wrapper methods now emit both the `AddrOfPinnedObject()` pointer AND the `(UIntPtr)source.Length` argument for `&[u8]` parameters, matching the FFI signature. Previously only the pointer was passed, causing C# compile errors (CS7036: missing required parameter) when parsing byte arrays.
 - fix(alef-e2e/kotlin): fix `{kotlin_val}` placeholder in numeric comparison assertion failure messages. The `greater_than`, `less_than`, `greater_than_or_equal`, and `less_than_or_equal` assertions emitted literal text `expected > {kotlin_val}` because the placeholder was doubly-escaped (`{{kotlin_val}}`), causing Kotlin source parse errors (`Expecting an element`).
-- fix(alef-e2e): backtick-escape Kotlin hard keywords when emitting field accessors. Field paths like `result.data().first().object()` are syntax errors in Kotlin because `object` is a hard keyword; now emitted as `` result.data().first().`object`() ``. Applies to both plain and nullable-aware Kotlin accessor renderers.
+- fix(alef-e2e): backtick-escape Kotlin hard keywords when emitting field accessors. Field paths like `result.data().first().object()` are syntax errors in Kotlin because `object` is a hard keyword; now emitted as ``result.data().first().`object`()``. Applies to both plain and nullable-aware Kotlin accessor renderers.
 
 ## [0.15.53] - 2026-05-13
 
@@ -941,7 +941,6 @@ Version bump only — no functional changes.
 - fix(alef-backend-csharp): include `api.enums` (alongside `api.types`) when building the `visible_type_names` set passed to trait-bridge codegen. Without this, enum types like `VisitResult` were treated as non-API by `csharp_type_visible`, which substituted them with `string` in generated trait-method signatures (`string VisitFigureEnd(...)`). E2e visitor tests that returned `VisitResult.Continue` then failed to compile with CS0738 "does not have the matching return type of 'string'".
 
 - fix(alef-e2e/csharp): look up `enum_fields` and `nested_types` overrides by both snake_case (fixture JSON key) and camelCase (alef.toml convention) when emitting C# object initializers. Previously fixtures with `code_block_style: "Backticks"` produced `CodeBlockStyle = "Backticks"` (raw string literal) instead of `CodeBlockStyle = CodeBlockStyle.Backticks` (enum constant), causing ~18 CS0029 compile errors. C# is strongly typed and does not accept string-to-enum implicit conversion, unlike Python's ConversionOptions which accepts strings and converts internally.
-
 
 ## [0.15.52] - 2026-05-13
 
@@ -1003,7 +1002,6 @@ Version bump only — no functional changes.
 - fix(alef-e2e/brew): emit `${MOCK_SERVER_<UPPER_FIXTURE_ID>:-${MOCK_SERVER_URL}/fixtures/<id>}` for `mock_url` args so host-root fixtures route correctly when the mock-server allocates a per-fixture listener; the generated `*.sh` tests fall back to the shared `MOCK_SERVER_URL/fixtures/<id>` form for fixtures without isolation.
 - fix(alef-e2e/brew): when fixture `input.config` is non-empty, append `--config '<minified json>'` to the generated CLI command so the kreuzcrawl CLI honors fixture-specified config (e.g. `respect_robots_txt: true`, validation fixtures). Pairs with the kreuzcrawl-side `--config` flag added to `scrape`/`crawl`/`map`.
 
-
 ## [0.15.51] - 2026-05-13
 
 ### Fixed
@@ -1054,7 +1052,7 @@ Version bump only — no functional changes.
 - fix(alef-e2e/kotlin): test files emitted bareword imports (`import ChatCompletionRequest`, `import LiterLlm`) when the binding `class_name` wasn't fully-qualified, which Kotlin rejects with "Unresolved reference" since the kotlin binding emits typealiases at `kotlin_pkg_id` (e.g. `com.github.kreuzberg_dev`) and the test files live one package deeper at `<kotlin_pkg_id>.e2e` (parent-package symbols don't import implicitly). Now falls back to `kotlin_pkg_id` as the binding package when `import_path` is empty, producing `import com.github.kreuzberg_dev.ChatCompletionRequest` / `import com.github.kreuzberg_dev.LiterLlm`. Same fallback applied to options-type imports and CrawlConfig. Resolves the import layer in liter-llm kotlin e2e (remaining errors are coroutine `suspend fun` wrappers and nullable `Optional` accessors that need follow-up kotlin codegen work).
 - fix(alef-e2e/java,alef-e2e/go): codegen bugs that broke streaming e2e tests for the Java and Go bindings. Java: (1) the `collect_snippet` emitted `new ArrayList<ChatCompletionChunk>()` but never imported `ChatCompletionChunk`, so the type erased to `Object` and downstream `c.choices()/ch.delta()` method calls failed with "cannot find symbol" — added an FQN import when any fixture is streaming. (2) `is_streaming` only checked `is_streaming_mock()`, so the `empty_stream` fixture (`stream_chunks:[]`) skipped the collect snippet and left `chunks` undefined at the assertion site — broadened to fire when any assertion references a streaming-virtual field, matching the kotlin/swift/php/python/elixir/typescript pattern. (3) The `not_error` arm for `byte[]` results emitted `Assertions.assertNotNull(...)` but only the static-import form (`assertNotNull`) is in scope — switched to the bare name. Go: (1) same `is_streaming` broadening so `empty_stream` drains the channel into `chunks`. (2) `needs_assert` for the file-level testify import treated streaming-virtual fields as `field_valid=false` (they don't resolve against the result type), so streaming-only files omitted the `github.com/stretchr/testify/assert` import even though every assertion called `assert.X` — now field-valid is `true` when the assertion's field is a streaming-virtual reference on a streaming fixture. (3) `finish_reason` accessor returned `*last.Choices[0].FinishReason` without casting `FinishReason` (a `type FinishReason string` alias) back to `string`, causing E0308-style type mismatches at the assertion site — added an explicit `string(*...)` cast. (4) `tool_calls` accessor used `*ch.Delta.ToolCalls` but the Go binding declares `ToolCalls []StreamToolCall` (slice, not pointer); removed the bogus dereference and changed the IIFE return type to `[]pkg.StreamToolCall` so deep-path accessors like `tool_calls[0].function.name` index into the typed slice. (5) deep-path streaming-virtual equals on Go binding pointer-typed leaves (`StreamFunctionCall.Name *string`) now wraps the expression in a nil-safe deref IIFE so the comparison succeeds against the plain-string assertion value. Drops liter-llm go e2e from a build failure to 161/161 passing; the corresponding fix in `liter-llm/alef.toml` adds the missing `[crates.e2e.calls.chat_stream.overrides.go]` block so `chat_stream` requests are deserialised into the typed Go struct (the binding signature is `func (h *DefaultClient) ChatStream(req ChatCompletionRequest)`).
 - fix(alef-e2e/php): four codegen bugs that broke streaming e2e tests for PHP bindings. (1) The `chunks` streaming-virtual-field accessor returned the bareword `chunks` for every language; PHP parses bareword identifiers as constant references, so generated code like `count(chunks)` triggered "Undefined constant" errors — added a PHP arm that emits `$chunks`. (2) `is_streaming` in `php.rs` only checked `is_streaming_mock()`, so fixtures like `empty_stream` (with `stream_chunks:[]`) skipped the collect snippet and left `$chunks` undefined at assertion sites — broadened to fire when any assertion references a streaming-virtual field, matching the elixir/python/kotlin/typescript pattern. (3) PHP binding's streaming method returns a JSON string of chunks (PHP cannot expose Rust iterators via ext-php-rs), but the collect snippet emitted `iterator_to_array(...)` which fails with `TypeError: Argument must be Traversable|array, string given` — now branches on `is_string($result)` to `json_decode` the string into stdClass objects, retaining `iterator_to_array` as a fallback for a future binding that exposes a real iterator. PHP `stream_complete` / `finish_reason` / `tool_calls` accessors and the deep-path tail renderer switched from camelCase to snake_case so they match the JSON wire-format property names on the decoded stdClass values. (4) Streaming fixtures whose only assertion is `not_error` (e.g. `stream_multiple_choices`) produced an empty assertions body, which PHPUnit flags as "risky" — emit a baseline `$this->assertTrue(is_array($chunks), 'expected drained chunks list')` so the test records a real assertion. Drops liter-llm php e2e from 12 errors to 0; all 161 tests pass with 308 assertions.
-- fix(alef-e2e/streaming_assertions): three rust-codegen bugs that produced uncompilable e2e tests. (1) `is_streaming_virtual_field` matched the tail-suffix of any field whose chars-after-`root.len()` started with `.` or `[` without first checking `field.starts_with(root)`, so `choices[0].finish_reason` matched root `tool_calls` (chars 10+ begin with `.finish_reason`) and falsely triggered streaming-mode codegen on non-streaming fixtures — added the `starts_with` guard. (2) Rust `collect_snippet` left the chunks vector as `Vec<Result<ChatCompletionChunk, _>>`, so subsequent accessors like `chunks.iter().map(|c| c.choices...)` failed E0609 ("no field `choices` on `&Result<...>`") — now chains `.into_iter().map(|r| r.expect("stream item failed")).collect()` to yield `Vec<ChatCompletionChunk>`. (3) Rust `finish_reason` accessor used `.as_deref()` on `Option<FinishReason>` (an enum, not `String`) which fails E0599 — switched to `.as_ref().map(|v| v.to_string())`. (4) Rust deep-path `tool_calls[0].function.name` chained naive field access through `StreamToolCall { function: Option<StreamFunctionCall>, ... }` causing E0609 — added `render_rust_tool_calls_deep` helper that emits Option-aware chaining (`.nth(0).and_then(|x| x.function.as_ref()).and_then(|x| x.name.as_deref()).unwrap_or("")`). Drops liter-llm rust e2e from 266 compile errors to 0; all 152 tests pass.
+- fix(alef-e2e/streaming*assertions): three rust-codegen bugs that produced uncompilable e2e tests. (1) `is_streaming_virtual_field` matched the tail-suffix of any field whose chars-after-`root.len()` started with `.` or `[` without first checking `field.starts_with(root)`, so `choices[0].finish_reason` matched root `tool_calls` (chars 10+ begin with `.finish_reason`) and falsely triggered streaming-mode codegen on non-streaming fixtures — added the `starts_with` guard. (2) Rust `collect_snippet` left the chunks vector as `Vec<Result<ChatCompletionChunk, *>>`, so subsequent accessors like `chunks.iter().map(|c| c.choices...)`failed E0609 ("no field`choices`on`&Result<...>`") — now chains `.into_iter().map(|r| r.expect("stream item failed")).collect()`to yield`Vec<ChatCompletionChunk>`. (3) Rust `finish_reason`accessor used`.as_deref()`on`Option<FinishReason>`(an enum, not`String`) which fails E0599 — switched to `.as_ref().map(|v| v.to_string())`. (4) Rust deep-path `tool_calls[0].function.name`chained naive field access through`StreamToolCall { function: Option<StreamFunctionCall>, ... }`causing E0609 — added`render_rust_tool_calls_deep` helper that emits Option-aware chaining (`.nth(0).and_then(|x| x.function.as_ref()).and_then(|x| x.name.as_deref()).unwrap_or("")`). Drops liter-llm rust e2e from 266 compile errors to 0; all 152 tests pass.
 
 ### Added
 
@@ -1079,8 +1077,6 @@ Version bump only — no functional changes.
 - fix(alef-backend-zig): emit async Rust functions as synchronous Zig wrappers. The `!f.is_async` filter in the function-emission loop was re-introduced by the opaque-handle codegen commit, causing `scrape`, `crawl`, and `map_urls` (all `is_async: true` in the IR) to disappear from generated `kreuzcrawl.zig`. The Zig C FFI wraps every async function with `block_on`, so from Zig's perspective all functions are synchronous — the `is_async` flag is irrelevant at the Zig ABI level.
 - fix(alef-e2e/dart): handle `[].` array traversal in assertion rendering. Field paths like `links[].url` and `links[].link_type` previously generated invalid Dart syntax (`links()[0].url()` type subscripts that fail `dart format`). Now generates correct `array.any((e) => e.field.toString().contains(val))` expressions for `contains`, `contains_all`, `not_contains`, and `not_empty` assertion types.
 
-
-
 - fix(alef-backend-dart): emit `pub(crate) inner: {ty.rust_path}` on the FRB opaque wrapper struct instead of `{source_crate}::{name}`. The naive form only resolves for types re-exported at the crate root; `HwpxExtractor` lives at `kreuzberg::extractors::HwpxExtractor`, `TessdataManager` at `kreuzberg::ocr::TessdataManager`, etc., so the generated bridge failed to compile with `E0425: cannot find type X in crate kreuzberg` for ~12 opaque handles. Falls back to `{source_crate}::{name}` only when `rust_path` is empty. Template `rust_opaque_wrapper_struct.jinja` now takes `inner_path` directly.
 - fix(alef-backend-dart): emit `pub use {qualified_path}` at the crate root for excluded types referenced by required trait-bridge method signatures (e.g. `InternalDocument`). FRB strips module paths from `frb_generated.rs` and resolves bare names via `use crate::*`, so these types must be visible at the crate root. The walk filters `trait_source.is_some()` and `has_default_impl` methods to match `emit_trait_bridge`'s required-method filter — avoids re-exporting traits referenced only by default-impl methods (e.g. `SyncExtractor` via `as_sync_extractor`), which would otherwise trigger `E0782: expected a type, found a trait` in FRB-generated closure types.
 - fix(alef-backend-swift): gate `create_<type>(api_key, base_url)` constructor emission on `client_constructor_body` override presence in `alef.toml`. The default `(api_key, base_url) -> Result<T, String>` template only matches liter_llm-style clients; for plugin types like `HwpxExtractor::new()` and utilities like `TessdataManager::new(Option<PathBuf>)` it produced calls that didn't match the real Rust signature and broke compilation. Opaque types without an override are returned by Rust APIs, not constructed in Swift, so omitting the shim is the correct default.
@@ -1088,8 +1084,6 @@ Version bump only — no functional changes.
 - fix(alef-codegen,backends): stop stripping cfg-gated struct fields from the binding. Previously `gen_struct_with_per_field_attrs`/`gen_struct_with_rename` and the napi/wasm backends dropped any field with `#[cfg(...)]`. The result was that `metadata: HtmlMetadata` and `images: Vec<InlineImage>` on `ConversionResult` (and similar feature-gated fields on other crates) disappeared from the binding struct even when the binding crate enabled the same feature. Binding crates already mirror the core crate's features via their `Cargo.toml`, so the cfg gate is redundant — the field is always present at compile time when the feature is on. The conversion sites and constructor helpers are still cfg-aware for trait-bridge `bind_via = "options_field"` fields (force-restored via `never_skip_cfg_field_names`), which carry binding-wrapper types that need `#[serde(skip)]` and `Default::default()` initialization. Restores `result.metadata` / `result.images` access on Python/Node/PHP/WASM bindings.
 - fix(alef-codegen): `constructor_parts_with_renames` and `config_constructor_parts_inner` in `shared.rs` now emit a default expression (`None` for `Option<T>` fields, `Default::default()` otherwise) for cfg-gated fields in the struct-literal assignment list, while continuing to omit them from the parameter list. Completes the cfg-gated field story: the binding struct keeps the field (per the prior `gen_struct_*` fix), but the caller can't supply trait-bridge wrapper values, so the constructor body fills them with a default. Without this, Python/WASM/PHP bindings hit `E0063 missing field visitor / metadata / images` because the struct now requires the fields the constructor wasn't initializing. Mirrors the same defaulting pattern already used in `gen_struct_default_impl`. The php `Named` constructor in `alef-backend-php/src/gen_bindings/types.rs` (manual `param_init`) was updated to match.
 - fix(alef-backend-pyo3): pass the visitor kwarg through to `_rust.<fn>` in generated api.py wrappers. For `bind_via = "options_field"` bridges, the python wrapper was stuffing the visitor into `options.visitor` via `_to_rust_<snake>(opts, _visitor_override=visitor)` but never forwarding `visitor=` to the underlying Rust function, which is what `gen_bridge_field_function` actually reads to wrap the bridge handle. The visitor was silently dropped; user-supplied visitor implementations had no effect.
-
-
 
 ### Added
 
@@ -1194,7 +1188,7 @@ Version bump only — no functional changes.
   2. `json_object` args without an `element_constructors` recipe or `json_object_wrapper` now emit a `// skipped` stub instead of a bare JSON-string literal that fails to typecheck against typed record parameters (`ChatCompletionRequest`, `EmbeddingRequest`, etc.).
   3. `extra_args` from per-call language overrides are now appended to the generated argument list; consumers can use `extra_args = ["option.None"]` to supply required-but-fixture-absent parameters such as the optional `query` argument on `list_files` / `list_batches`.
   4. Array-element field assertions (`data[1].field`, `pages[2].field`, etc.) are now correctly skipped — previously only `[0].` and `[].` patterns were matched; the fix uses a regex-free digit scan so any `[N].` index is recognised.
-  Additionally: `equals` assertions on fields listed in the effective enum-field set (global `fields_enum` merged with per-call `enum_fields` / `assert_enum_fields`) now emit a `// skipped` comment in Gleam instead of generating a string comparison against a sum-type value that does not typecheck. Per-call `result_is_simple = true` overrides now cause field-access assertions to be skipped when the return type is a primitive (e.g. `BitArray`) with no record fields.
+     Additionally: `equals` assertions on fields listed in the effective enum-field set (global `fields_enum` merged with per-call `enum_fields` / `assert_enum_fields`) now emit a `// skipped` comment in Gleam instead of generating a string comparison against a sum-type value that does not typecheck. Per-call `result_is_simple = true` overrides now cause field-access assertions to be skipped when the return type is a primitive (e.g. `BitArray`) with no record fields.
 - fix(alef-backend-gleam): skip non-trait types with methods from the regular data-type emission pass — they are now emitted exclusively as opaque NIF resource handles (`pub opaque type T { T(resource: dynamic.Dynamic) }`). Previously such types were emitted twice (once as a phantom record by `emit_type` and once as an opaque resource by `emit_resource_type`), producing a "Duplicate type definition" compile error from `gleam build`.
 - fix(alef-backend-zig): emit synthetic `free()` destructor on opaque-handle structs — every opaque handle owns a heap allocation in the FFI and must be released via the matching `{prefix}_{snake}_free` C symbol; `emit_opaque_handle` now appends a `pub fn free(self: *T) void` that calls the destructor, so `defer _client.free();` in generated e2e tests resolves correctly.
 - fix(alef-backend-zig): remove spurious leading `!` on opaque-method signatures — the emit template was producing a double error union `!(LiterLlmError||error{OutOfMemory})![]u8` which Zig 0.16 rejects with "type does not support field access"; corrected to a single error union.
@@ -1410,7 +1404,7 @@ Version bump only — no functional changes.
 
 - fix(alef-e2e/c): when a fixture assertion targets a field that is registered in `[crates.e2e] fields_enum` AND the field's resolved type in `[crates.e2e] fields_c_types` is a non-primitive PascalCase enum name (e.g. `BatchStatus`), emit an opaque-handle declaration plus a `{prefix}_{enum_snake}_to_string({handle})` conversion call rather than declaring the accessor return as `char*`. The previous output (`char* status = literllm_batch_object_status(result); assert(str_trim_eq(status, "completed") == 0);`) treated the FFI's `LITERLLMBatchStatus*` opaque pointer as a C string, causing immediate `Abort trap: 6` / NULL-deref in every C e2e fixture that compared an enum field. Applied to all four accessor sites: `render_test_function` (default-client and legacy paths), `render_engine_factory_test_function`, and the leaf branch of `emit_nested_accessor`. Cleanup: the opaque handle is registered in `intermediate_handles` so the existing reverse-order free loop calls `{prefix}_{enum_snake}_free(...)`; the `to_string` result is a heap `char*` freed by `{prefix}_free_string` like any other accessor result.
 
-- fix(alef-backend-ffi): `_free`/`_to_json`/`_to_string` are now also emitted for enum types that are returned by *struct field accessors* (not just by free functions or method returns). Previously the `enum_pointer_return` set was built from `api.functions` and `typ.methods` only — fields like `BatchObject.status: BatchStatus` produced an opaque-pointer accessor (`literllm_batch_object_status`) without a matching `_free` / `_to_string`, leaking memory and forcing C callers to treat the return as an unfreeable handle. The detection now walks `typ.fields` too. The pre-existing comment ("Also check struct field accessors and method returns…") matched the intent but the code was missing the field-walk half.
+- fix(alef-backend-ffi): `_free`/`_to_json`/`_to_string` are now also emitted for enum types that are returned by _struct field accessors_ (not just by free functions or method returns). Previously the `enum_pointer_return` set was built from `api.functions` and `typ.methods` only — fields like `BatchObject.status: BatchStatus` produced an opaque-pointer accessor (`literllm_batch_object_status`) without a matching `_free` / `_to_string`, leaking memory and forcing C callers to treat the return as an unfreeable handle. The detection now walks `typ.fields` too. The pre-existing comment ("Also check struct field accessors and method returns…") matched the intent but the code was missing the field-walk half.
 
 - fix(alef-e2e/c): the iter11 sentinel fix `(uint64_t)-1, (uint32_t)-1` for `*_create_client` only landed in `render_chat_stream_test_function`. The default-client path in `render_test_function` and the bytes-result path in `render_bytes_test_function` still emitted literal `0, 0` — passing them as `Some(0)` to the FFI yielded `Duration::from_secs(0)` and aborted every non-streaming HTTP fixture. Both call sites now also emit the sentinel. Mirror of 0.15.28 java/csharp marshalling fix.
 
@@ -1537,7 +1531,7 @@ Version bump only — no functional changes.
 
 - fix(e2e/java): wrap `setup_lines` (which may include `<Type>.fromJson(...)` calls that throw on malformed JSON) plus the `call_expr` inside the `assertThrows` lambda for `expects_error` fixtures. Without this, deserialize-time failures escaped before `assertThrows` could catch them — `var request = OcrRequest.fromJson("...invalid-purpose...")` threw outside the assertion. Mirrors the C# `Assert.ThrowsAnyAsync(() => client.X(Type.FromJson(...)))` pattern.
 
-- fix(php-backend): do not append "Async" suffix to async method names in wrapper facade. The PHP binding blocks on async internally via `block_on`, presenting a synchronous API to callers. Wrapper facade methods now use the exact name from the IR (e.g. `scrape()` instead of `scrapeAsync()`), matching the configured function name in alef.toml e2e overrides. The underlying extension methods retain the "_async" suffix for internal delegation.
+- fix(php-backend): do not append "Async" suffix to async method names in wrapper facade. The PHP binding blocks on async internally via `block_on`, presenting a synchronous API to callers. Wrapper facade methods now use the exact name from the IR (e.g. `scrape()` instead of `scrapeAsync()`), matching the configured function name in alef.toml e2e overrides. The underlying extension methods retain the "\_async" suffix for internal delegation.
 
 - fix(magnus-backend): emit valid serde attribute `#[serde(default = "default_timeout")]` (function path) instead of `#[serde(default = "30000")]` (literal string) for Duration-typed timeout fields. The invalid literal syntax caused compilation errors in Ruby e2e bindings. Added helper function `default_timeout() -> u64` to struct templates.
 
@@ -1699,7 +1693,7 @@ Version bump only — no functional changes.
 ### Fixed
 
 - fix(e2e/csharp): preserve `List<T>` element types and construct `JsonElement` for untagged-union fields. The C# e2e codegen previously emitted `new List<string> { ... }` for every JSON array nested inside an options object initializer, regardless of the property's actual type — so `ChatCompletionRequest.Messages` (typed `List<Message>`) and any `JsonElement?` field (untagged unions like `tool_choice` / `stop` / `EmbeddingRequest.Input`) failed with `CS0029` at compile. The fix adds `options_via = "from_json"` plumbing to the C# codegen (resolved per-call with file-level fallback through `[crates.e2e.call.overrides.csharp]`): when set, the generator emits `JsonSerializer.Deserialize<{OptionsType}>("...", ConfigOptions)!` for `json_object` args, sidestepping per-field type inference entirely. Discriminator fields in nested objects are sorted-first (mirroring the existing handle-config path) so System.Text.Json polymorphic deserialization sees the discriminator before the data fields.
-- fix(e2e/elixir): build typed maps with atom keys instead of JSON strings — actually solved by routing default-typed (has_default) struct method params through `Option<String>` JSON in the rustler backend (`gen_nif_method`/`gen_nif_async_method` plus the streaming `_start` post-processor), mirroring the existing free-function pattern. Rustler's `NifMap` derive is strict (`try_decode_field` returns `Err` whenever any keyed atom is absent), so partial Elixir maps like `%{messages: …, model: …}` failed to decode and surfaced as `ArgumentError` at every method call site (148 of 161 e2e tests in liter-llm). The fix accepts `Option<String>` JSON, deserializes via `serde_json::from_str` (so `#[serde(default)]` fills missing fields), and forwards the resulting `core_*` local. The Elixir wrapper layer (`liter_llm.ex`) already typed `req` as `String.t() | nil` so no wrapper change was needed; e2e tests that already emit JSON strings now decode correctly.
+- fix(e2e/elixir): build typed maps with atom keys instead of JSON strings — actually solved by routing default-typed (has*default) struct method params through `Option<String>` JSON in the rustler backend (`gen_nif_method`/`gen_nif_async_method` plus the streaming `_start` post-processor), mirroring the existing free-function pattern. Rustler's `NifMap` derive is strict (`try_decode_field` returns `Err` whenever any keyed atom is absent), so partial Elixir maps like `%{messages: …, model: …}` failed to decode and surfaced as `ArgumentError` at every method call site (148 of 161 e2e tests in liter-llm). The fix accepts `Option<String>` JSON, deserializes via `serde_json::from_str` (so `#[serde(default)]` fills missing fields), and forwards the resulting `core*\*` local. The Elixir wrapper layer (`liter_llm.ex`) already typed `req`as`String.t() | nil` so no wrapper change was needed; e2e tests that already emit JSON strings now decode correctly.
 - fix(e2e/ruby): drop architectural skip for streaming fixtures, emit `chat_stream` block iteration. The Ruby e2e codegen previously emitted `skip 'Non-HTTP fixture cannot be tested via Net::HTTP'` for every non-HTTP fixture whose assertions referenced pseudo-fields (`chunks`, `stream_content`, `stream_complete`, ...) the public response type does not expose, leaving the entire `streaming_spec.rb` suite pending. The new path detects `function = "chat_stream"` up front, suppresses the Magnus `_async` suffix (the streaming method is `chat_stream`, not `chat_stream_async`), and emits a dedicated test body that drives `client.chat_stream(req) do |chunk| ... end`, building local aggregator vars (`chunks`, `stream_content`, `stream_complete`, plus optional `last_finish_reason`, `tool_calls_json`, `total_tokens`) inside the block. Fixture pseudo-field assertions are translated to expectations on those locals; `error` fixtures assert the call raises.
 - fix(e2e/wasm): drop the `WasmTypeUpdate` builder pattern from the WASM e2e codegen and construct the main wasm-bindgen type directly. `alef-backend-wasm` does not emit per-type `*Update` builder classes, so the previous `new WasmChatCompletionRequestUpdate()` + `WasmChatCompletionRequest.fromUpdate(_u)` IIFE blew up at runtime with `WasmChatCompletionRequestUpdate is not a constructor`. Every wasm-bindgen-emitted struct exposes an all-optional positional constructor and per-field setters, so the WASM branch of `ts_builder_expression_inner` now emits `new T()` followed by setter assignments and returns the instance directly. Imports drop the `*Update` value imports as well.
 - fix(e2e/wasm): emit BigInt literals for `u64`/`i64` setter assignments and resolve per-call options classes. Previously the codegen wrote plain numeric literals (`_u.maxTokens = 100;`) into wasm-bindgen setters whose Rust types are `u64`/`i64`, which wasm-bindgen now exposes as JS `bigint` — leading to `TypeError: Cannot convert 100 to a BigInt`. The configured `bigint_fields` list under `[e2e.call.overrides.wasm]` was already accepted by the schema but never consumed; `ts_builder_expression_inner` now treats listed field names as bigint sites and emits `100n` (or `BigInt(...)` for non-literal numeric expressions). At the same time, the WASM `options_type` had to be resolved per-fixture instead of globally — every `[e2e.calls.<name>.overrides.wasm].options_type` is now picked up so embeddings tests construct `WasmEmbeddingRequest`, files tests construct `WasmCreateFileRequest`, and so on (the previous global-only resolution forced `WasmChatCompletionRequest` for every call and surfaced as `expected instance of WasmEmbeddingRequest` from wasm-bindgen). `bigint_fields`, `nested_types`, `enum_fields` are similarly merged from the per-call wasm override, with the file-level wasm override as fallback. Imports aggregate every options class referenced across the file's fixtures so a test file covering chat + chat_stream pulls both.
@@ -1711,7 +1705,7 @@ Version bump only — no functional changes.
 
 ### Added
 
-- feat(java-backend): emit `DefaultClient` instance methods (chat, embed, moderate, rerank, list_models, image_generate, transcribe, speech, ocr, files API, batches API, responses API, search) over FFI MethodHandles. The Java backend previously emitted only the streaming `chatStream` iterator on opaque handle classes, leaving every other public method missing — Java e2e tests calling `client.chat(req)` failed to compile. `alef-backend-java` now iterates `typ.methods` for every opaque type and emits, for each non-static, non-streaming method, (a) a `MethodHandle` in `NativeLib.java` whose `FunctionDescriptor` prepends `ValueLayout.ADDRESS` (the receiver) to each param's layout (and appends three `ADDRESS` out-pointers + `JAVA_INT` return for `Result<Vec<u8>>` methods like `speech` and `file_content`), and (b) a public instance method on the owning opaque handle class that marshals each `Named` param via the per-type `_from_json` helper, marshals `String`/`Path` params via `arena.allocateFrom`, calls `NativeLib.<PREFIX>_<OWNER>_<METHOD>.invoke(this.handle, …)`, deserializes `Named` returns via the existing `_to_json` helper + Jackson `STREAM_MAPPER`, and frees both response and param pointers. Bytes-result methods unpack the `(out_ptr, out_len, out_cap)` triple and free via `<prefix>_free_bytes`. Null returns or non-zero status routes through the existing `checkLastFfiError` helper to raise the binding's standard exception type. Streaming-adapter method names are excluded from the iteration so they remain handled by the streaming codegen path.
+- feat(java-backend): emit `DefaultClient` instance methods (chat, embed, moderate, rerank, list*models, image_generate, transcribe, speech, ocr, files API, batches API, responses API, search) over FFI MethodHandles. The Java backend previously emitted only the streaming `chatStream` iterator on opaque handle classes, leaving every other public method missing — Java e2e tests calling `client.chat(req)` failed to compile. `alef-backend-java` now iterates `typ.methods` for every opaque type and emits, for each non-static, non-streaming method, (a) a `MethodHandle` in `NativeLib.java` whose `FunctionDescriptor` prepends `ValueLayout.ADDRESS` (the receiver) to each param's layout (and appends three `ADDRESS` out-pointers + `JAVA_INT` return for `Result<Vec<u8>>` methods like `speech` and `file_content`), and (b) a public instance method on the owning opaque handle class that marshals each `Named` param via the per-type `_from_json` helper, marshals `String`/`Path` params via `arena.allocateFrom`, calls `NativeLib.<PREFIX>*<OWNER>\_<METHOD>.invoke(this.handle, …)`, deserializes `Named`returns via the existing`\_to_json`helper + Jackson`STREAM_MAPPER`, and frees both response and param pointers. Bytes-result methods unpack the `(out_ptr, out_len, out_cap)`triple and free via`<prefix>\_free_bytes`. Null returns or non-zero status routes through the existing `checkLastFfiError` helper to raise the binding's standard exception type. Streaming-adapter method names are excluded from the iteration so they remain handled by the streaming codegen path.
 - feat(check-registry): add `pub`, `zig`, and `swift` adapters. `pub` queries pub.dev's `/api/packages/{name}/versions/{version}` endpoint. `zig` and `swift` have no central registry — both delegate to `check_github_release` since they consume packages directly from GitHub release tags (Zig via `zig fetch --save <tarball-url>`; Swift Package Index auto-discovers new tags from Git). Required for kreuzberg's publish workflow which now ships these languages and needs proper existence checks instead of stub jobs.
 - feat(magnus-backend): emit `chat_stream` method returning Ruby Enumerator/block-yield. For every `[[crates.adapters]]` entry with `pattern = "streaming"` and `owner_type = <opaque>`, `alef-backend-magnus` now emits (a) a `{PascalName}Iterator` opaque struct wrapping `Arc<tokio::sync::Mutex<Option<BoxStream<…>>>>` plus a private tokio runtime, with `next_chunk` (sync `block_on` over `StreamExt::next`, returns `nil` at end-of-stream) and `each` (yields each chunk to the block, or returns an `Enumerator` via `enumeratorize` when no block is given) inherent methods, and (b) a public instance method on the owning opaque type (e.g. `DefaultClient#chat_stream(req)`) that drives the Rust core stream natively — block on `inner.{core_path}(core_req).await` to materialize the stream, then yield chunks to the caller's block (returning `nil`) or wrap the stream in the iterator type and return it for `Enumerable` consumption (`.to_a`, `.lazy`, `.map`, …). The default `chat_stream_async` stub previously emitted by `gen_opaque_async_instance_method` (which raised `NotImplementedError` because the IR represents `BoxStream` returns as `String`) is suppressed for streaming adapter names. The iterator class is registered with `Enumerable` mixed in via `class.include_module(ruby.module_enumerable())`. `alef-scaffold` now adds `futures = "0.3"` to the magnus crate's `Cargo.toml` whenever a streaming adapter is present.
 - feat(csharp-backend): emit `ChatStream` as `IAsyncEnumerable<ChatCompletionChunk>` over FFI chat-stream iterator handle. The C# backend previously filtered every method whose adapter pattern was `Streaming`, leaving the streaming surface unreachable from .NET. With the iterator-handle exports in place (`{prefix}_{owner}_{name}_start` / `_next` / `_free`), `alef-backend-csharp` now emits, for every streaming adapter, three new P/Invoke decls in `NativeMethods.cs` (`{Owner}{Name}Start` / `Next` / `Free`, all `IntPtr`-typed) plus the request `{Request}FromJson` / `Free` and item `{Item}ToJson` / `Free` accessors, and a public `async IAsyncEnumerable<{Item}> {Method}({Request} req, [EnumeratorCancellation] CancellationToken cancellationToken = default)` method on the owning opaque handle class. The body marshals the request via `JsonSerializer` + `_from_json`, drives `_start`, then loops `_next` inside `try`/`finally` (yielding deserialized chunks until null; null + `LastErrorCode() != 0` is rethrown as the binding's exception type, null + `0` is a clean `yield break`), and frees both the stream handle and the request handle in `finally`. The opaque-handle template now pulls in `System.Threading` and `System.Runtime.CompilerServices` whenever a streaming method is emitted.
@@ -1809,10 +1803,9 @@ Version bump only — no functional changes.
   exited immediately and every HTTP fixture failed with "error sending
   request for url". Now opens a `StdinPipe` like Python's `stdin=PIPE`.
 - fix(e2e/go): honor `fixture.env.api_key_var` by emitting a `t.Skipf` when
-  the named env var is unset, and threading the env value as the api_key
-  with a nil base_url for live-API fixtures. Previously every `smoke_*`
-  live-API fixture failed with "no mock route" because Go always pointed
-  at `MOCK_SERVER_URL/fixtures/<id>` regardless of `api_key_var`.
+  the named env var is unset, and threading the env value as the api*key
+  with a nil base_url for live-API fixtures. Previously every `smoke*\*`live-API fixture failed with "no mock route" because Go always pointed
+at`MOCK_SERVER_URL/fixtures/<id>`regardless of`api_key_var`.
 
 ## [0.15.2] - 2026-05-09
 
@@ -1910,7 +1903,7 @@ Version bump only — no functional changes.
   previously fell through to the generic pointer-return path, calling
   `NativeMethods.X(handle, req)` and JSON-deserialising into `byte[]`;
   but the FFI declaration uses out-params (`out IntPtr ptr, out UIntPtr
-  len, out UIntPtr cap`). Now emits a dedicated body that pins the
+len, out UIntPtr cap`). Now emits a dedicated body that pins the
   out-params, copies the bytes, and frees them, throwing a fully
   qualified exception (the wrapper-class `GetLastError` helper is private
   and not visible from sibling classes).
@@ -1960,7 +1953,7 @@ Version bump only — no functional changes.
   template content (residue from the c6856f8c Jinja migration). The clean `*.jinja` files
   with the same logical names were already committed and referenced by `include_str!`,
   but the duplicates were tracked in git. They blocked `cargo publish` (`cannot package
-  a filename with a special character`) and Windows builds (`invalid path` on git
+a filename with a special character`) and Windows builds (`invalid path` on git
   checkout). 0.15.0 published partially as a result; 0.15.1 republishes the affected
   downstream crates (alef-backend-rustler/swift/zig/dart/extendr/java/csharp/kotlin/gleam,
   alef-e2e, alef-readme, alef-scaffold, alef-publish, alef-cli).
@@ -1973,7 +1966,7 @@ Version bump only — no functional changes.
   call from `helper_object_mapper.jinja`. Jackson 2.x has no such enum constant — the
   actual `SerializationFeature` enum (verified against `jackson-databind:2.21.0`) does not
   contain it, so any backend that wires this feature in fails to compile with `cannot
-  find symbol`. If a future caller really wants to disable base64 byte-array
+find symbol`. If a future caller really wants to disable base64 byte-array
   serialization the correct path is a custom `JsonSerializer<byte[]>`, not a serialization feature flag.
 
 - fix(php-backend): wrap the `php_visit_result_with_template` `format!` arg in
@@ -2160,8 +2153,6 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(e2e-swift): document test placement path. Clarified that tests are placed in `packages/swift/Tests/` (not `e2e/swift/`) due to SwiftPM 6.0 limitations, with rationale in comments.
 - fix(e2e-zig): implement proper error union and async function handling. Error-path tests now use `catch` syntax; async functions emit informational notes; all test variants (error/no-assertions/success) now compile and run.
 
-
-
 ## [0.14.33] - 2026-05-07
 
 ### Fixed
@@ -2276,7 +2267,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(java-e2e-codegen): nested options types like `PreprocessingOptions` are now correctly imported when used in builder expressions. The codegen now detects nested type usage via a configuration-driven mapping (`[crates.e2e.call.overrides.java.nested_types]` in `alef.toml`, e.g., `preprocessing = "PreprocessingOptions"`) and emits the corresponding import statements, preventing compilation errors when nested options builders are referenced.
 - fix(php-e2e-codegen): empty config objects (`{}`) in fixture `input.config` are now passed as `null` to config constructors instead of being serialized and passed to `ExtractionConfig::from_json(json_encode([]))`. Empty objects cause Rust serde deserialization errors when required fields have enum defaults (e.g., `hierarchy_mode` expecting `"unified"` or `"element_based"`). The codegen now detects empty-after-filtering config objects in the `json_object` / `options_type` code paths and directly passes `null` to match the nullable parameter type. Symptom: 10 PHP e2e smoke/format/contract tests failed with `Exception: unknown variant '', expected 'unified' or 'element_based' at line 1 column 397`.
 - fix(java-e2e-codegen): typed-record nested config fields (e.g. `SecurityLimits`, `OcrConfig`, `ChunkingConfig`) are now automatically detected and used to instantiate the correct Java record type instead of being referenced as a fictitious `TypeNameOptions` builder. The codegen now includes built-in type mappings for all Kreuzberg config fields (security_limits, chunking, ocr, etc.), allowing users to omit explicit `nested_types` configuration in alef.toml for common cases. Previously unmapped fields like security_limits were reconstructed with a hardcoded `Options` suffix, causing `error: cannot find symbol SecurityLimitsOptions` when compiling e2e tests.
-- fix(pyo3-backend): Python API wrapper now correctly excludes data enums (tagged unions like `OutputFormat`) from `_coerce_enum` calls when converting dict inputs to dataclass instances. Data enums are represented as TypedDict unions in Python and should be passed through to the PyO3 constructor as dicts, not looked up as enum class attributes. Additionally, nested has_default struct types (e.g., `SecurityLimits`, `OcrConfig`) in dict inputs are now recursively converted via their respective `_to_rust_*` converters before constructing the dataclass, preventing `TypeError: argument 'field': 'dict' object is not an instance of 'Type'` when callers pass nested dicts instead of constructed instances. Symptom: 3 Python e2e tests failed with `ValueError: unknown OutputFormat value: 'markdown'` and `TypeError: argument 'security_limits': 'dict' object is not an instance of 'SecurityLimits'`.
+- fix(pyo3-backend): Python API wrapper now correctly excludes data enums (tagged unions like `OutputFormat`) from `_coerce_enum` calls when converting dict inputs to dataclass instances. Data enums are represented as TypedDict unions in Python and should be passed through to the PyO3 constructor as dicts, not looked up as enum class attributes. Additionally, nested has*default struct types (e.g., `SecurityLimits`, `OcrConfig`) in dict inputs are now recursively converted via their respective `\_to_rust*\*`converters before constructing the dataclass, preventing`TypeError: argument 'field': 'dict' object is not an instance of 'Type'`when callers pass nested dicts instead of constructed instances. Symptom: 3 Python e2e tests failed with`ValueError: unknown OutputFormat value: 'markdown'`and`TypeError: argument 'security_limits': 'dict' object is not an instance of 'SecurityLimits'`.
 - fix(csharp-e2e-codegen): typed-record nested config fields (e.g. `SecurityLimits`, `OcrConfig`, `ChunkingConfig`) are now automatically detected and deserialized via `JsonSerializer.Deserialize<T>(...)` instead of being passed as raw JSON strings. The codegen now includes built-in type mappings for all Kreuzberg config fields (security_limits, chunking, ocr, etc.), allowing users to omit explicit `nested_types` configuration in alef.toml for common cases. Previously only explicitly-configured nested_types fields were deserialized, causing `error CS0029: Cannot implicitly convert type 'string' to 'Kreuzberg.SecurityLimits'` for unmapped fields like security_limits.
 - fix(java-backend): generated Java source files now comply with the 120-character line-length limit enforced by Checkstyle. Multi-line record fields with long type annotations are now wrapped such that (a) each annotation appears on its own line, and (b) the type and field name are further split if necessary to keep each line ≤120 characters. Trait bridge registry fields (`ConcurrentHashMap<String, {BridgeClass}>`) are now emitted on two lines instead of one when they would exceed 120 characters. Symptom: `mvn package -DskipTests` was failing with 5 Checkstyle [LineLength] violations in generated Java sources (HtmlMetadata.java, PostProcessorBridge.java, JatsMetadata.java, EmbeddingBackendBridge.java, ExtractionResult.java).
 - fix(go-backend): Go bindings for `ExtractionResult.tables` now correctly declare the field as `[]Table` instead of `[]string`. The exclude_types list was using unqualified type names (`"Table"`, `"TableCell"`, `"TableRow"`), which incorrectly excluded the public `kreuzberg::types::tables::Table` type. Changed to fully-qualified names (`"kreuzberg::extraction::docx::parser::Table"`, etc.) to exclude only the internal docx parser types, allowing the public table types to be correctly generated in language bindings.
@@ -2749,7 +2740,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   api.py wrapper and use it in `_to_rust_*` converters instead of attempting
   `_rust.<Enum>(value)`. PyO3 unit-enum pyclasses do not expose a string-accepting
   `__new__`, so the previous codegen raised `TypeError: cannot create '<Enum>'
-  instances` when callers passed string aliases like `'atx'`. The helper coerces
+instances` when callers passed string aliases like `'atx'`. The helper coerces
   strings, snake_case, UPPER_CASE, and CamelCase to the canonical class attribute.
 - fix(backend-java): stop emitting illegal `Optional<String>` accessor methods that
   shadow the canonical record component accessor. Java records auto-generate the
@@ -2827,22 +2818,22 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   `<lang>_host_function_path` inline helpers. pyo3, napi, magnus, ext-php-rs,
   rustler, extendr, and wasm now consume the same resolution logic.
 - feat(backend-magnus/unregister-clear): emit `pub fn unregister_<name>(name:
-  String) -> Result<(), magnus::Error>` and `pub fn clear_<plural>() ->
-  Result<(), magnus::Error>` when `bridge_config.unregister_fn` / `clear_fn`
+String) -> Result<(), magnus::Error>` and `pub fn clear_<plural>() ->
+Result<(), magnus::Error>` when `bridge_config.unregister_fn` / `clear_fn`
   are set. Errors are wrapped through `Ruby::exception_runtime_error`.
 - feat(backend-php/unregister-clear): emit `#[php_function] pub fn
-  unregister_<name>(name: String) -> ext_php_rs::prelude::PhpResult<()>` and
+unregister_<name>(name: String) -> ext_php_rs::prelude::PhpResult<()>` and
   the matching `clear_<plural>()` function. Errors are mapped through
   `PhpException::default(format!("{}", e))`.
 - feat(backend-rustler/unregister-clear): emit `#[rustler::nif] pub fn
-  unregister_<name>(env: rustler::Env<'_>, name: String) -> rustler::Atom`
+unregister_<name>(env: rustler::Env<'_>, name: String) -> rustler::Atom`
   and `clear_<plural>()` returning `:ok` / `:error` atoms.
 - feat(backend-wasm/unregister-clear): emit `#[wasm_bindgen] pub fn
-  unregister_<name>(name: String) -> Result<(), JsValue>` and matching
+unregister_<name>(name: String) -> Result<(), JsValue>` and matching
   `clear_<plural>()` wrappers; surfaced via `gen_bindings/mod.rs` so the
   generated bridge re-exports them in `index.ts`.
 - feat(backend-extendr/unregister-clear): emit `#[extendr] pub fn
-  unregister_<name>(name: String)` / `clear_<plural>()` for R bindings.
+unregister_<name>(name: String)` / `clear_<plural>()` for R bindings.
 - feat(backend-pyo3/host_function_path): pyo3 register/unregister/clear
   bridges now share the centralised host-function path resolver, eliminating
   the duplicated inline helper and matching the resolution rules used by all
@@ -2870,19 +2861,19 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - feat(extract/normalize-rustdoc): doc comments parsed from Rust source are now run through
   a `normalize_rustdoc` pass before any backend sees them. Two specific rustdoc artefacts
   that previously leaked into every binding are removed:
-  - Rustdoc-hidden lines inside ```rust /```rust,no_run fences (`# tokio_test::block_on(async {`,
+  - Rustdoc-hidden lines inside `rust /`rust,no_run fences (`# tokio_test::block_on(async {`,
     `# Ok::<(), Error>(())`, `# }`, `# async fn example()`) are dropped.
   - Intra-doc-link syntax `[`crate::Foo`]` / `[`super::Bar`] /`[`self::X`]` is rewritten to
-    plain `` `Foo` `` / `` `Bar` `` / `` `X` ``.
-  Per-host renderers (Javadoc, KDoc, PHPDoc, JSDoc, Dartdoc, Swift-DocC, roxygen2, Doxygen)
-  continue to translate `# Errors`/`# Returns`/etc. as before — full per-host code-fence
+  plain `` `Foo` `` / `` `Bar` `` / `` `X` ``.
+Per-host renderers (Javadoc, KDoc, PHPDoc, JSDoc, Dartdoc, Swift-DocC, roxygen2, Doxygen)
+continue to translate `# Errors`/`# Returns`/etc. as before — full per-host code-fence
   translation deferred to v0.14.3.
 
 - feat(error-gen/strip-thiserror-placeholders): added `strip_thiserror_placeholders` and
   `acronym_aware_snake_phrase` helpers in `alef-codegen::error_gen`. Display strings emitted
   by binding error renderers (Go sentinels, Dart `String get message`) no longer contain raw
   `{name}` substitution markers (`OCR error: {message}` becomes `OCR error`, `extraction
-  cancelled` is preserved). Variant names with technical acronyms (IO, OCR, PDF, URL, HTTP, …)
+cancelled` is preserved). Variant names with technical acronyms (IO, OCR, PDF, URL, HTTP, …)
   render as `IO error` / `OCR error`, not `iO error` / `oCR error`.
 
 - feat(backend-dart/error-render): Dart sealed-class exceptions now use the new placeholder
@@ -2960,7 +2951,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   `opaque_type_names` so that `gen_php_struct` emits `#[serde(skip)]` for fields of those
   types. Without this, structs like `ConversionOptions` that derive `serde::Serialize` +
   `serde::Deserialize` failed E0277 because `VisitorHandle` (an `Arc<Rc<RefCell<dyn
-  HtmlVisitor>>>` wrapper) does not implement those traits. Builder methods with bridge
+HtmlVisitor>>>` wrapper) does not implement those traits. Builder methods with bridge
   parameters also use `.visitor(None)` to avoid E0308 type mismatch.
 
 - fix(backend-pyo3): fixed three remaining codegen bugs for PyO3 bindings: (1) `PyVisitorRef::extract` now uses `Borrowed::to_owned()` instead of non-existent `Borrowed::clone()` to avoid E0507 "cannot move out of dereference"; (2) builder methods on has_default structs no longer attempt to access `.inner` for bridge type parameters—visitor parameter skips the core builder's `.visitor()` call and uses `None` instead to avoid E0308 type mismatch; (3) wrapper functions that pass has_default parameters to core functions now wrap the deserialized value in `Some()` when core expects `Option<T>` to fix E0308 "expected Option, found T".
@@ -3356,19 +3347,19 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     binding→core `From` impls for Update types default the bridge field via
     `Default::default()` instead of calling `val.visitor.map(Into::into)`, which
     fails because `WasmVisitorHandle` has no `Into<VisitorHandle>` impl.
-  Also fixes `convertible_types` (alef-codegen) to allow optional sanitized fields
-  whose type is `Named(T)` with `optional = true`: the binding stores `Option<T>`
-  which is always `Default`, so these types correctly remain in the convertible set.
+    Also fixes `convertible_types` (alef-codegen) to allow optional sanitized fields
+    whose type is `Named(T)` with `optional = true`: the binding stores `Option<T>`
+    which is always `Default`, so these types correctly remain in the convertible set.
 
 - fix(backend-ffi): suppress duplicate `{prefix}_convert` symbols in options-field
   bridge mode. When `bind_via = "options_field"` is set, the free-function loop now
   skips ALL `convert` variants (not just sanitized ones), and `gen_convert_no_visitor`
   - `gen_visitor_bindings` are not emitted. The single authoritative `{prefix}_convert`
-  comes exclusively from `gen_convert_with_options_field_bridge`. Removes the three
-  `htm_convert` definitions that caused a duplicate `#[no_mangle]` compile error in
-  html-to-markdown. Also fixes `gen_convert_with_options_field_bridge` to call
-  `core::convert(html, options)` with 2 arguments matching the current API (visitor
-  is embedded in options, not passed as a third argument).
+    comes exclusively from `gen_convert_with_options_field_bridge`. Removes the three
+    `htm_convert` definitions that caused a duplicate `#[no_mangle]` compile error in
+    html-to-markdown. Also fixes `gen_convert_with_options_field_bridge` to call
+    `core::convert(html, options)` with 2 arguments matching the current API (visitor
+    is embedded in options, not passed as a third argument).
 
 - fix(e2e): visitor codegen now assigns the synthesized visitor object to
   `options.visitor` (language-idiomatic field assignment) instead of passing it
@@ -3379,9 +3370,9 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   - Ruby: insert visitor key into options hash inline
   - PHP: merge visitor as separate options object
   - Python, TypeScript: already correct (kwargs/object-field pattern)
-  Remaining languages (Go, Java, C#, Elixir, R, Gleam, Kotlin, Zig, Swift,
-  WASM, Dart, C) require equivalent updates to move visitor from positional
-  arg to options field assignment (patterns will vary per language syntax).
+    Remaining languages (Go, Java, C#, Elixir, R, Gleam, Kotlin, Zig, Swift,
+    WASM, Dart, C) require equivalent updates to move visitor from positional
+    arg to options field assignment (patterns will vary per language syntax).
 
 - fix(backend-napi): resolve all compile errors when `bind_via = "options_field"`
   is used in `[[trait_bridges]]` with a NAPI-RS binding:
@@ -3440,7 +3431,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     `{prefix}_visitor_create`, and `{prefix}_visitor_free` P/Invoke declarations.
   - `gen_wrapper_function` now emits `{opts}.{Field}._vtable` directly instead of
     double-wrapping the already-constructed `{bridge_type}Bridge` in a second `new
-    {bridge_type}Bridge(...)`, eliminating the `CS1503` type mismatch compile error.
+{bridge_type}Bridge(...)`, eliminating the `CS1503` type mismatch compile error.
   - `ffi_symbol()` on `OptionsFieldBridgeInfo` now produces
     `{prefix}_options_set_{field}` (matching `alef-backend-ffi::gen_bridge_field`)
     instead of the former `{prefix}_{opts_snake}_set_{field}` mismatch.
@@ -3460,8 +3451,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     core convert — no separate `convert_with_visitor` export.
   - Updates `.pyi` stubs: the visitor field on `ConversionOptions` is typed as
     `object | None` instead of `str | None`.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the pyo3 `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the pyo3 `trait_bridge` module.
 
 - feat(backend-napi): wire `bind_via = "options_field"` bridge support — visitor field on
   `JsConversionOptions` is emitted as `Option<Object<'static>>`, the `convert` wrapper
@@ -3482,8 +3473,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     constructs `RHtmlVisitorBridge`, attaches it to `options_core.visitor` as
     `Rc<RefCell<...>> as VisitorHandle`, and calls core convert.
   - Does NOT emit a separate `convert_with_visitor` extendr export.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the extendr `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the extendr `trait_bridge` module.
 - feat(backend-rustler): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Elixir Rustler backend
   now emits:
@@ -3494,8 +3485,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   - A `convert/2` Elixir wrapper that calls `Map.pop(options, :visitor)` and dispatches
     to either the async NIF+receive-loop (visitor present) or the plain NIF (no visitor).
   - `convert_with_visitor` is not re-exported as a public Elixir function.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the `trait_bridge` module.
 - feat(backend-ffi): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a bridge is configured in options-field mode, `alef-backend-ffi` now:
   - Emits `{prefix}_options_set_{field}(options, visitor)` — a setter that wraps
@@ -3507,7 +3498,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     entry point replaces it.
   - Suppresses `{prefix}_{options_type}_from_json` for types that own a bridge
     field, because the visitor cannot survive a JSON round-trip.
-  New symbol emitted for h2m: `htm_options_set_visitor`.
+    New symbol emitted for h2m: `htm_options_set_visitor`.
 - feat(docs): render trait-bridged fields as struct fields on options types when
   configured with `bind_via = "options_field"`. The visitor bridge type is rendered
   with language-appropriate syntax (e.g. `HtmlVisitor(Protocol)` for Python,
@@ -3533,8 +3524,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     `From`, builds `WasmHtmlVisitorBridge`, wraps it as
     `Rc<RefCell<...>> as VisitorHandle`, sets it on core options, and calls core convert.
   - Does NOT emit a standalone `convertWithVisitor` function in this mode.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the wasm `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the wasm `trait_bridge` module.
 - feat(backend-csharp): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the C# backend now:
   - Emits a `[JsonIgnore] public {Trait}Bridge? {Field}` property on the options
@@ -3557,13 +3548,13 @@ below. Bumped to 0.14.35 to ship them on crates.io.
   - The PHP facade passes `$options->visitor` as the extra hidden arg when delegating to the
     native extension class.
   - Does NOT emit a standalone `convertWithVisitor` function.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the PHP `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the PHP `trait_bridge` module.
 - feat(backend-go): support `bind_via = "options_field"` in `[[trait_bridges]]`.
   When a visitor bridge is configured in options-field mode the Go/cgo backend now:
   - Emits a lightweight `type {Trait} interface` (trait methods only, no plugin lifecycle) in `binding.go`.
-  - Injects a synthetic `{Field} {Trait} \`json:"-"\`` field on the Go options struct,
-    skipping the raw IR `Option<VisitorHandle>` field so JSON marshaling ignores it.
+  - Injects a synthetic `{Field} {Trait} \`json:"-"\``field on the Go options struct,
+skipping the raw IR`Option<VisitorHandle>` field so JSON marshaling ignores it.
   - Adds a `WithConversionOptions{Trait}` functional-option constructor.
   - Adds `"runtime/cgo"` to the imports when any options-field bridge is active.
   - In the `Convert` wrapper, after the C options handle is created, checks
@@ -3592,8 +3583,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
     `RbHtmlVisitorBridge`, wraps it in `Rc<RefCell<...>>`, and sets it on the core
     options before calling the core function.
   - Does NOT emit a standalone `convert_with_visitor` function.
-  Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
-  the Magnus `trait_bridge` module.
+    Re-exports `find_bridge_field` and `BridgeFieldMatch` from `alef-codegen` through
+    the Magnus `trait_bridge` module.
 
 ### Fixed
 
@@ -3630,8 +3621,8 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(codegen/extendr-kwargs): the `gen_extendr_kwargs_constructor` helper used to emit Rust function-parameter defaults (`name: String = "default"`), which is a syntax error — Rust does not accept default values in function signatures. The constructor now accepts each field as `Option<T>`, instantiates the type via its `Default` impl, and overlays caller-supplied values, producing valid Rust source that the `#[extendr]` macro accepts. Existing `extendr(default = …)` semantics on the R side are preserved by the `generate_public_api` wrapper.
 - fix(e2e/c): emit shfmt-compliant case statement style in `download_ffi.sh` so the generated file passes the `shfmt` pre-commit hook without modification and `alef verify` stays consistent.
 - fix(e2e/elixir): the e2e mix.exs now uses `[elixir].app_name` as the dep atom (e.g. `:html_to_markdown`), not the crate name with `-` → `_` replacement (e.g. `:html_to_markdown_rs`). When the dep atom doesn't match the path-dep's own `app:` value, mix's resolution silently misroutes — the path-dep's transitive deps (notably `:rustler_precompiled`) are not loaded during compilation of the path-dep itself, and the parent build fails with `(CompileError) cannot compile module ... module RustlerPrecompiled is not loaded and could not be found`. Fixes the elixir e2e suite for any binding whose `[elixir].app_name` differs from the kebab-case crate name.
-- fix(e2e/typescript): `options_type` casts and imports are now resolved per-fixture. Previously the renderer used the top-level `[e2e.call.overrides.<lang>].options_type` for every fixture in a test file, even fixtures that overrode the call (`fixture.call = "chunk_text"`) and declared their own per-call `options_type` (e.g. `JsChunkingConfig`). The renderer now reads `e2e.calls.<name>.overrides.<lang>.options_type` for fixtures that override the call, and only the top-level value is used for fixtures using the default call. The header import block emits `type X` declarations for the *union* of all options types referenced by the active fixtures (e.g. both `JsExtractionConfig` and `JsChunkingConfig` when one file mixes `extract_file` and `chunk_text` fixtures), eliminating TS2304 "Cannot find name 'JsChunkingConfig'" on chunking fixtures and stopping the wrong cast (`JsExtractionConfig` applied to a `JsChunkingConfig`-shaped object).
-- fix(e2e/typescript): `as <OptionsType>` casts are now emitted only for *object*-shaped json_object args. Previously every json_object arg (including `paths: [...]`, `texts: [...]`, `parts: [...]`) was cast to the call's options type, producing `["a.pdf"] as JsExtractionConfig` on `batchExtractFileSync(paths, config)` calls — TS2352 "Conversion of type 'string[]' to type 'JsExtractionConfig' may be a mistake". The renderer now inspects the fixture value: arrays/scalars are emitted plain (typed as `Array<string>` / etc by the binding), only objects receive the cast.
+- fix(e2e/typescript): `options_type` casts and imports are now resolved per-fixture. Previously the renderer used the top-level `[e2e.call.overrides.<lang>].options_type` for every fixture in a test file, even fixtures that overrode the call (`fixture.call = "chunk_text"`) and declared their own per-call `options_type` (e.g. `JsChunkingConfig`). The renderer now reads `e2e.calls.<name>.overrides.<lang>.options_type` for fixtures that override the call, and only the top-level value is used for fixtures using the default call. The header import block emits `type X` declarations for the _union_ of all options types referenced by the active fixtures (e.g. both `JsExtractionConfig` and `JsChunkingConfig` when one file mixes `extract_file` and `chunk_text` fixtures), eliminating TS2304 "Cannot find name 'JsChunkingConfig'" on chunking fixtures and stopping the wrong cast (`JsExtractionConfig` applied to a `JsChunkingConfig`-shaped object).
+- fix(e2e/typescript): `as <OptionsType>` casts are now emitted only for _object_-shaped json_object args. Previously every json_object arg (including `paths: [...]`, `texts: [...]`, `parts: [...]`) was cast to the call's options type, producing `["a.pdf"] as JsExtractionConfig` on `batchExtractFileSync(paths, config)` calls — TS2352 "Conversion of type 'string[]' to type 'JsExtractionConfig' may be a mistake". The renderer now inspects the fixture value: arrays/scalars are emitted plain (typed as `Array<string>` / etc by the binding), only objects receive the cast.
 - fix(e2e/typescript): `bytes` arg type now classifies the fixture string value (file path / inline / base64) and emits a runtime load instead of passing the string as-is. Previously fixtures like `extract_bytes` with `data: "pdf/fake_memo.pdf"` produced `extractBytes("pdf/fake_memo.pdf", ...)` — TS2345 "Argument of type 'string' is not assignable to parameter of type 'Uint8Array<ArrayBufferLike>'". The renderer now classifies via the same rules as python/rust codegens (`<`/`{`/`[`/whitespace → inline-text → `Buffer.from(s, "utf-8")`; `dir/file.ext` → file-path → `readFileSync(path)`; otherwise → base64 → `Buffer.from(s, "base64")`). When any active fixture's resolved call uses a bytes file-path arg, the test file imports `{ readFileSync } from 'node:fs'`. The existing `setup.ts` chdir to `test_documents/` is preserved, so relative paths resolve at runtime.
 - fix(e2e/typescript): cast through `unknown` (`as unknown as <Type>`) for both inline configs and the empty-default placeholder. NAPI-RS marks Rust `Option<T>` config params as `T | undefined | null` but bare `T` as required, while the alef.toml `optional` flag does not always match — fixtures like `extract_file_with_no_config` produced calls with no third argument and TS2554 "Expected 3 arguments, but got 2". When the json_object arg is missing (or `null`) and an `options_type` is configured, the renderer now emits `{} as unknown as <Type>` to satisfy the binding's required parameter; partial config literals are also cast through `unknown` to avoid TS2352 "neither type sufficiently overlaps". The runtime binding still validates fields.
 - fix(e2e/typescript): `result_is_simple = true` is now honored. Previously the flag was only used by the rust/csharp/java/ruby/r codegens, so fixtures whose binding returns a primitive (e.g. `generateCacheKey: string`, `validateCacheKey: boolean`) emitted `result.<field>` access and triggered TS2339 "Property 'result' does not exist on type 'string'". The TypeScript renderer now resolves the per-call `result_is_simple` flag from `[e2e.calls.<name>.overrides.<lang>]` and (a) uses the bare `result_var` for assertions, (b) skips assertions on non-`result` fields with a `// skipped:` comment.
@@ -3655,7 +3646,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 
 ### Added
 
-- feat(scaffold): manage workspace `.cargo/config.toml` via opt-in `[scaffold.cargo]` section in `alef.toml`. When the section is present, alef writes the full canonical file with hash-based drift detection (same `# alef:hash:` pattern as other alef-managed files). Default config produces a 6-target template covering macOS dynamic_lookup (required for PyO3/ext-php-rs cdylibs to link on macOS — the symptom is `ld: symbol(s) not found for architecture arm64` on `_zend_*`/`ext_php_rs::zend::*` and PyO3 symbols at runtime since macOS ld is strict and these symbols are resolved at extension-load time, not link time), Windows MSVC `rust-lld` for x86_64 + i686, `aarch64-linux-gnu-gcc` for ARM64 Linux cross-compile, `x86_64-unknown-linux-musl` for static Linux, and the `wasm32-unknown-unknown` bulk-memory + getrandom_backend cfg. Per-target opt-out via `[scaffold.cargo.targets]`; repo-specific `[env]` entries via `[scaffold.cargo.env]` (supports both bare strings and `{ value, relative }` form). When `[scaffold.cargo]` is absent, the legacy create-if-missing wasm32-only behavior is preserved unchanged. New types in `alef-core::config`: `ScaffoldCargo`, `ScaffoldCargoTargets`, `ScaffoldCargoEnvValue`. New public function `alef_scaffold::render_cargo_config(&ScaffoldCargo) -> String` for deterministic rendering, with 11 unit tests covering golden output, env injection, per-target opt-out, deterministic re-render, key sorting, escaping, and the legacy-fallback gate.
+- feat(scaffold): manage workspace `.cargo/config.toml` via opt-in `[scaffold.cargo]` section in `alef.toml`. When the section is present, alef writes the full canonical file with hash-based drift detection (same `# alef:hash:` pattern as other alef-managed files). Default config produces a 6-target template covering macOS dynamic*lookup (required for PyO3/ext-php-rs cdylibs to link on macOS — the symptom is `ld: symbol(s) not found for architecture arm64` on `\_zend*_`/`ext_php_rs::zend::_`and PyO3 symbols at runtime since macOS ld is strict and these symbols are resolved at extension-load time, not link time), Windows MSVC`rust-lld`for x86_64 + i686,`aarch64-linux-gnu-gcc`for ARM64 Linux cross-compile,`x86_64-unknown-linux-musl`for static Linux, and the`wasm32-unknown-unknown`bulk-memory + getrandom_backend cfg. Per-target opt-out via`[scaffold.cargo.targets]`; repo-specific `[env]`entries via`[scaffold.cargo.env]`(supports both bare strings and`{ value, relative }`form). When`[scaffold.cargo]`is absent, the legacy create-if-missing wasm32-only behavior is preserved unchanged. New types in`alef-core::config`: `ScaffoldCargo`, `ScaffoldCargoTargets`, `ScaffoldCargoEnvValue`. New public function `alef_scaffold::render_cargo_config(&ScaffoldCargo) -> String` for deterministic rendering, with 11 unit tests covering golden output, env injection, per-target opt-out, deterministic re-render, key sorting, escaping, and the legacy-fallback gate.
 
 ### Added
 
@@ -3677,7 +3668,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(backend/pyo3): correct `Arc<T: !Copy>` field codegen for clone. When a struct field had type `Option<Arc<serde_json::Value>>` (or any non-String `Arc`-wrapped type), the core→binding `From` impl chained an extra `.map(|v| (*v).clone().into())` on top of a base conversion that already handled the `Option<Arc<T>>` via Display/Deref coercion (e.g. `val.X.as_ref().map(ToString::to_string)`). This produced `(*String).clone()` at the call site — dereferencing a `String` to `str`, then calling `str::clone()` which fails since `str: !Clone`. The fix detects when the base conversion is already a complex expression (not a simple `val.{name}` passthrough) and returns it unchanged, relying on `Arc<T>: Display + Deref<Target=T>` to correctly produce the binding-side value.
 - fix(backend/pyo3): emit `Arc<tokio::sync::Mutex<T>>` (instead of `Arc<std::sync::Mutex<T>>`) for opaque types whose `&mut self` methods are all `async`. `std::sync::MutexGuard` is `!Send`, so holding a guard across `.await` makes the surrounding future `!Send`, which fails to compile against PyO3's `Send` future bound on `pyo3_async_runtimes::tokio::future_into_py`. `tokio::sync::MutexGuard` IS `Send`. New helper `alef_codegen::generators::type_needs_tokio_mutex` returns true only when every `&mut self` method on a mutex-needing type is async (mixed sync+async `&mut self` methods stay on `std::sync::Mutex` since `tokio::sync::Mutex::lock()` returns a future). The PyO3 backend rewrites the rendered struct + impl block to swap the lock type and `.lock().unwrap()` → `.lock().await` for these types. Verified end-to-end against an opaque type wrapping `axum-test`'s `TestWebSocket` in `Arc<Mutex<>>` with all-async `&mut self` methods: with the previously-required exclusions removed from `alef.toml`, the consumer's PyO3 cdylib compiles cleanly and the generated future satisfies the `Send` bound.
 - fix(e2e/rust): rust e2e codegen now honors `owned = true` on `bytes` and `string` arg configs. Pre-this-change the renderer always emitted `&{name}` for bytes (via `.as_bytes()`) and a bare `&str` literal for string, regardless of whether the underlying kreuzberg-core function took the value by reference or by ownership (e.g. `detect_image_format(data: Vec<u8>)`, `detect_mime_type(path: String, ...)`). The codegen now flips both binding type (`Some(...).to_vec()` / `String::new()`) and pass expression (`name.to_string()` / `name.to_vec()` / `name`) when `owned = true`, so call sites match the function signature without forcing every owned-by-value Rust API into a borrowed wrapper. Two regression tests added in `crates/alef-e2e/tests/rust_function_call_fixtures.rs` (owned bytes file-path, owned string).
-- fix(backend-magnus): functions registered via the trait_bridge path now use fixed arity in `function!(...)` instead of `-1` (variadic). The bridge generator emits a fixed-arg signature like `fn convert(html: String, options: Option<String>, visitor: Option<Value>)`, but the registration loop previously emitted `function!(convert, -1)` whenever any param was optional. Magnus's `function!` macro requires the fn to take `&[Value]` for arity `-1`, so the trait-bridge fn failed to satisfy `FunctionCAry<_>`/`Fn<(&[Value],)>`, breaking compilation for every binding that exposed a top-level function with an `HtmlVisitor`-style trait param (e.g. `html-to-markdown`'s ruby gem failed to build on linux/aarch64/macos with E0599 "method `call_handle_error` exists but trait bounds were not satisfied"). Bridge functions now register with `function!(name, params.len())`; non-bridge optional-param functions still use variadic `-1` with `scan_args` as before.
+- fix(backend-magnus): functions registered via the trait*bridge path now use fixed arity in `function!(...)` instead of `-1` (variadic). The bridge generator emits a fixed-arg signature like `fn convert(html: String, options: Option<String>, visitor: Option<Value>)`, but the registration loop previously emitted `function!(convert, -1)` whenever any param was optional. Magnus's `function!` macro requires the fn to take `&[Value]` for arity `-1`, so the trait-bridge fn failed to satisfy `FunctionCAry<*>`/`Fn<(&[Value],)>`, breaking compilation for every binding that exposed a top-level function with an `HtmlVisitor`-style trait param (e.g. `html-to-markdown`'s ruby gem failed to build on linux/aarch64/macos with E0599 "method `call_handle_error`exists but trait bounds were not satisfied"). Bridge functions now register with`function!(name, params.len())`; non-bridge optional-param functions still use variadic `-1`with`scan_args` as before.
 
 ## [0.13.5] - 2026-05-02
 
@@ -3973,7 +3964,7 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(e2e/rust): when a call returns `Vec<T>` (`result_is_vec` rust override), the call-site optional-string unwrap pass is skipped so per-element iteration emitted by `render_assertion` is the only place fields are accessed; previously the call-site emitted `let metadata_x = result.metadata.x.as_deref().unwrap_or("")` against `Vec<ExtractionResult>` (no `metadata` field on the Vec).
 - fix(e2e/rust): non-optional `string` arguments are no longer prefixed with `&` in the call expression. The fixture binding is already a `&'static str` literal; adding another reference produced `&&str`, mismatching `&str` parameter slots (e.g. `extract_email_content(data, mime_type, ...)`). For `impl AsRef<Path>` parameters both forms still satisfy the bound thanks to `&&str: AsRef<Path>`.
 - fix(e2e/rust): `not_empty` on a bare `Option<T>` result (no field) now emits `result.is_some()` when the call is annotated `result_is_option`, matching the existing `is_some()`/`is_none()` mapping for field-level checks.
-- fix(backend-pyo3): python_field_type now resolves Named(DataEnum) types correctly per emit context (options.py dataclass field vs _native.pyi stub) — introduces EmitContext enum and threads it through all collection branches (Map, Vec, Optional) so that in the OptionsModule context the bare name resolves to the locally defined union type alias rather than to the native module import, eliminating the mypy type mismatch between caller-supplied `dict[str, options.ExtractionPattern]` and the annotation `dict[str, _native.ExtractionPattern]`.
+- fix(backend-pyo3): python_field_type now resolves Named(DataEnum) types correctly per emit context (options.py dataclass field vs \_native.pyi stub) — introduces EmitContext enum and threads it through all collection branches (Map, Vec, Optional) so that in the OptionsModule context the bare name resolves to the locally defined union type alias rather than to the native module import, eliminating the mypy type mismatch between caller-supplied `dict[str, options.ExtractionPattern]` and the annotation `dict[str, _native.ExtractionPattern]`.
 - fix(codegen/core-to-binding): emit explicit arms for `Map<K, Named>`, `Option<Map<K, Named>>`, `Vec<Named>`, `Option<Vec<Named>>` instead of falling through to the binding-to-core helper (was emitting wrong-direction conversions; broke every backend that uses the shared converter for high-level `Option<Map<Named>>` fields).
 - fix(backend-rustler): split native.ex `force_build:` keyword across three lines so `mix format` accepts it without reformatting (was 114 chars, exceeded Elixir's 98-char default).
 - fix(codegen/binding-to-core): apply per-value `.into()` when emitting `Option<Map<K, Named>>` field conversions (was dropping the wrapper conversion, causing rustc type mismatch in PyO3/PHP/Magnus/Rustler).
@@ -4094,7 +4085,7 @@ Both fields default to unset/empty so existing configs produce byte-identical ou
 
 ### Fixed
 
-- **C# csproj `<None Include="../../../LICENSE" />` had three `../` segments; flat csproj layout (`packages/csharp/<Namespace>.csproj`) only needs two to reach the repo root.** With three `../` segments, `dotnet pack` resolved the LICENSE path to one directory *above* the repo and bailed with `error NU5019: File not found`. The csproj is scaffold-once so existing repos keep their hand-fixed value, but new scaffolds now emit `../../LICENSE`. (`crates/alef-scaffold/src/languages/csharp.rs`)
+- **C# csproj `<None Include="../../../LICENSE" />` had three `../` segments; flat csproj layout (`packages/csharp/<Namespace>.csproj`) only needs two to reach the repo root.** With three `../` segments, `dotnet pack` resolved the LICENSE path to one directory _above_ the repo and bailed with `error NU5019: File not found`. The csproj is scaffold-once so existing repos keep their hand-fixed value, but new scaffolds now emit `../../LICENSE`. (`crates/alef-scaffold/src/languages/csharp.rs`)
 
 ## [0.11.22] - 2026-04-29
 
@@ -4112,7 +4103,7 @@ Both fields default to unset/empty so existing configs produce byte-identical ou
 
 ### Fixed
 
-- **`alef sync-versions` no longer skips work based on a stale `.alef/last_synced_version` cache.** The previous warm-path short-circuit returned early whenever the cached version matched `Cargo.toml`'s, on the assumption that "same version → all manifests still in sync." That assumption breaks in three real cases: a manifest hand-edited to the wrong version, a *new* manifest added after the last sync (e.g. `e2e/rust/Cargo.toml` introduced by `alef e2e generate`), or a stale `alef:hash:` line whose content drifted. CI runs without the cache and re-derives the correct state, so the local hook stayed silent while the `alef-sync-versions` pre-commit hook failed in CI for downstream consumers (most recently: liter-llm rc.14, kreuzcrawl, html-to-markdown, tree-sitter-language-pack — all required `rm -rf .alef` to reproduce the diff). The function now always walks every manifest. The scan is sub-second on kreuzberg-sized repos and the underlying writes are idempotent when nothing is actually stale, so the cost is invisible. The `.alef/last_synced_version` stamp is still written for forward-compatible introspection but is no longer consulted as a gate. (`crates/alef-cli/src/pipeline/version.rs`)
+- **`alef sync-versions` no longer skips work based on a stale `.alef/last_synced_version` cache.** The previous warm-path short-circuit returned early whenever the cached version matched `Cargo.toml`'s, on the assumption that "same version → all manifests still in sync." That assumption breaks in three real cases: a manifest hand-edited to the wrong version, a _new_ manifest added after the last sync (e.g. `e2e/rust/Cargo.toml` introduced by `alef e2e generate`), or a stale `alef:hash:` line whose content drifted. CI runs without the cache and re-derives the correct state, so the local hook stayed silent while the `alef-sync-versions` pre-commit hook failed in CI for downstream consumers (most recently: liter-llm rc.14, kreuzcrawl, html-to-markdown, tree-sitter-language-pack — all required `rm -rf .alef` to reproduce the diff). The function now always walks every manifest. The scan is sub-second on kreuzberg-sized repos and the underlying writes are idempotent when nothing is actually stale, so the cost is invisible. The `.alef/last_synced_version` stamp is still written for forward-compatible introspection but is no longer consulted as a gate. (`crates/alef-cli/src/pipeline/version.rs`)
 
 ### Added
 
@@ -4122,7 +4113,7 @@ Both fields default to unset/empty so existing configs produce byte-identical ou
 
 - **PHP composer name and Swift Package URL no longer hardcode `kreuzberg`.** The PHP e2e composer.json `"name"` field now derives `<vendor>/e2e-php` from the consumer-binding pkg vendor, and the PSR-4 autoload namespace uses the configured PHP namespace (`<configured>\E2e\\`). The PHP README's `composer require <vendor>/<crate>` line uses the same derivation. The PHP e2e `pkg_name` fallback for `[e2e.packages.php].name` derives `<org>/<module>` from `[scaffold] repository` (instead of `kreuzberg/<module>`). The Swift e2e `Package.swift` `.package(url: ...)` for registry mode now uses the configured repository URL with a `.git` suffix, falling back to a vendor-neutral `https://example.invalid/<module>.git` placeholder. New `derive_repo_org()` helper exposed in `alef_core::config`.
 - **`alef init` no longer writes `dev.kreuzberg` / `kreuzberg-dev` literals into freshly generated `alef.toml`.** When invoked in a project whose `Cargo.toml` declares `[package] repository = "..."`, the generated config now seeds `[scaffold] repository`, derives `[go] module` from it, and derives `[java] package` via the same reverse-DNS rule as `AlefConfig::java_package()` — so `repository = "https://github.com/foo-org/bar"` produces `module = "github.com/foo-org/bar"` and `package = "com.github.foo_org"`. When the repository is unset, the affected sections are emitted with the offending fields commented out and a `# TODO: set this` marker, instead of writing a plausible-looking but wrong default. When `[go].module` is unset, alef now derives the module path from `[scaffold] repository` / `[e2e.registry] github_repo` by stripping the `https://` scheme (`https://github.com/foo/bar` → `github.com/foo/bar`). When no repository is configured at all, the fallback is a vendor-neutral `example.invalid/<crate>` placeholder that fails `go build` loudly. The internal `package_name()` helper's last-resort `unwrap_or("kreuzberg")` is now `"binding"` (this branch is unreachable in practice — `next_back()` on a non-empty `split('/')` always returns `Some` — but the literal is gone). New `try_go_module()` accessor returns `Result<String, String>` for callers that should error rather than emit the placeholder.
-- **Java/Kotlin package fallback no longer hardcodes `dev.kreuzberg`.** When `[java].package` / `[kotlin].package` is unset, alef now derives a reverse-DNS package from the configured repository URL (`[scaffold] repository` or `[e2e.registry] github_repo`): `https://<host>/<org>/<rest>` becomes `<reversed-host>.<org>` (host labels reversed, hyphens replaced with underscores). For kreuzberg-dev consumers (`https://github.com/kreuzberg-dev/<crate>`) this produces `com.github.kreuzberg_dev` — *different* from the previous `dev.kreuzberg` literal. **Action required:** kreuzberg-dev consumers should set `[java] package = "dev.kreuzberg"` and `[kotlin] package = "dev.kreuzberg"` in their `alef.toml` to keep the existing namespace. When no repository URL is configured at all, `java_package()` / `kotlin_package()` fall back to `unconfigured.alef` so the build fails loudly. New `try_java_package()` / `try_kotlin_package()` accessors return `Result<String, String>` for callers that should error rather than emit the placeholder.
+- **Java/Kotlin package fallback no longer hardcodes `dev.kreuzberg`.** When `[java].package` / `[kotlin].package` is unset, alef now derives a reverse-DNS package from the configured repository URL (`[scaffold] repository` or `[e2e.registry] github_repo`): `https://<host>/<org>/<rest>` becomes `<reversed-host>.<org>` (host labels reversed, hyphens replaced with underscores). For kreuzberg-dev consumers (`https://github.com/kreuzberg-dev/<crate>`) this produces `com.github.kreuzberg_dev` — _different_ from the previous `dev.kreuzberg` literal. **Action required:** kreuzberg-dev consumers should set `[java] package = "dev.kreuzberg"` and `[kotlin] package = "dev.kreuzberg"` in their `alef.toml` to keep the existing namespace. When no repository URL is configured at all, `java_package()` / `kotlin_package()` fall back to `unconfigured.alef` so the build fails loudly. New `try_java_package()` / `try_kotlin_package()` accessors return `Result<String, String>` for callers that should error rather than emit the placeholder.
 - **README scaffolding no longer falls back to `https://github.com/kreuzberg-dev/<crate>` when no repository is configured.** Alef is meant to be vendor-neutral; consumers outside the kreuzberg-dev org were silently picking up that URL in 13 places across `alef-readme` (the README header link plus 12 per-language "See <repo> for usage examples." pointers). The 13 inline `format!("https://github.com/kreuzberg-dev/{name}")` calls now route through a single `AlefConfig::github_repo()` accessor whose fallback is `https://example.invalid/<crate>` — an obviously-broken URL that surfaces in code review instead of smuggling another organization's link into the output. Set `[scaffold] repository = "..."` (or `[e2e.registry] github_repo`) in your `alef.toml` to resolve. A new `AlefConfig::try_github_repo() -> Result<String, String>` accessor is available for callers that should fail hard on missing config.
 
 ### Fixed
@@ -4149,7 +4140,7 @@ A patch release that fixes Javadoc emission so HTML inside backticks survives th
 
 ### Fixed
 
-- **Javadoc `{@code …}` content now HTML-escapes its inner `<`, `>`, `&` characters.** A Rust doc comment like `` /// Determines how code blocks (`<pre><code>`) are rendered `` previously emitted `{@code <pre><code>}` with raw HTML inside the tag. Eclipse-formatter Spotless (used by html-to-markdown's `packages/java/pom.xml`) interprets the inner `<pre>` as a real block-level HTML element and shatters the doc comment across multiple `* ` rows — which then breaks `alef-verify` on the very next prek run. The codegen now emits `{@code &lt;pre&gt;&lt;code&gt;}` so Spotless leaves the line alone; readers see the same text since Javadoc renders `{@code}` literally regardless. Both `alef-codegen::doc_emission::escape_javadoc_line` and `alef-backend-java::gen_bindings::helpers::escape_javadoc_line` carry the fix.
+- **Javadoc `{@code …}` content now HTML-escapes its inner `<`, `>`, `&` characters.** A Rust doc comment like ``/// Determines how code blocks (`<pre><code>`) are rendered`` previously emitted `{@code <pre><code>}` with raw HTML inside the tag. Eclipse-formatter Spotless (used by html-to-markdown's `packages/java/pom.xml`) interprets the inner `<pre>` as a real block-level HTML element and shatters the doc comment across multiple `* ` rows — which then breaks `alef-verify` on the very next prek run. The codegen now emits `{@code &lt;pre&gt;&lt;code&gt;}` so Spotless leaves the line alone; readers see the same text since Javadoc renders `{@code}` literally regardless. Both `alef-codegen::doc_emission::escape_javadoc_line` and `alef-backend-java::gen_bindings::helpers::escape_javadoc_line` carry the fix.
 
 ### Fixed
 
@@ -4207,7 +4198,7 @@ CLI ergonomics, generation performance, and live output for long-running command
 
 ### Changed
 
-- **`alef generate` no longer runs formatters by default.** Formatting was the dominant cost of `alef generate` on multi-language projects (e.g. `cargo fmt --all`, `ruff check --fix .`, `biome format --write .`, `dotnet format`) and ran on the full package directory every invocation — even when only one language regenerated. The behaviour is now opt-in: pass `--format` to `alef generate`, `alef all`, or `alef init` to run formatters. When `--format` is passed, formatters run *only* for languages that actually regenerated this run (other languages skip), making warm `alef generate --format` proportional to changed source files. The tradeoff: projects that previously relied on the implicit format pass to keep `alef verify` green should either (a) pass `--format`, (b) keep formatters in pre-commit hooks, or (c) run `alef fmt` explicitly after generate.
+- **`alef generate` no longer runs formatters by default.** Formatting was the dominant cost of `alef generate` on multi-language projects (e.g. `cargo fmt --all`, `ruff check --fix .`, `biome format --write .`, `dotnet format`) and ran on the full package directory every invocation — even when only one language regenerated. The behaviour is now opt-in: pass `--format` to `alef generate`, `alef all`, or `alef init` to run formatters. When `--format` is passed, formatters run _only_ for languages that actually regenerated this run (other languages skip), making warm `alef generate --format` proportional to changed source files. The tradeoff: projects that previously relied on the implicit format pass to keep `alef verify` green should either (a) pass `--format`, (b) keep formatters in pre-commit hooks, or (c) run `alef fmt` explicitly after generate.
 
 ### Performance
 
@@ -4268,7 +4259,7 @@ A patch release that fixes the PHP and Rustler/Elixir backends to preserve struc
 
 ### Fixed
 
-- **PHP backend now generates a real wrapper class for tagged enums with struct variants instead of emitting only string constants.** Previously `pub enum SecuritySchemeInfo { Http { scheme, bearer_format }, ApiKey { location, name } }` was lowered to a few `pub const` strings, the surrounding struct field was demoted to `HashMap<String, String>`, and the generated `From<core::Outer> for php::Outer` impl emitted `(k, v.into())` against the original enum value — which fails to compile with `the trait bound \`String: From<SecuritySchemeInfo>\` is not satisfied`. The backend now emits a flat php_class with a`type_tag` discriminator plus optional fields for every variant, full `#[php_impl]` getters, a `from_json` constructor, and proper `From` impls in both directions. Fixes spikard-php builds with `--features extension-module`.
+- **PHP backend now generates a real wrapper class for tagged enums with struct variants instead of emitting only string constants.** Previously `pub enum SecuritySchemeInfo { Http { scheme, bearer_format }, ApiKey { location, name } }` was lowered to a few `pub const` strings, the surrounding struct field was demoted to `HashMap<String, String>`, and the generated `From<core::Outer> for php::Outer` impl emitted `(k, v.into())` against the original enum value — which fails to compile with `the trait bound \`String: From<SecuritySchemeInfo>\` is not satisfied`. The backend now emits a flat php_class with a`type_tag`discriminator plus optional fields for every variant, full`#[php_impl]`getters, a`from_json`constructor, and proper`From`impls in both directions. Fixes spikard-php builds with`--features extension-module`.
 - **Rustler/Elixir backend now preserves struct-variant fields in tagged enums instead of silently dropping them.** Previously every enum was lowered to `rustler::NifUnitEnum`, so `SecuritySchemeInfo::Http { scheme, bearer_format }` became unit variants `Http`/`ApiKey` with the inner fields gone, and the generated `From` impls fabricated `Default::default()` for every missing field — round-tripping any real value through Elixir produced empty defaults (silent data corruption). The backend now detects struct-variant enums and lowers them to `rustler::NifTaggedEnum` with the original variant fields preserved; the From impls now destructure variants instead of fabricating defaults. Unit-only enums continue to use `NifUnitEnum`.
 - **WASM binding crate generation now sets `default-features = false` on the core dep when `[wasm].features` is configured.** Cargo would otherwise OR the explicit feature set with the core crate's defaults, sneaking host-only defaults like `download` back into the `wasm32-unknown-unknown` build and failing on `getrandom`/`mio`.
 - **`alef validate-versions` now normalizes per-format before comparing.** It applies `to_pep440` to the canonical version when reading `pyproject.toml`, applies `to_rubygems_prerelease` for Ruby `version.rb`, and skips manifests that exist but don't declare a `version` field (e.g. private pnpm workspace roots). Eliminates spurious mismatches like canonical `1.4.0rc8` vs Python `1.4.0rc8` vs Ruby `1.4.0.pre.rc.8`.
@@ -4417,13 +4408,11 @@ A patch release fixing four codegen and pipeline bugs surfaced by a clean regene
   - `alef-e2e::format::run_formatters` now falls back to a built-in default formatter set (`cargo fmt` inside `e2e/rust/`, `ruff format` on `e2e/python/`) when `[e2e].format` is unconfigured, instead of silently no-oping.
   - `pipeline::sync_versions` now invokes `finalize_hashes` on every version-synced file (e.g. `version.rb`) so the embedded `alef:hash` line stays consistent with the rewritten content.
 
-
-
 A patch release reworking `alef verify` to be **idempotent across alef versions** and bundling six small generator/scaffold fixes that landed since v0.10.0. The verify hash no longer encodes the alef CLI version or `alef.toml`; it is now a per-file fingerprint derived purely from the rust sources and the on-disk file content, so a green `alef verify` stays green after upgrading the alef CLI as long as nothing else changed.
 
 ### Changed
 
-- **`alef verify` is now per-file source+output deterministic**. The `alef:hash:<hex>` line embedded in every generated file is computed as `blake3(sources_hash || file_content_without_hash_line)`, where `sources_hash = blake3(sorted(rust_source_files))` — no alef version dimension, no `alef.toml` dimension. `alef generate` finalises the hash *after* every formatter has run (so the embedded hash describes the actual on-disk byte content), and `alef verify` is now a pure read+strip+rehash+compare with no regeneration and no writes. Previously the hash incorporated the alef CLI version, which forced every consumer repo to re-run `alef generate` after every alef bump even when nothing else had changed.
+- **`alef verify` is now per-file source+output deterministic**. The `alef:hash:<hex>` line embedded in every generated file is computed as `blake3(sources_hash || file_content_without_hash_line)`, where `sources_hash = blake3(sorted(rust_source_files))` — no alef version dimension, no `alef.toml` dimension. `alef generate` finalises the hash _after_ every formatter has run (so the embedded hash describes the actual on-disk byte content), and `alef verify` is now a pure read+strip+rehash+compare with no regeneration and no writes. Previously the hash incorporated the alef CLI version, which forced every consumer repo to re-run `alef generate` after every alef bump even when nothing else had changed.
 - **`alef_core::hash::compute_generation_hash` is removed**; use `compute_sources_hash` + `compute_file_hash` instead. The IR cache (`.alef/ir.json`) now keys on `compute_sources_hash` alone — pass `--clean` to bust the cache when the alef extractor itself has changed.
 - **`pipeline::write_files` / `write_scaffold_files` no longer take a `generation_hash` argument**; the hash is finalised separately by the new `pipeline::finalize_hashes(paths, sources_hash)` after formatters run.
 
@@ -4552,7 +4541,7 @@ A follow-up to v0.8.3 fixing two cases where downstream tooling reformatted alef
 
 ### Fixed
 
-- **WASM `Cargo.toml` cargo-sort canonical layout**: `alef-backend-wasm`'s `gen_cargo_toml` previously emitted `[lib]`/`[dependencies]` *before* the `[package.metadata.*]` blocks and listed dependencies in declaration order. cargo-sort, run as a pre-commit hook in every consumer, then rewrote the file in canonical alphabetical / TOML-section order — invalidating the embedded `alef:hash:` line, so the next `alef verify` reported the wasm Cargo.toml as stale on every commit. The template now emits sections and dependencies in cargo-sort canonical order (`[package]` → `[package.metadata.*]` → `[lib]` → `[dependencies]` sorted alphabetically including the dynamic core crate dep), so cargo-sort is a no-op.
+- **WASM `Cargo.toml` cargo-sort canonical layout**: `alef-backend-wasm`'s `gen_cargo_toml` previously emitted `[lib]`/`[dependencies]` _before_ the `[package.metadata.*]` blocks and listed dependencies in declaration order. cargo-sort, run as a pre-commit hook in every consumer, then rewrote the file in canonical alphabetical / TOML-section order — invalidating the embedded `alef:hash:` line, so the next `alef verify` reported the wasm Cargo.toml as stale on every commit. The template now emits sections and dependencies in cargo-sort canonical order (`[package]` → `[package.metadata.*]` → `[lib]` → `[dependencies]` sorted alphabetically including the dynamic core crate dep), so cargo-sort is a no-op.
 - **WASM cargo-machete unused-dep flag for `serde_json`**: the wasm `Cargo.toml` always declared `serde_json = "1"` because trait-bridge / function generators may use it, but consumers without those code paths would fail `cargo-machete` on every commit. Added `serde_json` to the existing `[package.metadata.cargo-machete] ignored` list alongside the already-ignored `futures-util` and `wasm-bindgen-futures`.
 
 ## [0.8.3] - 2026-04-26
@@ -4732,7 +4721,7 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 ### Changed
 
 - **Pipelines**: `default_*_config` functions now take a `&LangContext` argument bundling `&ToolsConfig`, `run_wrapper`, `extra_lint_paths`, and `project_file` — replacing the prior `&ToolsConfig`-only signature so per-language defaults can dispatch on every relevant knob.
-- **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that swallows three classes of post-gen formatter trouble — a missing tool (precondition miss → "Skipping" warning, language skipped), a failing `before` hook (warning, language skipped), and a non-zero formatter exit (warning, formatter loop continues). Formatters are *expected* to modify generated files, so non-zero exits there must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
+- **Generate**: post-generation formatting is now best-effort. `alef generate` (and `alef all`) call a new `fmt_post_generate` that swallows three classes of post-gen formatter trouble — a missing tool (precondition miss → "Skipping" warning, language skipped), a failing `before` hook (warning, language skipped), and a non-zero formatter exit (warning, formatter loop continues). Formatters are _expected_ to modify generated files, so non-zero exits there must not abort the run. The explicit `alef fmt` command keeps strict failure semantics.
 
 ### Fixed
 
