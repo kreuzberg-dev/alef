@@ -514,3 +514,96 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
     );
     assert!(content.contains("Timeout,"), "missing Timeout tag: {content}");
 }
+
+/// Opaque handle types with no methods (e.g. Language) must still be emitted
+/// as a Zig struct so functions that return them compile without
+/// "use of undeclared identifier" errors.
+#[test]
+fn opaque_handle_with_no_methods_is_emitted() {
+    // Language is an opaque type with no instance methods — it is a bare
+    // newtype around a C pointer returned by get_language(). Before the fix,
+    // the emission loop filtered on `!t.methods.is_empty()`, silently skipping
+    // it and causing Zig to reject functions whose return type is `Language`.
+    let language_type = TypeDef {
+        name: "Language".to_string(),
+        rust_path: "demo::Language".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![],      // <-- no methods: the key regression trigger
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: "A tree-sitter language handle.".to_string(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+    };
+    let get_language_fn = FunctionDef {
+        name: "get_language".to_string(),
+        rust_path: "demo::get_language".to_string(),
+        original_rust_path: String::new(),
+        params: vec![make_param("name", TypeRef::String)],
+        return_type: TypeRef::Named("Language".to_string()),
+        is_async: false,
+        error_type: Some("DemoError".to_string()),
+        doc: "Get a language by name.".to_string(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![language_type],
+        functions: vec![get_language_fn],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".into(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    // The Language struct must be declared even though it has no methods.
+    assert!(
+        content.contains("pub const Language = struct {"),
+        "opaque handle with no methods must still be emitted as a Zig struct: {content}"
+    );
+    // It must have the _handle field.
+    assert!(
+        content.contains("_handle: *anyopaque,"),
+        "opaque handle struct must have _handle field: {content}"
+    );
+    // get_language must reference the declared Language type.
+    assert!(
+        content.contains("pub fn get_language("),
+        "get_language function must be emitted: {content}"
+    );
+    // The function return type must reference Language by name.
+    assert!(
+        content.contains(")!Language") || content.contains("Language {"),
+        "get_language return type or body must reference Language: {content}"
+    );
+}

@@ -266,14 +266,15 @@ impl Backend for ZigBackend {
             .filter_map(|a| a.item_type.as_ref().map(|item| (a.name.clone(), item.clone())))
             .collect();
 
-        // Emit Zig struct wrappers for opaque handle types that have methods.
-        // These types are pointer-wrapped C handles; they are not JSON-serializable
-        // and require method dispatch via the FFI symbol naming convention
-        // `{prefix}_{snake_type}_{snake_method}`.
+        // Emit Zig struct wrappers for all opaque handle types, including those
+        // with no instance methods (e.g. a bare Language handle returned by
+        // get_language()). Every opaque type that appears in a function signature
+        // must be declared; omitting method-less types causes "use of undeclared
+        // identifier" compile errors in Zig.
         for ty in api
             .types
             .iter()
-            .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde) && !t.methods.is_empty())
+            .filter(|t| !t.is_trait && (t.is_opaque || !t.has_serde))
             .filter(|t| !exclude_types.contains(&t.name))
         {
             emit_opaque_handle(

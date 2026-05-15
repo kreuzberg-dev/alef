@@ -116,7 +116,7 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
         Language::Go | Language::Ruby | Language::Elixir => "`nil`",
         Language::Java | Language::Node | Language::Wasm | Language::Csharp | Language::Php => "`null`",
         Language::Python | Language::Rust => "`None`", // keep as-is for Python and Rust
-        Language::R | Language::Ffi | Language::C => "`NULL`",
+        Language::R | Language::Ffi | Language::C | Language::Jni => "`NULL`",
         Language::Kotlin
         | Language::KotlinAndroid
         | Language::Swift

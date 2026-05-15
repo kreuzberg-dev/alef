@@ -37,7 +37,7 @@ pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSu
             Language::Elixir => "`nil`".to_string(),
             Language::R => "`NULL`".to_string(),
             Language::Rust => "`None`".to_string(),
-            Language::Ffi | Language::C => "`NULL`".to_string(),
+            Language::Ffi | Language::C | Language::Jni => "`NULL`".to_string(),
             Language::Kotlin
             | Language::KotlinAndroid
             | Language::Swift
@@ -157,7 +157,7 @@ pub(crate) fn format_typed_default(
                     Language::Ruby | Language::Elixir => "`[]`".to_string(),
                     Language::Php => "`[]`".to_string(),
                     Language::Rust => "`vec![]`".to_string(),
-                    Language::Ffi | Language::C => "`NULL`".to_string(),
+                    Language::Ffi | Language::C | Language::Jni => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
                     Language::Kotlin
                     | Language::KotlinAndroid
@@ -184,7 +184,7 @@ pub(crate) fn format_typed_default(
                         }
                     }
                     Language::Rust => "`HashMap::new()`".to_string(),
-                    Language::Ffi | Language::C => "`NULL`".to_string(),
+                    Language::Ffi | Language::C | Language::Jni => "`NULL`".to_string(),
                     Language::R => "`list()`".to_string(),
                     Language::Kotlin
                     | Language::KotlinAndroid
@@ -209,7 +209,7 @@ pub(crate) fn format_typed_default(
                 Language::Elixir => "`nil`".to_string(),
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`Default::default()`".to_string(),
-                Language::Ffi | Language::C => "`NULL`".to_string(),
+                Language::Ffi | Language::C | Language::Jni => "`NULL`".to_string(),
                 Language::Kotlin
                 | Language::KotlinAndroid
                 | Language::Swift
@@ -233,7 +233,7 @@ pub(crate) fn format_typed_default(
                 Language::Elixir => "`nil`".to_string(),
                 Language::R => "`NULL`".to_string(),
                 Language::Rust => "`None`".to_string(),
-                Language::Ffi | Language::C => "`NULL`".to_string(),
+                Language::Ffi | Language::C | Language::Jni => "`NULL`".to_string(),
                 Language::Kotlin
                 | Language::KotlinAndroid
                 | Language::Swift
@@ -258,7 +258,7 @@ pub(crate) fn format_enum_variant_ref(enum_type: &str, variant: &str, lang: Lang
         Language::Elixir => format!(":{variant}"),
         Language::R => format!("\"{variant}\""),
         Language::Rust => format!("{enum_type}::{variant}"),
-        Language::Ffi | Language::C => format!(
+        Language::Ffi | Language::C | Language::Jni => format!(
             "{}_{}",
             ffi_prefix.to_shouty_snake_case(),
             variant.to_shouty_snake_case()
@@ -306,7 +306,7 @@ pub(crate) fn format_error_phrase(error_type: &str, lang: Language) -> String {
             let ename = short.to_pascal_case();
             format!("Throws `{ename}`.")
         }
-        Language::Ffi | Language::C => "Returns `NULL` on error.".to_string(),
+        Language::Ffi | Language::C | Language::Jni => "Returns `NULL` on error.".to_string(),
         Language::R => "Stops with error message.".to_string(),
         Language::Rust => {
             let ename = short.to_pascal_case();
@@ -340,7 +340,7 @@ pub(crate) fn doc_type_with_optional(ty: &TypeRef, lang: Language, optional: boo
             Language::Elixir => format!("{inner} | nil"),
             Language::R => format!("{inner} or NULL"),
             Language::Rust => format!("Option<{inner}>"),
-            Language::Ffi | Language::C => format!("{inner}*"),
+            Language::Ffi | Language::C | Language::Jni => format!("{inner}*"),
             Language::Kotlin
             | Language::KotlinAndroid
             | Language::Swift

@@ -56,6 +56,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Default`) keep their required-kwarg behaviour. (`crates/alef-codegen/src/config_gen.rs`)
 
 
+- **alef-backend-zig (opaque handle emission)**: opaque handle types with no
+  instance methods (e.g. a bare `Language` newtype returned by `get_language()`)
+  were silently excluded from struct emission because the loop filtered on
+  `!t.methods.is_empty()`. Zig then rejected any function whose return type or
+  body referenced the undeclared type with "use of undeclared identifier". Removed
+  the `!t.methods.is_empty()` guard so every opaque/non-serde type receives a
+  `pub const T = struct { _handle: *anyopaque, ... };` declaration regardless of
+  whether it has methods. (`crates/alef-backend-zig/src/gen_bindings/mod.rs`)
+
 ## [0.16.5] - 2026-05-15
 
 ### Added
