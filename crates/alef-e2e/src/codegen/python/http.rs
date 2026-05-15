@@ -180,6 +180,51 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
+
+    use crate::fixture::{HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest};
+
+    fn fixture_with_body(body: Option<serde_json::Value>) -> Fixture {
+        Fixture {
+            id: "basic_http".to_string(),
+            description: "A basic HTTP test".to_string(),
+            input: serde_json::Value::Null,
+            http: Some(HttpFixture {
+                handler: HttpHandler {
+                    route: "/basic".to_string(),
+                    method: "GET".to_string(),
+                    body_schema: None,
+                    parameters: HashMap::new(),
+                    middleware: None,
+                },
+                request: HttpRequest {
+                    method: "GET".to_string(),
+                    path: "/basic".to_string(),
+                    headers: HashMap::new(),
+                    query_params: HashMap::new(),
+                    cookies: HashMap::new(),
+                    body,
+                    content_type: None,
+                },
+                expected_response: HttpExpectedResponse {
+                    status_code: 200,
+                    body: None,
+                    body_partial: None,
+                    headers: HashMap::new(),
+                    validation_errors: None,
+                },
+            }),
+            assertions: Vec::new(),
+            call: None,
+            skip: None,
+            env: None,
+            visitor: None,
+            mock_response: None,
+            source: String::new(),
+            category: None,
+            tags: Vec::new(),
+        }
+    }
 
     #[test]
     fn render_http_test_function_no_http_field_emits_nothing() {
@@ -201,5 +246,28 @@ mod tests {
         let mut out = String::new();
         render_http_test_function(&mut out, &fixture);
         assert!(out.is_empty(), "got: {out}");
+    }
+
+    #[test]
+    fn render_http_test_function_preserves_statement_newlines_without_body() {
+        let fixture = fixture_with_body(None);
+        let mut out = String::new();
+        render_http_test_function(&mut out, &fixture);
+
+        assert!(
+            out.contains("_headers = {}\n    _req = urllib.request.Request"),
+            "got: {out}"
+        );
+        assert!(out.contains("method=\"GET\")\n    class _NoRedirect"), "got: {out}");
+    }
+
+    #[test]
+    fn render_http_test_function_preserves_statement_newlines_with_body() {
+        let fixture = fixture_with_body(Some(serde_json::json!({ "name": "alef" })));
+        let mut out = String::new();
+        render_http_test_function(&mut out, &fixture);
+
+        assert!(out.contains("_headers = {}\n    import json"), "got: {out}");
+        assert!(out.contains("method=\"GET\")\n    class _NoRedirect"), "got: {out}");
     }
 }
