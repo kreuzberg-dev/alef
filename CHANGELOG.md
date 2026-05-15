@@ -5,10 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.16.4 - Unreleased]
+## [Unreleased]
 
 ### Added
 
+### Changed
+
+### Fixed
+
+- **alef-backend-kotlin**: emit a single JVM client wrapper class into a
+  matching Kotlin source file (for example `GraphQLRouteConfig.kt`) instead of
+  always writing `DefaultClient.kt`, avoiding ktlint filename violations for
+  non-`DefaultClient` opaque client types.
+
+## [0.16.4] - 2026-05-15
+
+### Added
+
+- **alef-core/template_versions**: split `JVM_TARGET` into `JAVA_JVM_TARGET = "25"` (Java/Panama),
+  `KOTLIN_JVM_TARGET = "21"` (Kotlin/JVM), and `ANDROID_JVM_TARGET = "11"` (Android, unchanged).
+  `JVM_TARGET` retained as a deprecated alias of `JAVA_JVM_TARGET` for one release cycle.
+- **alef-core/config**: `KotlinFfiStyle::{Panama, Jni}` enum; `KotlinConfig.ffi_style` field
+  defaulting to `Panama`. `ResolvedCrateConfig` gains `kotlin_ffi_style()`,
+  `with_kotlin_ffi_style()`, and `jni_lib_name()` accessors.
+- **alef-backend-kotlin**: `KotlinFfiStyle::Jni` emission mode. Produces
+  `<Module>Bridge.kt` (a Kotlin `object` with `external fun` JNI declarations
+  and `init { System.loadLibrary("<crate>_jni") }`) plus a `DefaultClient`
+  class holding a `Long` handle. Selectable via `[crates.kotlin] ffi_style = "jni"`.
+- **alef-backend-zig**: honor `ffi.exclude_types` and `ffi.exclude_functions`
+  (unioned with the zig-scoped lists); filter every type / field / method whose
+  signature references an excluded type, matching the java/csharp/go backends.
 - **alef-backend-kotlin / alef-backend-kotlin-android**: emit Kotlin `Flow<T>`
   streaming surface via `callbackFlow`. Each streaming method now produces a
   `public fun {method}(...): Flow<ChunkType>` wrapper plus three JNI native
@@ -30,6 +56,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   callback a silent no-op even though the closures executed.
 - **alef-backend-kotlin-android**: add the Ben Manes Gradle Versions plugin
   to generated Android `build.gradle.kts` files.
+
+### Changed
+
+- **alef-backend-kotlin-android**: no longer bundles the Java/Panama facade
+  inside the AAR. `src/main/java/` is removed entirely; binding code lives
+  in `src/main/kotlin/` only. Forces `KotlinFfiStyle::Jni` regardless of
+  configuration. Consumers must ship a `<crate>-jni` Rust crate exporting
+  `Java_<package>_<Module>Bridge_native<Method>` symbols per JNI spec §5.11.3
+  and link `lib<crate>_jni.so` into `jniLibs/<abi>/`.
+- **alef-backend-kotlin / alef-backend-kotlin-android**: streaming JNI
+  `external fun` declarations moved from the Java facade class to the new
+  Kotlin Bridge object. JNI symbol pattern unchanged:
+  `Java_<pkg>_<Module>Bridge_native<...>{Start,Next,Free}`.
+- **alef-backend-java**: `gen_streaming_jni_decls` removed; the Java/Panama
+  facade no longer carries `static native` JNI shims. Java backend is
+  Panama-only now.
 
 ### Fixed
 
