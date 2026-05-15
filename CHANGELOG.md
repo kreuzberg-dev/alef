@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.12] - 2026-05-15
+
+### Fixed
+
+- **kotlin-android: add Jackson runtime deps to `build.gradle.kts`
+  template**: alef v0.16.11 added `@JsonDeserialize` to sealed-class Kotlin
+  DTOs for serde-tagged polymorphism, but the kotlin-android `build.gradle.kts`
+  template still only declared `kotlin-stdlib` + `kotlinx-coroutines-android`.
+  The compileDebugKotlin task failed with `Unresolved reference 'com'` /
+  `Unresolved reference 'codec'` / `Unresolved reference 'asText'` etc.
+  Adds `jackson-databind` (for the annotations + `StdDeserializer`) and
+  `jackson-module-kotlin` (for Kotlin data-class deserialization) to the
+  emitted `dependencies { ... }` block, versions pinned via
+  `maven::JACKSON`. (`crates/alef-backend-kotlin-android/src/gen_build_gradle.rs`)
+
 ## [0.16.11] - 2026-05-15
 
 ### Fixed
