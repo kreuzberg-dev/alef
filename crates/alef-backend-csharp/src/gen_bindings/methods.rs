@@ -116,11 +116,8 @@ pub(super) fn gen_wrapper_class(
     let has_base_error = !api.errors.is_empty();
     let (base_exception_class, has_invalid_input_variant, variant_dispatch_lines) = if has_base_error {
         let base_error = &api.errors[0];
-        let base_ex = format!("{}Exception", base_error.name.to_pascal_case());
-        let has_invalid = base_error
-            .variants
-            .iter()
-            .any(|v| v.name.to_pascal_case() == "InvalidInput");
+        let base_ex = format!("{}Exception", base_error.name);
+        let has_invalid = base_error.variants.iter().any(|v| v.name == "InvalidInput");
         // Build per-variant message-prefix dispatch. Each thiserror Display template starts
         // with a literal prefix (e.g. `"not_found: {0}"`), giving the runtime message a stable
         // prefix the binding can match on. Skip the InvalidInput variant — that one is dispatched
@@ -130,7 +127,7 @@ pub(super) fn gen_wrapper_class(
         let mut variants_with_prefix: Vec<(String, String)> = base_error
             .variants
             .iter()
-            .filter(|v| v.name.to_pascal_case() != "InvalidInput")
+            .filter(|v| v.name != "InvalidInput")
             .filter_map(|v| {
                 let template = v.message_template.as_deref()?;
                 let prefix_end = template.find('{').unwrap_or(template.len());
@@ -138,7 +135,7 @@ pub(super) fn gen_wrapper_class(
                 if prefix.is_empty() {
                     return None;
                 }
-                Some((format!("{}Exception", v.name.to_pascal_case()), prefix))
+                Some((format!("{}Exception", v.name), prefix))
             })
             .collect();
         // Longest prefix first so e.g. "forbidden: waf/blocked: " wins over "forbidden: ".

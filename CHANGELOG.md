@@ -35,7 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   whose signatures reference excluded types.
 - **alef-backend-csharp**: honor FFI and C# `exclude_types` settings when
   generating P/Invoke bindings, and map named IR types through C# class casing
-  so acronym-heavy types resolve to their generated class names.
+  so acronym-heavy types resolve to their generated class names. Opaque methods
+  that return opaque handles now wrap the returned pointer directly instead of
+  calling non-existent `_to_json` exports, and generated error dispatch preserves
+  base error class names such as `GraphQLErrorException`.
 
 ## [0.16.3] - 2026-05-15
 
