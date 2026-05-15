@@ -12,7 +12,7 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let core_crate_dir = config.core_crate_dir();
     let jni_crate_name = format!("{core_crate_dir}-jni");
-    let jni_lib_name = jni_crate_name.replace('-', "_");
+    let jni_lib_name = config.jni_lib_name(); // matches Kotlin Bridge loadLibrary
 
     // Prefer kotlin_android features, then empty.
     let features: Vec<String> = config
@@ -61,4 +61,82 @@ tokio = {{ version = "1", features = ["rt-multi-thread", "macros", "sync"] }}
         content,
         generated_header: false,
     }])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::config::NewAlefConfig;
+    use alef_core::ir::ApiSurface;
+
+    fn resolved_one(toml: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    /// The scaffolded `[lib] name` must match what the Kotlin Bridge emits in
+    /// `System.loadLibrary(...)`.  When `[ffi] prefix` is set, both must use the
+    /// prefix-derived name rather than the snake-cased package name.
+    #[test]
+    fn scaffold_jni_lib_name_uses_ffi_prefix() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "demo-llm"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "demoffi"
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.demo"
+namespace = "dev.kreuzberg.demo"
+"#,
+        );
+
+        let api = ApiSurface::default();
+        let files = scaffold_jni(&api, &config).unwrap();
+        let cargo_toml = &files[0].content;
+
+        assert!(
+            cargo_toml.contains("name = \"demoffi_jni\""),
+            "expected `name = \"demoffi_jni\"` but got:\n{cargo_toml}"
+        );
+        assert!(
+            !cargo_toml.contains("name = \"demo_llm_jni\""),
+            "cdylib name must not fall back to snake-cased crate name when prefix is set; got:\n{cargo_toml}"
+        );
+    }
+
+    /// Without an explicit `[ffi] prefix`, the lib name must still be the
+    /// snake-cased crate name (regression guard for the default case).
+    #[test]
+    fn scaffold_jni_lib_name_defaults_to_snake_case_crate_name() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["kotlin_android", "jni"]
+
+[[crates]]
+name = "plain-pkg"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.plain"
+namespace = "dev.kreuzberg.plain"
+"#,
+        );
+
+        let api = ApiSurface::default();
+        let files = scaffold_jni(&api, &config).unwrap();
+        let cargo_toml = &files[0].content;
+
+        assert!(
+            cargo_toml.contains("name = \"plain_pkg_jni\""),
+            "expected `name = \"plain_pkg_jni\"` for default case; got:\n{cargo_toml}"
+        );
+    }
 }

@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JNI: method-shim Result match gated on `error_type`**: `emit_method_shim`
+  previously wrapped every method call in `match result { Ok / Err }` even when
+  the method returned `T` directly. Builder methods returning `Self`
+  (e.g. `ConversionOptionsBuilder::strip_tags`) failed to compile with
+  `expected Self, found Result<_, _>`. Now mirrors `emit_function_shim`: gate
+  on `method.error_type.is_some()` and emit the no-match path when the method
+  is infallible. `emit_return_marshal` factored into a shared
+  `_with_indent` helper so the no-error path can reuse the marshalling logic
+  at the function's top-level 4-space indent.
+  (`crates/alef-backend-jni/src/gen_shims.rs`)
+
+
 - **zig e2e codegen**: emit `build.zig` that runs tests via `addRunArtifact`
   directly (Zig 0.16+ no longer installs test binaries to `zig-out/bin/`).
   The previous `addInstallArtifact` + `run.dependOn(install)` workaround

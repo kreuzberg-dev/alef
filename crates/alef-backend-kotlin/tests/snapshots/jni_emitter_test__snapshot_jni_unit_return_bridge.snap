@@ -11,4 +11,5 @@ object DemoBridge {
 
     // JNI external funs for client instance methods.
     external fun nativeDefaultClientCancel(handle: Long, requestJson: String)
+    external fun nativeFreeDefaultClient(handle: Long)
 }

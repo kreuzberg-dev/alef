@@ -1399,12 +1399,7 @@ fn opaque_method_vec_string_param_with_is_ref_bridges_to_str_slice() {
 /// names so a bare membership check is insufficient.
 #[test]
 fn trait_bridge_return_type_does_not_emit_from_impl_for_trait() {
-    let factory = make_method(
-        "make_visitor",
-        vec![],
-        TypeRef::Named("MyVisitor".to_string()),
-        false,
-    );
+    let factory = make_method("make_visitor", vec![], TypeRef::Named("MyVisitor".to_string()), false);
     let trait_def = make_trait("MyFactory", "demo_crate::MyFactory", vec![factory]);
     let visitor_trait = make_trait("MyVisitor", "demo_crate::MyVisitor", vec![]);
 
