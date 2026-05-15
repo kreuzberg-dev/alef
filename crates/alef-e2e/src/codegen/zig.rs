@@ -685,10 +685,7 @@ fn render_test_fn(
     // population + register call). Matches the dart codegen's pending-skip
     // behaviour.
     if fixture.visitor.is_some() {
-        let _ = writeln!(
-            out,
-            "    // skipped: pending zig-binding visitor wiring (alef issue)"
-        );
+        let _ = writeln!(out, "    // skipped: pending zig-binding visitor wiring (alef issue)");
         let _ = writeln!(out, "    return error.SkipZigTest;");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
