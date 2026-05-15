@@ -522,10 +522,9 @@ fn gen_go_file(
         .iter()
         .filter(|e| {
             !exclude_types.contains(&e.name)
-                &&
-            e.variants
-                .iter()
-                .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
+                && e.variants
+                    .iter()
+                    .all(|v| v.fields.is_empty() || v.fields.iter().all(is_tuple_field))
         })
         .filter(|e| !is_passthrough_raw_message_enum(e))
         .map(|e| e.name.as_str())
@@ -572,9 +571,7 @@ fn gen_go_file(
     for typ in api
         .types
         .iter()
-        .filter(|typ| {
-            !typ.is_trait && !visitor_types.contains(typ.name.as_str()) && !exclude_types.contains(&typ.name)
-        })
+        .filter(|typ| !typ.is_trait && !visitor_types.contains(typ.name.as_str()) && !exclude_types.contains(&typ.name))
     {
         if typ.is_opaque {
             // If an error type has the same name as this opaque type, the structured error
