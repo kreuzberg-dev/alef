@@ -30,7 +30,7 @@ use descriptions::{
     generate_param_description,
 };
 use doc_cleaning::{clean_doc_inline, extract_param_docs, wrap_bare_urls};
-use formatting::{doc_type_with_optional, format_error_phrase, format_field_default};
+use formatting::{doc_type_with_optional, escape_table_cell, format_error_phrase, format_field_default};
 use naming::{
     enum_variant_name, field_name, func_name, lang_code_fence, lang_display_name, lang_slug, to_camel_case, type_name,
 };
@@ -207,7 +207,6 @@ fn render_function(
             let pdoc = param_docs
                 .get(param.name.as_str())
                 .map(|s| {
-                    let s = s.replace('|', "\\|");
                     // Clean Rust syntax from param descriptions
                     let s = s.replace("::", ".");
                     s.replace("ConversionOptions.default()", "default options")
@@ -215,7 +214,12 @@ fn render_function(
                 .unwrap_or_else(|| generate_param_description(&param.name, &param.ty));
             out.push_str(&template_env::render(
                 "param_row.jinja",
-                minijinja::context! { name => pname, ty => pty, required => required, doc => pdoc },
+                minijinja::context! {
+                    name => escape_table_cell(&pname),
+                    ty => escape_table_cell(&pty),
+                    required => required,
+                    doc => escape_table_cell(&pdoc),
+                },
             ));
         }
         out.push('\n');
@@ -306,7 +310,12 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
             };
             out.push_str(&template_env::render(
                 "field_row.jinja",
-                minijinja::context! { name => fname, ty => fty, default => fdefault, doc => fdoc },
+                minijinja::context! {
+                    name => escape_table_cell(&fname),
+                    ty => escape_table_cell(&fty),
+                    default => escape_table_cell(&fdefault),
+                    doc => escape_table_cell(&fdoc),
+                },
             ));
         }
         out.push('\n');
@@ -375,7 +384,7 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
         }
         out.push_str(&template_env::render(
             "variant_row.jinja",
-            minijinja::context! { name => vname, doc => vdoc },
+            minijinja::context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
         ));
     }
     out.push('\n');
@@ -431,7 +440,11 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             };
             out.push_str(&template_env::render(
                 "exception_row.jinja",
-                minijinja::context! { variant => vname, error => &ename, doc => vdoc },
+                minijinja::context! {
+                    variant => escape_table_cell(&vname),
+                    error => escape_table_cell(&ename),
+                    doc => escape_table_cell(&vdoc),
+                },
             ));
         }
     } else {
@@ -448,7 +461,7 @@ fn render_error(err: &ErrorDef, lang: Language, ffi_prefix: &str) -> String {
             };
             out.push_str(&template_env::render(
                 "variant_row.jinja",
-                minijinja::context! { name => vname, doc => vdoc },
+                minijinja::context! { name => escape_table_cell(&vname), doc => escape_table_cell(&vdoc) },
             ));
         }
     }
@@ -515,7 +528,12 @@ fn generate_configuration_doc(
                 };
                 out.push_str(&template_env::render(
                     "field_row.jinja",
-                    minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                    minijinja::context! {
+                        name => escape_table_cell(&field.name),
+                        ty => escape_table_cell(&fty),
+                        default => escape_table_cell(&fdefault),
+                        doc => escape_table_cell(&fdoc),
+                    },
                 ));
             }
             out.push('\n');
@@ -673,7 +691,12 @@ fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gene
                     };
                     out.push_str(&template_env::render(
                         "field_row.jinja",
-                        minijinja::context! { name => &field.name, ty => fty, default => fdefault, doc => fdoc },
+                        minijinja::context! {
+                            name => escape_table_cell(&field.name),
+                            ty => escape_table_cell(&fty),
+                            default => escape_table_cell(&fdefault),
+                            doc => escape_table_cell(&fdoc),
+                        },
                     ));
                 }
                 out.push('\n');
@@ -756,12 +779,19 @@ fn render_enum_for_shared_doc(en: &EnumDef) -> String {
             );
             out.push_str(&template_env::render(
                 "wire_variant_row.jinja",
-                minijinja::context! { name => &variant.name, wire => wire, doc => vdoc },
+                minijinja::context! {
+                    name => escape_table_cell(&variant.name),
+                    wire => escape_table_cell(&wire),
+                    doc => escape_table_cell(&vdoc),
+                },
             ));
         } else {
             out.push_str(&template_env::render(
                 "variant_row.jinja",
-                minijinja::context! { name => &variant.name, doc => vdoc },
+                minijinja::context! {
+                    name => escape_table_cell(&variant.name),
+                    doc => escape_table_cell(&vdoc),
+                },
             ));
         }
     }
@@ -878,7 +908,7 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
         out.push_str("| Variant | Message | Description |\n");
         out.push_str("|---------|---------|-------------|\n");
         for variant in &err.variants {
-            let tmpl = variant.message_template.as_deref().unwrap_or("").replace('|', "\\|");
+            let tmpl = variant.message_template.as_deref().unwrap_or("");
             let vdoc = if !variant.doc.is_empty() {
                 clean_doc_inline(&variant.doc, Language::Python)
             } else {
@@ -886,7 +916,11 @@ fn generate_errors_doc(api: &ApiSurface, output_dir: &str) -> anyhow::Result<Gen
             };
             out.push_str(&template_env::render(
                 "error_message_row.jinja",
-                minijinja::context! { name => &variant.name, message => tmpl, doc => vdoc },
+                minijinja::context! {
+                    name => escape_table_cell(&variant.name),
+                    message => escape_table_cell(tmpl),
+                    doc => escape_table_cell(&vdoc),
+                },
             ));
         }
         out.push('\n');

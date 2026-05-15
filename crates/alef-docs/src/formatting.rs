@@ -4,6 +4,18 @@ use alef_core::config::Language;
 use alef_core::ir::{ApiSurface, DefaultValue, FieldDef, TypeRef};
 use heck::{ToPascalCase, ToShoutySnakeCase};
 
+/// Escape literal pipe characters so a value can be embedded inside a Markdown
+/// table cell without being interpreted as a column separator.
+///
+/// This is required because some renderers (notably rumdl's MD056 check) treat
+/// every `|` on a row as a separator, even when the pipe is inside a backtick
+/// span — e.g. union types like `` `string | null` `` or `` `String.t() | nil` ``
+/// would otherwise be parsed as two cells. We escape unconditionally so the
+/// output is robust across the strictest Markdown table parsers.
+pub(crate) fn escape_table_cell(value: &str) -> String {
+    value.replace('|', "\\|")
+}
+
 pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {
     if let Some(typed) = &field.typed_default {
         return format_typed_default(typed, &field.ty, lang, api, ffi_prefix, field.optional);

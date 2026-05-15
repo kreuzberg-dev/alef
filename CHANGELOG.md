@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-dart**: trait-bridge shims now preserve `Option<&T>` on reference
+  parameters. Previously `Option<&str>` collapsed to `&str` in the emitted method
+  signature, breaking `impl Trait` for traits like `HtmlVisitor` with optional
+  reference args (E0053). The param-conversion let-bindings now use `.map(...)`
+  to propagate the Option through to the Dart closure call.
 - **alef-backend-dart**: emitted dart-crate `build.rs` now skips `flutter_rust_bridge_codegen` invocation gracefully when the tool is not on PATH instead of panicking. Downstream CI environments (`cargo check --workspace`) no longer require `flutter_rust_bridge_codegen` to be installed; the committed generated FRB sources are sufficient. Developers with FRB installed still get automatic regen on source changes.
 - **alef-extract**: reverted the `Option<Option<T>>` → `Option<T>` IR flatten
   introduced in 0.16.0. The flatten produced cross-backend type mismatches

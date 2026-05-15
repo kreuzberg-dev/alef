@@ -1588,9 +1588,11 @@ fn emit_opaque_impl_block(
         if name == type_name {
             continue;
         }
-        // Skip types that already have a mirror struct in scope — the frb(mirror) macro
-        // brings the type's short name into scope, so a separate `use` would conflict.
-        if mirror_type_names.contains(name) {
+        // Skip types that already have a local struct in scope — the frb(mirror) macro
+        // (for mirror types) and the opaque wrapper struct (for opaque types) both
+        // bring the type's short name into scope, so a separate `use` would conflict
+        // (E0255: "the name X is defined multiple times").
+        if mirror_type_names.contains(name) || opaque_type_names.contains(name) {
             continue;
         }
         if let Some(path) = type_paths.get(name)
