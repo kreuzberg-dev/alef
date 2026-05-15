@@ -1,8 +1,10 @@
-//! Regression tests for the four kotlin_android e2e codegen bugs:
+//! Regression tests for the kotlin_android e2e codegen bugs:
 //!
 //! - Bug 2: construct DefaultClient via client_factory before calling methods.
 //! - Bug 3: emit Kotlin property access (no parens) for data class fields.
 //! - Bug 4: serialize enum values via `.name.lowercase()` instead of `.getValue()`.
+//! - Bug 5: streaming collect uses `Flow.toList()` not `asSequence().toList()`,
+//!   and chunk assertions use Kotlin property access throughout.
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
@@ -168,8 +170,123 @@ enum_fields = { "choices.finish_reason" = "FinishReason" }
 name = "liter-llm"
 "#;
 
+/// alef.toml for kotlin_android streaming e2e via chatStream call.
+const TOML_WITH_STREAMING: &str = r#"
+[workspace]
+languages = ["kotlin_android"]
+
+[[crates]]
+name = "liter-llm"
+sources = ["src/lib.rs"]
+
+[crates.kotlin_android]
+package = "dev.kreuzberg.literllm.android"
+namespace = "dev.kreuzberg.literllm.android"
+artifact_id = "liter-llm-android"
+group_id = "dev.kreuzberg"
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "chat_stream"
+result_var = "result"
+
+[crates.e2e.calls.chat_stream]
+function = "chat_stream"
+result_var = "result"
+
+[[crates.e2e.calls.chat_stream.args]]
+name = "request"
+field = "input"
+type = "json_object"
+owned = true
+
+[crates.e2e.calls.chat_stream.overrides.java]
+client_factory = "createClient"
+options_type = "ChatCompletionRequest"
+options_via = "from_json"
+
+[crates.e2e.packages.kotlin_android]
+name = "liter-llm"
+"#;
+
 fn render_kotlin_android_chat(toml: &str, fixture: Fixture) -> String {
     let cfg: NewAlefConfig = toml::from_str(toml).expect("config parses");
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    let groups = vec![FixtureGroup {
+        category: "chat".to_string(),
+        fixtures: vec![fixture],
+    }];
+    let files = KotlinAndroidE2eCodegen
+        .generate(&groups, &e2e, &resolved, &[])
+        .expect("generation succeeds");
+    files
+        .iter()
+        .find(|f| {
+            let p = f.path.to_string_lossy();
+            p.contains("ChatTest.kt")
+        })
+        .expect("ChatTest.kt is emitted")
+        .content
+        .clone()
+}
+
+fn make_streaming_fixture(id: &str) -> Fixture {
+    Fixture {
+        id: id.to_string(),
+        category: Some("chat".to_string()),
+        description: "chat stream test".to_string(),
+        tags: Vec::new(),
+        skip: None,
+        env: None,
+        call: Some("chat_stream".to_string()),
+        input: serde_json::json!({
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "hello"}],
+            "stream": true
+        }),
+        mock_response: Some(MockResponse {
+            status: 200,
+            body: None,
+            stream_chunks: Some(vec![
+                serde_json::json!({"choices": [{"delta": {"content": "hello"}, "finish_reason": null}]}),
+                serde_json::json!({"choices": [{"delta": {}, "finish_reason": "stop"}]}),
+            ]),
+            headers: HashMap::new(),
+        }),
+        visitor: None,
+        assertions: vec![
+            Assertion {
+                assertion_type: "equals".to_string(),
+                field: Some("stream_content".to_string()),
+                value: Some(serde_json::Value::String("hello".to_string())),
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+                return_type: None,
+            },
+            Assertion {
+                assertion_type: "equals".to_string(),
+                field: Some("stream_complete".to_string()),
+                value: Some(serde_json::Value::Bool(true)),
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+                return_type: None,
+            },
+        ],
+        source: "chat.json".to_string(),
+        http: None,
+    }
+}
+
+fn render_kotlin_android_streaming(fixture: Fixture) -> String {
+    let cfg: NewAlefConfig = toml::from_str(TOML_WITH_STREAMING).expect("config parses");
     let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
     let groups = vec![FixtureGroup {
@@ -276,5 +393,57 @@ fn kotlin_android_enum_field_uses_name_lowercase_not_get_value() {
     assert!(
         rendered.contains(".name") && rendered.contains(".lowercase()"),
         "must emit .name.lowercase() for enum serialization; got:\n{rendered}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Bug 5: streaming collect uses Flow.toList() not asSequence().toList()
+// ---------------------------------------------------------------------------
+
+/// Regression for Bug 5: kotlin_android streaming tests must collect a
+/// `Flow<T>` with `result.toList()` (kotlinx.coroutines suspend extension),
+/// not with `result.asSequence().toList()` (which only applies to Java
+/// `Iterator<T>`).  Chunk field assertions must also use Kotlin property access
+/// (`it.choices?.firstOrNull()?.delta?.content`) rather than Java getter calls
+/// (`it.choices()?.firstOrNull()?.delta()?.content()`).
+#[test]
+fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
+    let fixture = make_streaming_fixture("chat_stream_basic");
+    let rendered = render_kotlin_android_streaming(fixture);
+
+    // Must collect the Flow with .toList(), not asSequence().toList().
+    assert!(
+        rendered.contains(".toList()"),
+        "must emit .toList() to collect the Flow; got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(".asSequence()"),
+        "must NOT emit .asSequence() (Java Iterator pattern); got:\n{rendered}"
+    );
+
+    // Chunk assertions must use Kotlin property access, not Java getter calls.
+    assert!(
+        !rendered.contains(".choices()"),
+        "must NOT emit .choices() getter call in chunk assertions; got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(".delta()"),
+        "must NOT emit .delta() getter call in chunk assertions; got:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains(".finishReason()"),
+        "must NOT emit .finishReason() getter call in chunk assertions; got:\n{rendered}"
+    );
+
+    // Must use dot-property access on chunk fields.
+    assert!(
+        rendered.contains(".choices"),
+        "must emit .choices property access in chunk assertions; got:\n{rendered}"
+    );
+
+    // Must import the coroutines Flow.toList extension.
+    assert!(
+        rendered.contains("import kotlinx.coroutines.flow.toList"),
+        "must import kotlinx.coroutines.flow.toList; got:\n{rendered}"
     );
 }
