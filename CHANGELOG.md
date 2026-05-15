@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WASM: emit enum-with-payload types as classes with factory methods + payload fields**:
+  tagged enums with variant payloads (e.g. `AuthConfig`) now emit as Rust structs with
+  optional fields for each variant's data, plus `default_instance()` static factory and
+  getters/setters for all fields, instead of bare numeric TS enums. Round-trip conversions
+  between binding and core preserve variant discriminator (type field) + payload fields.
+  Custom From impls generated in `gen_tagged_enum_as_class` skip core-generated enum
+  conversions to avoid duplicate impl blocks.
+  (`crates/alef-backend-wasm/src/gen_bindings/enums.rs`)
+
+- JNI & Kotlin Android: various fixes from concurrent development
+
 - **JNI: raw jlong for opaque handle returns**: `emit_function_shim` now returns
   `jlong` directly from opaque-returning top-level functions instead of a
   JSON-encoded `jstring`. Consumer types no longer require `Serialize` /
@@ -54,6 +65,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TypeRef::Bytes` return types (e.g. `speech`, `file_content`), matching the
   `Vec<u8>` → `ByteArray` mapping already present for the JNI Rust side.
   (`crates/alef-backend-kotlin/src/gen_bindings/jni_emitter.rs`)
+
+- **dart: filter trait/opaque types from `From<Mirror> for Core` impls**: trait
+  types reachable via trait-bridge return-type seeding (e.g. `SyncExtractor` from
+  a `make_visitor() -> &dyn SyncExtractor`) were landing in
+  `types_needing_from_impl` and producing
+  `impl From<SyncExtractor> for SyncExtractor { ... SyncExtractor {} }`, which
+  fails to compile (E0574: trait, not struct). The mirror-to-core emission loop
+  now filters `is_trait`/`is_opaque` so only mirror structs receive the impl.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
+
+- **dart: gate sanitized-String From exception on `CoreWrapper::Cow`**: the prior
+  exception treated every sanitized `TypeRef::String` field as the safe
+  `Cow<'static, str>` round-trip case, but fields whose core type is something
+  unrelated (e.g. `Option<BoundingBox>` sanitized down to `Option<String>`
+  because BoundingBox is not in the API surface) emitted
+  `v.field.map(Into::into)` and failed to compile with
+  `String: Into<BoundingBox>` not satisfied. The exception is now gated on
+  `core_wrapper == CoreWrapper::Cow`; non-Cow sanitized strings fall back to
+  `Default::default()` like other sanitized fields.
+  (`crates/alef-backend-dart/src/gen_rust_crate/mod.rs`)
 
 ## [0.16.6 - Unreleased]
 
