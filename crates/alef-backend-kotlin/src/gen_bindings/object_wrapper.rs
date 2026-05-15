@@ -234,15 +234,23 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
         } else if variant.fields.len() == 1 && is_tuple_field_name(&variant.fields[0].name) {
             // Newtype/tuple variant: `readTreeAsValue` already returns the correct
             // variant subtype — return it directly without wrapping in the variant
-            // constructor again.
+            // constructor again.  Use the explicit Kotlin type parameter to avoid
+            // Kotlin inferring `Any!` for the Java generic method return.
             let inner_class = kotlin_class_name_for_type(&variant.fields[0].ty);
-            out.push_str("ctx.readTreeAsValue(node, ");
+            out.push_str("ctx.readTreeAsValue<");
+            out.push_str(&inner_class);
+            out.push_str(">(node, ");
             out.push_str(&inner_class);
             out.push_str("::class.java)\n");
         } else {
             // Named-field variant: `readTreeAsValue` returns the correct data class
-            // subtype — return it directly.
-            out.push_str("ctx.readTreeAsValue(node, ");
+            // subtype — return it directly.  Use the explicit Kotlin type parameter
+            // so the compiler can verify the return satisfies the sealed-class bound.
+            out.push_str("ctx.readTreeAsValue<");
+            out.push_str(name);
+            out.push('.');
+            out.push_str(&variant.name);
+            out.push_str(">(node, ");
             out.push_str(name);
             out.push('.');
             out.push_str(&variant.name);
@@ -330,13 +338,12 @@ fn emit_kotlin_untagged_deserializer(out: &mut String, en: &EnumDef) {
             }
         } else {
             // Struct variant with named fields — JSON must be an object.
+            // `readTreeAsValue` returns the correct data class subtype directly;
+            // no variant-constructor wrapping needed.
             let struct_class = format!("{name}.{}", variant.name);
             (
                 "node.isObject",
-                format!(
-                    "{name}.{}(ctx.readTreeAsValue(node, {struct_class}::class.java))",
-                    variant.name
-                ),
+                format!("ctx.readTreeAsValue<{struct_class}>(node, {struct_class}::class.java)"),
             )
         };
 
@@ -706,11 +713,12 @@ mod tests {
             "deserializer must dispatch on variant 'system'; got:\n{out}",
         );
         // Fix: the variant value is returned directly from readTreeAsValue — the
-        // variant constructor must NOT be emitted around readTreeAsValue because
-        // readTreeAsValue already returns the correct variant subtype.
+        // variant constructor must NOT be emitted around readTreeAsValue.  The
+        // explicit Kotlin type parameter avoids Kotlin inferring `Any!` for the
+        // Java generic method return type.
         assert!(
-            out.contains("\"system\" -> ctx.readTreeAsValue(node, SystemMessage::class.java)"),
-            "tagged deserializer must return readTreeAsValue result directly (no variant-constructor wrap); got:\n{out}",
+            out.contains("\"system\" -> ctx.readTreeAsValue<SystemMessage>(node, SystemMessage::class.java)"),
+            "tagged deserializer must return readTreeAsValue<T> directly (no variant-constructor wrap); got:\n{out}",
         );
         assert!(
             !out.contains("Message.System(ctx.readTreeAsValue"),
@@ -799,9 +807,10 @@ mod tests {
         emit_enum(&en, &mut out);
 
         // Must return readTreeAsValue directly — no `OcrDocument.Base64(...)` wrap.
+        // The explicit Kotlin type parameter avoids `Any!` inference.
         assert!(
-            out.contains("\"base64\" -> ctx.readTreeAsValue(node, OcrDocument.Base64::class.java)"),
-            "tagged deserializer must return readTreeAsValue directly for named-field variant; got:\n{out}",
+            out.contains("\"base64\" -> ctx.readTreeAsValue<OcrDocument.Base64>(node, OcrDocument.Base64::class.java)"),
+            "tagged deserializer must return readTreeAsValue<T> directly for named-field variant; got:\n{out}",
         );
         assert!(
             !out.contains("OcrDocument.Base64(ctx.readTreeAsValue"),
@@ -829,8 +838,8 @@ mod tests {
         emit_enum(&en, &mut out);
 
         assert!(
-            out.contains("\"text\" -> ctx.readTreeAsValue(node, TextContent::class.java)"),
-            "tagged deserializer must return readTreeAsValue directly for newtype variant; got:\n{out}",
+            out.contains("\"text\" -> ctx.readTreeAsValue<TextContent>(node, TextContent::class.java)"),
+            "tagged deserializer must return readTreeAsValue<T> directly for newtype variant; got:\n{out}",
         );
         assert!(
             !out.contains("ContentPart.Text(ctx.readTreeAsValue"),

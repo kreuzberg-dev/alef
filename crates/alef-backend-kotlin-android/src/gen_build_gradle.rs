@@ -24,6 +24,7 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let ktlint_version = maven::KTLINT;
     let gradle_versions_plugin = maven::GRADLE_VERSIONS_PLUGIN;
     let kotlinx_coroutines = maven::KOTLINX_COROUTINES_CORE;
+    let jackson = maven::JACKSON;
     let _ = toolchain::ANDROID_JVM_TARGET;
 
     let android_namespace = namespace(config);
@@ -91,6 +92,11 @@ dependencies {{
     // Generated Kotlin facade uses suspend functions and Flow wrappers, both of
     // which require kotlinx-coroutines-android (transitively pulls -core).
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:{kotlinx_coroutines}")
+    // Generated sealed-class DTOs use Jackson @JsonDeserialize for polymorphic
+    // serde-tagged unions; jackson-module-kotlin is required for Kotlin
+    // data-class deserialization (handles nullable, default values, etc.).
+    implementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
     testImplementation("junit:junit:{junit_legacy}")
     androidTestImplementation("androidx.test.ext:junit:{androidx_junit}")
     androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")
