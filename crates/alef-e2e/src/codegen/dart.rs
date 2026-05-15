@@ -250,11 +250,39 @@ fn render_test_file(
             .any(|a| a.arg_type == "json_object" && super::resolve_field(&f.input, &a.field).is_array())
     });
 
+    // Non-HTTP fixtures that build a mock-server URL still reference `Platform.environment`
+    // (from `dart:io`). This applies to `mock_url` args and to fixtures routed through a
+    // `client_factory` (per-call override or per-language override) that derives `_mockUrl`
+    // inline. Without this, the generated tests fail to compile with
+    // `Error: Undefined name 'Platform'`.
+    let lang_client_factory = e2e_config
+        .call
+        .overrides
+        .get(lang)
+        .and_then(|o| o.client_factory.as_deref())
+        .is_some();
+    let has_mock_url_refs = lang_client_factory
+        || fixtures.iter().any(|f| {
+            if f.is_http_test() {
+                return false;
+            }
+            let call_config = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            if call_config.args.iter().any(|a| a.arg_type == "mock_url") {
+                return true;
+            }
+            call_config
+                .overrides
+                .get(lang)
+                .and_then(|o| o.client_factory.as_deref())
+                .is_some()
+        });
+
     let _ = writeln!(out, "import 'package:test/test.dart';");
-    // `dart:io` provides HttpClient/SocketException (HTTP fixtures) and Platform/Directory
-    // (file-path/bytes fixtures requiring chdir). Skip the import when neither set is in
-    // play — unconditional emission triggers `unused_import` warnings.
-    if has_http_fixtures || needs_chdir {
+    // `dart:io` provides HttpClient/SocketException (HTTP fixtures), Platform/Directory
+    // (file-path/bytes fixtures requiring chdir), and Platform.environment (mock-url
+    // fixtures). Skip the import when none of these are in play — unconditional emission
+    // triggers `unused_import` warnings.
+    if has_http_fixtures || needs_chdir || has_mock_url_refs {
         let _ = writeln!(out, "import 'dart:io';");
     }
     if has_batch_byte_items {
