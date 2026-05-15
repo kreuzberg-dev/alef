@@ -164,6 +164,7 @@ dependencies = [
  "alef-docs",
  "anyhow",
  "criterion",
+ "heck",
  "insta",
  "minijinja",
  "toml",
