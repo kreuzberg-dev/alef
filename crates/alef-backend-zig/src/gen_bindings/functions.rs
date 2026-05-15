@@ -518,13 +518,10 @@ fn emit_param_free(
         if struct_names.contains(inner_name) {
             let snake = snake_case(inner_name);
             let is_optional = p.optional || matches!(p.ty, TypeRef::Optional(_));
+            // The `_z` sentinel copy is freed via `defer` emitted immediately after
+            // allocPrintSentinel in emit_param_conversion. Only the opaque handle
+            // needs an explicit post-call free via the C FFI destructor.
             if is_optional {
-                // Free both the JSON sentinel copy and the opaque handle, but
-                // only if the caller actually supplied a value.
-                out.push_str(&crate::template_env::render(
-                    "param_optional_free.jinja",
-                    minijinja::context! { name => name },
-                ));
                 out.push_str(&crate::template_env::render(
                     "param_struct_handle_free.jinja",
                     minijinja::context! {
@@ -534,10 +531,6 @@ fn emit_param_free(
                     },
                 ));
             } else {
-                out.push_str(&crate::template_env::render(
-                    "param_free.jinja",
-                    minijinja::context! { name => name },
-                ));
                 out.push_str(&crate::template_env::render(
                     "param_struct_handle_free.jinja",
                     minijinja::context! {
