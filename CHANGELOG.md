@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **alef-backend-kotlin-android**: explicitly set Kotlin compile target via
+  `kotlin { compilerOptions { jvmTarget = ... } }` so it matches the Java
+  `compileOptions` target. Previously the emitted `build.gradle.kts` only
+  set Java `sourceCompatibility`/`targetCompatibility` (JVM 11 by default)
+  while Kotlin 2.x with AGP 8.x inferred its own JVM target (17), which
+  caused `compileDebugKotlin` to abort with "Inconsistent JVM-target
+  compatibility detected for tasks 'compileDebugJavaWithJavac' (11) and
+  'compileDebugKotlin' (17)". Both compilers now use the
+  `ANDROID_JVM_TARGET` toolchain constant (or the per-crate
+  `kotlin_android.jvm_target` override) verbatim.
+
 ## [0.16.1] - 2026-05-15
 
 ### Added
