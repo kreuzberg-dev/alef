@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-codegen / all backends**: restore canonical `https://github.com/kreuzberg-dev/alef`
+  URL in generated file headers; 0.16.0 introduced a `https://example.invalid/alef`
+  placeholder by mistake. Affects every emitted artifact's `Issues & docs:` line.
+- **alef-docs / api reference**: fix MD056 table-cell-count mismatch in
+  generated `docs/reference/api-*.md` — some rows emitted 5 cells in a
+  4-column table. Visible in TypeScript and Elixir API docs.
 - **alef-backend-dart**: trait-bridge shims now preserve `Option<&T>` on reference
   parameters. Previously `Option<&str>` collapsed to `&str` in the emitted method
   signature, breaking `impl Trait` for traits like `HtmlVisitor` with optional
