@@ -289,7 +289,7 @@ fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &Enum
     if let Some(rename) = &variant.serde_rename {
         return rename.clone();
     }
-    apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref())
+    apply_serde_rename(&alef_codegen::naming::pascal_to_snake(&variant.name), enum_def.serde_rename_all.as_deref())
 }
 
 /// Generate a Go "newtype-tuple" enum as `type X string` with const block.
@@ -430,8 +430,10 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
                 let field_name = to_go_name(&variant.name);
-                let json_field_name =
-                    apply_serde_rename(&variant.name.to_snake_case(), enum_def.serde_rename_all.as_deref());
+                let json_field_name = apply_serde_rename(
+                    &alef_codegen::naming::pascal_to_snake(&variant.name),
+                    enum_def.serde_rename_all.as_deref(),
+                );
 
                 let doc_lines: Vec<&str> = if !variant.doc.is_empty() {
                     variant.doc.lines().map(|l| l.trim()).collect()

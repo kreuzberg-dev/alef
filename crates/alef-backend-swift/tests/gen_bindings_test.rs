@@ -330,6 +330,85 @@ fn data_bearing_enum_emits_associated_values() {
     );
 }
 
+#[test]
+fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
+    // Reproduces the HtmlTheme regression in the kreuzberg Swift binding:
+    // the `Default` variant must emit as `case `default`` (backtick-escaped),
+    // not `case default_` (trailing-underscore). Non-keyword variants are
+    // unaffected — `GitHub` stays as `case gitHub`.
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "HtmlTheme".into(),
+            rust_path: "demo::HtmlTheme".into(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "GitHub".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Default".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+                EnumVariant {
+                    name: "Dracula".into(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: false,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+
+            is_copy: false,
+            // has_serde: true triggers the native-Swift enum codepath in
+            // emit_enum() (instead of the typealias fallback).
+            has_serde: true,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("case gitHub"),
+        "expected non-keyword variant `GitHub` to emit as `case gitHub`: {content}"
+    );
+    assert!(
+        content.contains("case `default`"),
+        "expected reserved-keyword variant `Default` to emit as backtick-escaped `case `default``: {content}"
+    );
+    assert!(
+        content.contains("case dracula"),
+        "expected non-keyword variant `Dracula` to emit as `case dracula`: {content}"
+    );
+    assert!(
+        !content.contains("case default_"),
+        "must not emit trailing-underscore escape `case default_`: {content}"
+    );
+}
+
 // ── function tests ────────────────────────────────────────────────────────────
 
 #[test]
