@@ -8,10 +8,51 @@ use crate::gen_rust_crate::type_bridge::{
 };
 use crate::gen_rust_crate::wrappers::is_unbridgeable_getter;
 use alef_core::config::AdapterConfig;
-use alef_core::ir::{EnumDef, FunctionDef, TypeDef, TypeRef};
+use alef_core::ir::{EnumDef, FieldDef, FunctionDef, TypeDef, TypeRef};
 use alef_core::keywords::swift_ident;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
+
+/// Returns the subset of `ty.fields` that appear in the swift-bridge constructor extern
+/// (filters out fields marked `binding_excluded` and any field key listed in `exclude_fields`).
+///
+/// Order matches `ty.fields` — the positional argument order swift-bridge uses to emit
+/// the generated `convenience init(_ a, _ b, ...)`.
+pub(crate) fn constructor_fields<'a>(ty: &'a TypeDef, exclude_fields: &HashSet<String>) -> Vec<&'a FieldDef> {
+    ty.fields
+        .iter()
+        .filter(|f| {
+            let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
+            !f.binding_excluded && !exclude_fields.contains(&field_key)
+        })
+        .collect()
+}
+
+/// Returns `true` when `emit_extern_block_for_type` will emit a `#[swift_bridge(init)]`
+/// constructor extern for `ty`. Mirrors the gating logic inside `emit_extern_block_for_type`
+/// so callers (gen_bindings.rs `intoRust()` emission) can detect the presence of a
+/// matching bulk constructor without re-running the whole emitter.
+pub(crate) fn has_constructor_extern(ty: &TypeDef, exclude_fields: &HashSet<String>) -> bool {
+    let fields = constructor_fields(ty, exclude_fields);
+    if fields.is_empty() {
+        return false;
+    }
+    let has_vec_non_primitive = fields.iter().any(
+        |f| matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)),
+    );
+    let has_non_serde_string_field = !ty.has_serde
+        && fields
+            .iter()
+            .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
+    let needs_default_construction = ty.has_serde
+        || has_vec_non_primitive
+        || has_non_serde_string_field
+        || ty.has_stripped_cfg_fields
+        || fields
+            .iter()
+            .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
+    !needs_default_construction || ty.has_default
+}
 
 pub(crate) fn emit_extern_block_for_type(
     ty: &TypeDef,
@@ -37,29 +78,12 @@ pub(crate) fn emit_extern_block_for_type(
     // implement Default, wrappers.rs omits the impl entirely. We mirror that here by
     // also skipping the extern declaration — swift-bridge must not declare `fn new()`
     // without a corresponding Rust impl or linking will fail with E0599.
-    let constructor_fields: Vec<_> = ty
-        .fields
-        .iter()
-        .filter(|f| {
-            let field_key = format!("{}.{}", ty.name, f.name.to_snake_case());
-            !f.binding_excluded && !exclude_fields.contains(&field_key)
-        })
-        .collect();
-    let has_vec_non_primitive = constructor_fields.iter().any(
-        |f| matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)),
-    );
-    let has_non_serde_string_field = !ty.has_serde
-        && constructor_fields
-            .iter()
-            .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
-    let needs_default_construction = ty.has_serde
-        || has_vec_non_primitive
-        || has_non_serde_string_field
-        || ty.has_stripped_cfg_fields
-        || constructor_fields
-            .iter()
-            .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
-    let emit_constructor = !constructor_fields.is_empty() && (!needs_default_construction || ty.has_default);
+    //
+    // The gating predicate lives in `has_constructor_extern` so that gen_bindings.rs
+    // can match the same emission decision when choosing between a bulk constructor
+    // and the JSON roundtrip in `intoRust()`.
+    let constructor_fields = constructor_fields(ty, exclude_fields);
+    let emit_constructor = has_constructor_extern(ty, exclude_fields);
 
     if emit_constructor {
         let params: Vec<String> = constructor_fields

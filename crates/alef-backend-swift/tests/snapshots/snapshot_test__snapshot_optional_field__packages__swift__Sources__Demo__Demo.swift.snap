@@ -24,8 +24,6 @@ internal extension SystemMessage {
         self.name = rb.name()?.toString()
     }
     func intoRust() throws -> RustBridge.SystemMessage {
-        let data = try JSONEncoder().encode(self)
-        let json = String(data: data, encoding: .utf8) ?? "{}"
-        return try RustBridge.systemMessageFromJson(json)
+        return RustBridge.SystemMessage(self.content, self.name)
     }
 }

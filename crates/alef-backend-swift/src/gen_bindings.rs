@@ -56,6 +56,15 @@ impl Backend for SwiftBackend {
         // `swift.exclude_functions` therefore has no effect on the host wrapper but
         // is still consumed by the Rust-side bridge crate via gen_rust_crate::emit.
         let exclude_types = effective_exclude_types(config);
+        // The Rust-side gen_rust_crate uses the same `exclude_fields` set to gate which
+        // fields appear in the `#[swift_bridge(init)] fn new(...)` constructor extern.
+        // We mirror that set here so `intoRust()` knows when a bulk constructor extern
+        // is available and which fields it accepts.
+        let exclude_fields: std::collections::HashSet<String> = config
+            .swift
+            .as_ref()
+            .map(|c| c.exclude_fields.iter().cloned().collect())
+            .unwrap_or_default();
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
         // Foundation is always included — Codable, Data, URL all live there.
@@ -82,7 +91,7 @@ impl Backend for SwiftBackend {
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             if !ty.is_opaque && ty.has_serde && !ty.fields.is_empty() {
-                emit_first_class_struct(ty, &mapper, &mut body);
+                emit_first_class_struct(ty, &mapper, &exclude_fields, &mut body);
             } else {
                 body.push_str(&crate::template_env::render(
                     "typealias.jinja",
@@ -310,7 +319,12 @@ impl Backend for SwiftBackend {
 ///          when field names differ from their wire (serde snake_case) keys.
 /// Layer 2: `internal extension Foo` with `init(_ rb: RustBridge.Foo) throws` and
 ///          `func intoRust() throws -> RustBridge.Foo` for FFI marshaling.
-fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, out: &mut String) {
+fn emit_first_class_struct(
+    ty: &alef_core::ir::TypeDef,
+    mapper: &SwiftMapper,
+    exclude_fields: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     use alef_codegen::type_mapper::TypeMapper;
     use alef_core::ir::TypeRef;
     use heck::ToLowerCamelCase;
@@ -402,15 +416,180 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     }
     out.push_str("    }\n");
 
-    // func intoRust() — encode via JSON round-trip using the RustBridge from_json shim.
-    let from_json_fn = format!("{type_snake}_from_json").to_lower_camel_case();
+    // func intoRust() — prefer a direct `RustBridge.{Type}(...)` bulk-constructor call
+    // when the swift-bridge `#[swift_bridge(init)] fn new(...)` extern is emitted for
+    // this type AND every constructor field can be converted to its bridge argument
+    // without a JSON detour. Falls back to the JSON roundtrip via the `{type}_from_json`
+    // shim otherwise (e.g. fields needing JSON bridge, types without a Default impl).
+    //
+    // The bulk path mirrors the symmetric direct-field-access pattern in
+    // `init(_ rb: RustBridge.{Type}) throws` above and avoids the JSONEncoder + Rust-side
+    // `serde_json::from_str` work for primitive-only DTOs.
     out.push_str(&format!("    func intoRust() throws -> RustBridge.{type_name} {{\n"));
-    out.push_str("        let data = try JSONEncoder().encode(self)\n");
-    out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
-    out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
+    let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name);
+    match direct_call {
+        Some(call) => out.push_str(&call),
+        None => {
+            let from_json_fn = format!("{type_snake}_from_json").to_lower_camel_case();
+            out.push_str("        let data = try JSONEncoder().encode(self)\n");
+            out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
+            out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
+        }
+    }
     out.push_str("    }\n");
 
     out.push_str("}\n");
+}
+
+/// Returns the Swift body of `intoRust()` as a direct `RustBridge.{Type}(...)` call when
+/// every constructor field can be converted without JSON, or `None` when at least one
+/// field requires the JSON fallback (e.g. JSON-bridged Map/Json fields, types without a
+/// Default impl that prevent the bulk constructor extern from being emitted).
+///
+/// Conversions supported in this PoC:
+/// - Primitive (Int/UInt/Bool/Float/Double): pass `self.{camel}` directly.
+/// - String: pass `self.{camel}` (Swift `String` conforms to swift-bridge's `IntoRustString`).
+/// - Named(struct): recurse via `try self.{camel}.intoRust()`.
+/// - Vec<Primitive | String | Named>: build a `RustVec<T>` and push each converted element.
+/// - Optional<Primitive | String>: pass `self.{camel}` (swift-bridge handles native nullable).
+///
+/// Returns `None` for anything else (Map, Json, Path, Bytes, Duration, Char, Optional<Vec>,
+/// Optional<Named>, Vec<Vec<...>>) so the caller can use the JSON fallback.
+fn emit_into_rust_direct_call(
+    ty: &alef_core::ir::TypeDef,
+    _mapper: &SwiftMapper,
+    exclude_fields: &std::collections::HashSet<String>,
+    type_name: &str,
+) -> Option<String> {
+    use crate::gen_rust_crate::extern_block::{constructor_fields, has_constructor_extern};
+    use heck::ToLowerCamelCase;
+
+    if !has_constructor_extern(ty, exclude_fields) {
+        return None;
+    }
+
+    let ctor_fields = constructor_fields(ty, exclude_fields);
+    // If any visible (binding-visible) field is dropped from the constructor — e.g.
+    // listed in `[crates.<crate>.swift] exclude_fields` — the bulk constructor would
+    // silently default that field while the JSON roundtrip preserves whatever serde
+    // encoded. Fall back to JSON in that case to avoid a behaviour change.
+    let visible_count = ty.fields.iter().filter(|f| !f.binding_excluded).count();
+    if ctor_fields.len() != visible_count {
+        return None;
+    }
+
+    // Build per-field conversion expressions. Bail to None (JSON fallback) on the first
+    // field type we don't yet support.
+    let mut prelude = String::new();
+    let mut args: Vec<String> = Vec::with_capacity(ctor_fields.len());
+    for field in &ctor_fields {
+        let camel = swift_case_ident(&field.name.to_lower_camel_case());
+        let local = format!("__{}", field.name.to_lower_camel_case());
+        match field_intorust_arg(&field.ty, field.optional, &camel, &local) {
+            Some(FieldArg::Direct(expr)) => args.push(expr),
+            Some(FieldArg::WithPrelude { prelude: p, arg }) => {
+                prelude.push_str(&p);
+                args.push(arg);
+            }
+            None => return None,
+        }
+    }
+
+    // Emit: `return RustBridge.{TypeName}(arg1, arg2, ...)` — swift-bridge's
+    // convenience init takes positional `_` parameters in field-declaration order.
+    let mut body = String::new();
+    body.push_str(&prelude);
+    body.push_str(&format!(
+        "        return RustBridge.{type_name}({args})\n",
+        args = args.join(", ")
+    ));
+    Some(body)
+}
+
+/// One field's contribution to the `RustBridge.{Type}(...)` argument list.
+enum FieldArg {
+    /// Inline expression — no temporaries needed (`self.foo`, etc.).
+    Direct(String),
+    /// Multi-statement prelude that materialises a temporary, plus the argument
+    /// referencing that temporary (`__foo`).
+    WithPrelude { prelude: String, arg: String },
+}
+
+/// Translate a single field into a `RustBridge.{Type}(...)` argument.
+///
+/// Returns `None` when the field's Swift type cannot yet be passed directly to the
+/// swift-bridge convenience init (Map, Json, Path, Bytes, Duration, Char, etc.) — the
+/// caller falls back to the JSON roundtrip.
+fn field_intorust_arg(
+    ty: &alef_core::ir::TypeRef,
+    field_optional: bool,
+    self_property: &str,
+    local: &str,
+) -> Option<FieldArg> {
+    use alef_core::ir::TypeRef;
+
+    // Unwrap Optional(T) and merge with field.optional — both encode "nullable" in
+    // different parts of the IR.
+    let (inner_ty, is_optional) = match ty {
+        TypeRef::Optional(inner) => (inner.as_ref(), true),
+        _ => (ty, field_optional),
+    };
+
+    match inner_ty {
+        // Primitives and bools pass straight through — Swift Int/UInt/Bool/Float/Double
+        // map directly onto swift-bridge's bridged Rust primitives, including the
+        // `Optional<T>` variants.
+        TypeRef::Primitive(_) => Some(FieldArg::Direct(format!("self.{self_property}"))),
+
+        // String fields go straight in (Swift `String` conforms to `IntoRustString`,
+        // including the `Optional<GenericIntoRustString>` form).
+        TypeRef::String if !is_optional => Some(FieldArg::Direct(format!("self.{self_property}"))),
+        TypeRef::String => Some(FieldArg::Direct(format!("self.{self_property}"))),
+
+        // Nested struct field: recurse via the symmetric `intoRust()` method on the
+        // first-class struct. swift-bridge takes the wrapper class (e.g. `RustBridge.Span`).
+        TypeRef::Named(_) if !is_optional => Some(FieldArg::Direct(format!(
+            "try self.{self_property}.intoRust()"
+        ))),
+
+        // Vec<T>: build a `RustVec<U>` and push each converted element. The element
+        // converter is the inner type's own intoRust handling.
+        TypeRef::Vec(elem) if !is_optional => emit_vec_arg(elem, self_property, local),
+
+        // Other forms (Map, Path, Bytes, Duration, Char, Json, Optional<Vec>,
+        // Optional<Named>, Vec<Vec<…>>) take the JSON fallback for now.
+        _ => None,
+    }
+}
+
+/// Emit a `RustVec<U>` materialisation prelude and the argument referencing it.
+///
+/// Supports inner types: Primitive (`RustVec<Int>` etc.), String (`RustVec<String>`),
+/// and Named (`RustVec<RustBridge.Foo>` via per-element `intoRust()`).
+fn emit_vec_arg(elem: &alef_core::ir::TypeRef, self_property: &str, local: &str) -> Option<FieldArg> {
+    use alef_core::ir::TypeRef;
+
+    let (rust_vec_param, elem_expr): (String, String) = match elem {
+        TypeRef::Primitive(prim) => {
+            let swift_prim = SwiftMapper.primitive(prim).into_owned();
+            (swift_prim, "__elem".to_string())
+        }
+        TypeRef::String => ("String".to_string(), "__elem".to_string()),
+        TypeRef::Named(name) => (format!("RustBridge.{name}"), "try __elem.intoRust()".to_string()),
+        _ => return None,
+    };
+
+    // RustVec.push(value:) consumes one element at a time. The literal Swift array
+    // (`self.{prop}`) iterates fine in a `for`-loop. The Rust-side extern takes
+    // ownership of the resulting RustVec, so we don't need any extra cleanup.
+    let prelude = format!(
+        "        let {local} = RustVec<{rust_vec_param}>()\n        \
+         for __elem in self.{self_property} {{ {local}.push(value: {elem_expr}) }}\n",
+    );
+    Some(FieldArg::WithPrelude {
+        prelude,
+        arg: local.to_string(),
+    })
 }
 
 /// Returns the Swift expression to read a field value from a `RustBridge` accessor call.
