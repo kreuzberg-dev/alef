@@ -241,8 +241,12 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
 
     for typ in &mut api.types {
         for field in &mut typ.fields {
+            let original = extract_tuple_vec_original_type(&field.ty);
             if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
                 field.sanitized = true;
+                if let Some(orig) = original {
+                    field.original_type = Some(orig);
+                }
             }
             // Second pass: check type_rust_path for name-collision disambiguation.
             // If a field has a type_rust_path that doesn't match any known type/enum rust_path,
@@ -340,8 +344,12 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     for enum_def in &mut api.enums {
         for variant in &mut enum_def.variants {
             for field in &mut variant.fields {
+                let original = extract_tuple_vec_original_type(&field.ty);
                 if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
                     field.sanitized = true;
+                    if let Some(orig) = original {
+                        field.original_type = Some(orig);
+                    }
                 }
             }
         }
@@ -350,8 +358,12 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     for error_def in &mut api.errors {
         for variant in &mut error_def.variants {
             for field in &mut variant.fields {
+                let original = extract_tuple_vec_original_type(&field.ty);
                 if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
                     field.sanitized = true;
+                    if let Some(orig) = original {
+                        field.original_type = Some(orig);
+                    }
                 }
             }
         }
@@ -466,6 +478,31 @@ fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// If `ty` is `Vec<(...)>` or `Option<Vec<(...)>>` — a Vec whose inner element is a tuple
+/// type name — return a human-readable string capturing the original shape before sanitization
+/// (e.g. `"Vec<(String, String)>"`).  Returns `None` for all other shapes.
+///
+/// This is called *before* `sanitize_type_ref` rewrites the inner `Named("(String, String)")`
+/// to `String`, so backends can store this string in `FieldDef::original_type` and later emit
+/// language-native pair types instead of a plain list.
+fn extract_tuple_vec_original_type(ty: &TypeRef) -> Option<String> {
+    fn inner_tuple_name(ty: &TypeRef) -> Option<String> {
+        if let TypeRef::Vec(inner) = ty {
+            if let TypeRef::Named(name) = inner.as_ref() {
+                if name.trim_start().starts_with('(') {
+                    return Some(format!("Vec<{name}>"));
+                }
+            }
+        }
+        None
+    }
+    match ty {
+        TypeRef::Vec(_) => inner_tuple_name(ty),
+        TypeRef::Optional(inner) => inner_tuple_name(inner),
+        _ => None,
+    }
 }
 
 /// Returns true if the type was sanitized (changed from original).
