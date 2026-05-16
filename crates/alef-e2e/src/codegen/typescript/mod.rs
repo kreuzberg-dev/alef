@@ -27,7 +27,7 @@ impl E2eCodegen for TypeScriptCodegen {
         &self,
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
-        _config: &ResolvedCrateConfig,
+        config: &ResolvedCrateConfig,
         type_defs: &[alef_core::ir::TypeDef],
         enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
@@ -65,6 +65,7 @@ impl E2eCodegen for TypeScriptCodegen {
             .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
 
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
