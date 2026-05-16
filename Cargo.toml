@@ -1,34 +1,34 @@
 [workspace]
 resolver = "2"
 members = [
-  "crates/alef-adapters",
-  "crates/alef-backend-csharp",
-  "crates/alef-backend-dart",
-  "crates/alef-backend-extendr",
-  "crates/alef-backend-ffi",
-  "crates/alef-backend-gleam",
-  "crates/alef-backend-go",
-  "crates/alef-backend-java",
-  "crates/alef-backend-kotlin",
-  "crates/alef-backend-jni",
-  "crates/alef-backend-kotlin-android",
-  "crates/alef-backend-magnus",
-  "crates/alef-backend-napi",
-  "crates/alef-backend-php",
-  "crates/alef-backend-pyo3",
-  "crates/alef-backend-rustler",
-  "crates/alef-backend-swift",
-  "crates/alef-backend-wasm",
-  "crates/alef-backend-zig",
-  "crates/alef-cli",
-  "crates/alef-codegen",
-  "crates/alef-core",
-  "crates/alef-docs",
-  "crates/alef-e2e",
-  "crates/alef-extract",
-  "crates/alef-publish",
-  "crates/alef-readme",
-  "crates/alef-scaffold",
+    "crates/alef-adapters",
+    "crates/alef-backend-csharp",
+    "crates/alef-backend-dart",
+    "crates/alef-backend-extendr",
+    "crates/alef-backend-ffi",
+    "crates/alef-backend-gleam",
+    "crates/alef-backend-go",
+    "crates/alef-backend-java",
+    "crates/alef-backend-jni",
+    "crates/alef-backend-kotlin",
+    "crates/alef-backend-kotlin-android",
+    "crates/alef-backend-magnus",
+    "crates/alef-backend-napi",
+    "crates/alef-backend-php",
+    "crates/alef-backend-pyo3",
+    "crates/alef-backend-rustler",
+    "crates/alef-backend-swift",
+    "crates/alef-backend-wasm",
+    "crates/alef-backend-zig",
+    "crates/alef-cli",
+    "crates/alef-codegen",
+    "crates/alef-core",
+    "crates/alef-docs",
+    "crates/alef-e2e",
+    "crates/alef-extract",
+    "crates/alef-publish",
+    "crates/alef-readme",
+    "crates/alef-scaffold",
 ]
 
 [workspace.package]
@@ -51,8 +51,8 @@ alef-backend-ffi = { version = "0.16.20", path = "crates/alef-backend-ffi" }
 alef-backend-gleam = { version = "0.16.20", path = "crates/alef-backend-gleam" }
 alef-backend-go = { version = "0.16.20", path = "crates/alef-backend-go" }
 alef-backend-java = { version = "0.16.20", path = "crates/alef-backend-java" }
-alef-backend-kotlin = { version = "0.16.20", path = "crates/alef-backend-kotlin" }
 alef-backend-jni = { version = "0.16.20", path = "crates/alef-backend-jni" }
+alef-backend-kotlin = { version = "0.16.20", path = "crates/alef-backend-kotlin" }
 alef-backend-kotlin-android = { version = "0.16.20", path = "crates/alef-backend-kotlin-android" }
 alef-backend-magnus = { version = "0.16.20", path = "crates/alef-backend-magnus" }
 alef-backend-napi = { version = "0.16.20", path = "crates/alef-backend-napi" }

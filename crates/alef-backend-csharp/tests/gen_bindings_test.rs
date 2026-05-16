@@ -235,6 +235,112 @@ fn test_basic_generation() {
         enum_type.content.contains("public enum OcrBackend"),
         "Should define OcrBackend enum"
     );
+    // Sanity-check the XML doc summary renders across separate /// lines for
+    // both the enum class and its variants — regression guard for the issue
+    // where {%- / -%} trimming collapsed the block onto one line.
+    assert!(
+        enum_type
+            .content
+            .contains("/// <summary>\n/// Available OCR backends\n/// </summary>"),
+        "Enum class doc summary should be on separate /// lines:\n{}",
+        enum_type.content
+    );
+    assert!(
+        enum_type
+            .content
+            .contains("    /// <summary>\n    /// Tesseract OCR\n    /// </summary>"),
+        "Enum variant doc summary should be on separate /// lines:\n{}",
+        enum_type.content
+    );
+}
+
+/// Regression: enum XML doc summary used to render on a single line as
+/// `/// <summary>/// text/// </summary>` because the jinja `for` loop tags used
+/// `{%-` / `-%}` whitespace trimming, eating the newlines after each `///` line.
+/// The fix splits the block into three separate `///` lines (and one per doc
+/// line + per variant doc line) so the output parses as proper C# XML docs.
+#[test]
+fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
+    let backend = CsharpBackend;
+
+    let api = ApiSurface {
+        crate_name: "testlib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "BrowserWait".to_string(),
+            rust_path: "testlib::BrowserWait".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "NetworkIdle".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Wait until network activity is idle.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Selector".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: "Wait for a specific CSS selector to appear in the DOM.\nSecond line of variant doc."
+                        .to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Wait strategy for browser page rendering.\nSecond line of enum doc.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_config("testlib", Some("Testlib"), true);
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+
+    let enum_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("BrowserWait.cs"))
+        .expect("BrowserWait.cs should be generated");
+    let content = &enum_file.content;
+
+    // Class-level doc: 3-line summary block, one /// per doc line, separate
+    // open/close tags. The concatenated buggy form `<summary>/// text` must
+    // never appear.
+    assert!(
+        !content.contains("<summary>///"),
+        "Concatenated summary/doc-line marker should not appear in enum class doc:\n{content}"
+    );
+    assert!(
+        !content.contains("///</summary>") && !content.contains(".</summary>"),
+        "Concatenated doc-line/summary close marker should not appear in enum class doc:\n{content}"
+    );
+    assert!(
+        content.contains("/// <summary>\n/// Wait strategy for browser page rendering.\n/// Second line of enum doc.\n/// </summary>\n"),
+        "Enum class doc summary should render across separate lines, one /// per source line:\n{content}"
+    );
+
+    // Variant-level doc: indented 4 spaces, same shape.
+    assert!(
+        content.contains("    /// <summary>\n    /// Wait until network activity is idle.\n    /// </summary>\n"),
+        "Variant doc summary (NetworkIdle) should render across separate /// lines:\n{content}"
+    );
+    assert!(
+        content.contains("    /// <summary>\n    /// Wait for a specific CSS selector to appear in the DOM.\n    /// Second line of variant doc.\n    /// </summary>\n"),
+        "Multi-line variant doc (Selector) should emit one /// per source line:\n{content}"
+    );
 }
 
 #[test]
