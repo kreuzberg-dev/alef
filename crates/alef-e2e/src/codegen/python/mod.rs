@@ -89,11 +89,12 @@ impl super::E2eCodegen for PythonE2eCodegen {
         });
 
         for group in groups {
-            let fixtures: Vec<&Fixture> = group.fixtures.iter().collect();
+            let fixtures: Vec<&Fixture> = group
+                .fixtures
+                .iter()
+                .filter(|fixture| is_python_fixture_runnable(fixture))
+                .collect();
             if fixtures.is_empty() {
-                continue;
-            }
-            if fixtures.iter().all(|f| is_skipped(f, "python")) {
                 continue;
             }
 
@@ -112,6 +113,18 @@ impl super::E2eCodegen for PythonE2eCodegen {
     fn language_name(&self) -> &'static str {
         "python"
     }
+}
+
+fn is_python_fixture_runnable(fixture: &Fixture) -> bool {
+    if is_skipped(fixture, "python") {
+        return false;
+    }
+
+    if let Some(http) = &fixture.http {
+        return http.expected_response.status_code != 101;
+    }
+
+    !fixture.assertions.is_empty()
 }
 
 // ---------------------------------------------------------------------------

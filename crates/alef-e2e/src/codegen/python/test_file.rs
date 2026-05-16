@@ -60,7 +60,6 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let has_error_test = fixtures
         .iter()
         .any(|f| f.assertions.iter().any(|a| a.assertion_type == "error"));
-    let has_skipped = fixtures.iter().any(|f| is_skipped(f, "python"));
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
     // File-level is_async: true if ANY fixture in this file will emit an async test function.
@@ -80,7 +79,7 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     let has_env_api_key = fixtures
         .iter()
         .any(|f| f.env.as_ref().and_then(|e| e.api_key_var.as_ref()).is_some());
-    let needs_pytest = has_error_test || has_skipped || is_async || has_env_api_key;
+    let needs_pytest = has_error_test || is_async || has_env_api_key;
 
     let needs_json_import = effective_options_via == "json"
         && fixtures.iter().any(|f| {
@@ -215,8 +214,6 @@ pub(super) fn render_test_file(category: &str, fixtures: &[&Fixture], e2e_config
     for fixture in fixtures {
         if fixture.is_http_test() {
             render_http_test_function(&mut fixtures_body, fixture);
-        } else if !is_skipped(fixture, "python") && fixture.assertions.is_empty() {
-            emit_skipped_placeholder(&mut fixtures_body, fixture);
         } else {
             render_test_function(
                 &mut fixtures_body,
@@ -269,23 +266,6 @@ fn render_item_text_helper(out: &mut String) {
     let _ = writeln!(out, "    )");
     let _ = writeln!(out);
     let _ = writeln!(out);
-}
-
-fn emit_skipped_placeholder(out: &mut String, fixture: &Fixture) {
-    use crate::escape::sanitize_ident;
-    let fn_name = sanitize_ident(&fixture.id);
-    let description = &fixture.description;
-    let desc_with_period = if description.ends_with('.') {
-        description.to_string()
-    } else {
-        format!("{description}.")
-    };
-    let _ = writeln!(
-        out,
-        "@pytest.mark.skip(reason=\"no assertions configured for this fixture in python e2e\")"
-    );
-    let _ = writeln!(out, "def test_{fn_name}() -> None:");
-    let _ = writeln!(out, "    \"\"\"{desc_with_period}\"\"\"");
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -496,28 +476,5 @@ mod tests {
         let e2e_config = crate::config::E2eConfig::default();
         let out = render_test_file("basic", &fixtures, &e2e_config);
         assert!(out.contains("E2e tests for category: basic"), "got: {out}");
-    }
-
-    #[test]
-    fn emit_skipped_placeholder_contains_skip_decorator() {
-        let fixture = crate::fixture::Fixture {
-            id: "foo_bar".to_string(),
-            description: "Some test".to_string(),
-            input: serde_json::Value::Null,
-            http: None,
-            assertions: Vec::new(),
-            call: None,
-            skip: None,
-            env: None,
-            visitor: None,
-            mock_response: None,
-            source: String::new(),
-            category: None,
-            tags: Vec::new(),
-        };
-        let mut out = String::new();
-        emit_skipped_placeholder(&mut out, &fixture);
-        assert!(out.contains("pytest.mark.skip"), "got: {out}");
-        assert!(out.contains("test_foo_bar"), "got: {out}");
     }
 }

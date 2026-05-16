@@ -8,7 +8,7 @@ mod visitors;
 
 use crate::config::E2eConfig;
 use crate::field_access::FieldResolver;
-use crate::fixture::FixtureGroup;
+use crate::fixture::{Fixture, FixtureGroup};
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
 use anyhow::Result;
@@ -142,7 +142,7 @@ impl E2eCodegen for TypeScriptCodegen {
             let active: Vec<_> = group
                 .fixtures
                 .iter()
-                .filter(|f| f.skip.as_ref().is_none_or(|s| !s.should_skip("node")))
+                .filter(|fixture| is_node_fixture_runnable(fixture))
                 .collect();
 
             if active.is_empty() {
@@ -178,6 +178,18 @@ impl E2eCodegen for TypeScriptCodegen {
     fn language_name(&self) -> &'static str {
         "node"
     }
+}
+
+fn is_node_fixture_runnable(fixture: &Fixture) -> bool {
+    if fixture.skip.as_ref().is_some_and(|skip| skip.should_skip("node")) {
+        return false;
+    }
+
+    if let Some(http) = &fixture.http {
+        return http.expected_response.status_code != 101;
+    }
+
+    !fixture.assertions.is_empty()
 }
 
 #[cfg(test)]
