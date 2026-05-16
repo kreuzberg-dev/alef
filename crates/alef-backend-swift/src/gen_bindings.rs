@@ -699,9 +699,17 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
             .iter()
             .enumerate()
             .map(|(idx, f)| {
+                // Honor field.optional (extractor-unwrapped form) in addition to
+                // TypeRef::Optional(inner) — both encode "nullable" in the IR.
+                let already_optional = matches!(&f.ty, TypeRef::Optional(_));
                 let ty_str = mapper.map_type(&f.ty);
+                let ty_with_opt = if f.optional && !already_optional {
+                    format!("{ty_str}?")
+                } else {
+                    ty_str
+                };
                 let label = swift_associated_label(&f.name, idx);
-                format!("{label}: {ty_str}")
+                format!("{label}: {ty_with_opt}")
             })
             .collect();
         out.push_str(&crate::template_env::render(
@@ -765,7 +773,15 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
             let mut seen_message = false;
             let mut labels: BTreeSet<String> = BTreeSet::new();
             for (idx, f) in variant.fields.iter().enumerate() {
+                // Honor field.optional (extractor-unwrapped form) in addition to
+                // TypeRef::Optional(inner) — both encode "nullable" in the IR.
+                let already_optional = matches!(&f.ty, TypeRef::Optional(_));
                 let ty_str = mapper.map_type(&f.ty);
+                let ty_with_opt = if f.optional && !already_optional {
+                    format!("{ty_str}?")
+                } else {
+                    ty_str
+                };
                 let mut label = swift_associated_label(&f.name, idx);
                 // Disambiguate duplicate labels by suffixing the index.
                 while labels.contains(&label) {
@@ -775,7 +791,7 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
                 if label == "message" {
                     seen_message = true;
                 }
-                assoc.push(format!("{label}: {ty_str}"));
+                assoc.push(format!("{label}: {ty_with_opt}"));
             }
             if !seen_message {
                 assoc.insert(0, "message: String".to_string());

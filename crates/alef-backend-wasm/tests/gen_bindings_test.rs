@@ -2848,6 +2848,27 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         content.contains("format: serde_wasm_bindgen::to_value(&val.format).unwrap_or(JsValue::NULL)"),
         "bare TaggedDataEnum core→binding From impl must use serde_wasm_bindgen;\nactual:\n{content}"
     );
+
+    // --- Constructor parameter type checks ---
+
+    // The constructor parameter for an optional tagged-data enum field must be Option<JsValue>,
+    // not Option<WasmResponseFormat> — JS callers pass plain object literals, not Rust wrappers.
+    assert!(
+        content.contains("response_format: Option<JsValue>"),
+        "Option<TaggedDataEnum> constructor param must be Option<JsValue>;\nactual:\n{content}"
+    );
+    assert!(
+        !content.contains("response_format: Option<WasmResponseFormat>"),
+        "Option<TaggedDataEnum> constructor param must NOT be Option<WasmResponseFormat>;\nactual:\n{content}"
+    );
+
+    // The constructor parameter for a required (bare) tagged-data enum field must be JsValue.
+    // `format` is required (optional=false), so the constructor takes it as JsValue directly.
+    // `response_format` is optional (optional=true), so it comes last as Option<JsValue>.
+    assert!(
+        content.contains("pub fn new(format: JsValue, responseFormat: Option<JsValue>)"),
+        "bare TaggedDataEnum constructor param must be JsValue, optional must be Option<JsValue>;\nactual:\n{content}"
+    );
 }
 
 #[test]

@@ -1,0 +1,296 @@
+use crate::discovery::discover_snippets;
+use crate::error::Result;
+use crate::parser;
+use crate::types::{Language, Snippet, SnippetAnnotationKind};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+use walkdir::WalkDir;
+
+#[derive(Debug, Clone, Default)]
+pub struct GapConfig {
+    pub docs_dirs: Vec<PathBuf>,
+    pub snippet_dirs: Vec<PathBuf>,
+    pub required_languages: Vec<Language>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnippetReference {
+    pub source: PathBuf,
+    pub target: PathBuf,
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingLanguageVariant {
+    pub group: PathBuf,
+    pub language: Language,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnippetLocation {
+    pub path: PathBuf,
+    pub line: usize,
+    pub block_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnknownLanguage {
+    pub path: PathBuf,
+    pub line: usize,
+    pub tag: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GapReport {
+    pub missing_references: Vec<SnippetReference>,
+    pub unreferenced_snippets: Vec<PathBuf>,
+    pub missing_language_variants: Vec<MissingLanguageVariant>,
+    pub skips_without_reason: Vec<SnippetLocation>,
+    pub unknown_languages: Vec<UnknownLanguage>,
+}
+
+impl GapReport {
+    #[must_use]
+    pub fn has_gaps(&self) -> bool {
+        !self.missing_references.is_empty()
+            || !self.unreferenced_snippets.is_empty()
+            || !self.missing_language_variants.is_empty()
+            || !self.skips_without_reason.is_empty()
+            || !self.unknown_languages.is_empty()
+    }
+}
+
+/// Build a report for common documentation snippet coverage gaps.
+///
+/// # Errors
+///
+/// Returns an error when snippets or markdown files cannot be read.
+pub fn detect_gaps(config: &GapConfig) -> Result<GapReport> {
+    let snippets = discover_snippets(&config.snippet_dirs, None)?;
+    let references = discover_includes(&config.docs_dirs)?;
+    let snippet_files = snippet_files(&snippets);
+
+    Ok(GapReport {
+        missing_references: missing_references(&references),
+        unreferenced_snippets: unreferenced_snippets(&snippet_files, &references),
+        missing_language_variants: missing_language_variants(&snippets, &config.required_languages),
+        skips_without_reason: skips_without_reason(&snippets),
+        unknown_languages: unknown_languages(&config.snippet_dirs)?,
+    })
+}
+
+/// Discover MkDocs `--8<-- "path"` include references beneath documentation roots.
+///
+/// # Errors
+///
+/// Returns an error when a markdown file cannot be read.
+pub fn discover_includes(docs_dirs: &[PathBuf]) -> Result<Vec<SnippetReference>> {
+    let mut references = Vec::new();
+    for docs_dir in docs_dirs {
+        for path in markdown_files(docs_dir) {
+            let content = std::fs::read_to_string(&path)?;
+            references.extend(parse_includes(&content, &path, docs_dir));
+        }
+    }
+    references.sort_by(|left, right| left.source.cmp(&right.source).then(left.line.cmp(&right.line)));
+    Ok(references)
+}
+
+#[must_use]
+pub fn parse_includes(content: &str, source: &Path, docs_dir: &Path) -> Vec<SnippetReference> {
+    content
+        .lines()
+        .enumerate()
+        .filter_map(|(index, line)| parse_include_target(line).map(|target| (index, target)))
+        .map(|(index, target)| SnippetReference {
+            source: source.to_path_buf(),
+            target: docs_dir.join(target),
+            line: index + 1,
+        })
+        .collect()
+}
+
+pub fn parse_include_target(line: &str) -> Option<&str> {
+    let marker = "--8<--";
+    let after_marker = line.trim().strip_prefix(marker)?.trim();
+    let quoted = after_marker.strip_prefix('"')?;
+    let end = quoted.find('"')?;
+    Some(&quoted[..end])
+}
+
+fn markdown_files(base: &Path) -> Vec<PathBuf> {
+    if !base.exists() {
+        return Vec::new();
+    }
+
+    let mut files: Vec<PathBuf> = WalkDir::new(base)
+        .follow_links(true)
+        .into_iter()
+        .filter_map(std::result::Result::ok)
+        .filter(|entry| entry.file_type().is_file())
+        .map(walkdir::DirEntry::into_path)
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .map(|extension| matches!(extension.to_lowercase().as_str(), "md" | "markdown"))
+                .unwrap_or(false)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+fn snippet_files(snippets: &[Snippet]) -> BTreeSet<PathBuf> {
+    snippets.iter().map(|snippet| snippet.path.clone()).collect()
+}
+
+fn missing_references(references: &[SnippetReference]) -> Vec<SnippetReference> {
+    references
+        .iter()
+        .filter(|reference| !reference.target.exists())
+        .cloned()
+        .collect()
+}
+
+fn unreferenced_snippets(snippet_files: &BTreeSet<PathBuf>, references: &[SnippetReference]) -> Vec<PathBuf> {
+    let referenced: BTreeSet<PathBuf> = references
+        .iter()
+        .filter(|reference| reference.target.exists())
+        .map(|reference| reference.target.clone())
+        .collect();
+    snippet_files.difference(&referenced).cloned().collect()
+}
+
+fn missing_language_variants(snippets: &[Snippet], required_languages: &[Language]) -> Vec<MissingLanguageVariant> {
+    if required_languages.is_empty() {
+        return Vec::new();
+    }
+
+    let mut groups: BTreeMap<PathBuf, BTreeSet<Language>> = BTreeMap::new();
+    for snippet in snippets {
+        let Some(group) = language_group(&snippet.path, snippet.language) else {
+            continue;
+        };
+        groups.entry(group).or_default().insert(snippet.language);
+    }
+
+    let mut missing = Vec::new();
+    for (group, languages) in groups {
+        for language in required_languages {
+            if !languages.contains(language) {
+                missing.push(MissingLanguageVariant {
+                    group: group.clone(),
+                    language: *language,
+                });
+            }
+        }
+    }
+    missing
+}
+
+fn language_group(path: &Path, language: Language) -> Option<PathBuf> {
+    let language_name = language.to_string();
+    let mut group = PathBuf::new();
+    let mut replaced = false;
+
+    for component in path.components() {
+        let text = component.as_os_str().to_str()?;
+        if !replaced && text == language_name {
+            group.push("{language}");
+            replaced = true;
+        } else {
+            group.push(text);
+        }
+    }
+
+    replaced.then_some(group)
+}
+
+fn skips_without_reason(snippets: &[Snippet]) -> Vec<SnippetLocation> {
+    snippets
+        .iter()
+        .filter(|snippet| {
+            snippet
+                .annotation
+                .as_ref()
+                .map(|annotation| {
+                    annotation.kind == SnippetAnnotationKind::Skip
+                        && annotation.reason.as_deref().unwrap_or_default().is_empty()
+                })
+                .unwrap_or(false)
+        })
+        .map(|snippet| SnippetLocation {
+            path: snippet.path.clone(),
+            line: snippet.start_line,
+            block_index: snippet.block_index,
+        })
+        .collect()
+}
+
+fn unknown_languages(snippet_dirs: &[PathBuf]) -> Result<Vec<UnknownLanguage>> {
+    let mut unknown = Vec::new();
+    for dir in snippet_dirs {
+        for path in markdown_files(dir) {
+            for block in parser::parse_code_blocks(&path)? {
+                if Language::from_fence_tag(&block.lang) == Language::Unknown {
+                    unknown.push(UnknownLanguage {
+                        path: path.clone(),
+                        line: block.start_line,
+                        tag: block.lang,
+                    });
+                }
+            }
+        }
+    }
+    unknown.sort_by(|left, right| left.path.cmp(&right.path).then(left.line.cmp(&right.line)));
+    Ok(unknown)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn discovers_mkdocs_include_references() {
+        let refs = parse_includes(
+            r#"
+    --8<-- "snippets/python/example.md"
+"#,
+            Path::new("/repo/docs/index.md"),
+            Path::new("/repo/docs"),
+        );
+
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].target, PathBuf::from("/repo/docs/snippets/python/example.md"));
+        assert_eq!(refs[0].line, 2);
+    }
+
+    #[test]
+    fn reports_fixture_tree_gaps() {
+        let dir = tempfile::tempdir().unwrap();
+        let docs = dir.path().join("docs");
+        let snippets = docs.join("snippets");
+        std::fs::create_dir_all(snippets.join("python")).unwrap();
+        std::fs::create_dir_all(snippets.join("rust")).unwrap();
+        std::fs::write(docs.join("index.md"), r#"--8<-- "snippets/python/example.md""#).unwrap();
+        std::fs::write(snippets.join("python/example.md"), "```python\nprint('ok')\n```\n").unwrap();
+        std::fs::write(
+            snippets.join("rust/unused.md"),
+            "<!-- snippet:skip -->\n```rust\nfn main() {}\n```\n",
+        )
+        .unwrap();
+
+        let report = detect_gaps(&GapConfig {
+            docs_dirs: vec![docs],
+            snippet_dirs: vec![snippets],
+            required_languages: vec![Language::Python, Language::Rust],
+        })
+        .unwrap();
+
+        assert!(report.missing_references.is_empty());
+        assert_eq!(report.unreferenced_snippets.len(), 1);
+        assert_eq!(report.missing_language_variants.len(), 2);
+        assert_eq!(report.skips_without_reason.len(), 1);
+    }
+}

@@ -3,9 +3,10 @@
 //! Reuses the TypeScript test renderer for both HTTP and non-HTTP fixtures,
 //! configured with the `@kreuzberg/wasm` (or equivalent) package as the import
 //! path and `wasm` as the language key for skip/override resolution. Adds
-//! wasm-specific scaffolding: vite-plugin-wasm + top-level-await for vitest,
-//! a `setup.ts` chdir to `test_documents/` so file_path fixtures resolve, and
-//! a `globalSetup.ts` that spawns the mock-server for HTTP fixtures.
+//! wasm-specific scaffolding: a `setup.ts` chdir to `test_documents/` so
+//! file_path fixtures resolve, and a `globalSetup.ts` that spawns the
+//! mock-server for HTTP fixtures. The wasm-pack `--target nodejs` CJS bundle
+//! initializes synchronously and does not require vite-plugin-wasm.
 
 use crate::config::E2eConfig;
 use crate::escape::sanitize_filename;
@@ -141,20 +142,17 @@ impl E2eCodegen for WasmCodegen {
                 .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
         });
 
-        // Generate package.json — adds vite-plugin-wasm + top-level-await on top
-        // of the standard vitest dev deps so that `import init, { … } from
-        // '@kreuzberg/wasm'` resolves and instantiates the wasm module before tests
-        // run.
+        // Generate package.json — adds vitest + rollup dev deps so that the test
+        // suite can import the wasm-pack nodejs CJS bundle by package name.
         files.push(GeneratedFile {
             path: output_base.join("package.json"),
             content: render_package_json(&pkg_name, &pkg_path, &pkg_version, e2e_config.dep_mode),
             generated_header: false,
         });
 
-        // Generate vitest.config.ts — needs vite-plugin-wasm + topLevelAwait, plus
-        // optional globalSetup (for HTTP fixtures and any function-call test that
-        // hits the mock server via MOCK_SERVER_URL) and setupFiles (for chdir).
-        // Function-call e2e tests construct request URLs via
+        // Generate vitest.config.ts — optional globalSetup (for HTTP fixtures and
+        // any function-call test that hits the mock server via MOCK_SERVER_URL)
+        // and setupFiles (for chdir). Function-call e2e tests construct request URLs via
         // `${process.env.MOCK_SERVER_URL}/fixtures/<id>`, so the mock server must
         // be running and the env var set even when no raw HTTP fixtures exist.
         let needs_global_setup = has_http_fixtures;
@@ -198,9 +196,7 @@ impl E2eCodegen for WasmCodegen {
         // pnpm workspace root. Without this, `pnpm install` walks up to the
         // repo-root `pnpm-workspace.yaml`, where polyglot repos commonly
         // exclude `e2e/wasm` (it depends on a `wasm-pack build` artifact that
-        // is absent on fresh checkouts). Pnpm with an excluded package still
-        // refuses to install locally, leaving `vite-plugin-wasm` unresolved
-        // when vitest is launched here. The CLI flag `--ignore-workspace`
+        // is absent on fresh checkouts). The CLI flag `--ignore-workspace`
         // would also work, but it forces every caller (Taskfile, CI step) to
         // pass it; making `e2e/wasm/` self-rooted keeps the generated suite
         // self-contained.
@@ -308,7 +304,6 @@ fn render_package_json(
             pkg_name => pkg_name,
             dep_value => dep_value,
             rollup => tv::npm::ROLLUP,
-            vite_plugin_wasm => tv::npm::VITE_PLUGIN_WASM,
             vitest => tv::npm::VITEST,
         },
     )

@@ -82,6 +82,20 @@ fn is_sanitized_tuple_vec(field: &FieldDef) -> bool {
     field.sanitized && field.original_type.as_deref().is_some_and(|s| s.starts_with("Vec<("))
 }
 
+/// Returns true when `field` was originally a fixed-size array of tuples (`[(K, V); N]`)
+/// but was sanitized to `String` (JSON-encoded).
+///
+/// Like `is_sanitized_tuple_vec`, these fields must be stored as `Option<JsValue>` so that
+/// serde round-trips the structured JS value through `serde_wasm_bindgen` rather than treating
+/// the field as a plain string.
+fn is_sanitized_fixed_tuple_array(field: &FieldDef) -> bool {
+    field.sanitized
+        && field
+            .original_type
+            .as_deref()
+            .is_some_and(|s| s.starts_with("[(") && s.contains(");"))
+}
+
 fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field_optional: bool) -> String {
     if field_optional {
         return match field_ty {
@@ -167,12 +181,13 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
     // to `JsValue` (callers convert via serde_wasm_bindgen per-variant in the From impls).
     // This mirrors the NAPI `mixed_named_fields` / `serde_json` path.
     let mixed = mixed_type_fields(enum_def);
-    // Collect field names that are sanitized Vec<(K, V)> — must use JsValue for round-trip.
+    // Collect field names that are sanitized Vec<(K, V)> or fixed [(K,V); N] — must use JsValue
+    // for round-trip so the structured JS representation survives serde_wasm_bindgen.
     let tuple_vec_fields: std::collections::BTreeSet<String> = enum_def
         .variants
         .iter()
         .flat_map(|v| v.fields.iter())
-        .filter(|f| is_sanitized_tuple_vec(f))
+        .filter(|f| is_sanitized_tuple_vec(f) || is_sanitized_fixed_tuple_array(f))
         .map(|f| f.name.clone())
         .collect();
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -183,7 +198,7 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
                 continue;
             }
             let field_ty = if mixed.contains(&field.name) || tuple_vec_fields.contains(&field.name) {
-                // Mixed-type Named field or sanitized tuple-vec: store as JsValue,
+                // Mixed-type Named field or sanitized tuple-vec/fixed-array: store as JsValue,
                 // convert via serde_wasm_bindgen per-variant in the From impls.
                 "Option<JsValue>".to_string()
             } else {
@@ -285,7 +300,7 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
         .variants
         .iter()
         .flat_map(|v| v.fields.iter())
-        .filter(|f| is_sanitized_tuple_vec(f))
+        .filter(|f| is_sanitized_tuple_vec(f) || is_sanitized_fixed_tuple_array(f))
         .map(|f| f.name.clone())
         .collect();
 
@@ -408,7 +423,7 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
         .variants
         .iter()
         .flat_map(|v| v.fields.iter())
-        .filter(|f| is_sanitized_tuple_vec(f))
+        .filter(|f| is_sanitized_tuple_vec(f) || is_sanitized_fixed_tuple_array(f))
         .map(|f| f.name.clone())
         .collect();
 
