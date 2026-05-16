@@ -1476,3 +1476,123 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
         );
     }
 }
+
+/// Verifies that `Option<T>` fields stored as `(ty: T, optional: true)` in
+/// extractor-produced IR are emitted as `T?` in the Swift enum case associated
+/// values -- not as bare `T`.
+///
+/// The extractor unwraps `TypeRef::Optional(inner)` into `(inner, optional: true)`,
+/// so `field.ty = TypeRef::Named("Chunk")` and `field.optional = true` for an
+/// `Option<Chunk>` field. Previously `emit_variant_with_data` only called
+/// `mapper.map_type(&f.ty)` without honoring `f.optional`, so nullable associated
+/// values were emitted without `?`, losing the ability to express `null` on the
+/// Swift API surface.
+#[test]
+fn snapshot_enum_variant_optional_field() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Chunk".to_string(),
+            rust_path: "demo::Chunk".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("text", TypeRef::String, false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "A text chunk.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "StreamEvent".to_string(),
+            rust_path: "demo::StreamEvent".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                // Variant with optional Named field -- the extractor-unwrapped form:
+                // field.ty = TypeRef::Named("Chunk"), field.optional = true.
+                EnumVariant {
+                    name: "Data".to_string(),
+                    fields: vec![make_field("chunk", TypeRef::Named("Chunk".to_string()), true)],
+                    is_tuple: false,
+                    doc: "A data event carrying an optional chunk.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                // Variant with optional String field -- same extractor form.
+                EnumVariant {
+                    name: "Error".to_string(),
+                    fields: vec![make_field("message", TypeRef::String, true)],
+                    is_tuple: false,
+                    doc: "An error event with an optional message.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                // Variant with non-optional field -- must stay bare.
+                EnumVariant {
+                    name: "Done".to_string(),
+                    fields: vec![make_field("count", TypeRef::Primitive(PrimitiveType::U32), false)],
+                    is_tuple: false,
+                    doc: "Stream completed with item count.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "Streaming event enum.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+
+    assert!(
+        swift_file.content.contains("chunk: Chunk?"),
+        "optional Named field in enum variant must emit Type?, got:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("message: String?"),
+        "optional String field in enum variant must emit String?, got:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("count: UInt32"),
+        "non-optional field in enum variant must stay bare, got:\n{}",
+        swift_file.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_enum_variant_optional_field__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
