@@ -20,7 +20,7 @@ pub use gen_bindings::trait_bridge::KotlinJvmBridgeGenerator;
 // duplicating the helpers.
 pub use gen_bindings::{
     emit_enum_pub, emit_error_type_pub, emit_function_jvm, emit_jvm_client_class, emit_jvm_client_class_with_package,
-    emit_type_pub, to_lower_camel, to_pascal_case,
+    emit_kdoc_pub, emit_type_pub, to_lower_camel, to_pascal_case,
 };
 
 // JNI emission helpers re-exported for the kotlin-android backend.
