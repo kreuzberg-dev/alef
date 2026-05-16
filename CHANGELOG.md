@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **alef-snippets: parser tolerates malformed YAML frontmatter**: `parse_frontmatter` previously returned `Error::Parse` when a snippet file opened with `---\n` but had no closing `\n---\n` delimiter, or when the YAML between delimiters failed to deserialize. Snippet collections that include partial templates or human-edited drafts would short-circuit the entire run. The parser now treats these cases as "no frontmatter": `SnippetMetadata::default()` plus the original `content` are returned, and validation continues against the body. Strict structural reporting still lives in `frontmatter_status`, which downstream `audit` consumers can opt into. (`crates/alef-snippets/src/parser.rs`)
+
 ### Added
 
 - **alef-snippets: add 7 missing language validators (csharp, dart, go, java, kotlin, swift, zig)**: the validator registry previously covered bash/elixir/php/python/ruby/rust/toml/typescript (8 languages); snippets in any other language returned `Unavailable`. The 7 new validators each gate on toolchain presence via `which::which(...)` and shell out to the upstream toolchain: `dotnet build --nologo -v quiet` (Syntax/Compile) for C#, `dart analyze --no-fatal-warnings` for Dart, `gofmt -e -l` (Syntax) / `go build` (Compile) / `go run` (Run) for Go, `javac -Xlint:none` (with class-name extraction so the temp file matches the public class) for Java, `kotlinc -d <out>` for Kotlin, `swiftc -parse` (Syntax) / `swiftc -o <out>` (Compile/Run) for Swift, `zig ast-check` (Syntax) / `zig build-exe -fno-emit-bin` (Compile) for Zig. (`crates/alef-snippets/src/validators/{csharp,dart,go,java,kotlin,swift,zig}.rs`, `crates/alef-snippets/src/validators/mod.rs`)

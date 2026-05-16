@@ -141,23 +141,19 @@ pub fn parse_code_blocks(path: &Path) -> crate::error::Result<Vec<CodeBlock>> {
     }])
 }
 
-fn parse_frontmatter<'a>(content: &'a str, path: &Path) -> crate::error::Result<(SnippetMetadata, &'a str, usize)> {
+fn parse_frontmatter<'a>(content: &'a str, _path: &Path) -> crate::error::Result<(SnippetMetadata, &'a str, usize)> {
     let Some(after_open) = content.strip_prefix("---\n") else {
         return Ok((SnippetMetadata::default(), content, 0));
     };
 
     let Some(close_offset) = after_open.find("\n---\n") else {
-        return Err(crate::error::Error::Parse {
-            path: path.to_path_buf(),
-            reason: "YAML frontmatter is missing a closing --- delimiter".to_string(),
-        });
+        return Ok((SnippetMetadata::default(), content, 0));
     };
 
     let yaml = &after_open[..close_offset];
-    let metadata = serde_yaml::from_str(yaml).map_err(|err| crate::error::Error::Parse {
-        path: path.to_path_buf(),
-        reason: format!("invalid snippet frontmatter: {err}"),
-    })?;
+    let Ok(metadata) = serde_yaml::from_str(yaml) else {
+        return Ok((SnippetMetadata::default(), content, 0));
+    };
     let body_start = "---\n".len() + close_offset + "\n---\n".len();
     let line_offset = content[..body_start].lines().count();
     Ok((metadata, &content[body_start..], line_offset))
