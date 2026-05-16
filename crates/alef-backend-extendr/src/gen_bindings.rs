@@ -1,13 +1,15 @@
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
+use alef_codegen::doc_emission::{parse_arguments_bullets, parse_rustdoc_sections};
 use alef_codegen::generators::trait_bridge::find_bridge_field;
 use alef_codegen::generators::{self, AsyncPattern, RustBindingConfig};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, EnumDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 pub struct ExtendrBackend;
@@ -1836,10 +1838,15 @@ fn title_case_first(s: &str) -> String {
 fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type: &TypeRef) -> String {
     let mut block = String::with_capacity(256);
     let trimmed_doc = doc.trim();
-    let (title, description) = if trimmed_doc.is_empty() {
+    // Parse the rustdoc into sections so `# Arguments` / `# Returns` / `# Errors` /
+    // `# Example` are surfaced as native roxygen2 tags instead of being emitted as raw
+    // markdown headings in the description body.
+    let sections = parse_rustdoc_sections(trimmed_doc);
+    let summary = sections.summary.trim();
+    let (title, description) = if summary.is_empty() {
         (func_name.to_string(), String::new())
     } else {
-        let mut parts = trimmed_doc.splitn(2, '\n');
+        let mut parts = summary.splitn(2, '\n');
         let raw_title = parts.next().unwrap_or("").trim().trim_end_matches('.');
         let title = title_case_first(raw_title);
         let description = parts.next().map(str::trim).unwrap_or("").to_string();
@@ -1861,16 +1868,176 @@ fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type:
             }
         }
     }
+    // Build a name → description map from the `# Arguments` bullets, if any.
+    // Falls back to the type-based description when no entry is present.
+    let mut param_docs: HashMap<String, String> = HashMap::new();
+    if let Some(args_body) = sections.arguments.as_deref() {
+        for (name, desc) in parse_arguments_bullets(args_body) {
+            if !desc.is_empty() {
+                param_docs.insert(name, desc);
+            }
+        }
+    }
     for param in params {
         block.push_str("#' @param ");
         block.push_str(&param.name);
         block.push(' ');
-        block.push_str(&r_type_description(&param.ty));
+        if let Some(desc) = param_docs.get(&param.name) {
+            block.push_str(desc);
+            if !desc.ends_with('.') {
+                block.push('.');
+            }
+        } else {
+            block.push_str(&r_type_description(&param.ty));
+        }
         block.push('\n');
     }
     block.push_str("#' @return ");
-    block.push_str(&r_type_description(return_type));
+    if let Some(ret) = sections.returns.as_deref() {
+        let ret = ret.trim();
+        block.push_str(ret);
+        if !ret.ends_with('.') {
+            block.push('.');
+        }
+    } else {
+        block.push_str(&r_type_description(return_type));
+    }
     block.push('\n');
+    if let Some(err) = sections.errors.as_deref() {
+        block.push_str("#'\n#' @section Errors:\n");
+        for line in err.trim().lines() {
+            let line = line.trim_end();
+            if line.is_empty() {
+                block.push_str("#'\n");
+            } else {
+                block.push_str("#' ");
+                block.push_str(line);
+                block.push('\n');
+            }
+        }
+    }
+    block.push_str("#' @export\n");
+    block
+}
+
+/// Build a one-line description for a struct field, derived from the field's
+/// `doc` comment. Falls back to the field name when the IR carries no docs.
+///
+/// R's roxygen2 `@field` tag is single-line per field; multi-paragraph rustdoc
+/// must be collapsed. We take the first paragraph (lines up to the first blank
+/// line), trim, and join with a single space.
+fn r_field_one_liner(field_name: &str, doc: &str) -> String {
+    let trimmed = doc.trim();
+    if trimmed.is_empty() {
+        return field_name.to_string();
+    }
+    let paragraph: Vec<&str> = trimmed
+        .lines()
+        .take_while(|l| !l.trim().is_empty())
+        .map(str::trim)
+        .collect();
+    if paragraph.is_empty() {
+        field_name.to_string()
+    } else {
+        paragraph.join(" ")
+    }
+}
+
+/// Build the roxygen2 doc block for a class env (one per registered struct).
+///
+/// Layout: title (first line of `typ.doc`, falling back to the class name),
+/// optional description body, one `#' @field <name> <description>` per public
+/// field, and the `#' @export` tag. The block is prepended to the class env
+/// definition via the `r_type_class_env.jinja` template.
+fn r_class_roxygen_block(typ: &TypeDef) -> String {
+    let mut block = String::with_capacity(256);
+    let sections = parse_rustdoc_sections(typ.doc.trim());
+    let summary = sections.summary.trim();
+    let (title, description) = if summary.is_empty() {
+        (typ.name.clone(), String::new())
+    } else {
+        let mut parts = summary.splitn(2, '\n');
+        let raw_title = parts.next().unwrap_or("").trim().trim_end_matches('.');
+        let title = title_case_first(raw_title);
+        let description = parts.next().map(str::trim).unwrap_or("").to_string();
+        (title, description)
+    };
+    block.push_str("#' ");
+    block.push_str(&title);
+    block.push('\n');
+    if !description.is_empty() {
+        block.push_str("#'\n");
+        for line in description.lines() {
+            let line = line.trim_end();
+            if line.is_empty() {
+                block.push_str("#'\n");
+            } else {
+                block.push_str("#' ");
+                block.push_str(line);
+                block.push('\n');
+            }
+        }
+    }
+    for field in &typ.fields {
+        if field.binding_excluded {
+            continue;
+        }
+        let rname = field.name.trim_start_matches('_');
+        block.push_str("#' @field ");
+        block.push_str(rname);
+        block.push(' ');
+        block.push_str(&r_field_one_liner(rname, &field.doc));
+        block.push('\n');
+    }
+    block.push_str("#' @export\n");
+    block
+}
+
+/// Build the roxygen2 doc block for a flat data enum class env.
+///
+/// Like `r_class_roxygen_block` but uses enum variants as fields — the flat
+/// representation exposes one scalar field per variant (see
+/// [`is_flat_data_enum`]). For JSON-passthrough enums (`is_json_passthrough_data_enum`),
+/// the `@field` list is omitted because callers interact with the opaque
+/// `__inner` JSON blob rather than typed variant fields.
+fn r_enum_roxygen_block(enum_def: &EnumDef, include_variants_as_fields: bool) -> String {
+    let mut block = String::with_capacity(256);
+    let sections = parse_rustdoc_sections(enum_def.doc.trim());
+    let summary = sections.summary.trim();
+    let (title, description) = if summary.is_empty() {
+        (enum_def.name.clone(), String::new())
+    } else {
+        let mut parts = summary.splitn(2, '\n');
+        let raw_title = parts.next().unwrap_or("").trim().trim_end_matches('.');
+        let title = title_case_first(raw_title);
+        let description = parts.next().map(str::trim).unwrap_or("").to_string();
+        (title, description)
+    };
+    block.push_str("#' ");
+    block.push_str(&title);
+    block.push('\n');
+    if !description.is_empty() {
+        block.push_str("#'\n");
+        for line in description.lines() {
+            let line = line.trim_end();
+            if line.is_empty() {
+                block.push_str("#'\n");
+            } else {
+                block.push_str("#' ");
+                block.push_str(line);
+                block.push('\n');
+            }
+        }
+    }
+    if include_variants_as_fields {
+        for variant in &enum_def.variants {
+            block.push_str("#' @field ");
+            block.push_str(&variant.name);
+            block.push(' ');
+            block.push_str(&r_field_one_liner(&variant.name, &variant.doc));
+            block.push('\n');
+        }
+    }
     block.push_str("#' @export\n");
     block
 }
@@ -1935,9 +2102,13 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             continue;
         }
 
+        let class_roxygen = r_class_roxygen_block(typ);
         out.push_str(&crate::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! { type_name => &typ.name },
+            minijinja::context! {
+                type_name => &typ.name,
+                roxygen_block => class_roxygen,
+            },
         ));
 
         // Emit method bindings. Skip methods that are filtered out of the Rust impl
@@ -2010,9 +2181,13 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             continue;
         }
         let type_name = &e.name;
+        let enum_roxygen = r_enum_roxygen_block(e, true);
         out.push_str(&crate::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! { type_name => type_name },
+            minijinja::context! {
+                type_name => type_name,
+                roxygen_block => enum_roxygen,
+            },
         ));
         out.push_str(&crate::template_env::render(
             "r_dollar_dispatch.jinja",
@@ -2033,9 +2208,13 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
             continue;
         }
         let type_name = &e.name;
+        let enum_roxygen = r_enum_roxygen_block(e, false);
         out.push_str(&crate::template_env::render(
             "r_type_class_env.jinja",
-            minijinja::context! { type_name => type_name },
+            minijinja::context! {
+                type_name => type_name,
+                roxygen_block => enum_roxygen,
+            },
         ));
         // `default` and `from_json` are emitted by `gen_extendr_json_passthrough_enum_struct`
         // as `pub fn` items in the `#[extendr] impl` block, so extendr registers them as
@@ -2529,6 +2708,224 @@ package_name = "testlib"
             !namespace.content.contains("#' @useDynLib"),
             "NAMESPACE must not contain roxygen2 useDynLib form: {}",
             namespace.content
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
+        // Class envs (`Type <- new.env(parent = emptyenv())`) must carry a roxygen2
+        // block derived from the struct's Rust doc comment: a title line, an
+        // optional description, one `@field` per public field (with the field's
+        // own doc comment as the description), and an `@export` tag.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "ServerConfig".to_string(),
+                rust_path: "test_lib::ServerConfig".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    FieldDef {
+                        doc: "TCP port the server binds to.".to_string(),
+                        ..make_field("port", TypeRef::Primitive(PrimitiveType::U32), false)
+                    },
+                    FieldDef {
+                        doc: "Maximum number of in-flight requests.\n\nApplies to all listener sockets.".to_string(),
+                        ..make_field("max_connections", TypeRef::Primitive(PrimitiveType::U32), false)
+                    },
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Server configuration.\n\nHolds tunable parameters for the network listener.".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("#' Server configuration"),
+            "class title from struct doc must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' Holds tunable parameters for the network listener."),
+            "class description must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' @field port TCP port the server binds to."),
+            "@field with single-line doc must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' @field max_connections Maximum number of in-flight requests."),
+            "@field must collapse multi-paragraph doc to the first paragraph:\n{content}"
+        );
+        // The class env line must follow the roxygen block.
+        assert!(
+            content.contains("ServerConfig <- new.env(parent = emptyenv())"),
+            "class env definition must still be emitted:\n{content}"
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
+        // When a free function's Rust doc carries a `# Arguments` section, the
+        // per-param description from the bullet list must override the default
+        // type-based description on the `#' @param` line, and the `# Returns`
+        // section must drive the `#' @return` line.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![FunctionDef {
+                name: "render".to_string(),
+                rust_path: "test_lib::render".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "template".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Render a template to a string.\n\n# Arguments\n\n* `template` - Mustache template source.\n\n# Returns\n\nThe fully interpolated output.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("#' @param template Mustache template source."),
+            "@param must use description from `# Arguments` bullet:\n{content}"
+        );
+        assert!(
+            content.contains("#' @return The fully interpolated output."),
+            "@return must use prose from `# Returns` section:\n{content}"
+        );
+        // The raw `# Arguments` / `# Returns` headings must not leak into the
+        // description body now that they're rendered as roxygen tags.
+        assert!(
+            !content.contains("#' # Arguments"),
+            "raw `# Arguments` heading must not appear in roxygen output:\n{content}"
+        );
+        assert!(
+            !content.contains("#' # Returns"),
+            "raw `# Returns` heading must not appear in roxygen output:\n{content}"
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields() {
+        // Flat data enums (single-field tuple variants) are surfaced in R as
+        // class envs with one scalar field per variant. The class env must
+        // carry roxygen with one `@field` per variant carrying the variant's
+        // Rust doc as description.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![EnumDef {
+                name: "Payload".to_string(),
+                rust_path: "test_lib::Payload".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![
+                    EnumVariant {
+                        name: "Text".to_string(),
+                        fields: vec![make_field("inner", TypeRef::String, false)],
+                        doc: "UTF-8 encoded text payload.".to_string(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: true,
+                    },
+                    EnumVariant {
+                        name: "Binary".to_string(),
+                        fields: vec![make_field("inner", TypeRef::String, false)],
+                        doc: "Base64-encoded binary payload.".to_string(),
+                        is_default: false,
+                        serde_rename: None,
+                        is_tuple: true,
+                    },
+                ],
+                doc: "Wire payload variants.".to_string(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("#' Wire payload variants"),
+            "enum title from Rust doc must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("#' @field Text UTF-8 encoded text payload."),
+            "@field per variant must carry the variant's doc:\n{content}"
+        );
+        assert!(
+            content.contains("#' @field Binary Base64-encoded binary payload."),
+            "every variant must produce a `@field` line:\n{content}"
+        );
+        assert!(
+            content.contains("Payload <- new.env(parent = emptyenv())"),
+            "enum class env must still be emitted:\n{content}"
         );
     }
 }
