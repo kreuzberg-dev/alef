@@ -3385,3 +3385,155 @@ fn test_from_impl_uses_snake_case_field_names() {
         "From impl must NOT use camelCase on RHS like 'completion_tokens: val.completionTokens'; actual:\n{content}"
     );
 }
+
+/// A tagged-data enum variant whose field was originally `Vec<(String, String)>` but was
+/// sanitized to `Vec<String>` (sanitized=true, original_type="Vec<(String, String)>") must:
+///
+/// - store the field as `Option<JsValue>` in the wasm binding struct (not `Option<Vec<String>>`)
+/// - decode via `serde_wasm_bindgen::from_value::<Vec<(String, String)>>` in binding→core
+/// - encode via `serde_wasm_bindgen::to_value` in core→binding
+///
+/// This preserves the `[["k","v"],...]` JSON wire format that serde produces for
+/// `Vec<(String, String)>` and prevents the flat `["k","v",...]` that `Vec<String>` would give.
+#[test]
+fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
+    let backend = WasmBackend;
+
+    let node_content_enum = EnumDef {
+        name: "NodeContent".to_string(),
+        rust_path: "test_lib::NodeContent".to_string(),
+        original_rust_path: String::new(),
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                fields: vec![FieldDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: true,
+                serde_rename: Some("text".to_string()),
+            },
+            EnumVariant {
+                name: "MetadataBlock".to_string(),
+                fields: vec![FieldDef {
+                    name: "entries".to_string(),
+                    // sanitized from Vec<(String, String)> → Vec<String>
+                    ty: TypeRef::Vec(Box::new(TypeRef::String)),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: true,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: alef_core::ir::CoreWrapper::None,
+                    vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: Some("Vec<(String, String)>".to_string()),
+                }],
+                is_tuple: false,
+                doc: String::new(),
+                is_default: false,
+                serde_rename: Some("metadata_block".to_string()),
+            },
+        ],
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: Some("type".to_string()),
+        serde_untagged: false,
+        serde_rename_all: Some("snake_case".to_string()),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    // Add a function that accepts NodeContent so it is treated as an input type
+    // and gen_tagged_enum_binding_to_core is generated.
+    let visit_fn = FunctionDef {
+        name: "visit_node".to_string(),
+        rust_path: "test_lib::visit_node".to_string(),
+        original_rust_path: String::new(),
+        params: vec![ParamDef {
+            name: "content".to_string(),
+            ty: TypeRef::Named("NodeContent".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }],
+        return_type: TypeRef::Primitive(PrimitiveType::Bool),
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let api = ApiSurface {
+        enums: vec![node_content_enum],
+        functions: vec![visit_fn],
+        ..Default::default()
+    };
+    let config = make_config();
+    let result = backend.generate_bindings(&api, &config);
+    assert!(result.is_ok(), "generate_bindings should not fail: {:?}", result.err());
+    let files = result.unwrap();
+    let lib_file = files.iter().find(|f| f.path.ends_with("lib.rs")).expect("lib.rs must be generated");
+    let content = &lib_file.content;
+
+    // The binding struct must store entries as JsValue, not Vec<String>.
+    assert!(
+        content.contains("entries: Option<JsValue>"),
+        "sanitized Vec<(K,V)> field must be typed as Option<JsValue>;\nstruct body:\n{content}"
+    );
+    assert!(
+        !content.contains("entries: Option<Vec<String>>"),
+        "sanitized Vec<(K,V)> field must NOT be typed as Option<Vec<String>>;\nstruct body:\n{content}"
+    );
+
+    // Binding→core must decode via serde_wasm_bindgen.
+    assert!(
+        content.contains("serde_wasm_bindgen::from_value::<Vec<(String, String)>>"),
+        "binding→core must decode entries via serde_wasm_bindgen::from_value::<Vec<(String, String)>>;\n{content}"
+    );
+
+    // Core→binding must encode via serde_wasm_bindgen.
+    assert!(
+        content.contains("serde_wasm_bindgen::to_value(&entries)"),
+        "core→binding must encode entries via serde_wasm_bindgen::to_value;\n{content}"
+    );
+}
