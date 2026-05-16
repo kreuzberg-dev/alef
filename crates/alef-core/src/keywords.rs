@@ -736,8 +736,26 @@ pub fn zig_safe_name(name: &str) -> Option<String> {
 }
 
 /// Convenience: always returns a usable Zig identifier.
+///
+/// Sanitizes the input so that it is a valid Zig identifier:
+///   1. Non-`[A-Za-z0-9_]` characters are replaced with `_` (so serde renames like
+///      `og:image` or `Content-Type` become `og_image` / `Content_Type`).
+///   2. A leading digit is prefixed with `_`.
+///   3. The result is then checked against Zig's reserved-word list and escaped
+///      with a trailing `_` if necessary.
 pub fn zig_ident(name: &str) -> String {
-    zig_safe_name(name).unwrap_or_else(|| name.to_string())
+    let mut sanitized = String::with_capacity(name.len() + 1);
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' {
+            sanitized.push(ch);
+        } else {
+            sanitized.push('_');
+        }
+    }
+    if sanitized.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        sanitized.insert(0, '_');
+    }
+    zig_safe_name(&sanitized).unwrap_or(sanitized)
 }
 
 #[cfg(test)]
