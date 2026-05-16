@@ -1572,3 +1572,151 @@ fn handle_only_wrapper_emits_kdoc_from_type_doc() {
         "CrawlEngineHandle wrapper must carry a KDoc block derived from the IR type doc, got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// iter-9 Stream B: generic-container return routing through Jackson
+// `TypeReference<T>` instead of an invalid `Class<T>::class.java` literal.
+// Covers `Vec<Primitive>`, `Vec<String>`, `HashMap<K, V>`, `Option<Vec<_>>`,
+// and the regression boundary for scalar named DTO returns (still use
+// `::class.java`).
+// ---------------------------------------------------------------------------
+
+fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
+    ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: fn_name.into(),
+            rust_path: format!("demo::{fn_name}"),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: return_ty,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    }
+}
+
+#[test]
+fn vec_of_primitive_string_return_uses_type_reference_list_string() {
+    let api = make_generic_container_api(TypeRef::Vec(Box::new(TypeRef::String)), "available_languages");
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("): List<String> {"),
+        "availableLanguages must return List<String>, got:\n{content}"
+    );
+    assert!(
+        content.contains("object : TypeReference<List<String>>() {})"),
+        "Vec<String> return must deserialize through TypeReference<List<String>>, got:\n{content}"
+    );
+    assert!(
+        !content.contains("List<String>::class.java"),
+        "must never emit invalid List<String>::class.java, got:\n{content}"
+    );
+    assert!(
+        content.contains("import com.fasterxml.jackson.core.type.TypeReference"),
+        "TypeReference must be imported, got:\n{content}"
+    );
+}
+
+#[test]
+fn hashmap_string_long_return_uses_type_reference_map_string_long() {
+    let map_ty = TypeRef::Map(
+        Box::new(TypeRef::String),
+        Box::new(TypeRef::Primitive(alef_core::ir::PrimitiveType::U64)),
+    );
+    let api = make_generic_container_api(map_ty, "stats");
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("): Map<String, Long> {"),
+        "stats must return Map<String, Long>, got:\n{content}"
+    );
+    assert!(
+        content.contains("object : TypeReference<Map<String, Long>>() {})"),
+        "Map return must deserialize through TypeReference<Map<String, Long>>, got:\n{content}"
+    );
+}
+
+#[test]
+fn optional_vec_string_return_uses_type_reference_with_nullable_list() {
+    let opt_vec = TypeRef::Optional(Box::new(TypeRef::Vec(Box::new(TypeRef::String))));
+    let api = make_generic_container_api(opt_vec, "maybe_languages");
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("object : TypeReference<List<String>?>() {})"),
+        "Option<Vec<String>> must route through TypeReference<List<String>?>, got:\n{content}"
+    );
+}
+
+#[test]
+fn vec_of_named_dto_return_still_uses_type_reference_list_dto() {
+    // Regression boundary: the legacy Vec<NamedDto> path must continue to
+    // emit a typed TypeReference<List<DemoResult>>.
+    let api = make_batch_function_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("TypeReference<List<DemoResult>>"),
+        "Vec<NamedDto> regression: must still emit TypeReference<List<DemoResult>>, got:\n{content}"
+    );
+}
+
+#[test]
+fn scalar_named_dto_return_still_uses_class_java_literal() {
+    // Regression boundary: scalar Named DTO returns (`ConversionResult`)
+    // must keep the `ConversionResult::class.java` deserialization path —
+    // generic-container routing is reserved for Vec/Map shapes.
+    let api = make_convert_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("mapper.readValue(resultJson, ConversionResult::class.java)"),
+        "scalar DTO return must use ConversionResult::class.java, got:\n{content}"
+    );
+}

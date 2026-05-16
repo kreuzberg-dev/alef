@@ -139,6 +139,10 @@ pub(crate) fn emit_type_wrapper(
 
         // Determine construction strategy (see default_construction.rs for details):
         // when any field requires Default-based assignment, we cannot emit a direct struct literal.
+        // Primitive-only DTOs always get a direct struct-literal constructor regardless
+        // of `Default` impl or serde derive — must stay in lockstep with
+        // `extern_block::has_constructor_extern`'s matching fast path.
+        let all_primitive_fields = constructor_fields.iter().all(|f| matches!(f.ty, TypeRef::Primitive(_)));
         let has_vec_non_primitive = constructor_fields.iter().any(|f| {
             matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes))
         });
@@ -146,13 +150,14 @@ pub(crate) fn emit_type_wrapper(
             && constructor_fields
                 .iter()
                 .any(|f| matches!(f.ty, TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Char));
-        let needs_default_construction = ty.has_serde
-            || has_vec_non_primitive
-            || has_non_serde_string_field
-            || ty.has_stripped_cfg_fields
-            || constructor_fields
-                .iter()
-                .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_)));
+        let needs_default_construction = !all_primitive_fields
+            && (ty.has_serde
+                || has_vec_non_primitive
+                || has_non_serde_string_field
+                || ty.has_stripped_cfg_fields
+                || constructor_fields
+                    .iter()
+                    .any(|f| needs_json_bridge(&f.ty) || matches!(f.ty, TypeRef::Named(_))));
 
         if needs_default_construction && !ty.has_default {
             // The struct needs mutable-default construction but doesn't impl Default.

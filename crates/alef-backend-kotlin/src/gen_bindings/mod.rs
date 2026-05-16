@@ -389,7 +389,9 @@ fn emit_client_method(m: &MethodDef, out: &mut String, imports: &mut BTreeSet<St
     } else if matches!(m.return_type, TypeRef::Unit) {
         out.push_str(&format!("        inner.{method_name}({call_args})\n"));
     } else {
-        out.push_str(&format!("        return inner.{method_name}({call_args}){optional_suffix}\n"));
+        out.push_str(&format!(
+            "        return inner.{method_name}({call_args}){optional_suffix}\n"
+        ));
     }
     out.push_str("    }\n\n");
 }

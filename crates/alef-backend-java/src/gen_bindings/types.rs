@@ -1227,6 +1227,22 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
         let ret_upper = ret_snake.to_uppercase();
         let ret_free = format!("NativeLib.{prefix_upper}_{ret_upper}_FREE");
         let ret_to_json = format!("NativeLib.{prefix_upper}_{ret_upper}_TO_JSON");
+        // When the declared return is `Optional<NamedDto>`, the method signature
+        // is `Optional<NamedDto>` (from `java_return_type`) but the body builds
+        // a bare `NamedDto`; wrap each return site through `Optional.of` /
+        // `Optional.empty` so the body matches the signature.  Non-optional
+        // named returns keep the historical bare-return shape.
+        let (empty_return, success_return) = if is_optional_return {
+            (
+                "java.util.Optional.empty()".to_string(),
+                format!("return java.util.Optional.of(STREAM_MAPPER.readValue(json, {return_type_name}.class));"),
+            )
+        } else {
+            (
+                "null".to_string(),
+                format!("return STREAM_MAPPER.readValue(json, {return_type_name}.class);"),
+            )
+        };
 
         out.push_str(&crate::template_env::render(
             "stream_method_named_result.jinja",
@@ -1240,6 +1256,8 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 prefix_upper => prefix_upper,
                 return_type_name => return_type_name,
                 ret_free => ret_free,
+                empty_return => empty_return,
+                success_return => success_return,
             },
         ));
     } else if is_ffi_string_return(&dispatch_return) {
