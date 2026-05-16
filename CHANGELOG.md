@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-e2e/node: use workspace version for registry test apps when no package version is configured**: Node registry-mode `package.json` now falls back to the crate's resolved Cargo version before the `0.1.0` placeholder, matching the Python/Ruby/PHP/Dart generators and preventing generated `test_apps/node` projects from depending on unpublished `@scope/package@0.1.0` versions. (`crates/alef-e2e/src/codegen/typescript/mod.rs`)
 
+- **alef-e2e/elixir: emit version dependencies for registry test apps**: Elixir registry-mode `mix.exs` now uses the package version from `[e2e.registry.packages.elixir]` or the resolved crate version instead of carrying the local `../../packages/elixir` path into standalone `test_apps`. (`crates/alef-e2e/src/codegen/elixir.rs`)
+
 ## [0.16.14] - 2026-05-16
 
 ### Fixed

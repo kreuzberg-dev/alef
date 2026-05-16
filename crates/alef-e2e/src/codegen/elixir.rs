@@ -94,13 +94,21 @@ impl E2eCodegen for ElixirCodegen {
 
         // Resolve package reference (path or version) for the NIF dependency.
         let pkg_ref = e2e_config.resolve_package(lang);
-        let pkg_path = if has_nif_tests {
-            pkg_ref
-                .as_ref()
-                .and_then(|p| p.path.as_deref())
-                .unwrap_or("../../packages/elixir")
+        let pkg_dep_ref = if has_nif_tests {
+            match e2e_config.dep_mode {
+                crate::config::DependencyMode::Local => pkg_ref
+                    .as_ref()
+                    .and_then(|p| p.path.as_deref())
+                    .unwrap_or("../../packages/elixir")
+                    .to_string(),
+                crate::config::DependencyMode::Registry => pkg_ref
+                    .as_ref()
+                    .and_then(|p| p.version.clone())
+                    .or_else(|| config.resolved_version())
+                    .unwrap_or_else(|| "0.1.0".to_string()),
+            }
         } else {
-            ""
+            String::new()
         };
 
         // Generate mix.exs. The dep atom must match the binding package's
@@ -114,7 +122,13 @@ impl E2eCodegen for ElixirCodegen {
         let pkg_atom = config.elixir_app_name();
         files.push(GeneratedFile {
             path: output_base.join("mix.exs"),
-            content: render_mix_exs(&pkg_atom, pkg_path, e2e_config.dep_mode, has_http_tests, has_nif_tests),
+            content: render_mix_exs(
+                &pkg_atom,
+                &pkg_dep_ref,
+                e2e_config.dep_mode,
+                has_http_tests,
+                has_nif_tests,
+            ),
             generated_header: false,
         });
 
