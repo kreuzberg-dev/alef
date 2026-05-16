@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **[BREAKING] alef-backend-magnus: Ruby tagged enums emitted as class hierarchies instead of Hash method_missing**: Internally-tagged data enums now emit a sealed base class with per-variant predicate stubs (returning `false`) and one concrete subclass per variant. Each subclass carries Sorbet-typed `attr_reader` fields, a keyword-arg `initialize`, an overridden predicate (returning `true`), and a `self.from_hash` factory. The `Hash#method_missing` / `Hash#respond_to_missing?` monkey-patch that previously lived in `native.rb` is removed entirely. Callers that relied on `result.excel` or `format[:format_type]` style access must migrate to `result.is_a?(MessageSystem) && result.content`. (`crates/alef-backend-magnus/src/gen_bindings/mod.rs`)
+
+- **alef-backend-magnus: Sorbet `sig { }` blocks on all emitted tagged enum methods**: every accessor (`attr_reader`), predicate (`def variant?`), `initialize`, and `from_hash` in the generated tagged-enum class hierarchy now carries a Sorbet-compatible `sig { }` annotation with the correct type (`String`, `Integer`, `Float`, `T::Boolean`, `T.nilable(...)`, etc.). `extend T::Sig` and `extend T::Helpers` are emitted at the top of each class. (`crates/alef-backend-magnus/src/gen_bindings/mod.rs`)
+
 - **[BREAKING] alef-backend-php: emit DTOs as PHP 8.3+ `final class` with readonly constructor property promotion**: Previously, DTO stubs in `packages/php/src/*.php` were emitted as mutable `class` declarations with separate public property fields and redundant `getFoo()` / `getName()` getter methods. Now the backend emits `final class` with all fields promoted into the constructor signature as `public readonly` parameters, which is the idiomatic PHP 8.3+ pattern. Callers that invoked `$obj->getContent()` or `$obj->getName()` must migrate to direct property access `$obj->content` / `$obj->name`. (`crates/alef-backend-php/src/gen_bindings/mod.rs`, `crates/alef-backend-php/templates/php_record_class_stub_declaration.jinja`, `crates/alef-backend-php/tests/gen_bindings_test.rs`)
 
 - **alef-backend-csharp: modern C# features polish — file-scoped namespaces, `IAsyncEnumerable<T>` for streams, collection expressions**: All generated C# files already use file-scoped namespace syntax (`namespace Foo;`, C# 10+). Streaming methods on opaque handle classes return `IAsyncEnumerable<T>` (C# 8+) so consumers can `await foreach`. `byte[]` fields without an explicit default now emit `= []` (C# 12 collection expression) instead of `= Array.Empty<byte>()`. Three regression tests lock in these invariants. (`crates/alef-backend-csharp/src/gen_bindings/types.rs`, `crates/alef-backend-csharp/tests/gen_bindings_test.rs`)
@@ -50,6 +54,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-e2e/swift: emit fixture-driven visitor test classes via `build_swift_visitor`**: visitor-bearing fixtures previously emitted `XCTSkipIf(true, ...)` stubs in the swift e2e output. A new `codegen/swift_visitors.rs` module generates `final class LocalVisitor_<id>: HtmlVisitorProtocol` classes with per-method overrides, and `codegen/swift.rs` threads the resulting handle through `conversionOptionsFromJsonWithVisitor(json, handle)` replacing the former skip stub. (`crates/alef-e2e/src/codegen/swift_visitors.rs`, `crates/alef-e2e/src/codegen/swift.rs`, `crates/alef-e2e/src/codegen/mod.rs`)
 
 ### Fixed
+
+- **alef-backend-napi: keep tagged tuple variant Rust fields snake_case while exposing serde names to TypeScript**:
+  Tagged tuple variant payloads now assert the generated Rust field remains snake_case (for
+  warning-free Rust) while `#[napi(js_name = "...")]` preserves the serde rename at the
+  TypeScript boundary.
+  (`crates/alef-backend-napi/src/gen_bindings/enums.rs`)
 
 - **alef-backend-wasm: preserve `Option<T>` fields in tagged data enum variants**:
   The flat wasm-bindgen struct representation for serde-tagged data enums stores every variant
