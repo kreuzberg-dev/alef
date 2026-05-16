@@ -398,6 +398,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/stream_method_named_result.jinja"),
     ),
     (
+        "stream_method_string_result.jinja",
+        include_str!("../templates/stream_method_string_result.jinja"),
+    ),
+    (
+        "stream_method_optional_string_result.jinja",
+        include_str!("../templates/stream_method_optional_string_result.jinja"),
+    ),
+    (
+        "stream_method_primitive_result.jinja",
+        include_str!("../templates/stream_method_primitive_result.jinja"),
+    ),
+    (
+        "stream_method_optional_primitive_result.jinja",
+        include_str!("../templates/stream_method_optional_primitive_result.jinja"),
+    ),
+    (
         "stream_method_unit_result.jinja",
         include_str!("../templates/stream_method_unit_result.jinja"),
     ),
