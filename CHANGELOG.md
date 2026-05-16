@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.18] - 2026-05-16
+
 ### Fixed
 
 - **alef-backend-java: import `Optional` for opaque optional method returns**: the opaque-handle import scanner now uses the same public return-type mapper as the generated method signature, so `Option<T>` methods emit both `Optional<T>` and the required `java.util.Optional` import. (`crates/alef-backend-java/src/gen_bindings/types.rs`, `crates/alef-backend-java/tests/gen_bindings_test.rs`)
