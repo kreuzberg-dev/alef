@@ -560,7 +560,10 @@ impl Backend for RustlerBackend {
                     .iter()
                     .find(|v| v.is_default)
                     .or_else(|| e.variants.first())?;
-                Some((e.name.clone(), alef_codegen::naming::pascal_to_snake(&default_variant.name)))
+                Some((
+                    e.name.clone(),
+                    alef_codegen::naming::pascal_to_snake(&default_variant.name),
+                ))
             })
             .collect();
 

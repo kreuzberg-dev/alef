@@ -5,7 +5,9 @@ mod render_type;
 mod types;
 
 use crate::naming::dart_style;
-use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
+use alef_core::backend::{
+    Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep, PostProcessor,
+};
 use alef_core::config::{DartStyle, Language, ResolvedCrateConfig, TraitBridgeConfig, resolve_output_dir};
 use alef_core::ir::{ApiSurface, FunctionDef};
 use heck::ToLowerCamelCase;
@@ -250,15 +252,34 @@ impl DartBackend {
                 build_dep: BuildDependency::Ffi,
                 post_build: vec![],
             }),
-            DartStyle::Frb => Some(BuildConfig {
-                tool: "cargo",
-                crate_suffix: "-dart",
-                build_dep: BuildDependency::None,
-                post_build: vec![PostBuildStep::RunCommand {
-                    cmd: "flutter_rust_bridge_codegen",
-                    args: vec!["generate"],
-                }],
-            }),
+            DartStyle::Frb => {
+                let module_name = dart_module_name(&config.name);
+                // flutter_rust_bridge places the generated Dart code at
+                // `{dart_output}/lib.dart` where `dart_output` defaults to
+                // `../lib/src/{module_name}_bridge_generated` relative to the rust
+                // crate root.  Post-processing rewrites positional field names
+                // (`field0`) to payload-derived names so callers get an ergonomic API.
+                let lib_dart_path = PathBuf::from("..")
+                    .join("lib")
+                    .join("src")
+                    .join(format!("{module_name}_bridge_generated"))
+                    .join("lib.dart");
+                Some(BuildConfig {
+                    tool: "cargo",
+                    crate_suffix: "-dart",
+                    build_dep: BuildDependency::None,
+                    post_build: vec![
+                        PostBuildStep::RunCommand {
+                            cmd: "flutter_rust_bridge_codegen",
+                            args: vec!["generate"],
+                        },
+                        PostBuildStep::PostProcessFile {
+                            path: lib_dart_path,
+                            processor: PostProcessor::FrbDartSealedVariants,
+                        },
+                    ],
+                })
+            }
         }
     }
 }

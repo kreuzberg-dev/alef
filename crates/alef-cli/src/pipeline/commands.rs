@@ -969,6 +969,31 @@ fn run_post_build(
                 run_run_command(cmd, args, base_dir)
                     .with_context(|| format!("post-build RunCommand '{cmd}' failed"))?;
             }
+            PostBuildStep::PostProcessFile { path, processor } => {
+                use alef_core::backend::PostProcessor;
+                let file_path = base_dir.join(crate_dir).join(path);
+                if file_path.exists() {
+                    let content = std::fs::read_to_string(&file_path)
+                        .with_context(|| format!("failed to read post-process target {}", file_path.display()))?;
+                    let processed = match processor {
+                        PostProcessor::FrbDartSealedVariants => {
+                            alef_backend_dart::rewrite_frb_sealed_variants(&content)
+                        }
+                    };
+                    if processed != content {
+                        std::fs::write(&file_path, &processed)
+                            .with_context(|| format!("failed to write post-processed file {}", file_path.display()))?;
+                        info!("PostProcessed {}: {:?}", file_path.display(), processor);
+                    } else {
+                        debug!(
+                            "PostProcessFile {}: no changes (already rewritten or absent variants)",
+                            file_path.display()
+                        );
+                    }
+                } else {
+                    debug!("PostProcessFile target not found: {}", file_path.display());
+                }
+            }
         }
     }
 

@@ -34,6 +34,14 @@ impl BuildConfig {
     }
 }
 
+/// In-process post-processor applied to a generated file after external build tools run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostProcessor {
+    /// Rewrite frb-generated Dart sealed-class factory params from positional names (`field0`)
+    /// to payload-derived names (e.g. `metadata` for a `PdfMetadata` payload).
+    FrbDartSealedVariants,
+}
+
 /// A post-build processing step.
 #[derive(Debug, Clone)]
 pub enum PostBuildStep {
@@ -52,6 +60,13 @@ pub enum PostBuildStep {
         cmd: &'static str,
         /// Command arguments.
         args: Vec<&'static str>,
+    },
+    /// Apply an in-process [`PostProcessor`] to the file at `path` (relative to crate dir).
+    PostProcessFile {
+        /// File path relative to the binding crate directory.
+        path: PathBuf,
+        /// In-process processor to apply.
+        processor: PostProcessor,
     },
 }
 

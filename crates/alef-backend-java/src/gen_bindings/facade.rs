@@ -49,11 +49,12 @@ pub(crate) fn gen_facade_class(
                 })
                 .collect();
 
-            let return_type_str = java_return_type(&func.return_type).to_string();
-            let return_type = if matches!(func.return_type, TypeRef::Optional(_)) {
-                format!("@Nullable {}", return_type_str)
+            let return_type = if let TypeRef::Optional(inner) = &func.return_type {
+                // Unwrap Optional<T> to @Nullable T for cleaner return types
+                let inner_type = java_boxed_type(inner);
+                format!("@Nullable {}", inner_type)
             } else {
-                return_type_str
+                java_return_type(&func.return_type).to_string()
             };
             let is_void = matches!(func.return_type, TypeRef::Unit);
             let is_optional = matches!(func.return_type, TypeRef::Optional(_));

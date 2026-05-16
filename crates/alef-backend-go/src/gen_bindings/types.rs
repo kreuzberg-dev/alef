@@ -289,7 +289,10 @@ fn enum_variant_wire_value(variant: &alef_core::ir::EnumVariant, enum_def: &Enum
     if let Some(rename) = &variant.serde_rename {
         return rename.clone();
     }
-    apply_serde_rename(&alef_codegen::naming::pascal_to_snake(&variant.name), enum_def.serde_rename_all.as_deref())
+    apply_serde_rename(
+        &alef_codegen::naming::pascal_to_snake(&variant.name),
+        enum_def.serde_rename_all.as_deref(),
+    )
 }
 
 /// Generate a Go "newtype-tuple" enum as `type X string` with const block.
