@@ -37,6 +37,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-codegen/rustler: keep binding-excluded fields out of config constructors and cfg-gated core literals**: shared default-constructor helpers now filter `binding_excluded` fields before emitting keyword/option constructors, and binding-to-core conversion skips cfg-gated hidden fields so internal implementation details like caches and DI containers do not leak into generated Elixir NIF code or fail when the core feature is disabled. (`crates/alef-codegen/src/config_gen.rs`, `crates/alef-codegen/src/conversions/binding_to_core.rs`)
 
+- **alef-backend-swift: omit binding-excluded fields from Rust bridge constructors**: Swift Rust bridge extern declarations and wrapper constructor bodies now share the binding-visible field set, preventing hidden core fields from appearing as unbound constructor parameters or serde assignments. (`crates/alef-backend-swift/src/gen_rust_crate/extern_block.rs`, `crates/alef-backend-swift/src/gen_rust_crate/wrappers.rs`, `crates/alef-backend-swift/src/gen_rust_crate/default_construction.rs`)
+
 ## [0.16.14] - 2026-05-16
 
 ### Fixed
