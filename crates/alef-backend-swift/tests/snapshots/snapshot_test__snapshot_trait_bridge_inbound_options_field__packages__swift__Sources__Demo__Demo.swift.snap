@@ -27,9 +27,7 @@ internal extension ConversionOptions {
         self.timeoutMs = rb.timeoutMs()
     }
     func intoRust() throws -> RustBridge.ConversionOptions {
-        let data = try JSONEncoder().encode(self)
-        let json = String(data: data, encoding: .utf8) ?? "{}"
-        return try RustBridge.conversionOptionsFromJson(json)
+        return RustBridge.ConversionOptions(self.timeoutMs)
     }
 }
 

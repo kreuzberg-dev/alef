@@ -21,9 +21,7 @@ internal extension OcrConfig {
         self.language = rb.language().toString()
     }
     func intoRust() throws -> RustBridge.OcrConfig {
-        let data = try JSONEncoder().encode(self)
-        let json = String(data: data, encoding: .utf8) ?? "{}"
-        return try RustBridge.ocrConfigFromJson(json)
+        return RustBridge.OcrConfig(self.language)
     }
 }
 
@@ -41,9 +39,7 @@ internal extension ExtractionResult {
         self.text = rb.text().toString()
     }
     func intoRust() throws -> RustBridge.ExtractionResult {
-        let data = try JSONEncoder().encode(self)
-        let json = String(data: data, encoding: .utf8) ?? "{}"
-        return try RustBridge.extractionResultFromJson(json)
+        return RustBridge.ExtractionResult(self.text)
     }
 }
 

@@ -28,9 +28,9 @@ internal extension KeywordConfig {
         self.ngramRange = rb.ngramRange()
     }
     func intoRust() throws -> RustBridge.KeywordConfig {
-        let data = try JSONEncoder().encode(self)
-        let json = String(data: data, encoding: .utf8) ?? "{}"
-        return try RustBridge.keywordConfigFromJson(json)
+        let __ngramRange = RustVec<UInt>()
+        for __elem in self.ngramRange { __ngramRange.push(value: __elem) }
+        return RustBridge.KeywordConfig(self.maxKeywords, __ngramRange)
     }
 }
 

@@ -1045,3 +1045,254 @@ options_type = "ConversionOptions"
         );
     }
 }
+
+/// Verifies that `intoRust()` on a primitive-only first-class struct emits a direct
+/// `RustBridge.{Type}(...)` bulk constructor call rather than the JSON roundtrip.
+///
+/// Span is the canonical PoC case from tslp: all fields are `usize` (Swift `UInt`),
+/// type has a `Default` impl, so the swift-bridge `#[swift_bridge(init)] fn new(...)`
+/// extern is emitted and the host wrapper can call it directly.
+#[test]
+fn snapshot_into_rust_bulk_constructor_primitives() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Span".to_string(),
+            rust_path: "demo::Span".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("start_byte", TypeRef::Primitive(PrimitiveType::Usize), false),
+                make_field("end_byte", TypeRef::Primitive(PrimitiveType::Usize), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Source span.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
+        .expect("Rust lib.rs must be emitted");
+
+    // Bulk constructor extern must be emitted on the Rust side.
+    assert!(
+        lib_rs
+            .content
+            .contains("fn new(start_byte: usize, end_byte: usize) -> Span"),
+        "Rust extern must declare a bulk-constructor extern for Span:\n{}",
+        lib_rs.content
+    );
+
+    // The Swift host wrapper must call the constructor directly — NOT JSONEncoder.
+    assert!(
+        swift_file.content.contains("return RustBridge.Span(self.startByte, self.endByte)"),
+        "intoRust must emit a direct bulk-constructor call:\n{}",
+        swift_file.content
+    );
+    assert!(
+        !swift_file.content.contains("JSONEncoder().encode(self)"),
+        "intoRust must NOT use the JSONEncoder fallback for Span:\n{}",
+        swift_file.content
+    );
+    assert!(
+        !swift_file.content.contains("spanFromJson"),
+        "intoRust must NOT call spanFromJson when the bulk constructor is available:\n{}",
+        swift_file.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_intorust_bulk_primitives__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
+
+/// Verifies that `intoRust()` on a nested DTO (Vec<Named>, nested struct, primitive fields)
+/// emits a direct bulk constructor call that builds RustVec for each Vec field and recurses
+/// via `try self.field.intoRust()` for nested struct fields.
+///
+/// Models the tslp `ProcessResult` and `CodeChunk` shape — a top-level DTO that owns
+/// nested first-class DTOs and Vec<DTO> collections.
+#[test]
+fn snapshot_into_rust_bulk_constructor_nested() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "Span".to_string(),
+                rust_path: "demo::Span".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("start_byte", TypeRef::Primitive(PrimitiveType::Usize), false),
+                    make_field("end_byte", TypeRef::Primitive(PrimitiveType::Usize), false),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Source span.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "Diagnostic".to_string(),
+                rust_path: "demo::Diagnostic".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("message", TypeRef::String, false),
+                    make_field("span", TypeRef::Named("Span".to_string()), false),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Parse diagnostic.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ProcessResult".to_string(),
+                rust_path: "demo::ProcessResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    make_field("language", TypeRef::String, false),
+                    make_field(
+                        "diagnostics",
+                        TypeRef::Vec(Box::new(TypeRef::Named("Diagnostic".to_string()))),
+                        false,
+                    ),
+                    make_field(
+                        "tags",
+                        TypeRef::Vec(Box::new(TypeRef::String)),
+                        false,
+                    ),
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                doc: "Top-level processing result.".to_string(),
+                cfg: None,
+                is_trait: false,
+                has_default: true,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+
+    // Span (primitive-only): direct call.
+    assert!(
+        swift_file.content.contains("return RustBridge.Span(self.startByte, self.endByte)"),
+        "Span.intoRust must use direct bulk constructor:\n{}",
+        swift_file.content
+    );
+
+    // Diagnostic (nested struct): recurse via `try self.span.intoRust()`.
+    assert!(
+        swift_file
+            .content
+            .contains("return RustBridge.Diagnostic(self.message, try self.span.intoRust())"),
+        "Diagnostic.intoRust must recurse via nested intoRust:\n{}",
+        swift_file.content
+    );
+
+    // ProcessResult: Vec<Named> via per-element intoRust, Vec<String> via raw push.
+    assert!(
+        swift_file
+            .content
+            .contains("let __diagnostics = RustVec<RustBridge.Diagnostic>()"),
+        "ProcessResult.intoRust must materialise RustVec<RustBridge.Diagnostic>:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file
+            .content
+            .contains("__diagnostics.push(value: try __elem.intoRust())"),
+        "ProcessResult.intoRust must push per-element intoRust() into the Vec<Named>:\n{}",
+        swift_file.content
+    );
+    assert!(
+        swift_file.content.contains("let __tags = RustVec<String>()"),
+        "ProcessResult.intoRust must materialise RustVec<String> for Vec<String>:\n{}",
+        swift_file.content
+    );
+    assert!(
+        !swift_file.content.contains("JSONEncoder().encode(self)"),
+        "no DTO in this surface should use the JSONEncoder fallback:\n{}",
+        swift_file.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_intorust_bulk_nested__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
