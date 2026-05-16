@@ -387,14 +387,6 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let description = fixture.description.replace('\'', "\\'");
 
     if http.expected_response.status_code == 101 {
-        let rendered = crate::template_env::render(
-            "typescript/http_test_skip_101.jinja",
-            minijinja::context! {
-                test_name => test_name,
-                description => description,
-            },
-        );
-        out.push_str(&rendered);
         return;
     }
 
@@ -709,7 +701,6 @@ fn render_test_case(
     };
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let is_skipped = fixture.assertions.is_empty();
 
     // Build client setup
     let has_mock = fixture.mock_response.is_some() || fixture.http.is_some();
@@ -802,7 +793,6 @@ fn render_test_case(
         collect_snippet => collect_snippet,
         assertions_body => assertions_body,
         expects_error => expects_error,
-        is_skipped => is_skipped,
     };
     let rendered = crate::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);

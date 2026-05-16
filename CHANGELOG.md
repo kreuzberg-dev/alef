@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-e2e: omit non-runnable Python and Node fixtures instead of generating skipped tests**:
+  fixtures that have no assertions for the target language, or HTTP 101 upgrade
+  fixtures that the standard Python/Node HTTP clients cannot execute, are now
+  left out of those generated suites instead of producing skipped placeholders.
+  (`crates/alef-e2e/src/codegen/python`,
+  `crates/alef-e2e/src/codegen/typescript`)
+
 - **alef-backend-php: promote opaque class parameters after the first optional argument**:
   generated PHP userland class declarations now mirror static extension stubs by
   marking parameters after an optional parameter as nullable with `= null`,

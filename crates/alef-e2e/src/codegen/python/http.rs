@@ -8,7 +8,7 @@ use super::json::json_to_python_literal;
 /// Render a pytest test function for an HTTP server fixture.
 ///
 /// HTTP 101 (WebSocket upgrade) is handled specially: urllib cannot drive
-/// upgrade responses, so those fixtures are emitted as skip-stubs.
+/// upgrade responses, so those fixtures are omitted by the Python driver.
 /// Other fixtures use the template-based generator.
 pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     let Some(http) = &fixture.http else {
@@ -24,15 +24,9 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     };
 
     // HTTP 101 (WebSocket upgrade) — urllib cannot handle upgrade responses.
-    // Emit a skip stub independently.
+    // The Python driver filters these out before rendering; keep this guard for
+    // direct callers and future renderer reuse.
     if http.expected_response.status_code == 101 {
-        let ctx = minijinja::context! {
-            fn_name,
-            desc_with_period,
-        };
-        let rendered = crate::template_env::render("python/http_101_skip.jinja", ctx);
-        out.push_str(&rendered);
-        out.push('\n');
         return;
     }
 
