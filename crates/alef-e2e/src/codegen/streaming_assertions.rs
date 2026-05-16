@@ -1070,7 +1070,10 @@ mod tests {
         let snip = StreamingFieldResolver::collect_snippet("java", "result", "chunks").unwrap();
         // Must call .iterator() on the Stream<T> before using hasNext()/next() —
         // Stream does not implement those methods directly.
-        assert!(snip.contains(".iterator()"), "java snippet must call .iterator() on stream: {snip}");
+        assert!(
+            snip.contains(".iterator()"),
+            "java snippet must call .iterator() on stream: {snip}"
+        );
         assert!(snip.contains("hasNext()"), "java: {snip}");
         assert!(snip.contains(".next()"), "java: {snip}");
     }

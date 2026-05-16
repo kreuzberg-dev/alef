@@ -249,12 +249,19 @@ fn struct_with_serde_derives_codable() {
 }
 
 #[test]
-fn serde_struct_without_bridge_constructor_stays_rust_bridge_typealias() {
+fn primitive_only_serde_struct_without_default_emits_direct_bulk_constructor() {
+    // Primitive-only serde DTOs (e.g. Point { row: u32, column: u32 },
+    // ByteRange { start: usize, end: usize }) are positionally constructable via
+    // swift-bridge even without a `Default` impl, so the Swift binding must emit a
+    // first-class struct with a direct `RustBridge.{Type}(...)` `intoRust()` body —
+    // NOT a typealias and NOT a `*FromJson` JSON-roundtrip path (the matching Rust
+    // `*_from_json` shim would not link without the shared json-fallback predicate).
     let mut ty = make_type(
         "Config",
         vec![make_field("value", TypeRef::Primitive(PrimitiveType::I32), false)],
     );
     ty.has_serde = true;
+    ty.has_default = false;
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -270,12 +277,20 @@ fn serde_struct_without_bridge_constructor_stays_rust_bridge_typealias() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public typealias Config = RustBridge.Config"),
-        "structs without RustBridge constructors must remain typealiases: {content}"
+        !content.contains("public typealias Config = RustBridge.Config"),
+        "primitive-only serde DTOs must NOT be reduced to a RustBridge typealias: {content}"
     );
     assert!(
-        !content.contains("public struct Config: Codable, Sendable, Hashable"),
-        "must not emit first-class Swift DTOs that would need missing JSON factory shims: {content}"
+        content.contains("public struct Config: Codable, Sendable, Hashable"),
+        "primitive-only serde DTOs must emit a first-class Swift struct: {content}"
+    );
+    assert!(
+        content.contains("return RustBridge.Config(self.value)"),
+        "intoRust must call the direct bulk constructor, not a JSON shim: {content}"
+    );
+    assert!(
+        !content.contains("configFromJson"),
+        "intoRust must NOT route through *_from_json for primitive-only DTOs: {content}"
     );
 }
 
@@ -1601,7 +1616,9 @@ client_constructor_body.ImageClient = "Self { inner: ::demo::ImageClient::new(ap
     );
     // The method signature must carry `throws` (both from error_type and intoRust).
     assert!(
-        swift.content.contains("public func generateImage(_ request: CreateImageRequest) async throws -> String"),
+        swift
+            .content
+            .contains("public func generateImage(_ request: CreateImageRequest) async throws -> String"),
         "method signature must include throws when param is a first-class DTO; got:\n{}",
         swift.content
     );
@@ -1619,10 +1636,7 @@ client_constructor_body.ImageClient = "Self { inner: ::demo::ImageClient::new(ap
 fn method_with_dto_param_only_adds_throws_even_without_error_type() {
     use alef_core::ir::{MethodDef, ReceiverKind};
 
-    let mut req_type = make_type(
-        "SpeechRequest",
-        vec![make_field("text", TypeRef::String, false)],
-    );
+    let mut req_type = make_type("SpeechRequest", vec![make_field("text", TypeRef::String, false)]);
     req_type.has_serde = true;
     req_type.has_default = true;
 
@@ -1695,7 +1709,9 @@ client_constructor_body.SpeechClient = "Self { inner: ::demo::SpeechClient::new(
         .unwrap();
 
     assert!(
-        swift.content.contains("public func createSpeech(_ req: SpeechRequest) throws"),
+        swift
+            .content
+            .contains("public func createSpeech(_ req: SpeechRequest) throws"),
         "method with only DTO params must still emit throws; got:\n{}",
         swift.content
     );

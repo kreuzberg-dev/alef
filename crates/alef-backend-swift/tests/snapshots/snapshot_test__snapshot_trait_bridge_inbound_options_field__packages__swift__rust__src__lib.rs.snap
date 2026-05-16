@@ -65,9 +65,9 @@ pub struct VisitorHandle(pub demo::visitor::VisitorHandle);
 pub struct ConversionOptions(pub demo::options::ConversionOptions);
 impl ConversionOptions {
     pub fn new(timeout_ms: u32) -> ConversionOptions {
-        let mut __target: demo::options::ConversionOptions = ::std::default::Default::default();
-        __target.timeout_ms = timeout_ms;
-        ConversionOptions(__target)
+        ConversionOptions(demo::options::ConversionOptions {
+            timeout_ms,
+        })
     }
     pub fn timeout_ms(&self) -> u32 {
         ::serde_json::to_value(&self.0.timeout_ms).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()

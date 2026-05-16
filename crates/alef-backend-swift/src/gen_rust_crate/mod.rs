@@ -9,6 +9,7 @@ pub(crate) mod cargo;
 pub(crate) mod default_construction;
 pub(crate) mod enums;
 pub(crate) mod extern_block;
+pub(crate) mod json_fallback;
 pub(crate) mod plugin_inbound;
 pub(crate) mod shims;
 pub(crate) mod trait_bridge;
@@ -441,6 +442,21 @@ fn emit_lib_rs(
             .collect()
     };
 
+    // Any serde DTO that Swift's `intoRust()` will JSON-encode (because no positional
+    // constructor extern was emitted) must have a matching Rust-side `*_from_json`
+    // shim, regardless of whether it appears as a param / streaming item / e2e type.
+    // Without this, Swift's `RustBridge.{type}FromJson(...)` call fails at link time
+    // because the Rust crate never emitted the symbol. Dedupe against the previously
+    // collected emission sets so we don't emit the shim twice in the bridge module.
+    let streaming_item_names: std::collections::HashSet<&str> =
+        streaming_item_types.iter().map(|t| t.name.as_str()).collect();
+    let json_fallback_types: Vec<&TypeDef> = json_fallback::collect_json_fallback_types(&visible_types, exclude_fields)
+        .into_iter()
+        .filter(|ty| !extra_serde_param_names.contains(ty.name.as_str()))
+        .filter(|ty| !streaming_item_names.contains(ty.name.as_str()))
+        .filter(|ty| !e2e_type_name_set.contains(ty.name.as_str()))
+        .collect();
+
     out.push_str("#[swift_bridge::bridge]\nmod ffi {\n");
     for block in &extern_blocks {
         out.push_str(block);
@@ -477,6 +493,22 @@ fn emit_lib_rs(
     if !streaming_item_types.is_empty() {
         out.push_str("    extern \"Rust\" {\n\n");
         for ty in &streaming_item_types {
+            use heck::{AsSnakeCase, ToLowerCamelCase};
+            let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+            let type_name = &ty.name;
+            let swift_name = format!("{}_from_json", type_snake).to_lower_camel_case();
+            out.push_str(&format!(
+                "        #[swift_bridge(swift_name = \"{swift_name}\")]\n        fn {type_snake}_from_json(json: String) -> Result<{type_name}, String>;\n"
+            ));
+        }
+        out.push_str("    }\n");
+    }
+    // Emit from_json extern blocks for any other DTO that Swift will JSON-encode
+    // because the positional constructor extern wasn't emitted (no Default impl on
+    // a complex serde DTO, JSON-bridged fields, etc.).
+    if !json_fallback_types.is_empty() {
+        out.push_str("    extern \"Rust\" {\n\n");
+        for ty in &json_fallback_types {
             use heck::{AsSnakeCase, ToLowerCamelCase};
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
@@ -652,6 +684,23 @@ fn emit_lib_rs(
     // The Swift streaming wrapper calls `RustBridge.{itemType}FromJson(json)` to
     // deserialise each JSON chunk into the opaque swift-bridge type.
     for ty in &streaming_item_types {
+        use heck::AsSnakeCase;
+        let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
+        let type_name = &ty.name;
+        let source_path =
+            alef_codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
+        out.push_str(&format!(
+            "pub fn {type_snake}_from_json(json: String) -> Result<{type_name}, String> {{\n    \
+             serde_json::from_str::<{source_path}>(&json)\n        \
+             .map({type_name})\n        \
+             .map_err(|e| e.to_string())\n}}\n\n"
+        ));
+    }
+
+    // Emit from_json shim implementations for any other DTO that Swift will JSON-encode
+    // (matched extern declarations emitted in the ffi module above). Keeps the Swift
+    // binding side's `intoRust()` JSON-fallback call linkable on the Rust side.
+    for ty in &json_fallback_types {
         use heck::AsSnakeCase;
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;

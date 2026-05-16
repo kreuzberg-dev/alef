@@ -261,7 +261,9 @@ fn emit_module_kt(
     // Helper to resolve the facade Kotlin type for a return TypeRef.
     // Opaque types become their wrapper class; non-opaque Named types are
     // exposed as-is (Jackson deserialization makes them real Kotlin objects);
-    // Vec<DTO> becomes List<DTO>; everything else uses the JNI primitive/JSON mapping.
+    // generic containers (`Vec<_>`, `HashMap<_,_>`, and optional variants)
+    // are rendered recursively via `render_kotlin_type` so Jackson's
+    // `TypeReference<...>` and the public signature stay in lockstep.
     let facade_return_type = |ty: &alef_core::ir::TypeRef| -> String {
         if let alef_core::ir::TypeRef::Named(n) = ty {
             if opaque_type_names.contains(n.as_str()) {
@@ -270,21 +272,21 @@ fn emit_module_kt(
             // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
-        // Vec<DTO> → List<DTO>
-        if let alef_core::ir::TypeRef::Vec(inner) = ty {
-            if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
-                if !opaque_type_names.contains(n.as_str()) {
-                    return format!("List<{}>", n);
-                }
-            }
+        // Generic container (Vec / Map / Option<Vec|Map>): render recursively.
+        if matches!(
+            unwrap_optional(ty),
+            alef_core::ir::TypeRef::Vec(_) | alef_core::ir::TypeRef::Map(_, _)
+        ) {
+            return render_kotlin_type(ty, &opaque_type_names);
         }
         jni_return_type_str(ty).to_string()
     };
 
     // Helper to resolve the facade Kotlin type for a parameter TypeRef.
     // Non-opaque Named types (optionally wrapped) become their Kotlin class so
-    // callers pass typed objects rather than raw JSON strings.
-    // Vec<DTO> becomes List<DTO>.
+    // callers pass typed objects rather than raw JSON strings.  Generic
+    // containers (Vec / HashMap, possibly Option-wrapped) render recursively
+    // so the public signature matches the Jackson-serialized payload.
     let facade_param_type = |ty: &alef_core::ir::TypeRef| -> String {
         let inner = unwrap_optional(ty);
         if let alef_core::ir::TypeRef::Named(n) = inner {
@@ -294,18 +296,18 @@ fn emit_module_kt(
             // Non-opaque Named: expose the real Kotlin type.
             return n.clone();
         }
-        // Vec<DTO> → List<DTO>
-        if let alef_core::ir::TypeRef::Vec(vec_inner) = inner {
-            if let alef_core::ir::TypeRef::Named(n) = vec_inner.as_ref() {
-                if !opaque_type_names.contains(n.as_str()) {
-                    return format!("List<{}>", n);
-                }
-            }
+        if matches!(
+            inner,
+            alef_core::ir::TypeRef::Vec(_) | alef_core::ir::TypeRef::Map(_, _)
+        ) {
+            return render_kotlin_type(inner, &opaque_type_names);
         }
         jni_param_type_str(ty).to_string()
     };
 
     // Helper: detect if a TypeRef is a Vec of DTOs (needs deserialization).
+    // Retained for the legacy DTO-list emission path; broader generic-container
+    // detection lives in `is_generic_container` below.
     let is_vec_of_dtos = |ty: &alef_core::ir::TypeRef| -> bool {
         if let alef_core::ir::TypeRef::Vec(inner) = ty {
             if let alef_core::ir::TypeRef::Named(n) = inner.as_ref() {
@@ -315,14 +317,24 @@ fn emit_module_kt(
         false
     };
 
+    // Helper: detect any generic-container TypeRef whose deserialization in
+    // Kotlin requires `TypeReference<T>` rather than a `Class<T>` literal.
+    // Matches `Vec<_>`, `HashMap<_, _>`, and either wrapped in a single
+    // `Option<...>`.  The inner element type may itself be any TypeRef —
+    // primitives, strings, named DTOs, or further nested generics.
+    let is_generic_container = |ty: &alef_core::ir::TypeRef| -> bool {
+        let base = unwrap_optional(ty);
+        matches!(base, alef_core::ir::TypeRef::Vec(_) | alef_core::ir::TypeRef::Map(_, _))
+    };
+
     // Determine whether any function needs Jackson serialization/deserialization.
     // If so, emit a private mapper field and add the necessary imports.
     let needs_jackson = visible_functions.iter().any(|f| {
         is_dto_named(&f.return_type)
-            || is_vec_of_dtos(&f.return_type)
+            || is_generic_container(&f.return_type)
             || f.params
                 .iter()
-                .any(|p| is_dto_named(unwrap_optional(&p.ty)) || is_vec_of_dtos(unwrap_optional(&p.ty)))
+                .any(|p| is_dto_named(unwrap_optional(&p.ty)) || is_generic_container(unwrap_optional(&p.ty)))
     });
 
     let mut imports: BTreeSet<String> = BTreeSet::new();
@@ -331,9 +343,12 @@ fn emit_module_kt(
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
-    // Check if any function returns a Vec<DTO> that needs TypeReference.
-    let has_vec_dto_return = visible_functions.iter().any(|f| is_vec_of_dtos(&f.return_type));
-    if has_vec_dto_return {
+    // Check if any function returns a generic container that needs TypeReference.
+    // Vec<_>, HashMap<_,_>, and Option<Vec<_>> / Option<HashMap<_,_>> all
+    // require `TypeReference<...>` because Kotlin disallows generic type
+    // arguments on `::class.java` literals.
+    let has_generic_container_return = visible_functions.iter().any(|f| is_generic_container(&f.return_type));
+    if has_generic_container_return {
         imports.insert("import com.fasterxml.jackson.core.type.TypeReference".to_string());
     }
 
@@ -351,6 +366,7 @@ fn emit_module_kt(
         let return_ty = facade_return_type(&f.return_type);
         let returns_dto = is_dto_named(&f.return_type);
         let returns_vec_of_dtos = is_vec_of_dtos(&f.return_type);
+        let returns_generic_container = is_generic_container(&f.return_type);
 
         // Build the public param list. Optional non-opaque Named params become
         // `TypeName? = null`; required ones become `TypeName`.
@@ -386,8 +402,9 @@ fn emit_module_kt(
             .collect();
 
         // Build the bridge argument list. DTO params are serialized to JSON;
-        // opaque params are unwrapped to `.handle`; Vec<DTO> is serialized;
-        // everything else passes through.
+        // opaque params are unwrapped to `.handle`; generic containers
+        // (`Vec<_>`, `HashMap<_,_>`) are serialized; everything else passes
+        // through.
         let bridge_args: Vec<String> = f
             .params
             .iter()
@@ -406,16 +423,15 @@ fn emit_module_kt(
                     }
                     return format!("mapper.writeValueAsString({name})");
                 }
-                // Vec<DTO>: serialize to JSON.
-                if let alef_core::ir::TypeRef::Vec(vec_inner) = inner {
-                    if let alef_core::ir::TypeRef::Named(n) = vec_inner.as_ref() {
-                        if !opaque_type_names.contains(n.as_str()) {
-                            if p.optional {
-                                return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
-                            }
-                            return format!("mapper.writeValueAsString({name})");
-                        }
+                // Generic container (Vec<_> or HashMap<_,_>): serialize to JSON.
+                if matches!(
+                    inner,
+                    alef_core::ir::TypeRef::Vec(_) | alef_core::ir::TypeRef::Map(_, _)
+                ) {
+                    if p.optional {
+                        return format!("{name}?.let {{ mapper.writeValueAsString(it) }} ?: \"\"");
                     }
+                    return format!("mapper.writeValueAsString({name})");
                 }
                 // Nullable primitive scalar or String: null-coalesce to the JNI
                 // zero value so the non-nullable `external fun` signature is satisfied.
@@ -435,7 +451,11 @@ fn emit_module_kt(
         let returns_opaque =
             matches!(&f.return_type, alef_core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
-        if returns_dto || returns_vec_of_dtos || returns_opaque || needs_jackson {
+        if returns_dto || returns_generic_container || returns_opaque || needs_jackson {
+            // Suppress unused-warning on the legacy DTO-list flag — it remains
+            // a useful diagnostic name for downstream readers but the generic
+            // container path now subsumes its emission branch.
+            let _ = returns_vec_of_dtos;
             // Emit a block body so we can introduce local vars for clarity.
             if returns_dto {
                 let return_class = match &f.return_type {
@@ -466,21 +486,21 @@ fn emit_module_kt(
                         .join(", ")
                 ));
                 body.push('\n');
-            } else if returns_vec_of_dtos {
-                let element_class = match &f.return_type {
-                    alef_core::ir::TypeRef::Vec(inner) => match inner.as_ref() {
-                        alef_core::ir::TypeRef::Named(n) => n.clone(),
-                        _ => unreachable!(),
-                    },
-                    _ => unreachable!(),
-                };
+            } else if returns_generic_container {
+                // Generic container return: Kotlin disallows generic type
+                // arguments on `::class.java`, so we route through Jackson's
+                // `TypeReference<T>`.  The TypeReference body is the fully
+                // rendered Kotlin type (e.g. `List<String>`, `Map<String, Long>`,
+                // `List<MyDto>?` — `render_kotlin_type` handles every Vec /
+                // Map / Option permutation recursively).
+                let type_ref_body = render_kotlin_type(&f.return_type, &opaque_type_names);
                 body.push_str(&format!(
                     "    fun {method_name}({}): {return_ty} {{\n",
                     params.join(", ")
                 ));
                 body.push_str(&format!("        val resultJson = {bridge_call}\n"));
                 body.push_str(&format!(
-                    "        return mapper.readValue(resultJson, object : TypeReference<List<{element_class}>>() {{}})\n"
+                    "        return mapper.readValue(resultJson, object : TypeReference<{type_ref_body}>() {{}})\n"
                 ));
                 body.push_str("    }\n\n");
                 // Emit the suspend companion variant.
@@ -624,6 +644,54 @@ fn jni_return_type_str(ty: &alef_core::ir::TypeRef) -> &'static str {
         TypeRef::Optional(_) => "String?",
         TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "String",
         _ => "Long",
+    }
+}
+
+/// Recursively render a Kotlin type for a `TypeRef`, suitable for both
+/// public signatures and Jackson `TypeReference<...>` bodies.
+///
+/// Handles every container shape that can survive a JNI JSON round-trip:
+/// primitives, strings, named DTOs, opaque-handle types (rendered as the
+/// wrapper class — note that those should not normally appear inside a
+/// Jackson container, but the renderer stays consistent), nested `Vec<_>`,
+/// `Map<K, V>`, and `Option<_>`.  Optional inner types render with Kotlin's
+/// nullable `?` suffix; opaque handles inside containers render as their
+/// wrapper class name (callers are responsible for converting opaque
+/// payloads — Jackson never sees raw handles).
+fn render_kotlin_type(ty: &alef_core::ir::TypeRef, opaque_type_names: &std::collections::HashSet<&str>) -> String {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Unit => "Unit".to_string(),
+        TypeRef::Primitive(p) => match p {
+            PrimitiveType::Bool => "Boolean".to_string(),
+            PrimitiveType::I8 | PrimitiveType::U8 => "Byte".to_string(),
+            PrimitiveType::I16 | PrimitiveType::U16 => "Short".to_string(),
+            PrimitiveType::I32 | PrimitiveType::U32 => "Int".to_string(),
+            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long".to_string(),
+            PrimitiveType::F32 => "Float".to_string(),
+            PrimitiveType::F64 => "Double".to_string(),
+        },
+        TypeRef::String | TypeRef::Char => "String".to_string(),
+        TypeRef::Bytes => "ByteArray".to_string(),
+        TypeRef::Path => "String".to_string(),
+        TypeRef::Json => "Any".to_string(),
+        TypeRef::Duration => "Long".to_string(),
+        TypeRef::Named(n) => {
+            // Both opaque-wrapper class names and DTO class names are rendered
+            // verbatim — they share the same Kotlin identifier shape.
+            let _ = opaque_type_names;
+            n.clone()
+        }
+        TypeRef::Vec(inner) => format!("List<{}>", render_kotlin_type(inner, opaque_type_names)),
+        TypeRef::Map(k, v) => format!(
+            "Map<{}, {}>",
+            render_kotlin_type(k, opaque_type_names),
+            render_kotlin_type(v, opaque_type_names)
+        ),
+        TypeRef::Optional(inner) => {
+            // `String?`, `List<String>?`, `Map<String, Long>?`.
+            format!("{}?", render_kotlin_type(inner, opaque_type_names))
+        }
     }
 }
 

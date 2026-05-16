@@ -57,6 +57,13 @@ pub(crate) fn gen_facade_class(
                 java_return_type(&func.return_type).to_string()
             };
             let is_void = matches!(func.return_type, TypeRef::Unit);
+            // Whether the facade signature is `@Nullable T` while the bridge
+            // returns `Optional<T>` — in that case the facade must unwrap
+            // through `.orElse(null)` so the types line up.  Bytes are special:
+            // the raw class signature already returns `byte[]` (not
+            // `Optional<byte[]>`), so the unwrap would be a compile error.
+            let needs_optional_unwrap =
+                matches!(&func.return_type, TypeRef::Optional(inner) if !matches!(inner.as_ref(), TypeRef::Bytes));
             let is_optional = matches!(func.return_type, TypeRef::Optional(_));
             let java_name = to_java_name(&func.name);
 
@@ -138,6 +145,7 @@ pub(crate) fn gen_facade_class(
                 return_type => return_type,
                 is_void => is_void,
                 is_optional => is_optional,
+                needs_optional_unwrap => needs_optional_unwrap,
                 java_name => java_name,
                 params => params,
                 null_checks => null_checks,

@@ -1,7 +1,7 @@
             MemorySegment resultPtr = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
 {{ named_frees }}            if (resultPtr.equals(MemorySegment.NULL)) {
                 checkLastFfiError();
-                return null;
+                return {{ empty_return }};
             }
             try {
                 MemorySegment jsonPtr = (MemorySegment) {{ to_json }}.invoke(resultPtr);
@@ -11,7 +11,7 @@
                 }
                 String json = jsonPtr.reinterpret(Long.MAX_VALUE).getString(0);
                 NativeLib.{{ prefix_upper }}_FREE_STRING.invoke(jsonPtr);
-                return STREAM_MAPPER.readValue(json, {{ return_type_name }}.class);
+                {{ success_return }}
             } finally {
                 {{ ret_free }}.invoke(resultPtr);
             }

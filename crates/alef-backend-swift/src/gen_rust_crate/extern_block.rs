@@ -37,6 +37,17 @@ pub(crate) fn has_constructor_extern(ty: &TypeDef, exclude_fields: &HashSet<Stri
     if fields.is_empty() {
         return false;
     }
+    // Primitive-only DTOs (every field is a bare primitive — `bool`/`u32`/`usize`/…) can
+    // always be positionally constructed via swift-bridge regardless of whether the type
+    // implements `Default`. Without this fast path, serde-enabled primitive-only types
+    // (e.g. `Point { row: u32, column: u32 }`, `ByteRange { start: usize, end: usize }`)
+    // would slip into the JSON-roundtrip path whose matching Rust-side `*_from_json`
+    // shim is only emitted for hardcoded e2e / param / streaming-item types — leaving
+    // Swift with a dangling `RustBridge.pointFromJson` reference at link time.
+    let all_primitive_fields = fields.iter().all(|f| matches!(f.ty, TypeRef::Primitive(_)));
+    if all_primitive_fields {
+        return true;
+    }
     let has_vec_non_primitive = fields.iter().any(
         |f| matches!(&f.ty, TypeRef::Vec(inner) if !matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::Bytes)),
     );

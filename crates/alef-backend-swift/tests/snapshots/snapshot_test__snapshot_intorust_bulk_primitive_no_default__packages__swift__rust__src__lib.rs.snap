@@ -23,27 +23,27 @@ expression: "&file.content"
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
-        type Span;
+        type Point;
         #[swift_bridge(init)]
-        fn new(start_byte: usize, end_byte: usize) -> Span;
-        fn start_byte(&self) -> usize;
-        fn end_byte(&self) -> usize;
+        fn new(row: u32, column: u32) -> Point;
+        fn row(&self) -> u32;
+        fn column(&self) -> u32;
     }
 
 }
 
-pub struct Span(pub demo::Span);
-impl Span {
-    pub fn new(start_byte: usize, end_byte: usize) -> Span {
-        Span(demo::Span {
-            start_byte,
-            end_byte,
+pub struct Point(pub demo::Point);
+impl Point {
+    pub fn new(row: u32, column: u32) -> Point {
+        Point(demo::Point {
+            row,
+            column,
         })
     }
-    pub fn start_byte(&self) -> usize {
-        ::serde_json::to_value(&self.0.start_byte).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
+    pub fn row(&self) -> u32 {
+        ::serde_json::to_value(&self.0.row).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
     }
-    pub fn end_byte(&self) -> usize {
-        ::serde_json::to_value(&self.0.end_byte).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
+    pub fn column(&self) -> u32 {
+        ::serde_json::to_value(&self.0.column).ok().and_then(|j| ::serde_json::from_value(j).ok()).unwrap_or_default()
     }
 }

@@ -1155,19 +1155,13 @@ pub(super) fn gen_struct_type(
     }
     let data_enum_fields: Vec<DataEnumField> = binding_fields(&typ.fields)
         .filter(|f| !is_tuple_field(f))
-        .filter(|f| {
-            f.name != "visitor" || !matches!(&f.ty, TypeRef::Named(n) if n.contains("Visitor"))
-        })
+        .filter(|f| f.name != "visitor" || !matches!(&f.ty, TypeRef::Named(n) if n.contains("Visitor")))
         .filter_map(|f| {
             // Determine the inner Named type name, and whether the field is optional.
             let (enum_name_str, is_optional) = match &f.ty {
-                TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => {
-                    (n.as_str(), false)
-                }
+                TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), false),
                 TypeRef::Optional(inner) => match inner.as_ref() {
-                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => {
-                        (n.as_str(), true)
-                    }
+                    TypeRef::Named(n) if data_enum_names.contains(n.as_str()) => (n.as_str(), true),
                     _ => return None,
                 },
                 _ => return None,
@@ -1183,9 +1177,7 @@ pub(super) fn gen_struct_type(
     if !data_enum_fields.is_empty() {
         out.push('\n');
         // Emit: func (s *StructName) UnmarshalJSON(data []byte) error {
-        out.push_str(&format!(
-            "func (s *{go_name}) UnmarshalJSON(data []byte) error {{\n"
-        ));
+        out.push_str(&format!("func (s *{go_name}) UnmarshalJSON(data []byte) error {{\n"));
 
         // Emit the anonymous helper struct with all fields,
         // replacing data-enum fields with json.RawMessage.
@@ -1259,14 +1251,8 @@ pub(super) fn gen_struct_type(
             let unmarshal_fn = format!("Unmarshal{}", def.enum_go_name);
             if def.is_optional {
                 // Optional field: only decode when the raw bytes are non-nil/non-empty.
-                out.push_str(&format!(
-                    "\tif len(raw.{}) > 0 {{\n",
-                    def.go_name
-                ));
-                out.push_str(&format!(
-                    "\t\tv, err := {unmarshal_fn}(raw.{})\n",
-                    def.go_name
-                ));
+                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
+                out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
                 out.push_str("\t\tif err != nil {\n");
                 out.push_str("\t\t\treturn err\n");
                 out.push_str("\t\t}\n");
@@ -1274,14 +1260,8 @@ pub(super) fn gen_struct_type(
                 out.push_str("\t}\n");
             } else {
                 // Required field: always decode (raw is guaranteed non-nil by the struct unmarshal above).
-                out.push_str(&format!(
-                    "\tif len(raw.{}) > 0 {{\n",
-                    def.go_name
-                ));
-                out.push_str(&format!(
-                    "\t\tv, err := {unmarshal_fn}(raw.{})\n",
-                    def.go_name
-                ));
+                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
+                out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
                 out.push_str("\t\tif err != nil {\n");
                 out.push_str("\t\t\treturn err\n");
                 out.push_str("\t\t}\n");

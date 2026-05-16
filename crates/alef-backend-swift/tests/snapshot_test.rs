@@ -1289,3 +1289,190 @@ fn snapshot_into_rust_bulk_constructor_nested() {
         );
     }
 }
+
+/// Primitive-only serde DTOs without a `Default` impl (e.g. `Point { row: u32,
+/// column: u32 }`, `ByteRange { start: usize, end: usize }`) must still get a
+/// positional `fn new(...)` constructor extern emitted to the swift-bridge
+/// extern block — and the Swift `intoRust()` must call it directly rather than
+/// routing through a JSON-roundtrip path whose Rust shim was never emitted.
+#[test]
+fn snapshot_intorust_bulk_constructor_primitive_no_default() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Point".to_string(),
+            rust_path: "demo::Point".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("row", TypeRef::Primitive(PrimitiveType::U32), false),
+                make_field("column", TypeRef::Primitive(PrimitiveType::U32), false),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: true,
+            doc: "Source-text position (row, column).".to_string(),
+            cfg: None,
+            is_trait: false,
+            // Critical: serde-enabled but NO Default impl. Pre-fix this slipped into the
+            // JSON-roundtrip path; post-fix the primitive-only fast path emits the bulk
+            // constructor extern regardless.
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let swift_file = files
+        .iter()
+        .find(|f| f.path.extension().and_then(|e| e.to_str()) == Some("swift"))
+        .expect("Swift source file must be emitted");
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
+        .expect("Rust lib.rs must be emitted");
+
+    // Rust crate side: positional constructor extern emitted despite no Default impl.
+    assert!(
+        lib_rs.content.contains("fn new(row: u32, column: u32) -> Point"),
+        "primitive-only serde DTO without Default must still declare a bulk-constructor extern:\n{}",
+        lib_rs.content
+    );
+    // Rust crate side: no JSON-roundtrip shim emitted (it would be linkable but pointless).
+    assert!(
+        !lib_rs.content.contains("fn point_from_json("),
+        "primitive-only DTO must NOT also emit a JSON-roundtrip shim:\n{}",
+        lib_rs.content
+    );
+
+    // Swift side: direct positional construction; no JSONEncoder fallback.
+    assert!(
+        swift_file
+            .content
+            .contains("return RustBridge.Point(self.row, self.column)"),
+        "intoRust must call positional constructor directly:\n{}",
+        swift_file.content
+    );
+    assert!(
+        !swift_file.content.contains("pointFromJson"),
+        "intoRust must NOT call pointFromJson when bulk constructor is available:\n{}",
+        swift_file.content
+    );
+    assert!(
+        !swift_file.content.contains("JSONEncoder().encode(self)"),
+        "intoRust must NOT use the JSONEncoder fallback for Point:\n{}",
+        swift_file.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_intorust_bulk_primitive_no_default__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
+
+/// DTOs whose fields cannot be bridged through the positional constructor (e.g.
+/// `HashMap<String, _>` — forces JSON bridging) must have a matching
+/// `{type_snake}_from_json` shim emitted on the Rust crate side via the shared
+/// `collect_json_fallback_types` predicate. This is the defensive symmetry that
+/// keeps the binding side and the Rust crate side in lockstep: if the Swift host
+/// would ever JSON-encode the DTO at runtime, the matching Rust symbol exists.
+///
+/// (Today's `can_emit_first_class_struct` gate keeps Map-bearing DTOs as
+/// RustBridge typealiases so `intoRust()` is not even emitted on the Swift side
+/// — but the shim is still pre-positioned so any future first-class emission
+/// Just Works.)
+#[test]
+fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Metadata".to_string(),
+            rust_path: "demo::Metadata".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                make_field("kind", TypeRef::String, false),
+                // HashMap<String, String> forces JSON bridging on the field — which forces
+                // default-construction → because there's no Default impl, the swift-bridge
+                // bulk constructor extern cannot be emitted → Swift falls back to JSON.
+                make_field(
+                    "attrs",
+                    TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String)),
+                    false,
+                ),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: "Generic metadata bag.".to_string(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let config = make_basic_config();
+    let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
+
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("lib.rs"))
+        .expect("Rust lib.rs must be emitted");
+
+    // The from_json shim must be declared inside the swift-bridge module …
+    assert!(
+        lib_rs
+            .content
+            .contains("fn metadata_from_json(json: String) -> Result<Metadata, String>"),
+        "JSON-fallback DTO must have a matching Rust *_from_json extern declared:\n{}",
+        lib_rs.content
+    );
+    // … and implemented as a pub free function so the swift-bridge codegen links it.
+    assert!(
+        lib_rs
+            .content
+            .contains("pub fn metadata_from_json(json: String) -> Result<Metadata, String>"),
+        "JSON-fallback DTO must have a matching pub fn *_from_json implementation:\n{}",
+        lib_rs.content
+    );
+
+    for file in &files {
+        insta::assert_snapshot!(
+            format!(
+                "snapshot_intorust_json_fallback_shim_present__{}",
+                file.path.display().to_string().replace('/', "__")
+            ),
+            &file.content
+        );
+    }
+}
