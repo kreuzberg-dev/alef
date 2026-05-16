@@ -777,44 +777,104 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         out.push_str("}\n\n");
     }
 
-    // Emit the Unmarshal{EnumName} helper function
+    // Emit the Unmarshal{EnumName} helper function.
+    // Untagged enums use shape-discriminated try-each-variant unmarshalling.
+    // Tagged enums (internally tagged with serde_tag) use the wire-struct
+    // discriminator field switch.
     out.push_str(&format!(
         "// Unmarshal{go_enum_name} decodes JSON data into the appropriate concrete {go_enum_name} variant.\n"
     ));
     out.push_str(&format!(
         "func Unmarshal{go_enum_name}(data []byte) ({go_enum_name}, error) {{\n"
     ));
-    out.push_str("\tvar wire struct {\n");
-    if let Some(tag_name) = &enum_def.serde_tag {
+
+    if enum_def.serde_untagged {
+        // Untagged path: sniff the first non-whitespace byte to filter candidates,
+        // then try each variant in declared order.
+        out.push_str("\tif len(data) == 0 {\n");
         out.push_str(&format!(
-            "\t\t{} string `json:\"{}\"`\n",
-            to_go_name(tag_name),
-            tag_name
+            "\t\treturn nil, fmt.Errorf(\"cannot unmarshal empty JSON into {go_enum_name}\")\n"
+        ));
+        out.push_str("\t}\n");
+        out.push_str("\tvar firstByte byte\n");
+        out.push_str("\tfor _, b := range data {\n");
+        out.push_str("\t\tif b != ' ' && b != '\\t' && b != '\\n' && b != '\\r' {\n");
+        out.push_str("\t\t\tfirstByte = b\n");
+        out.push_str("\t\t\tbreak\n");
+        out.push_str("\t\t}\n");
+        out.push_str("\t}\n");
+
+        for variant in &enum_def.variants {
+            let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
+
+            // Determine the expected JSON shape for this variant.
+            // Tuple/newtype variants: shape is determined by the single inner field type.
+            // Struct variants with named fields: always an object.
+            let shape_check = if variant.fields.len() == 1 && is_tuple_field(&variant.fields[0]) {
+                match &variant.fields[0].ty {
+                    TypeRef::String | TypeRef::Char | TypeRef::Path => Some("firstByte == '\"'"),
+                    TypeRef::Vec(_) | TypeRef::Bytes => Some("firstByte == '['"),
+                    TypeRef::Primitive(_) => Some("firstByte != '\"' && firstByte != '{' && firstByte != '['"),
+                    // Named types, maps, and everything else are assumed to be objects.
+                    _ => Some("firstByte == '{'"),
+                }
+            } else if variant.fields.is_empty() {
+                // Unit variant in an untagged context — skip; cannot match a JSON value.
+                None
+            } else {
+                // Struct variant with named fields is always an object.
+                Some("firstByte == '{'")
+            };
+
+            if let Some(check) = shape_check {
+                out.push_str(&format!("\tif {check} {{\n"));
+                out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
+                out.push_str("\t\tif err := json.Unmarshal(data, &v); err == nil {\n");
+                out.push_str("\t\t\treturn v, nil\n");
+                out.push_str("\t\t}\n");
+                out.push_str("\t}\n");
+            }
+        }
+
+        out.push_str(&format!(
+            "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} shape: %s\", string(data))\n"
+        ));
+    } else {
+        // Tagged path (internally-tagged or externally-tagged): read the discriminator
+        // field from the wire struct, then switch on its value.
+        out.push_str("\tvar wire struct {\n");
+        if let Some(tag_name) = &enum_def.serde_tag {
+            out.push_str(&format!(
+                "\t\t{} string `json:\"{}\"`\n",
+                to_go_name(tag_name),
+                tag_name
+            ));
+        }
+        out.push_str("\t}\n");
+        out.push_str("\tif err := json.Unmarshal(data, &wire); err != nil {\n");
+        out.push_str("\t\treturn nil, err\n");
+        out.push_str("\t}\n\n");
+
+        let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
+        let discriminator_field = tag_field.as_deref().unwrap_or("Type");
+
+        out.push_str(&format!("\tswitch wire.{discriminator_field} {{\n"));
+        for variant in &enum_def.variants {
+            let wire_value = enum_variant_wire_value(variant, enum_def);
+            let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
+            out.push_str(&format!("\tcase \"{}\":\n", wire_value));
+            out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
+            out.push_str("\t\tif err := json.Unmarshal(data, &v); err != nil {\n");
+            out.push_str("\t\t\treturn nil, err\n");
+            out.push_str("\t\t}\n");
+            out.push_str("\t\treturn v, nil\n");
+        }
+        out.push_str("\t}\n");
+        out.push_str(&format!(
+            "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} type: %q\", wire.{discriminator_field})\n"
         ));
     }
-    out.push_str("\t}\n");
-    out.push_str("\tif err := json.Unmarshal(data, &wire); err != nil {\n");
-    out.push_str("\t\treturn nil, err\n");
-    out.push_str("\t}\n\n");
 
-    let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
-    let discriminator_field = tag_field.as_deref().unwrap_or("Type");
-
-    out.push_str(&format!("\tswitch wire.{discriminator_field} {{\n"));
-    for variant in &enum_def.variants {
-        let wire_value = enum_variant_wire_value(variant, enum_def);
-        let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
-        out.push_str(&format!("\tcase \"{}\":\n", wire_value));
-        out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
-        out.push_str("\t\tif err := json.Unmarshal(data, &v); err != nil {\n");
-        out.push_str("\t\t\treturn nil, err\n");
-        out.push_str("\t\t}\n");
-        out.push_str("\t\treturn v, nil\n");
-    }
-    out.push_str("\t}\n");
-    out.push_str(&format!(
-        "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} type: %q\", wire.{discriminator_field})\n"
-    ));
     out.push_str("}\n");
 
     out

@@ -268,3 +268,199 @@ fn test_zero_default_dto_skips_functional_options() {
         "Span struct definition must still be present"
     );
 }
+
+/// Bug D: UnmarshalX for untagged enums must not access wire.Type on an empty struct.
+///
+/// Enums with `serde_untagged: true` and struct variants route to `gen_data_enum_type`.
+/// The old code unconditionally emitted `switch wire.Type { ... }`, which references a
+/// field that doesn't exist on the empty wire struct, causing a Go compile error:
+///
+///   wire.Type undefined (type struct{} has no field or method Type)
+///
+/// Fix: when `serde_untagged` is set, emit shape-discriminated try-each-variant
+/// unmarshalling (sniff first byte, try `json.Unmarshal` into each variant in order).
+///
+/// This test uses struct variants (named fields) which route through `gen_data_enum_type`.
+/// Enums with only tuple fields that include Vec<_> route to the separate
+/// `gen_passthrough_raw_message_enum` path which is already correct.
+#[test]
+fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
+    let backend = GoBackend;
+    let config = make_config();
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "InputDoc".to_string(),
+            rust_path: "test_lib::InputDoc".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                // Struct variant with a single named string field
+                EnumVariant {
+                    name: "Text".to_string(),
+                    fields: vec![make_field("content", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: "A plain-text document.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                // Struct variant with multiple named fields
+                EnumVariant {
+                    name: "Object".to_string(),
+                    fields: vec![
+                        make_field("title", TypeRef::String, false),
+                        make_field("body", TypeRef::String, false),
+                    ],
+                    is_tuple: false,
+                    doc: "A structured document.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "A document for input.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: true,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
+    let content = &binding.content;
+
+    // Must NOT have the broken switch on an empty wire struct
+    assert!(
+        !content.contains("switch wire.Type"),
+        "Untagged enum must not emit 'switch wire.Type' (wire struct is empty)"
+    );
+    assert!(
+        !content.contains("var wire struct {\n\t}"),
+        "Untagged enum must not emit an empty wire struct"
+    );
+
+    // Must emit the shape-sniffing preamble
+    assert!(
+        content.contains("firstByte"),
+        "Untagged enum Unmarshal must sniff the first JSON byte"
+    );
+
+    // Must try both variants
+    assert!(
+        content.contains("var v InputDocText"),
+        "Must try InputDocText variant"
+    );
+    assert!(
+        content.contains("var v InputDocObject"),
+        "Must try InputDocObject variant"
+    );
+
+    // Struct variants are always objects — gate on '{'
+    assert!(
+        content.contains("firstByte == '{'"),
+        "Struct variants must be gated on firstByte == '{{'"
+    );
+
+    // Error message must mention the enum name and the raw JSON shape
+    assert!(
+        content.contains("unknown InputDoc shape"),
+        "Error message must identify the enum and say 'shape'"
+    );
+}
+
+/// Bug D (multi-variant object case): untagged enum whose all variants are struct variants
+/// (named fields, no tuple) must also use shape-discriminated unmarshalling.
+///
+/// Mirrors the `OcrDocument` shape where multiple struct variants are tried in order.
+#[test]
+fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() {
+    let backend = GoBackend;
+    let config = make_config();
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "OcrDocument".to_string(),
+            rust_path: "test_lib::OcrDocument".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                // Struct variant: OcrDocument::Source { source_path: String }
+                EnumVariant {
+                    name: "Source".to_string(),
+                    fields: vec![make_field("source_path", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: "A file path pointing to a document.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                // Struct variant: OcrDocument::Encoded { data: String, mime: String }
+                EnumVariant {
+                    name: "Encoded".to_string(),
+                    fields: vec![
+                        make_field("data", TypeRef::String, false),
+                        make_field("mime", TypeRef::String, false),
+                    ],
+                    is_tuple: false,
+                    doc: "Base64-encoded document bytes.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: "A document for OCR.".to_string(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: None,
+            serde_untagged: true,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let binding = files.iter().find(|f| f.path.ends_with("binding.go")).unwrap();
+    let content = &binding.content;
+
+    // Must NOT fall back to the broken wire.Type switch
+    assert!(
+        !content.contains("switch wire.Type"),
+        "Untagged enum must not emit 'switch wire.Type'"
+    );
+
+    // Both struct variants are objects — must gate on '{'
+    assert!(
+        content.contains("firstByte == '{'"),
+        "Struct variants must be gated on firstByte == '{{'"
+    );
+
+    // Must try both variants (to_go_name("Source") = "Source", "Encoded" = "Encoded")
+    assert!(
+        content.contains("var v OcrDocumentSource"),
+        "Must try OcrDocumentSource variant"
+    );
+    assert!(
+        content.contains("var v OcrDocumentEncoded"),
+        "Must try OcrDocumentEncoded variant"
+    );
+
+    // Error message must reference shape
+    assert!(
+        content.contains("unknown OcrDocument shape"),
+        "Error message must say 'shape' for untagged enums"
+    );
+}
