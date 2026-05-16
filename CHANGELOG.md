@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **chore: drop taplo entirely from alef tooling**: CI no longer installs taplo-cli or runs `taplo fmt --check`; `.taplo.toml` is removed. TOML formatting in alef now relies on `cargo-sort` (Cargo.toml ordering) and `cargo-fmt` (inline TOML literals in Rust code) only. (`.github/workflows/ci.yml`, `.taplo.toml`, `.github/copilot-instructions.md`)
+
 ### Fixed
 
 - **alef-backend-swift: disable `cargo test`/`doctest`/`bench` for the generated `*-swift` crate**: the `[swift_bridge::bridge]` `extern "Swift" { ... }` block emits Rust-to-Swift call sites whose symbols (`__swift_bridge__$<Type>$<method>`) are only resolved when the static/cdylib output is linked into a Swift target. `cargo test --workspace` on a pure-Rust runner (windows-latest, ubuntu-latest without swift-toolchain) would therefore fail with `rust-lld: error: undefined symbol: __swift_bridge__$SwiftHtmlVisitorBox$alef_visit_*` (and ~30 more) during the test-harness link step. The generated `Cargo.toml`'s `[lib]` now sets `test = false`, `doctest = false`, `bench = false` — the cdylib/staticlib build path is unaffected, and the swift package's own `swift test` suite remains the authoritative test surface for this crate. (`crates/alef-backend-swift/src/gen_rust_crate/cargo.rs`)
