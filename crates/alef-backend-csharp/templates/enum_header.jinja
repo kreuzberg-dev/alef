@@ -8,9 +8,9 @@ using System.Text.Json.Serialization;
 namespace {{ namespace }};
 {% if doc %}
 /// <summary>
-{%- for line in doc_lines %}
+{% for line in doc_lines %}
 /// {{ line }}
-{%- endfor %}
+{% endfor %}
 /// </summary>
 {% endif -%}
 {% if needs_custom_converter %}
@@ -23,9 +23,9 @@ public enum {{ enum_pascal }}
 {%- for variant in variants %}
 {% if variant.doc %}
     /// <summary>
-{%- for line in variant.doc_lines %}
+{% for line in variant.doc_lines %}
     /// {{ line }}
-{%- endfor %}
+{% endfor %}
     /// </summary>
 {% endif %}
     [JsonPropertyName("{{ variant.json_name }}")]
