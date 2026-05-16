@@ -1352,3 +1352,56 @@ fn batch_function_returns_typed_list_with_jackson_deserialization() {
         "must import TypeReference for List deserialization, got:\n{content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// KDoc emission regression: every declaration in the Kotlin source the
+// backend writes itself (module-facade fns and handle-only wrapper classes)
+// must carry KDoc derived from the IR's `doc` field.
+// ---------------------------------------------------------------------------
+
+/// Helper: build a handle-only API with a documented opaque type and a
+/// documented free function so KDoc emission can be asserted on both
+/// emitted Kotlin files.
+fn make_documented_handle_only_api() -> ApiSurface {
+    let mut api = make_handle_only_api();
+    api.types[0].doc = "Opaque crawl engine handle.".to_string();
+    // `create_engine` is the first function; tag it with a rustdoc summary.
+    api.functions[0].doc = "Allocate a fresh crawl engine handle.".to_string();
+    api
+}
+
+#[test]
+fn module_facade_function_emits_kdoc_from_ir_doc() {
+    let api = make_documented_handle_only_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let module_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("Demo.kt"))
+        .expect("Demo.kt must be emitted when visible free functions exist");
+    let content = &module_kt.content;
+
+    assert!(
+        content.contains("    /**\n     * Allocate a fresh crawl engine handle.\n     */"),
+        "createEngine must carry a KDoc block derived from its rustdoc, got:\n{content}"
+    );
+}
+
+#[test]
+fn handle_only_wrapper_emits_kdoc_from_type_doc() {
+    let api = make_documented_handle_only_api();
+    let config = make_opaque_factory_config();
+    let files = KotlinAndroidBackend.generate_bindings(&api, &config).unwrap();
+
+    let handle_kt = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("CrawlEngineHandle.kt"))
+        .expect("CrawlEngineHandle.kt wrapper must be emitted for handle-only opaque types");
+    let content = &handle_kt.content;
+
+    assert!(
+        content.contains("/**\n * Opaque crawl engine handle.\n */"),
+        "CrawlEngineHandle wrapper must carry a KDoc block derived from the IR type doc, got:\n{content}"
+    );
+}

@@ -35,6 +35,13 @@ pub fn emit_error_type_pub(error: &ErrorDef, out: &mut String, imports: &mut BTr
     object_wrapper::emit_error_type_with_imports(error, out, imports)
 }
 
+/// Emit cleaned KDoc for a documentation string. Re-exported for sibling
+/// crates (alef-backend-kotlin-android) so they can attach KDoc to their own
+/// emitted declarations without depending on `alef-codegen` directly.
+pub fn emit_kdoc_pub(out: &mut String, doc: &str, indent: &str) {
+    helpers::emit_cleaned_kdoc(out, doc, indent);
+}
+
 fn effective_kotlin_exclude_types(config: &ResolvedCrateConfig) -> std::collections::HashSet<String> {
     let mut exclude_types: std::collections::HashSet<String> = config
         .ffi

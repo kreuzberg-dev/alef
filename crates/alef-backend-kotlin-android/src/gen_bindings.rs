@@ -17,7 +17,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use alef_backend_kotlin::{
-    emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_type_pub, to_pascal_case,
+    emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub, emit_type_pub,
+    to_pascal_case,
 };
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -188,33 +189,46 @@ fn emit_module_kt(
     // Collect "handle shape" types: opaque types that are NOT clients but
     // appear somewhere on the free-function surface (as a return or a
     // parameter).  Each one gets its own AutoCloseable wrapper class file.
-    let handle_only_types: std::collections::BTreeSet<&str> = {
-        let mut set = std::collections::BTreeSet::new();
+    let handle_only_types: std::collections::BTreeMap<&str, &alef_core::ir::TypeDef> = {
+        let mut map = std::collections::BTreeMap::new();
+        let by_name: std::collections::HashMap<&str, &alef_core::ir::TypeDef> =
+            api.types.iter().map(|t| (t.name.as_str(), t)).collect();
         for f in &visible_functions {
             if let alef_core::ir::TypeRef::Named(n) = &f.return_type {
                 if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
-                    set.insert(n.as_str());
+                    if let Some(ty) = by_name.get(n.as_str()) {
+                        map.insert(n.as_str(), *ty);
+                    }
                 }
             }
             for p in &f.params {
                 if let alef_core::ir::TypeRef::Named(n) = unwrap_optional(&p.ty) {
                     if opaque_type_names.contains(n.as_str()) && !client_type_names.contains(n.as_str()) {
-                        set.insert(n.as_str());
+                        if let Some(ty) = by_name.get(n.as_str()) {
+                            map.insert(n.as_str(), *ty);
+                        }
                     }
                 }
             }
         }
-        set
+        map
     };
 
     // Emit a one-off wrapper class file per handle-only opaque type.
-    for type_name in &handle_only_types {
+    for (type_name, type_def) in &handle_only_types {
         let class_name = *type_name;
         let free_name = format!("nativeFree{}", to_pascal_case(class_name));
         let mut body = String::new();
-        body.push_str(&format!(
-            "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
-        ));
+        // Prefer the IR-supplied rustdoc for the opaque type; fall back to a
+        // generic description when the source has no doc comment so the
+        // generated class still has *some* KDoc.
+        if type_def.doc.is_empty() {
+            body.push_str(&format!(
+                "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
+            ));
+        } else {
+            emit_kdoc_pub(&mut body, &type_def.doc, "");
+        }
         body.push_str(&format!(
             "class {class_name} internal constructor(internal val handle: Long) : AutoCloseable {{\n"
         ));
@@ -331,6 +345,7 @@ fn emit_module_kt(
     }
 
     for f in &visible_functions {
+        emit_kdoc_pub(&mut body, &f.doc, "    ");
         let method_name = to_lower_camel(&f.name);
         let native_name = format!("native{}", to_pascal_case(&f.name));
         let return_ty = facade_return_type(&f.return_type);
@@ -431,6 +446,7 @@ fn emit_module_kt(
                 ));
                 body.push_str("    }\n\n");
                 // Emit the suspend companion variant.
+                emit_kdoc_pub(&mut body, &f.doc, "    ");
                 body.push_str(&format!(
                     "    suspend fun {method_name}Async({}): {return_ty} =\n",
                     params.join(", ")
@@ -462,6 +478,7 @@ fn emit_module_kt(
                 ));
                 body.push_str("    }\n\n");
                 // Emit the suspend companion variant.
+                emit_kdoc_pub(&mut body, &f.doc, "    ");
                 body.push_str(&format!(
                     "    suspend fun {method_name}Async({}): {return_ty} =\n",
                     params.join(", ")
