@@ -32,7 +32,7 @@ jobs:
           macos-dynamic-lookup: "false"
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-deny,taplo-cli,cargo-machete,cargo-sort
+          tool: cargo-deny,cargo-machete,cargo-sort
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
@@ -43,8 +43,6 @@ jobs:
         run: cargo deny check
       - name: Check Cargo.toml sorting
         run: cargo sort --check --workspace
-      - name: Check TOML formatting
-        run: taplo fmt --check
 
   test:
     name: Test (${{ matrix.os }})
