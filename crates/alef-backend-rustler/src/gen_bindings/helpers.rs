@@ -380,7 +380,13 @@ pub(super) fn gen_elixir_struct_module(
         for (i, field) in fields.iter().enumerate() {
             let field_name = field.name.to_snake_case();
             let field_type = elixir_typespec(&field.ty, opaque_types, &default_types);
-            let field_type_with_optional = if field.optional && !matches!(field.ty, TypeRef::Optional(_)) {
+            let field_defaults_to_nil = matches!(
+                field.ty,
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json
+            );
+            let field_type_with_optional = if (field.optional || field_defaults_to_nil)
+                && !matches!(field.ty, TypeRef::Optional(_))
+            {
                 format!("{field_type} | nil")
             } else {
                 field_type
@@ -702,6 +708,14 @@ pub(super) fn elixir_safe_param_name(name: &str) -> String {
 /// Data enums (one or more variants have fields) get a module with per-variant type aliases
 /// since Elixir has no single structural type for tagged union variants.
 pub(super) fn gen_elixir_enum_module(enum_def: &alef_core::ir::EnumDef, app_module: &str) -> String {
+    gen_elixir_enum_module_with_known_types(enum_def, app_module, &AHashSet::new())
+}
+
+fn gen_elixir_enum_module_with_known_types(
+    enum_def: &alef_core::ir::EnumDef,
+    app_module: &str,
+    known_types: &AHashSet<String>,
+) -> String {
     let mut out = String::with_capacity(256);
 
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -992,7 +1006,7 @@ fn elixir_field_default(
 /// Generate a type-appropriate zero/default value for Elixir.
 ///
 /// G7: Defaults align with @type specs:
-/// - Non-nilable strings → `""`
+/// - String-like values → `nil` unless an explicit default is present
 /// - Non-nilable numbers → `0` or `0.0`
 /// - Non-nilable booleans → `false`
 /// - Non-nilable lists → `[]`
@@ -1005,7 +1019,8 @@ fn elixir_zero_value(ty: &TypeRef, enum_defaults: &HashMap<String, String>) -> S
             alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => "0.0".to_string(),
             _ => "0".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        TypeRef::Json => "nil".to_string(),
         TypeRef::Bytes => "<<>>".to_string(),
         TypeRef::Duration => "0".to_string(),
         TypeRef::Vec(_) => "[]".to_string(),
@@ -1224,6 +1239,97 @@ mod tests {
         assert!(
             !result.contains("value_0: term()"),
             "should not use generic value_0 field name with term() type; got:\n{result}"
+        );
+    }
+
+    #[test]
+    fn test_gen_elixir_enum_module_resolves_known_payload_types() {
+        // Create FormatMetadata enum with both known and unknown payload types
+        let format_enum = EnumDef {
+            name: "FormatMetadata".to_string(),
+            rust_path: "my_crate::FormatMetadata".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Pdf".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("PdfMetadata".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Other".into(),
+                    fields: vec![FieldDef {
+                        name: "_0".into(),
+                        ty: TypeRef::Named("UnknownType".into()),
+                        optional: false,
+                        default: None,
+                        doc: String::new(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                    }],
+                    is_tuple: true,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        // Simulate calling with known types available
+        let mut known_types = AHashSet::new();
+        known_types.insert("PdfMetadata".to_string());
+
+        let result = gen_elixir_enum_module_with_known_types(&format_enum, "Kreuzberg", &known_types);
+
+        // Known type should resolve to module.t()
+        assert!(
+            result.contains("Kreuzberg.PdfMetadata.t()"),
+            "should resolve PdfMetadata to Kreuzberg.PdfMetadata.t(); got:\n{result}"
+        );
+
+        // Unknown type should fall back to map()
+        assert!(
+            result.contains("value: map()"),
+            "should fall back to map() for unknown type; got:\n{result}"
         );
     }
 }
