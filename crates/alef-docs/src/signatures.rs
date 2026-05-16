@@ -16,12 +16,11 @@ pub(crate) fn render_function_signature(func: &FunctionDef, lang: Language, ffi_
         Language::R => render_r_fn_sig(func),
         Language::Csharp => render_csharp_fn_sig(func, ffi_prefix),
         Language::Rust => render_rust_fn_sig(func, ffi_prefix),
-        Language::Kotlin
-        | Language::KotlinAndroid
-        | Language::Swift
-        | Language::Dart
-        | Language::Gleam
-        | Language::Zig => {
+        Language::Kotlin | Language::KotlinAndroid => render_kotlin_fn_sig(func, ffi_prefix),
+        Language::Swift => render_swift_fn_sig(func, ffi_prefix),
+        Language::Dart => render_dart_fn_sig(func, ffi_prefix),
+        Language::Zig => render_zig_fn_sig(func, ffi_prefix),
+        Language::Gleam => {
             format!("// Phase 1: {lang} backend signature generation")
         }
     }
@@ -269,6 +268,107 @@ pub(crate) fn render_rust_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String
     }
 }
 
+pub(crate) fn render_kotlin_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let name = to_camel_case(&func.name);
+    let ret = doc_type(&func.return_type, Language::Kotlin, ffi_prefix);
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let pname = to_camel_case(&p.name);
+            let pty = doc_type(&p.ty, Language::Kotlin, ffi_prefix);
+            if p.optional {
+                format!("{pname}: {pty}? = null")
+            } else {
+                format!("{pname}: {pty}")
+            }
+        })
+        .collect();
+    let throws = func
+        .error_type
+        .as_ref()
+        .map(|e| format!("@Throws({}::class)\n", type_name(e, Language::Kotlin, ffi_prefix)))
+        .unwrap_or_default();
+    let ret_part = if ret == "Unit" { String::new() } else { format!(": {ret}") };
+    format!("{throws}fun {name}({}){ret_part}", params.join(", "))
+}
+
+pub(crate) fn render_swift_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let name = to_camel_case(&func.name);
+    let ret = doc_type(&func.return_type, Language::Swift, ffi_prefix);
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let pname = to_camel_case(&p.name);
+            let pty = doc_type(&p.ty, Language::Swift, ffi_prefix);
+            if p.optional {
+                format!("{pname}: {pty}? = nil")
+            } else {
+                format!("{pname}: {pty}")
+            }
+        })
+        .collect();
+    let throws = if func.error_type.is_some() { " throws" } else { "" };
+    let ret_part = if ret == "Void" { String::new() } else { format!(" -> {ret}") };
+    format!("public static func {name}({}){throws}{ret_part}", params.join(", "))
+}
+
+pub(crate) fn render_dart_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let name = to_camel_case(&func.name);
+    let ret = doc_type(&func.return_type, Language::Dart, ffi_prefix);
+    let required: Vec<String> = func
+        .params
+        .iter()
+        .filter(|p| !p.optional)
+        .map(|p| {
+            let pname = to_camel_case(&p.name);
+            let pty = doc_type(&p.ty, Language::Dart, ffi_prefix);
+            format!("{pty} {pname}")
+        })
+        .collect();
+    let optional: Vec<String> = func
+        .params
+        .iter()
+        .filter(|p| p.optional)
+        .map(|p| {
+            let pname = to_camel_case(&p.name);
+            let pty = doc_type(&p.ty, Language::Dart, ffi_prefix);
+            format!("{pty}? {pname}")
+        })
+        .collect();
+    let mut all_params = required;
+    if !optional.is_empty() {
+        all_params.push(format!("[{}]", optional.join(", ")));
+    }
+    format!("{ret} {name}({})", all_params.join(", "))
+}
+
+pub(crate) fn render_zig_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String {
+    let name = func.name.to_snake_case();
+    let ret = doc_type(&func.return_type, Language::Zig, ffi_prefix);
+    let params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| {
+            let pname = p.name.to_snake_case();
+            let pty = doc_type(&p.ty, Language::Zig, ffi_prefix);
+            if p.optional {
+                format!("{pname}: ?{pty}")
+            } else {
+                format!("{pname}: {pty}")
+            }
+        })
+        .collect();
+    let ret_str = if let Some(err) = &func.error_type {
+        let err_ty = type_name(err, Language::Zig, ffi_prefix);
+        if ret == "void" { format!("{err_ty}!void") } else { format!("{err_ty}!{ret}") }
+    } else {
+        ret
+    };
+    format!("pub fn {name}({}) {ret_str}", params.join(", "))
+}
+
 pub(crate) fn render_method_signature(
     method: &MethodDef,
     type_name_str: &str,
@@ -469,12 +569,112 @@ pub(crate) fn render_method_signature(
                 }
             }
         }
-        Language::Kotlin
-        | Language::KotlinAndroid
-        | Language::Swift
-        | Language::Dart
-        | Language::Gleam
-        | Language::Zig => {
+        Language::Kotlin | Language::KotlinAndroid => {
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let pname = to_camel_case(&p.name);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    if p.optional {
+                        format!("{pname}: {pty}? = null")
+                    } else {
+                        format!("{pname}: {pty}")
+                    }
+                })
+                .collect();
+            let throws = method
+                .error_type
+                .as_ref()
+                .map(|e| format!("@Throws({}::class)\n", type_name(e, lang, ffi_prefix)))
+                .unwrap_or_default();
+            let ret_part = if ret == "Unit" { String::new() } else { format!(": {ret}") };
+            if method.is_static {
+                format!("{throws}@JvmStatic\nfun {name}({}){ret_part}", params.join(", "))
+            } else {
+                format!("{throws}fun {name}({}){ret_part}", params.join(", "))
+            }
+        }
+        Language::Swift => {
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let pname = to_camel_case(&p.name);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    if p.optional {
+                        format!("{pname}: {pty}? = nil")
+                    } else {
+                        format!("{pname}: {pty}")
+                    }
+                })
+                .collect();
+            let throws = if method.error_type.is_some() { " throws" } else { "" };
+            let ret_part = if ret == "Void" { String::new() } else { format!(" -> {ret}") };
+            if method.is_static {
+                format!("public static func {name}({}){throws}{ret_part}", params.join(", "))
+            } else {
+                format!("public func {name}({}){throws}{ret_part}", params.join(", "))
+            }
+        }
+        Language::Dart => {
+            let required: Vec<String> = method
+                .params
+                .iter()
+                .filter(|p| !p.optional)
+                .map(|p| {
+                    let pname = to_camel_case(&p.name);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    format!("{pty} {pname}")
+                })
+                .collect();
+            let optional: Vec<String> = method
+                .params
+                .iter()
+                .filter(|p| p.optional)
+                .map(|p| {
+                    let pname = to_camel_case(&p.name);
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    format!("{pty}? {pname}")
+                })
+                .collect();
+            let mut all_params = required;
+            if !optional.is_empty() {
+                all_params.push(format!("[{}]", optional.join(", ")));
+            }
+            let static_kw = if method.is_static { "static " } else { "" };
+            format!("{static_kw}{ret} {name}({})", all_params.join(", "))
+        }
+        Language::Zig => {
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| {
+                    let pname = p.name.to_snake_case();
+                    let pty = doc_type(&p.ty, lang, ffi_prefix);
+                    if p.optional {
+                        format!("{pname}: ?{pty}")
+                    } else {
+                        format!("{pname}: {pty}")
+                    }
+                })
+                .collect();
+            let ret_str = if let Some(err) = &method.error_type {
+                let err_ty = type_name(err, lang, ffi_prefix);
+                if ret == "void" { format!("{err_ty}!void") } else { format!("{err_ty}!{ret}") }
+            } else {
+                ret
+            };
+            let receiver_ty = type_name(type_name_str, lang, ffi_prefix);
+            let mut all_params = if method.is_static {
+                Vec::new()
+            } else {
+                vec![format!("self: *const {receiver_ty}")]
+            };
+            all_params.extend(params);
+            format!("pub fn {name}({}) {ret_str}", all_params.join(", "))
+        }
+        Language::Gleam => {
             format!("// Phase 1: {lang} backend method signature generation")
         }
     }
@@ -1477,5 +1677,203 @@ mod tests {
             sig,
             "public static function search(string $query, ?int $limit = null): array<string>"
         );
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_kotlin_fn_sig (Kotlin / KotlinAndroid share the renderer)
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_kotlin_fn_sig_no_error_no_return() {
+        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let sig = render_kotlin_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "fun run(input: String)");
+    }
+
+    #[test]
+    fn test_render_kotlin_fn_sig_with_optional_and_return() {
+        let func = make_function(
+            "search",
+            vec![
+                make_param("query", TypeRef::String, false),
+                make_param("limit", TypeRef::Primitive(PrimitiveType::U32), true),
+            ],
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            None,
+        );
+        let sig = render_kotlin_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "fun search(query: String, limit: Int? = null): List<String>");
+    }
+
+    #[test]
+    fn test_render_kotlin_fn_sig_with_error_emits_throws_annotation() {
+        let func = make_function("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, Some("ConversionError"));
+        let sig = render_kotlin_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "@Throws(ConversionError::class)\nfun convert(html: String): String");
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_swift_fn_sig
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_swift_fn_sig_no_error_no_return() {
+        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let sig = render_swift_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "public static func run(input: String)");
+    }
+
+    #[test]
+    fn test_render_swift_fn_sig_with_optional_param_emits_nil_default() {
+        let func = make_function(
+            "search",
+            vec![
+                make_param("query", TypeRef::String, false),
+                make_param("limit", TypeRef::Primitive(PrimitiveType::U32), true),
+            ],
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            None,
+        );
+        let sig = render_swift_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "public static func search(query: String, limit: UInt32? = nil) -> [String]");
+    }
+
+    #[test]
+    fn test_render_swift_fn_sig_with_error_emits_throws() {
+        let func = make_function("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, Some("ConversionError"));
+        let sig = render_swift_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "public static func convert(html: String) throws -> String");
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_dart_fn_sig
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_dart_fn_sig_required_only() {
+        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let sig = render_dart_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "void run(String input)");
+    }
+
+    #[test]
+    fn test_render_dart_fn_sig_optional_param_uses_bracketed_positional() {
+        let func = make_function(
+            "search",
+            vec![
+                make_param("query", TypeRef::String, false),
+                make_param("limit", TypeRef::Primitive(PrimitiveType::U32), true),
+            ],
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            None,
+        );
+        let sig = render_dart_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "List<String> search(String query, [int? limit])");
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_zig_fn_sig
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_zig_fn_sig_no_error() {
+        let func = make_function(
+            "search",
+            vec![make_param("query", TypeRef::String, false)],
+            TypeRef::Primitive(PrimitiveType::U32),
+            false,
+            None,
+        );
+        let sig = render_zig_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "pub fn search(query: [:0]const u8) u32");
+    }
+
+    #[test]
+    fn test_render_zig_fn_sig_with_error_emits_error_union() {
+        let func = make_function(
+            "convert",
+            vec![make_param("html", TypeRef::String, false)],
+            TypeRef::String,
+            false,
+            Some("ConversionError"),
+        );
+        let sig = render_zig_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "pub fn convert(html: [:0]const u8) ConversionError![:0]const u8");
+    }
+
+    #[test]
+    fn test_render_zig_fn_sig_optional_param_prefixes_question_mark() {
+        let func = make_function(
+            "search",
+            vec![make_param("limit", TypeRef::Primitive(PrimitiveType::U32), true)],
+            TypeRef::Unit,
+            false,
+            None,
+        );
+        let sig = render_zig_fn_sig(&func, TEST_PREFIX);
+        assert_eq!(sig, "pub fn search(limit: ?u32) void");
+    }
+
+    // ---------------------------------------------------------------------------
+    // render_method_signature — Kotlin/Swift/Dart/Zig
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_render_method_signature_kotlin_static_emits_jvmstatic() {
+        let method = make_method("default", vec![], TypeRef::Named("ConversionOptions".into()), false, true, None);
+        let sig = render_method_signature(&method, "ConversionOptions", Language::Kotlin, TEST_PREFIX);
+        assert_eq!(sig, "@JvmStatic\nfun default(): ConversionOptions");
+    }
+
+    #[test]
+    fn test_render_method_signature_swift_instance_with_throws() {
+        let method = make_method(
+            "apply_update",
+            vec![make_param("update", TypeRef::Named("ConversionOptionsUpdate".into()), false)],
+            TypeRef::Unit,
+            false,
+            false,
+            Some("ConversionError"),
+        );
+        let sig = render_method_signature(&method, "ConversionOptions", Language::Swift, TEST_PREFIX);
+        assert_eq!(sig, "public func applyUpdate(update: ConversionOptionsUpdate) throws");
+    }
+
+    #[test]
+    fn test_render_method_signature_dart_instance_method() {
+        let method = make_method(
+            "classify_link",
+            vec![make_param("href", TypeRef::String, false)],
+            TypeRef::Named("LinkType".into()),
+            false,
+            false,
+            None,
+        );
+        let sig = render_method_signature(&method, "LinkMetadata", Language::Dart, TEST_PREFIX);
+        assert_eq!(sig, "LinkType classifyLink(String href)");
+    }
+
+    #[test]
+    fn test_render_method_signature_zig_instance_includes_self_receiver() {
+        let method = make_method("warnings", vec![], TypeRef::Vec(Box::new(TypeRef::String)), false, false, None);
+        let sig = render_method_signature(&method, "ConversionResult", Language::Zig, TEST_PREFIX);
+        assert_eq!(sig, "pub fn warnings(self: *const ConversionResult) []const [:0]const u8");
+    }
+
+    #[test]
+    fn test_render_method_signature_zig_static_omits_self() {
+        let method = make_method("create", vec![], TypeRef::Named("ConversionOptions".into()), false, true, None);
+        let sig = render_method_signature(&method, "ConversionOptions", Language::Zig, TEST_PREFIX);
+        assert_eq!(sig, "pub fn create() ConversionOptions");
+    }
+
+    #[test]
+    fn test_render_method_signature_kotlin_android_shares_kotlin_renderer() {
+        let method = make_method("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, true, Some("ConversionError"));
+        let sig = render_method_signature(&method, "Converter", Language::KotlinAndroid, TEST_PREFIX);
+        assert_eq!(sig, "@Throws(ConversionError::class)\n@JvmStatic\nfun convert(html: String): String");
     }
 }
