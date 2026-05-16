@@ -1,6 +1,6 @@
 //! WASM enum code generation.
 
-use alef_core::ir::{EnumDef, TypeRef};
+use alef_core::ir::{EnumDef, FieldDef, TypeRef};
 use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase};
 
 use crate::type_map::WasmMapper;
@@ -71,6 +71,19 @@ fn mixed_type_fields(enum_def: &EnumDef) -> std::collections::BTreeSet<String> {
         .filter(|(_, types)| types.len() > 1)
         .map(|(name, _)| name)
         .collect()
+}
+
+/// Returns true when `field` was originally `Vec<(K, V)>` but was sanitized to `Vec<String>`.
+///
+/// These fields must be stored as `Option<JsValue>` in the wasm struct so that the JS wire
+/// representation (`[[k, v], ...]`) round-trips correctly through `serde_wasm_bindgen` rather
+/// than collapsing to a flat `Vec<String>`.
+fn is_sanitized_tuple_vec(field: &FieldDef) -> bool {
+    field.sanitized
+        && field
+            .original_type
+            .as_deref()
+            .is_some_and(|s| s.starts_with("Vec<("))
 }
 
 fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field_optional: bool) -> String {
@@ -158,6 +171,14 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
     // to `JsValue` (callers convert via serde_wasm_bindgen per-variant in the From impls).
     // This mirrors the NAPI `mixed_named_fields` / `serde_json` path.
     let mixed = mixed_type_fields(enum_def);
+    // Collect field names that are sanitized Vec<(K, V)> — must use JsValue for round-trip.
+    let tuple_vec_fields: std::collections::BTreeSet<String> = enum_def
+        .variants
+        .iter()
+        .flat_map(|v| v.fields.iter())
+        .filter(|f| is_sanitized_tuple_vec(f))
+        .map(|f| f.name.clone())
+        .collect();
     let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut field_entries: Vec<(String, String)> = Vec::new();
     for variant in &enum_def.variants {
@@ -165,8 +186,9 @@ pub(super) fn gen_tagged_enum_as_struct(enum_def: &EnumDef, prefix: &str) -> Str
             if !seen.insert(field.name.clone()) {
                 continue;
             }
-            let field_ty = if mixed.contains(&field.name) {
-                // Mixed-type Named field: store as JsValue, convert via serde_wasm_bindgen.
+            let field_ty = if mixed.contains(&field.name) || tuple_vec_fields.contains(&field.name) {
+                // Mixed-type Named field or sanitized tuple-vec: store as JsValue,
+                // convert via serde_wasm_bindgen per-variant in the From impls.
                 "Option<JsValue>".to_string()
             } else {
                 let mapped = mapper.map_type(&field.ty);
@@ -263,6 +285,13 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let tag_field_ident = escape_rust_keyword(tag_field);
     let mixed = mixed_type_fields(enum_def);
+    let tuple_vec_fields: std::collections::BTreeSet<String> = enum_def
+        .variants
+        .iter()
+        .flat_map(|v| v.fields.iter())
+        .filter(|f| is_sanitized_tuple_vec(f))
+        .map(|f| f.name.clone())
+        .collect();
 
     let mut lines = vec![];
     lines.push(format!("impl From<{binding_name}> for {core_path} {{"));
@@ -278,9 +307,10 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
             lines.push(format!("            \"{tag_value}\" => Self::{},", variant.name));
         } else if variant.is_tuple {
             // Tuple/newtype variant: construct positionally.
-            // For mixed-type Named fields the binding struct stores `JsValue`; deserialize
-            // via serde_wasm_bindgen to the variant-specific core type. For single-type
-            // Named fields the binding struct stores the binding wrapper; call `.into()`.
+            // For mixed-type Named fields or sanitized tuple-vec fields the binding struct
+            // stores `JsValue`; deserialize via serde_wasm_bindgen to the variant-specific
+            // core type. For single-type Named fields the binding struct stores the binding
+            // wrapper; call `.into()`.
             let args: Vec<String> = variant
                 .fields
                 .iter()
@@ -294,6 +324,12 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                         };
                         format!(
                             "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{core_inner}>(v.clone()).ok()).unwrap_or_default()"
+                        )
+                    } else if tuple_vec_fields.contains(&f.name) {
+                        // Sanitized Vec<(K, V)> stored as JsValue — decode via serde.
+                        let orig = f.original_type.as_deref().unwrap_or("Vec<(String, String)>");
+                        format!(
+                            "val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{orig}>(v.clone()).ok()).unwrap_or_default()"
                         )
                     } else {
                         // Single-type Named or primitive field.
@@ -316,11 +352,20 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
                 .iter()
                 .map(|f| {
                     let f_ident = escape_rust_keyword(&f.name);
-                    format!(
-                        "{}: {}",
-                        f.name,
-                        tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional)
-                    )
+                    if tuple_vec_fields.contains(&f.name) {
+                        // Sanitized Vec<(K, V)> stored as JsValue — decode via serde.
+                        let orig = f.original_type.as_deref().unwrap_or("Vec<(String, String)>");
+                        format!(
+                            "{}: val.{f_ident}.as_ref().and_then(|v| serde_wasm_bindgen::from_value::<{orig}>(v.clone()).ok()).unwrap_or_default()",
+                            f.name
+                        )
+                    } else {
+                        format!(
+                            "{}: {}",
+                            f.name,
+                            tagged_enum_binding_to_core_expr(&f_ident, &f.ty, f.optional)
+                        )
+                    }
                 })
                 .collect();
             lines.push(format!(
@@ -363,6 +408,13 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("type");
     let tag_field_ident = escape_rust_keyword(tag_field);
     let mixed = mixed_type_fields(enum_def);
+    let tuple_vec_fields: std::collections::BTreeSet<String> = enum_def
+        .variants
+        .iter()
+        .flat_map(|v| v.fields.iter())
+        .filter(|f| is_sanitized_tuple_vec(f))
+        .map(|f| f.name.clone())
+        .collect();
 
     // Collect every field name across all variants (for the struct literal).
     let mut all_field_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -418,6 +470,9 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
                     let init = if mixed.contains(name) {
                         // Mixed-type Named field: stored as JsValue in the binding struct.
                         format!("                {n_ident}: serde_wasm_bindgen::to_value(&{local}).ok()")
+                    } else if tuple_vec_fields.contains(name) {
+                        // Sanitized Vec<(K, V)>: serialize to JsValue via serde.
+                        format!("                {n_ident}: serde_wasm_bindgen::to_value(&{local}).ok()")
                     } else if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
                         tagged_enum_core_to_binding_expr(&n_ident, local, &field.ty, field.optional)
                     } else {
@@ -446,7 +501,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
             for name in &all_field_names {
                 let n_ident = escape_rust_keyword(name);
                 if variant_field_names.contains(name) {
-                    let init = if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
+                    let init = if tuple_vec_fields.contains(name) {
+                        // Sanitized Vec<(K, V)>: serialize to JsValue so JS sees [[k,v],...].
+                        format!("                {n_ident}: serde_wasm_bindgen::to_value(&{n_ident}).ok()")
+                    } else if let Some(field) = variant.fields.iter().find(|f| &f.name == name) {
                         tagged_enum_core_to_binding_expr(&n_ident, &n_ident, &field.ty, field.optional)
                     } else {
                         format!("                {n_ident}: None")
