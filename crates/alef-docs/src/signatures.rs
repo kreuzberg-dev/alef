@@ -289,7 +289,11 @@ pub(crate) fn render_kotlin_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> Stri
         .as_ref()
         .map(|e| format!("@Throws({}::class)\n", type_name(e, Language::Kotlin, ffi_prefix)))
         .unwrap_or_default();
-    let ret_part = if ret == "Unit" { String::new() } else { format!(": {ret}") };
+    let ret_part = if ret == "Unit" {
+        String::new()
+    } else {
+        format!(": {ret}")
+    };
     format!("{throws}fun {name}({}){ret_part}", params.join(", "))
 }
 
@@ -310,7 +314,11 @@ pub(crate) fn render_swift_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> Strin
         })
         .collect();
     let throws = if func.error_type.is_some() { " throws" } else { "" };
-    let ret_part = if ret == "Void" { String::new() } else { format!(" -> {ret}") };
+    let ret_part = if ret == "Void" {
+        String::new()
+    } else {
+        format!(" -> {ret}")
+    };
     format!("public static func {name}({}){throws}{ret_part}", params.join(", "))
 }
 
@@ -362,7 +370,11 @@ pub(crate) fn render_zig_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String 
         .collect();
     let ret_str = if let Some(err) = &func.error_type {
         let err_ty = type_name(err, Language::Zig, ffi_prefix);
-        if ret == "void" { format!("{err_ty}!void") } else { format!("{err_ty}!{ret}") }
+        if ret == "void" {
+            format!("{err_ty}!void")
+        } else {
+            format!("{err_ty}!{ret}")
+        }
     } else {
         ret
     };
@@ -588,7 +600,11 @@ pub(crate) fn render_method_signature(
                 .as_ref()
                 .map(|e| format!("@Throws({}::class)\n", type_name(e, lang, ffi_prefix)))
                 .unwrap_or_default();
-            let ret_part = if ret == "Unit" { String::new() } else { format!(": {ret}") };
+            let ret_part = if ret == "Unit" {
+                String::new()
+            } else {
+                format!(": {ret}")
+            };
             if method.is_static {
                 format!("{throws}@JvmStatic\nfun {name}({}){ret_part}", params.join(", "))
             } else {
@@ -610,7 +626,11 @@ pub(crate) fn render_method_signature(
                 })
                 .collect();
             let throws = if method.error_type.is_some() { " throws" } else { "" };
-            let ret_part = if ret == "Void" { String::new() } else { format!(" -> {ret}") };
+            let ret_part = if ret == "Void" {
+                String::new()
+            } else {
+                format!(" -> {ret}")
+            };
             if method.is_static {
                 format!("public static func {name}({}){throws}{ret_part}", params.join(", "))
             } else {
@@ -661,7 +681,11 @@ pub(crate) fn render_method_signature(
                 .collect();
             let ret_str = if let Some(err) = &method.error_type {
                 let err_ty = type_name(err, lang, ffi_prefix);
-                if ret == "void" { format!("{err_ty}!void") } else { format!("{err_ty}!{ret}") }
+                if ret == "void" {
+                    format!("{err_ty}!void")
+                } else {
+                    format!("{err_ty}!{ret}")
+                }
             } else {
                 ret
             };
@@ -1685,7 +1709,13 @@ mod tests {
 
     #[test]
     fn test_render_kotlin_fn_sig_no_error_no_return() {
-        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let func = make_function(
+            "run",
+            vec![make_param("input", TypeRef::String, false)],
+            TypeRef::Unit,
+            false,
+            None,
+        );
         let sig = render_kotlin_fn_sig(&func, TEST_PREFIX);
         assert_eq!(sig, "fun run(input: String)");
     }
@@ -1708,9 +1738,18 @@ mod tests {
 
     #[test]
     fn test_render_kotlin_fn_sig_with_error_emits_throws_annotation() {
-        let func = make_function("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, Some("ConversionError"));
+        let func = make_function(
+            "convert",
+            vec![make_param("html", TypeRef::String, false)],
+            TypeRef::String,
+            false,
+            Some("ConversionError"),
+        );
         let sig = render_kotlin_fn_sig(&func, TEST_PREFIX);
-        assert_eq!(sig, "@Throws(ConversionError::class)\nfun convert(html: String): String");
+        assert_eq!(
+            sig,
+            "@Throws(ConversionError::class)\nfun convert(html: String): String"
+        );
     }
 
     // ---------------------------------------------------------------------------
@@ -1719,7 +1758,13 @@ mod tests {
 
     #[test]
     fn test_render_swift_fn_sig_no_error_no_return() {
-        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let func = make_function(
+            "run",
+            vec![make_param("input", TypeRef::String, false)],
+            TypeRef::Unit,
+            false,
+            None,
+        );
         let sig = render_swift_fn_sig(&func, TEST_PREFIX);
         assert_eq!(sig, "public static func run(input: String)");
     }
@@ -1737,12 +1782,21 @@ mod tests {
             None,
         );
         let sig = render_swift_fn_sig(&func, TEST_PREFIX);
-        assert_eq!(sig, "public static func search(query: String, limit: UInt32? = nil) -> [String]");
+        assert_eq!(
+            sig,
+            "public static func search(query: String, limit: UInt32? = nil) -> [String]"
+        );
     }
 
     #[test]
     fn test_render_swift_fn_sig_with_error_emits_throws() {
-        let func = make_function("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, Some("ConversionError"));
+        let func = make_function(
+            "convert",
+            vec![make_param("html", TypeRef::String, false)],
+            TypeRef::String,
+            false,
+            Some("ConversionError"),
+        );
         let sig = render_swift_fn_sig(&func, TEST_PREFIX);
         assert_eq!(sig, "public static func convert(html: String) throws -> String");
     }
@@ -1753,7 +1807,13 @@ mod tests {
 
     #[test]
     fn test_render_dart_fn_sig_required_only() {
-        let func = make_function("run", vec![make_param("input", TypeRef::String, false)], TypeRef::Unit, false, None);
+        let func = make_function(
+            "run",
+            vec![make_param("input", TypeRef::String, false)],
+            TypeRef::Unit,
+            false,
+            None,
+        );
         let sig = render_dart_fn_sig(&func, TEST_PREFIX);
         assert_eq!(sig, "void run(String input)");
     }
@@ -1823,7 +1883,14 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_kotlin_static_emits_jvmstatic() {
-        let method = make_method("default", vec![], TypeRef::Named("ConversionOptions".into()), false, true, None);
+        let method = make_method(
+            "default",
+            vec![],
+            TypeRef::Named("ConversionOptions".into()),
+            false,
+            true,
+            None,
+        );
         let sig = render_method_signature(&method, "ConversionOptions", Language::Kotlin, TEST_PREFIX);
         assert_eq!(sig, "@JvmStatic\nfun default(): ConversionOptions");
     }
@@ -1832,7 +1899,11 @@ mod tests {
     fn test_render_method_signature_swift_instance_with_throws() {
         let method = make_method(
             "apply_update",
-            vec![make_param("update", TypeRef::Named("ConversionOptionsUpdate".into()), false)],
+            vec![make_param(
+                "update",
+                TypeRef::Named("ConversionOptionsUpdate".into()),
+                false,
+            )],
             TypeRef::Unit,
             false,
             false,
@@ -1858,22 +1929,49 @@ mod tests {
 
     #[test]
     fn test_render_method_signature_zig_instance_includes_self_receiver() {
-        let method = make_method("warnings", vec![], TypeRef::Vec(Box::new(TypeRef::String)), false, false, None);
+        let method = make_method(
+            "warnings",
+            vec![],
+            TypeRef::Vec(Box::new(TypeRef::String)),
+            false,
+            false,
+            None,
+        );
         let sig = render_method_signature(&method, "ConversionResult", Language::Zig, TEST_PREFIX);
-        assert_eq!(sig, "pub fn warnings(self: *const ConversionResult) []const [:0]const u8");
+        assert_eq!(
+            sig,
+            "pub fn warnings(self: *const ConversionResult) []const [:0]const u8"
+        );
     }
 
     #[test]
     fn test_render_method_signature_zig_static_omits_self() {
-        let method = make_method("create", vec![], TypeRef::Named("ConversionOptions".into()), false, true, None);
+        let method = make_method(
+            "create",
+            vec![],
+            TypeRef::Named("ConversionOptions".into()),
+            false,
+            true,
+            None,
+        );
         let sig = render_method_signature(&method, "ConversionOptions", Language::Zig, TEST_PREFIX);
         assert_eq!(sig, "pub fn create() ConversionOptions");
     }
 
     #[test]
     fn test_render_method_signature_kotlin_android_shares_kotlin_renderer() {
-        let method = make_method("convert", vec![make_param("html", TypeRef::String, false)], TypeRef::String, false, true, Some("ConversionError"));
+        let method = make_method(
+            "convert",
+            vec![make_param("html", TypeRef::String, false)],
+            TypeRef::String,
+            false,
+            true,
+            Some("ConversionError"),
+        );
         let sig = render_method_signature(&method, "Converter", Language::KotlinAndroid, TEST_PREFIX);
-        assert_eq!(sig, "@Throws(ConversionError::class)\n@JvmStatic\nfun convert(html: String): String");
+        assert_eq!(
+            sig,
+            "@Throws(ConversionError::class)\n@JvmStatic\nfun convert(html: String): String"
+        );
     }
 }
