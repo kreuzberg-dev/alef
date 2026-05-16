@@ -6,9 +6,14 @@
 //! field individually via serde JSON round-trips and native unwrapping.
 
 use crate::gen_rust_crate::type_bridge::{needs_json_bridge, swift_bridge_rust_type};
-use alef_core::ir::{CoreWrapper, TypeDef, TypeRef};
+use alef_core::ir::{CoreWrapper, FieldDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
+
+fn is_explicitly_excluded(ty: &TypeDef, field: &FieldDef, exclude_fields: &HashSet<String>) -> bool {
+    let field_key = format!("{}.{}", ty.name, field.name.to_snake_case());
+    exclude_fields.contains(&field_key)
+}
 
 /// Emit the body of a `new()` constructor that routes through `Default` + field assignment.
 ///
@@ -35,9 +40,11 @@ pub(crate) fn emit_default_construction_body(
         // wrappers.rs / extern_block.rs). Field access on `__target` uses the
         // unescaped Rust field name.
         let param = alef_core::keywords::swift_ident(&name);
+        if f.binding_excluded {
+            continue;
+        }
         // Explicitly excluded fields: leave at Default::default() silently.
-        let field_key = format!("{}.{}", ty.name, name);
-        if exclude_fields.contains(&field_key) {
+        if is_explicitly_excluded(ty, f, exclude_fields) {
             out.push_str(&crate::template_env::render(
                 "default_field_excluded_comment.jinja",
                 minijinja::context! {
@@ -342,9 +349,11 @@ pub(crate) fn emit_direct_field_inits(
         .iter()
         .map(|f| {
             let name = f.name.to_snake_case();
+            if f.binding_excluded {
+                return format!("            {name}: ::std::default::Default::default()");
+            }
             // Explicitly excluded fields: leave at Default::default().
-            let field_key = format!("{}.{}", ty.name, name);
-            if exclude_fields.contains(&field_key) {
+            if is_explicitly_excluded(ty, f, exclude_fields) {
                 return format!("            {name}: ::std::default::Default::default()");
             }
             // If the JSON-bridged field contains an excluded/no-serde Named type, skip it.

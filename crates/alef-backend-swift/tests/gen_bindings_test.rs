@@ -27,6 +27,7 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
         serde_flatten: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        original_type: None,
     }
 }
 
@@ -121,6 +122,54 @@ fn struct_with_primitive_fields_emits_public_struct() {
     assert!(
         content.contains("public typealias Point = RustBridge.Point"),
         "missing typealias declaration: {content}"
+    );
+}
+
+#[test]
+fn rust_bridge_constructor_omits_binding_excluded_fields() {
+    let mut internal_cache = make_field("internal_cache", TypeRef::String, false);
+    internal_cache.binding_excluded = true;
+    internal_cache.binding_exclusion_reason = Some("internal implementation detail".to_string());
+    internal_cache.cfg = Some("feature = \"internal\"".to_string());
+
+    let mut ty = make_type(
+        "Config",
+        vec![make_field("name", TypeRef::String, false), internal_cache],
+    );
+    ty.has_default = true;
+    ty.has_serde = true;
+    ty.has_stripped_cfg_fields = true;
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![ty],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+    };
+
+    let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
+    let rust_bridge = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("packages/swift/rust/src/lib.rs"))
+        .expect("generated Rust bridge file must exist");
+
+    assert!(
+        !rust_bridge.content.contains("internal_cache"),
+        "binding-excluded fields must not appear in Swift Rust bridge constructors or getters:\n{}",
+        rust_bridge.content
+    );
+    assert!(
+        rust_bridge.content.contains("fn new(name: String) -> Config;"),
+        "extern constructor should contain only binding-visible fields:\n{}",
+        rust_bridge.content
+    );
+    assert!(
+        rust_bridge.content.contains("pub fn new(name: String) -> Config"),
+        "wrapper constructor should contain only binding-visible fields:\n{}",
+        rust_bridge.content
     );
 }
 

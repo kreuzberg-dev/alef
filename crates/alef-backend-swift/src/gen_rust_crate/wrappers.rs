@@ -247,6 +247,9 @@ fn emit_getters(
         // `extern_block::emit_extern_block_for_type` skips the extern declaration
         // for the same fields, so the swift-bridge surface stays consistent.
         if is_unbridgeable_getter(ty, field, exclude_fields, type_paths, no_serde_names) {
+            if field.binding_excluded {
+                continue;
+            }
             out.push_str(&crate::template_env::render(
                 "getter_skip_comment.jinja",
                 minijinja::context! {
