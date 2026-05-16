@@ -444,7 +444,7 @@ pub(super) fn gen_struct(
 
     // Build filtered and typed fields
     let mut fields = Vec::new();
-    for field in &typ.fields {
+    for field in shared::binding_fields(&typ.fields) {
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
@@ -560,7 +560,7 @@ pub(super) fn gen_struct_methods(
         }
     }
 
-    for field in &typ.fields {
+    for field in shared::binding_fields(&typ.fields) {
         // Skip fields whose type references an excluded type (the Js* wrapper won't exist)
         if field_references_excluded_type(&field.ty, exclude_types) {
             continue;
@@ -746,6 +746,7 @@ fn gen_new_method(
     let filtered_fields: Vec<_> = typ
         .fields
         .iter()
+        .filter(|f| !f.binding_excluded)
         .filter(|f| !field_references_excluded_type(&f.ty, exclude_types))
         .cloned()
         .collect();

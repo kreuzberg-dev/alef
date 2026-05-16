@@ -1,3 +1,4 @@
+use alef_codegen::shared::binding_fields;
 use alef_core::ir::{EnumDef, TypeDef};
 use heck::ToLowerCamelCase;
 
@@ -46,7 +47,8 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
             name => ty.name.as_str(),
         },
     ));
-    for field in &ty.fields {
+    let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
+    for field in &visible_fields {
         let ty_str = dart_type(&field.ty, field.optional);
         let name = field.name.to_lower_camel_case();
         if !field.doc.is_empty() {
@@ -67,8 +69,8 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
             },
         ));
     }
-    if ty.fields.len() == 1 {
-        let name = ty.fields[0].name.to_lower_camel_case();
+    if visible_fields.len() == 1 {
+        let name = visible_fields[0].name.to_lower_camel_case();
         out.push_str(&template_env::render(
             "single_param_constructor.jinja",
             minijinja::context! {
@@ -83,7 +85,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
                 name => ty.name.as_str(),
             },
         ));
-        for field in &ty.fields {
+        for field in &visible_fields {
             let name = field.name.to_lower_camel_case();
             out.push_str(&template_env::render(
                 "constructor_required_param.jinja",
