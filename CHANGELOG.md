@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.21] - 2026-05-16
+
 ### Added
 
 - **alef-backend-php: emit per-property `@var` PHPDoc on promoted readonly constructor parameters**: generated DTO classes now carry an inline `/** @var T description */` block above every promoted property (and `/** ... @var T */` block for multi-line rustdoc). PHPStan level max now sees the precise generic element type (`@var array<string>`, `@var ?int`) and IDEs surface tooltips on every property. Replaces the prior global `@param` block before the constructor, which only covered array fields and didn't propagate field rustdoc. Adds `php_property_phpdoc()` helper + 153 lines of unit tests covering empty/single-line/multi-line doc forms. (`crates/alef-backend-php/src/gen_bindings/mod.rs`, `crates/alef-backend-php/tests/gen_bindings_test.rs`)
