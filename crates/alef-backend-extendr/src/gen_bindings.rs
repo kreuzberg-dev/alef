@@ -6,7 +6,7 @@ use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, ParamDef, TypeDef, TypeRef};
 use std::borrow::Cow;
 use std::path::PathBuf;
 
@@ -1769,6 +1769,112 @@ fn method_is_excluded_from_impl(method: &alef_core::ir::MethodDef, api: &ApiSurf
     false
 }
 
+/// Human-readable R type description for a `TypeRef`, used to populate
+/// `@param` / `@return` lines in the generated roxygen2 doc blocks. Returns
+/// a sentence-cased phrase ending in a period (e.g. "Raw vector of bytes.").
+fn r_type_description(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::Bytes => "Raw vector of bytes.".to_string(),
+        TypeRef::String => "Character string.".to_string(),
+        TypeRef::Char => "Single-character string.".to_string(),
+        TypeRef::Primitive(p) => match p {
+            alef_core::ir::PrimitiveType::Bool => "Logical (TRUE/FALSE).".to_string(),
+            alef_core::ir::PrimitiveType::F32 | alef_core::ir::PrimitiveType::F64 => "Numeric.".to_string(),
+            _ => "Integer.".to_string(),
+        },
+        TypeRef::Optional(inner) => {
+            let inner_desc = r_type_description(inner);
+            let trimmed = inner_desc.trim_end_matches('.');
+            // Lower-case the first letter so "Character string" becomes "character string"
+            // after the "Optional " prefix — but only for natural-language descriptions.
+            // Named types (e.g. `ExtractionConfig object`) keep their proper-noun casing.
+            let body = if matches!(**inner, TypeRef::Named(_)) {
+                trimmed.to_string()
+            } else {
+                match trimmed.chars().next() {
+                    Some(c) => {
+                        let mut s = c.to_lowercase().collect::<String>();
+                        s.push_str(&trimmed[c.len_utf8()..]);
+                        s
+                    }
+                    None => String::new(),
+                }
+            };
+            format!("Optional {body}. Defaults to NULL.")
+        }
+        TypeRef::Vec(inner) => {
+            let inner_desc = r_type_description(inner);
+            let trimmed = inner_desc.trim_end_matches('.');
+            format!("List of {}.", trimmed.to_lowercase())
+        }
+        TypeRef::Map(_, _) => "Named list.".to_string(),
+        TypeRef::Named(name) => format!("{name} object (list with class attribute)."),
+        TypeRef::Path => "File path as character string.".to_string(),
+        TypeRef::Unit => "Invisible NULL.".to_string(),
+        TypeRef::Json => "JSON-serializable value.".to_string(),
+        TypeRef::Duration => "Numeric duration in seconds.".to_string(),
+    }
+}
+
+/// Convert the first character of `s` to upper-case while leaving the rest untouched.
+/// Returns an empty string when `s` is empty.
+fn title_case_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
+/// Build the roxygen2 doc block for a free R wrapper function.
+///
+/// The block carries a title line (derived from the first line of `doc`, or
+/// the function name as a fallback), optional description paragraphs, one
+/// `@param` per parameter, an `@return`, and the `@export` tag. Every output
+/// line is prefixed with `#'` — callers prepend the block directly above the
+/// `name <- function(...) ...` definition.
+fn r_roxygen_block(func_name: &str, doc: &str, params: &[ParamDef], return_type: &TypeRef) -> String {
+    let mut block = String::with_capacity(256);
+    let trimmed_doc = doc.trim();
+    let (title, description) = if trimmed_doc.is_empty() {
+        (func_name.to_string(), String::new())
+    } else {
+        let mut parts = trimmed_doc.splitn(2, '\n');
+        let raw_title = parts.next().unwrap_or("").trim().trim_end_matches('.');
+        let title = title_case_first(raw_title);
+        let description = parts.next().map(str::trim).unwrap_or("").to_string();
+        (title, description)
+    };
+    block.push_str("#' ");
+    block.push_str(&title);
+    block.push('\n');
+    if !description.is_empty() {
+        block.push_str("#'\n");
+        for line in description.lines() {
+            let line = line.trim_end();
+            if line.is_empty() {
+                block.push_str("#'\n");
+            } else {
+                block.push_str("#' ");
+                block.push_str(line);
+                block.push('\n');
+            }
+        }
+    }
+    for param in params {
+        block.push_str("#' @param ");
+        block.push_str(&param.name);
+        block.push(' ');
+        block.push_str(&r_type_description(&param.ty));
+        block.push('\n');
+    }
+    block.push_str("#' @return ");
+    block.push_str(&r_type_description(return_type));
+    block.push('\n');
+    block.push_str("#' @export\n");
+    block
+}
+
 /// Generate `extendr-wrappers.R` — the R-side bindings for every `#[extendr]` symbol
 /// registered in the generated `extendr_module!` macro.
 ///
@@ -1808,12 +1914,15 @@ fn gen_extendr_wrappers_r(api: &ApiSurface, package_name: &str, input_type_names
         call_args.push(format!("PACKAGE = \"{package_name}\""));
         let call_args_str = call_args.join(", ");
 
+        let roxygen_block = r_roxygen_block(&func.name, &func.doc, &func.params, &func.return_type);
+
         out.push_str(&crate::template_env::render(
             "r_free_function_wrapper.jinja",
             minijinja::context! {
                 func_name => &func.name,
                 params_sig => params_sig,
                 call_args_str => call_args_str,
+                roxygen_block => roxygen_block,
             },
         ));
     }

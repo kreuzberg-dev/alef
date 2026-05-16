@@ -1,4 +1,4 @@
-use alef_codegen::keywords::swift_ident;
+use alef_codegen::keywords::{swift_case_ident, swift_ident};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use alef_core::config::{
@@ -323,8 +323,13 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     // Emit `public let` stored properties.
     // The extractor unwraps Option<T> into (ty: T, optional: true) -- check field.optional
     // in addition to TypeRef::Optional to handle both IR representations correctly.
+    //
+    // Note: `swift_case_ident` is used here (and at every other site that emits a
+    // Swift-side identifier) so that fields named after Swift reserved keywords
+    // are wrapped in backticks (`` `default` ``) rather than escaped with a
+    // trailing underscore.
     for field in &ty.fields {
-        let camel = swift_ident(&field.name.to_lower_camel_case());
+        let camel = swift_case_ident(&field.name.to_lower_camel_case());
         let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
         if field.optional && !already_optional {
@@ -339,7 +344,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
         .fields
         .iter()
         .map(|field| {
-            let camel = swift_ident(&field.name.to_lower_camel_case());
+            let camel = swift_case_ident(&field.name.to_lower_camel_case());
             let already_optional = matches!(&field.ty, TypeRef::Optional(_));
             let swift_ty = mapper.map_type(&field.ty);
             if field.optional && !already_optional {
@@ -353,7 +358,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
         .collect();
     out.push_str(&format!("    public init({}) {{\n", params.join(", ")));
     for field in &ty.fields {
-        let camel = swift_ident(&field.name.to_lower_camel_case());
+        let camel = swift_case_ident(&field.name.to_lower_camel_case());
         out.push_str(&format!("        self.{camel} = {camel}\n"));
     }
     out.push_str("    }\n");
@@ -367,7 +372,7 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     if needs_coding_keys {
         out.push_str("    private enum CodingKeys: String, CodingKey {\n");
         for field in &ty.fields {
-            let camel = swift_ident(&field.name.to_lower_camel_case());
+            let camel = swift_case_ident(&field.name.to_lower_camel_case());
             let wire_key = &field.name;
             out.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
         }
@@ -381,12 +386,18 @@ fn emit_first_class_struct(ty: &alef_core::ir::TypeDef, mapper: &SwiftMapper, ou
     out.push_str(&format!("internal extension {type_name} {{\n"));
 
     // init(_ rb: RustBridge.Foo) throws
+    //
+    // The Swift-side property name uses backtick escape (`swift_case_ident`),
+    // while the RustBridge accessor uses the trailing-underscore form
+    // (`swift_ident`) to match the swift-bridge-generated Rust method name —
+    // see `gen_rust_crate::extern_block::emit_extern_block_for_type`.
     out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
     for field in &ty.fields {
-        let camel = swift_ident(&field.name.to_lower_camel_case());
+        let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
+        let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
-        let expr = swift_ffi_read_expr(&field.ty, is_optional, &camel);
-        out.push_str(&format!("        self.{camel} = {expr}\n"));
+        let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor);
+        out.push_str(&format!("        self.{swift_field} = {expr}\n"));
     }
     out.push_str("    }\n");
 
@@ -448,7 +459,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         let _ = mapper; // mapper unused for header — suppress unused warning
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
-            let case_name = swift_ident(&variant.name.to_lower_camel_case());
+            let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
             out.push_str(&crate::template_env::render(
                 "enum_case_unit.jinja",
                 minijinja::context! {
@@ -475,7 +486,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
 /// Emits a single enum case, with or without associated values.
 fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &SwiftMapper) {
     emit_doc_comment(&variant.doc, "    ", out);
-    let case_name = swift_ident(&variant.name.to_lower_camel_case());
+    let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
     if variant.fields.is_empty() {
         out.push_str(&crate::template_env::render(
             "enum_case_unit.jinja",
@@ -508,13 +519,14 @@ fn emit_variant_with_data(variant: &EnumVariant, out: &mut String, mapper: &Swif
 ///
 /// - Empty, all-digit, or `_<digits>` names (positional tuple variants) become
 ///   `field0`, `field1`, …
-/// - Otherwise lowerCamelCase + Swift keyword escaping.
+/// - Otherwise lowerCamelCase + Swift-idiomatic backtick keyword escaping
+///   (associated-value labels appear in emitted Swift source).
 fn swift_associated_label(name: &str, idx: usize) -> String {
     let stripped = name.trim_start_matches('_');
     if stripped.is_empty() || stripped.chars().all(|c| c.is_ascii_digit()) {
         return format!("field{idx}");
     }
-    swift_ident(&name.to_lower_camel_case())
+    swift_case_ident(&name.to_lower_camel_case())
 }
 
 /// Emits a Swift `Swift.Error`-conforming `public enum` for the given `ErrorDef`.
@@ -541,7 +553,7 @@ fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, mapper: &Sw
     ));
     for variant in &error.variants {
         emit_doc_comment(&variant.doc, "    ", out);
-        let case_name = swift_ident(&variant.name.to_lower_camel_case());
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         if variant.is_unit || variant.fields.is_empty() {
             out.push_str(&crate::template_env::render(
                 "error_case.jinja",
@@ -1738,7 +1750,10 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
                 let variant_name = &variant.name;
                 // The Swift case name: camelCase of variant name. Unit variants are bare;
                 // newtype variants have associated values.
-                let swift_case = swift_ident(&variant_name.to_lower_camel_case());
+                // Must match the case name emitted by `emit_enum` /
+                // `emit_variant_with_data`, hence backtick-escaped via
+                // `swift_case_ident` rather than the Rust-side `swift_ident`.
+                let swift_case = swift_case_ident(&variant_name.to_lower_camel_case());
                 if variant.fields.is_empty() {
                     // Unit variant: serialises to `"VariantName"` (a JSON string).
                     out.push_str(&format!("    case .{swift_case}: return \"\\\"{}\\\"\"", variant_name));
