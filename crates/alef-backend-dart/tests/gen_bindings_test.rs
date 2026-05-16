@@ -1297,3 +1297,71 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
         "dollar sign in surviving prose must be escaped as \\$: {content}"
     );
 }
+
+#[test]
+fn build_config_for_frb_emits_post_process_file_step() {
+    use alef_core::backend::{PostBuildStep, PostProcessor};
+    use std::path::PathBuf;
+
+    let config = make_config(); // crate name = "demo-crate" → module = "demo_crate"
+    let bc = DartBackend
+        .build_config_for(&config)
+        .expect("FRB style must yield a BuildConfig");
+
+    let post_process_steps: Vec<&PostBuildStep> = bc
+        .post_build
+        .iter()
+        .filter(|s| matches!(s, PostBuildStep::PostProcessFile { .. }))
+        .collect();
+
+    assert_eq!(
+        post_process_steps.len(),
+        1,
+        "FRB config must have exactly one PostProcessFile step"
+    );
+
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[0] {
+        assert_eq!(
+            *processor,
+            PostProcessor::FrbDartSealedVariants,
+            "PostProcessFile must use FrbDartSealedVariants processor"
+        );
+        let expected_path = PathBuf::from("..")
+            .join("lib")
+            .join("src")
+            .join("demo_crate_bridge_generated")
+            .join("lib.dart");
+        assert_eq!(
+            path, &expected_path,
+            "PostProcessFile path must point to frb-generated lib.dart for crate 'demo-crate'"
+        );
+    }
+}
+
+#[test]
+fn build_config_for_frb_run_command_precedes_post_process_file() {
+    use alef_core::backend::PostBuildStep;
+
+    let config = make_config();
+    let bc = DartBackend
+        .build_config_for(&config)
+        .expect("FRB style must yield a BuildConfig");
+
+    // RunCommand (flutter_rust_bridge_codegen) must run before PostProcessFile so the
+    // generated lib.dart exists when the rewriter runs.
+    let steps: Vec<&str> = bc
+        .post_build
+        .iter()
+        .map(|s| match s {
+            PostBuildStep::RunCommand { .. } => "RunCommand",
+            PostBuildStep::PostProcessFile { .. } => "PostProcessFile",
+            PostBuildStep::PatchFile { .. } => "PatchFile",
+        })
+        .collect();
+
+    assert_eq!(
+        steps,
+        vec!["RunCommand", "PostProcessFile"],
+        "RunCommand must come before PostProcessFile in post_build steps"
+    );
+}

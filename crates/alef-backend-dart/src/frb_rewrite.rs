@@ -390,4 +390,50 @@ class Foo {
         let twice = rewrite_frb_sealed_variants(&once);
         assert_eq!(once, twice, "rewriter must be idempotent");
     }
+
+    #[test]
+    fn multiple_distinct_sealed_class_variants_all_rewritten() {
+        // Two distinct sealed classes in the same source file — the regex must
+        // handle multiple non-overlapping matches without interference.
+        let input = r#"sealed class FormatMetadata with _$FormatMetadata {
+  const FormatMetadata._();
+
+  const factory FormatMetadata.pdf({required PdfMetadata field0}) =
+      FormatMetadata_Pdf;
+  const factory FormatMetadata.docx({required DocxMetadata field0}) =
+      FormatMetadata_Docx;
+}
+
+sealed class OutputFormat with _$OutputFormat {
+  const OutputFormat._();
+
+  const factory OutputFormat.custom({required String field0}) =
+      OutputFormat_Custom;
+  const factory OutputFormat.json({required JsonConfig field0}) =
+      OutputFormat_Json;
+}
+"#;
+        let out = rewrite_frb_sealed_variants(input);
+        // FormatMetadata variants
+        assert!(
+            out.contains("required PdfMetadata metadata"),
+            "PdfMetadata should become metadata, got:\n{out}"
+        );
+        assert!(
+            out.contains("required DocxMetadata metadata"),
+            "DocxMetadata should become metadata, got:\n{out}"
+        );
+        // OutputFormat variants
+        assert!(
+            out.contains("required String value"),
+            "String should become value, got:\n{out}"
+        );
+        // `JsonConfig` shares the `Json` prefix with variant `Json`, so the remainder
+        // `Config` is lower-cased to `config`.
+        assert!(
+            out.contains("required JsonConfig config"),
+            "JsonConfig payload (Json prefix → Config remainder) should become `config`, got:\n{out}"
+        );
+        assert!(!out.contains("field0"), "no `field0` should remain, got:\n{out}");
+    }
 }
