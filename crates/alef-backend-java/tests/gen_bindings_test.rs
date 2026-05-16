@@ -2279,6 +2279,7 @@ fn facade_unwraps_optional_string_return_via_or_else_null() {
 
     let config = make_test_config("dev.test");
     let files = backend.generate_bindings(&api, &config).expect("generation");
+    eprintln!("Files: {:?}", files.iter().map(|f| f.path.to_string_lossy().to_string()).collect::<Vec<_>>());
     let facade = files
         .iter()
         .find(|f| f.path.to_string_lossy().ends_with("TestLib.java"))
@@ -2303,12 +2304,12 @@ fn optional_named_method_body_wraps_via_optional_of() {
     // — never return a bare NamedDto (which fails javac's type inference).
     let backend = JavaBackend;
     let api = ApiSurface {
-        crate_name: "demo".to_string(),
+        crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
         types: vec![
             TypeDef {
                 name: "DemoItem".to_string(),
-                rust_path: "demo::DemoItem".to_string(),
+                rust_path: "test_lib::DemoItem".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -2329,7 +2330,7 @@ fn optional_named_method_body_wraps_via_optional_of() {
             },
             TypeDef {
                 name: "DemoHandle".to_string(),
-                rust_path: "demo::DemoHandle".to_string(),
+                rust_path: "test_lib::DemoHandle".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![MethodDef {
