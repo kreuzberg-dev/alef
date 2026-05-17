@@ -248,6 +248,12 @@ impl Backend for RustlerBackend {
             );
         }
 
+        // Build a name → TypeDef map so codegen can resolve full rust_paths for
+        // types that are not re-exported at the crate root (e.g. DrawingType lives
+        // at kreuzberg::extraction::docx::drawing::DrawingType, not kreuzberg::DrawingType).
+        let types_by_name: ahash::AHashMap<&str, &alef_core::ir::TypeDef> =
+            api.types.iter().map(|t| (t.name.as_str(), t)).collect();
+
         for func in api
             .functions
             .iter()
@@ -283,6 +289,7 @@ impl Backend for RustlerBackend {
                     &opaque_types,
                     &default_types,
                     &core_import,
+                    &types_by_name,
                 ));
             } else {
                 builder.add_item(&gen_nif_function(
@@ -292,6 +299,7 @@ impl Backend for RustlerBackend {
                     &default_types,
                     &core_import,
                     &cpu_bound_functions,
+                    &types_by_name,
                 ));
             }
         }
@@ -361,6 +369,7 @@ impl Backend for RustlerBackend {
                         &default_types,
                         &core_import,
                         &adapter_bodies,
+                        &types_by_name,
                     ));
                 } else {
                     builder.add_item(&gen_nif_method(
@@ -373,6 +382,7 @@ impl Backend for RustlerBackend {
                         &default_types,
                         &core_import,
                         &adapter_bodies,
+                        &types_by_name,
                     ));
                 }
             }

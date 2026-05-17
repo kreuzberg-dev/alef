@@ -439,7 +439,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
     (
         "visitor_method.rs.jinja",
         r#"    fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
-        let mut args_map = serde_json::Map::new();
+        let {% if args %}mut {% endif %}args_map = serde_json::Map::new();
 {%- for arg in args %}
         args_map.insert("{{ arg.key }}".to_string(), {{ arg.expr }});
 {%- endfor %}
