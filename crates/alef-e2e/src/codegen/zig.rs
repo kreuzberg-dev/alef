@@ -132,6 +132,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     &module_name,
                     &config.ffi_lib_name(),
                     &config.ffi_crate_path(),
+                    &e2e_config.test_documents_relative_from(0),
                 ),
                 generated_header: false,
             },
@@ -211,6 +212,7 @@ fn render_build_zig(
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
+    test_documents_path: &str,
 ) -> String {
     if test_filenames.is_empty() {
         return r#"const std = @import("std");
@@ -311,18 +313,25 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
-        // Run the test binary directly via `addRunArtifact`. Zig 0.16+ stopped
-        // copying test binaries into `zig-out/bin/` even when `addInstallArtifact`
-        // is invoked, so the prior workaround (install + run.dependOn(install)
-        // to get an absolute `zig-out/bin/<name>` spawn path) now produces
-        // `FileNotFound` at spawn time. `addRunArtifact` uses the cache-relative
-        // emitted-binary path, which Zig 0.16 resolves correctly as long as the
-        // run step does not change cwd. The generated tests reach the mock
-        // server purely through `MOCK_SERVER_URL` env vars and do not read
-        // anything from the workspace `test_documents/` directory, so dropping
-        // `setCwd` is safe and avoids the `convertPathArg` re-resolution bug.
+        // Run the test binary via `addRunArtifact` and point its working
+        // directory at the repo-root `test_documents/` so generated tests can
+        // resolve fixture paths like `pdf/fake_memo.pdf` via plain
+        // `std.Io.Dir.cwd().readFileAlloc(...)`. Other languages perform this
+        // chdir in a per-suite hook (Go `TestMain`, Python conftest, Kotlin
+        // Gradle `workingDir`); Zig has no equivalent test-suite init hook, so
+        // it must happen at the build-step level.
+        //
+        // `.use_llvm = true` above ensures the test binary is emitted at the
+        // path `Run.make` expects, so `getEmittedBin()` resolves to an
+        // absolute cache path before `convertPathArg` runs — `setCwd` on the
+        // run step then only affects the *child process* cwd, not how Zig
+        // looks up the binary to spawn. This combination keeps the binary
+        // findable and lets generated test bodies use fixture-relative paths.
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
+        ));
+        content.push_str(&format!(
+            "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
         ));
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }

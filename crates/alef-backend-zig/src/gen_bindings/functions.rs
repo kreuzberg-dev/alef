@@ -234,7 +234,8 @@ pub(crate) fn emit_function(
         } else if matches!(f.return_type, TypeRef::Unit) {
             out.push_str("    return;\n");
         } else {
-            let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
+            let ret_expr =
+                unwrap_return_expr("_result", &f.return_type, prefix, struct_names, Some(error_type.as_str()));
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
                 minijinja::context! {
@@ -274,7 +275,7 @@ pub(crate) fn emit_function(
             if let Some(len_call) = &c_len_call {
                 out.push_str(&format!("    const _result_len = {len_call};\n"));
             }
-            let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names);
+            let ret_expr = unwrap_return_expr("_result", &f.return_type, prefix, struct_names, None);
             out.push_str(&crate::template_env::render(
                 "function_return.jinja",
                 minijinja::context! {
@@ -648,6 +649,7 @@ fn unwrap_return_expr(
     ty: &TypeRef,
     prefix: &str,
     struct_names: &std::collections::HashSet<String>,
+    error_type: Option<&str>,
 ) -> String {
     match ty {
         // The C ABI uses `int` (i32) for bool returns. Zig's type system is strict —
@@ -660,8 +662,22 @@ fn unwrap_return_expr(
             // commit 84d5eadf — see `returns_c_char` in
             // crates/alef-backend-ffi/src/gen_bindings/functions.rs).  Avoids a
             // NUL-scan and removes the dependency on the sentinel terminator.
+            //
+            // Defensive null check: the error-code probe above gates on the FFI
+            // `_<fn>` setting `kreuzberg_last_error_code()`, but the matching
+            // `_<fn>_len()` companion calls `clear_last_error()` on entry and
+            // some implementations forget to re-`set_last_error` on the error
+            // path (returning 0 silently). When that happens the error-code
+            // check passes through and we hit a null slice. Returning the first
+            // declared error variant matches the behaviour for the case where
+            // the error code IS propagated correctly.
             let mut s = String::new();
             s.push_str("blk: {\n");
+            if let Some(err_ty) = error_type {
+                s.push_str(&format!(
+                    "        if ({raw} == null) return _first_error({err_ty});\n"
+                ));
+            }
             s.push_str(&format!("        const slice = {raw}[0.._result_len];\n"));
             s.push_str("        const owned = try std.heap.c_allocator.dupe(u8, slice);\n");
             s.push_str(&crate::template_env::render(
