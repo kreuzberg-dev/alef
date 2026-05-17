@@ -261,7 +261,7 @@ ignored = [{machete_ignored_list}]
 crate-type = ["cdylib", "staticlib"]
 
 [dependencies]
-{core_dep_line}flutter_rust_bridge = "{frb_version}"
+{core_dep_line}flutter_rust_bridge = "={frb_version}"
 {extra_deps}
 {target_override_blocks}[lints.rust]
 # flutter_rust_bridge uses #[cfg(frb_expand)] internally during macro expansion.
