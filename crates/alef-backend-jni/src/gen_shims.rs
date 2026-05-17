@@ -120,14 +120,17 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     out.push_str("use std::sync::Mutex;\n");
     out.push_str("use futures_util::stream::BoxStream;\n");
     out.push_str("use futures_util::StreamExt;\n");
-    // jni 0.22 split `JNIEnv` into FFI-safe `EnvUnowned<'frame>` (kept under
-    // the `JNIEnv` alias for `extern "system"` signature compatibility) and
-    // `Env<'_>`, which carries the real API surface (`get_string`,
-    // `new_string`, `throw_new`, `convert_byte_array`, `byte_array_from_slice`,
-    // …). Extern shims capture `JNIEnv` then immediately upgrade via
-    // `unowned.with_env(|env| { ... })` so the inner `env: &mut Env<'_>` can
-    // use the full API. Helpers therefore take `&mut Env<'_>`.
-    out.push_str("use jni::{Env, JNIEnv};\n");
+    // jni 0.22 split the old `JNIEnv` into FFI-safe `EnvUnowned<'frame>` and
+    // `Env<'_>`, which carries the real API surface (`new_string`, `throw_new`,
+    // `convert_byte_array`, `byte_array_from_slice`, …). Extern shims capture
+    // `EnvUnowned` then upgrade to `&mut Env<'_>` via
+    // `AttachGuard::from_unowned(env.as_raw()) + borrow_env_mut()` so the body
+    // can use the full API. Helpers therefore take `&mut Env<'_>`. (We don't
+    // use `EnvUnowned::with_env` because it forces the body into a
+    // `Result<T, E>` closure shape that loses our existing early-return +
+    // sentinel pattern. The `JNIEnv` alias is deprecated in 0.22, so we use
+    // `EnvUnowned` directly in extern signatures.)
+    out.push_str("use jni::{AttachGuard, Env, EnvUnowned};\n");
     out.push_str("use jni::objects::{JClass, JObject, JString};\n");
     out.push_str("use jni::sys::{jboolean, jbyteArray, jlong, jstring};\n");
     out.push_str("use tokio::runtime::Runtime;\n");
@@ -235,11 +238,16 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("}\n");
     out.push('\n');
 
+    // jni 0.22+: `Env::get_string` is deprecated in favour of
+    // `JString::try_to_string(&Env)`, and `Env::throw_new` now expects
+    // `AsRef<JNIStr>` for both the class descriptor and the message — runtime
+    // `&str` no longer coerces. Convert via `jni::strings::JNIString::from`
+    // (which encodes the Rust UTF-8 string into modified UTF-8) and pass the
+    // resulting `&JNIString` (which derefs to `&JNIStr`).
     out.push_str(
         "fn jstring_to_string(env: &mut Env<'_>, s: JString) -> std::result::Result<String, jni::errors::Error> {\n",
     );
-    out.push_str("    let jstr = env.get_string(&s)?;\n");
-    out.push_str("    Ok(jstr.into())\n");
+    out.push_str("    s.try_to_string(env)\n");
     out.push_str("}\n");
     out.push('\n');
 
@@ -255,8 +263,11 @@ fn emit_runtime_helpers(out: &mut String) {
     out.push_str("    // If the error class cannot be found (misconfigured AAR), fall back to a\n");
     out.push_str("    // generic RuntimeException so the caller always gets *some* exception rather\n");
     out.push_str("    // than a silent null/zero return that looks like a valid result.\n");
-    out.push_str("    if env.throw_new(ERROR_CLASS, msg).is_err() {\n");
-    out.push_str("        let _ = env.throw_new(\"java/lang/RuntimeException\", msg);\n");
+    out.push_str("    let class_jni = jni::strings::JNIString::from(ERROR_CLASS);\n");
+    out.push_str("    let msg_jni = jni::strings::JNIString::from(msg);\n");
+    out.push_str("    if env.throw_new(&class_jni, &msg_jni).is_err() {\n");
+    out.push_str("        let fallback = jni::strings::JNIString::from(\"java/lang/RuntimeException\");\n");
+    out.push_str("        let _ = env.throw_new(&fallback, &msg_jni);\n");
     out.push_str("    }\n");
     out.push_str("}\n");
     out.push('\n');
@@ -468,12 +479,15 @@ fn emit_function_shim(
         call_args.truncate(call_args.len() - 2);
     }
 
-    // Open the extern shim and upgrade EnvUnowned -> Env via with_env so the
-    // body can call get_string / new_string / throw_new etc. The closure's
-    // return type mirrors the fn's so `return <sentinel>` inside unmarshal /
-    // match arms still surfaces from with_env.
+    // Open the extern shim and upgrade EnvUnowned -> &mut Env<'_> via an
+    // AttachGuard so the body can call get_string / new_string / throw_new etc.
+    // We don't use `EnvUnowned::with_env` because it requires the closure to
+    // return `Result<T, E>` and to call `.resolve::<P>()` on the outcome — a
+    // significant refactor that would lose the existing early-return + sentinel
+    // pattern. AttachGuard upgrades inline; panics inside the body are still
+    // caught by `run_or_throw` (the existing per-call wrapper).
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n    env.with_env(|env|{ret_decl} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
 
     out.push_str(&unmarshal);
@@ -543,8 +557,7 @@ fn emit_function_shim(
         }
     }
 
-    // Close the with_env closure and the extern fn.
-    out.push_str("    })\n}\n\n");
+    out.push_str("}\n\n");
 }
 
 /// Emit a shim for an instance method on an opaque client type.
@@ -611,12 +624,10 @@ fn emit_method_shim(
         "    request_json: JString,\n".to_string()
     };
 
-    // Open the extern shim and upgrade EnvUnowned -> Env via with_env so the
-    // body can call get_string / new_string / throw_new etc. The closure's
-    // return type mirrors the fn's (empty string for unit). `return <sentinel>`
-    // inside arms therefore returns the right value from the closure / fn.
+    // See emit_function_shim for why we use AttachGuard::from_unowned instead
+    // of EnvUnowned::with_env.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n    env.with_env(|env|{ret_decl} {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
 
     // Dereference handle.
@@ -771,8 +782,7 @@ fn emit_method_shim(
         }
     }
 
-    // Close the with_env closure and the extern fn.
-    out.push_str("    })\n}\n\n");
+    out.push_str("}\n\n");
 }
 
 /// Emit unmarshal code for a single param.
@@ -937,7 +947,7 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
 /// Emit the destructor shim for an opaque type.
 fn emit_destructor_shim(out: &mut String, symbol: &str, type_name: &str) {
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    _env: JNIEnv,\n    _class: JClass,\n    handle: jlong,\n) {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    _env: EnvUnowned,\n    _class: JClass,\n    handle: jlong,\n) {{\n"
     ));
     out.push_str("    if handle == 0 { return; }\n");
     out.push_str("    // SAFETY: `handle` was allocated by the matching constructor shim and\n");
@@ -992,9 +1002,9 @@ fn emit_streaming_shims(
     out.push_str("}\n\n");
 
     // Start shim: (clientHandle: Long, requestJson: String) -> Long
-    // Upgrade EnvUnowned -> Env via with_env (jni 0.22+); closure returns jlong.
+    // See emit_function_shim for why we use AttachGuard::from_unowned.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n    env.with_env(|env| -> jlong {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
     out.push_str("    // SAFETY: client_handle was produced by the matching constructor shim.\n");
     out.push_str(&format!(
@@ -1040,13 +1050,12 @@ fn emit_streaming_shims(
     out.push_str("        stream: Mutex::new(Some(mapped)),\n");
     out.push_str("    });\n");
     out.push_str("    Box::into_raw(handle) as jlong\n");
-    // Close with_env closure and extern fn.
-    out.push_str("    })\n}\n\n");
+    out.push_str("}\n\n");
 
     // Next shim: (streamHandle: Long) -> jstring (null = end / error)
-    // Upgrade EnvUnowned -> Env via with_env (jni 0.22+); closure returns jstring.
+    // See emit_function_shim for why we use AttachGuard::from_unowned.
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n    env.with_env(|env| -> jstring {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
     ));
     out.push_str("    if stream_handle == 0 { return std::ptr::null_mut(); }\n");
     out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
@@ -1079,12 +1088,11 @@ fn emit_streaming_shims(
     out.push_str("            string_to_jstring(env, &s)\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
-    // Close with_env closure and extern fn.
-    out.push_str("    })\n}\n\n");
+    out.push_str("}\n\n");
 
     // Free shim: (streamHandle: Long)
     out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {free_sym}(\n    _env: JNIEnv,\n    _class: JClass,\n    stream_handle: jlong,\n) {{\n"
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {free_sym}(\n    _env: EnvUnowned,\n    _class: JClass,\n    stream_handle: jlong,\n) {{\n"
     ));
     out.push_str("    if stream_handle == 0 { return; }\n");
     out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
@@ -1312,9 +1320,16 @@ namespace = "dev.kreuzberg"
             "throw_jni_error must not discard the throw_new result: {content}"
         );
         // It must check the result and fall back to RuntimeException.
+        // (`ERROR_CLASS` / `msg` are now wrapped in `JNIString::from(...)` per
+        // the jni 0.22 API; assert on the structural pattern instead of the
+        // exact arg form.)
         assert!(
-            content.contains("if env.throw_new(ERROR_CLASS, msg).is_err()"),
+            content.contains("if env.throw_new(&class_jni, &msg_jni).is_err()"),
             "throw_jni_error must check throw_new result: {content}"
+        );
+        assert!(
+            content.contains("jni::strings::JNIString::from(ERROR_CLASS)"),
+            "throw_jni_error must wrap ERROR_CLASS in JNIString::from: {content}"
         );
         assert!(
             content.contains("java/lang/RuntimeException"),

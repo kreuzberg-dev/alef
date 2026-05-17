@@ -448,9 +448,9 @@ fn snapshot_streaming_start_next_free() {
         "Free shim missing; got:\n{content}"
     );
 
-    // Start: returns jlong.
+    // Start: returns jlong. jni 0.22+ uses EnvUnowned in extern signatures.
     assert!(
-        content.contains("nativeDemoClientStreamDataStart(\n    mut env: JNIEnv,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong"),
+        content.contains("nativeDemoClientStreamDataStart(\n    mut env: EnvUnowned,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong"),
         "Start must have correct signature; got:\n{content}"
     );
     // Next: polls stream, returns jstring.
