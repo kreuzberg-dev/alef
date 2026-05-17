@@ -64,6 +64,28 @@ pub(crate) fn scaffold_python_cargo(
     } else {
         format!("\n{all_deps}")
     };
+    // Build the cargo-machete ignored list. `pyo3-async-runtimes` and
+    // `serde_json` are emitted unconditionally above so they are always
+    // ignored. Conditional deps (`async-trait` / `tokio` for trait bridges
+    // and streaming, `futures` for streaming) are appended only when the
+    // scaffold actually adds them to `[dependencies]`, so cargo-machete
+    // doesn't flap on umbrellas whose API surface doesn't exercise the
+    // trait-bridge / streaming codepath.
+    let mut machete_ignored: Vec<&str> = vec!["pyo3-async-runtimes", "serde_json"];
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+    }
+    if has_trait_bridges || has_streaming {
+        machete_ignored.push("tokio");
+    }
+    if has_streaming {
+        machete_ignored.push("futures");
+    }
+    let machete_ignored_str = machete_ignored
+        .iter()
+        .map(|d| format!("\"{d}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let content = format!(
         r#"{pkg_header}
 
@@ -81,10 +103,11 @@ serde_json = "1"{extra_deps_section}
 # `pyo3-async-runtimes` and `serde_json` are emitted unconditionally above so
 # the manifest is stable across regens, but for umbrella crates with no
 # async fns or no JSON-marshalled return types they are genuinely unused.
-# List them here so `cargo machete` doesn't flag the no-async-no-json case
-# as a real finding.
+# The conditional `async-trait` / `tokio` / `futures` deps are similarly
+# flagged when the umbrella has trait-bridge / streaming adapters configured
+# but no actual async-trait / async callsite in the generated PyO3 shim.
 [package.metadata.cargo-machete]
-ignored = ["pyo3-async-runtimes", "serde_json"]
+ignored = [{machete_ignored_str}]
 
 [features]
 extension-module = ["pyo3/extension-module", "pyo3/abi3-py310"]

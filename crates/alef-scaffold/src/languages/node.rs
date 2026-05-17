@@ -118,6 +118,25 @@ pub(crate) fn scaffold_node_cargo(
         .collect::<Vec<_>>()
         .join(", ");
 
+    // Build the cargo-machete ignored list. `serde_json` is always emitted
+    // unconditionally above so we always ignore it. Conditional deps
+    // (`async-trait` for trait bridges, `futures-util` for streaming) are
+    // appended only when the scaffold actually adds them to `[dependencies]`,
+    // so cargo-machete doesn't flap on umbrellas whose API surface doesn't
+    // exercise the trait-bridge / streaming codepath.
+    let mut machete_ignored: Vec<&str> = vec!["serde_json"];
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+    }
+    if has_streaming {
+        machete_ignored.push("futures-util");
+    }
+    let machete_ignored_str = machete_ignored
+        .iter()
+        .map(|d| format!("\"{d}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let content = format!(
         r#"{pkg_header}
 
@@ -133,10 +152,11 @@ serde_json = "1"{extra_deps_section}
 
 # `serde_json` is emitted unconditionally above so the manifest is stable
 # across regens, but for umbrella crates with no JSON-marshalled return types
-# it is genuinely unused. List it here so `cargo machete` doesn't flag the
-# no-json case as a real finding.
+# it is genuinely unused. The conditional `async-trait` / `futures-util` deps
+# are similarly flagged when the umbrella has trait-bridge / streaming
+# adapters configured but no actual async-trait callsite in this binding.
 [package.metadata.cargo-machete]
-ignored = ["serde_json"]
+ignored = [{machete_ignored_str}]
 
 [build-dependencies]
 napi-build = "{napi_build}"
