@@ -580,7 +580,8 @@ fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, body: &str) ->
          \"MaxLineLength\",\n    \
          \"TooManyFunctions\",\n    \
          \"FunctionParameterNaming\",\n    \
-         \"LongParameterList\",\n\
+         \"LongParameterList\",\n    \
+         \"CyclomaticComplexMethod\",\n\
          )\n\n",
     );
     content.push_str(&format!("package {package}\n\n"));
