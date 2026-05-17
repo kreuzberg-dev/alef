@@ -450,6 +450,7 @@ fn render_performance_table(perf: &Value, _name: &str) -> String {
             "performance_context.jinja",
             minijinja::context! { platform => platform, function => function, note => note },
         ));
+        out.push('\n');
     }
 
     // Detect table format: latency/throughput or ops/sec
@@ -1288,6 +1289,10 @@ repository = "https://github.com/test/my-lib"
         );
         assert!(result.contains("doc.pdf"), "Got: {result}");
         assert!(result.contains("100 MB/s"), "Got: {result}");
+        assert!(
+            result.contains("4 threads\n\n| Document"),
+            "Expected blank line between context and table header. Got: {result}"
+        );
     }
 
     // --- readme_output_path: output_pattern branch ---
