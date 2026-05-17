@@ -20,13 +20,17 @@
 //! `zig-out/bin/<name>` path. The current fix is to:
 //!
 //!   1. Pin every `addTest` to `.use_llvm = true` so the LLVM backend is used
-//!      regardless of host arch (LLVM is already the default on x86_64).
-//!   2. Run the binary directly via `addRunArtifact` against the cache path,
-//!      WITHOUT `addInstallArtifact` and WITHOUT `setCwd`. The generated
-//!      Zig tests reach the mock server purely through `MOCK_SERVER_*` env
-//!      vars and never read anything cwd-relative, so leaving cwd alone keeps
-//!      `convertPathArg` from re-resolving the cache-relative spawn path
-//!      against a different directory.
+//!      regardless of host arch (LLVM is already the default on x86_64). With
+//!      LLVM pinned, `getEmittedBin()` resolves to an absolute cache path
+//!      before `convertPathArg` runs, which means setting the run step's cwd
+//!      no longer interferes with binary spawn.
+//!   2. Run the binary via `addRunArtifact` (no `addInstallArtifact` — Zig
+//!      0.16+ no longer copies test binaries to `zig-out/bin/`) and apply
+//!      `setCwd(b.path("../../test_documents"))` so generated tests can
+//!      resolve fixture paths like `pdf/fake_memo.pdf` directly. Other
+//!      languages perform this chdir in a per-suite hook (Go `TestMain`,
+//!      Python conftest, Kotlin Gradle `workingDir`); Zig has no equivalent
+//!      test-suite init hook, so it must happen at the build-step level.
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
@@ -160,13 +164,14 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
         "build.zig must not register test artifacts under getInstallStep:\n{content}"
     );
 
-    // Tests reach the mock server via MOCK_SERVER_* env vars and never read
-    // workspace-relative files, so `setCwd` is unnecessary and re-introduces
-    // the `convertPathArg` re-resolution that triggers FileNotFound on
-    // Zig 0.16+ Linux backends.
+    // Tests must `setCwd` to `test_documents/` so generated fixture-relative
+    // reads (e.g. `pdf/fake_memo.pdf`) resolve correctly. With `.use_llvm =
+    // true` pinned above, the binary's spawn path is absolute and not
+    // affected by the child cwd, so this is now safe on Zig 0.16+.
     assert!(
-        !content.contains("setCwd"),
-        "build.zig must not call setCwd on test run steps:\n{content}"
+        content.contains(".setCwd(b.path(\"../../test_documents\"));"),
+        "build.zig must point each test run step at the repo-root \
+         test_documents/ directory:\n{content}"
     );
 
     // Each test must still be wired up: addTest -> addRunArtifact ->
