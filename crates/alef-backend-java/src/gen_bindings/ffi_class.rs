@@ -383,6 +383,15 @@ pub(crate) fn gen_sync_function_method(
                 prefix.to_uppercase(),
                 type_snake.to_uppercase()
             );
+            // CPD-OFF — the FFI tail (null-check resultPtr → result_to_json →
+            // free result → null-check jsonPtr → reinterpret → free string →
+            // MAPPER.readValue) is intentionally repeated verbatim in
+            // convertWithVisitorInternal below. PMD CPD flags it as a 15-line
+            // duplication; extracting it into a helper would require threading
+            // the Arena, MAPPER, and free-handle through a private method for
+            // marginal benefit. Wrap both copies with CPD-OFF/ON markers
+            // instead, matching the existing precedent for the Builder class.
+            out.push_str("            // CPD-OFF\n");
             out.push_str(&crate::template_env::render(
                 "ffi_invoke_json_ptr.jinja",
                 minijinja::context! {
@@ -426,6 +435,7 @@ pub(crate) fn gen_sync_function_method(
                     },
                 ));
             }
+            out.push_str("            // CPD-ON\n");
         }
 
         out.push_str("        } catch (Throwable e) {\n");
@@ -692,6 +702,10 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
             pu => &pu,
         },
     ));
+    // CPD-OFF — see the comment on the matching block emitted by the
+    // non-visitor convert() above. Duplicating this FFI tail is intentional;
+    // PMD CPD must not flag the pair as a real finding.
+    out.push_str("                // CPD-OFF\n");
     out.push_str(&crate::template_env::render(
         "ffi_result_free.jinja",
         minijinja::context! {
@@ -710,6 +724,7 @@ fn gen_convert_with_visitor_internal_method(class_name: &str, prefix: &str) -> S
         },
     ));
     out.push_str("                return MAPPER.readValue(json, ConversionResult.class);\n");
+    out.push_str("                // CPD-ON\n");
     out.push_str("            } catch (Throwable e) {\n");
     out.push_str(&crate::template_env::render(
         "ffi_throw_inner.jinja",
