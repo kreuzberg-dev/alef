@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.36] - 2026-05-17
+
+### Fixed
+
+- **alef-e2e zig: emit `setCwd` only for consumers with `file_path`/`bytes` fixtures**: commit `a3ba3b40` restored `setCwd(b.path("../../test_documents"))` on every `addRunArtifact` step to fix kreuzberg's PDF/image tests, but this unconditional call breaks mock-server-only consumers like kreuzcrawl that have no `test_documents/` directory. When Zig's `RunStep` executes, it calls `chdir(2)` into the target directory before `execve`-ing the test binary; if the directory does not exist the OS returns `ENOENT`, which Zig surfaces as `error: failed to spawn and capture stdio from .zig-cache/o/<hash>/<name>: FileNotFound` — even though the compile step completed successfully and the binary is present in the cache. The fix mirrors the pattern already used by the Ruby, Go, PHP, TypeScript, and Wasm backends: compute `has_file_fixtures` by checking whether any fixture's resolved call args carry type `file_path` or `bytes`, and only emit the `setCwd` line when that flag is true. Three regression tests in `zig_addtest_use_llvm_install.rs` cover both the file-fixture path (setCwd present) and the mock-server-only path (setCwd absent). (`crates/alef-e2e/src/codegen/zig.rs`, `crates/alef-e2e/tests/zig_addtest_use_llvm_install.rs`)
+
 ## [0.16.35] - 2026-05-17
 
 ### Fixed

@@ -1,8 +1,10 @@
-//! Regression: Zig 0.16's `b.addTest(.{...})` defaults `use_llvm` to `null`,
-//! which lets the compiler pick the self-hosted backend on aarch64-linux for
-//! Debug builds. The self-hosted backend emits the test binary at a different
-//! cache path than the `addRunArtifact` step computes via `getEmittedBin()`,
-//! so every run fails with:
+//! Regression tests for Zig e2e build.zig correctness on Zig 0.16+.
+//!
+//! Zig 0.16's `b.addTest(.{...})` defaults `use_llvm` to `null`, which lets
+//! the compiler pick the self-hosted backend on aarch64-linux for Debug builds.
+//! The self-hosted backend emits the test binary at a different cache path than
+//! the `addRunArtifact` step computes via `getEmittedBin()`, so every run fails
+//! with:
 //!
 //! ```text
 //! error: failed to spawn and capture stdio from
@@ -20,23 +22,23 @@
 //! `zig-out/bin/<name>` path. The current fix is to:
 //!
 //!   1. Pin every `addTest` to `.use_llvm = true` so the LLVM backend is used
-//!      regardless of host arch (LLVM is already the default on x86_64). With
-//!      LLVM pinned, `getEmittedBin()` resolves to an absolute cache path
-//!      before `convertPathArg` runs, which means setting the run step's cwd
-//!      no longer interferes with binary spawn.
+//!      regardless of host arch (LLVM is already the default on x86_64).
 //!   2. Run the binary via `addRunArtifact` (no `addInstallArtifact` — Zig
-//!      0.16+ no longer copies test binaries to `zig-out/bin/`) and apply
-//!      `setCwd(b.path("../../test_documents"))` so generated tests can
-//!      resolve fixture paths like `pdf/fake_memo.pdf` directly. Other
-//!      languages perform this chdir in a per-suite hook (Go `TestMain`,
-//!      Python conftest, Kotlin Gradle `workingDir`); Zig has no equivalent
-//!      test-suite init hook, so it must happen at the build-step level.
+//!      0.16+ no longer copies test binaries to `zig-out/bin/`).
+//!   3. Emit `setCwd(b.path("../../test_documents"))` ONLY when at least one
+//!      fixture uses a `file_path` or `bytes` arg. Consumers whose fixtures are
+//!      mock-server-only (e.g. kreuzcrawl) have no `test_documents/` directory;
+//!      calling `setCwd` for them causes the OS `chdir(2)` to return ENOENT
+//!      before the binary is even exec'd, surfacing as `FileNotFound` in the
+//!      Zig build output even though the compile step succeeded.
 
 use alef_core::config::NewAlefConfig;
 use alef_e2e::codegen::E2eCodegen;
 use alef_e2e::codegen::zig::ZigE2eCodegen;
 use alef_e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 
+/// Config for a mock-server-only consumer (no file_path / bytes args).
+/// Represents kreuzcrawl-style: all fixtures reach a URL, no local files.
 const CONFIG_TOML: &str = r#"
 [workspace]
 languages = ["zig"]
@@ -57,6 +59,31 @@ async = false
 returns_result = true
 args = [
   { name = "url", field = "url", type = "string" },
+]
+"#;
+
+/// Config for a file-reading consumer (has file_path args).
+/// Represents kreuzberg-style: fixtures read PDF/image files from test_documents/.
+const CONFIG_TOML_FILE: &str = r#"
+[workspace]
+languages = ["zig"]
+
+[[crates]]
+name = "kreuzberg"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "extract"
+module = "kreuzberg"
+result_var = "result"
+async = false
+returns_result = true
+args = [
+  { name = "path", field = "path", type = "file_path" },
 ]
 "#;
 
@@ -92,8 +119,50 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
     }
 }
 
+fn fixture_for_file(category: &str, id: &str) -> Fixture {
+    Fixture {
+        id: id.to_string(),
+        category: Some(category.to_string()),
+        description: format!("{category} fixture {id}"),
+        tags: Vec::new(),
+        skip: None,
+        env: None,
+        call: None,
+        input: serde_json::json!({ "path": "pdf/sample.pdf" }),
+        mock_response: None,
+        visitor: None,
+        assertions: vec![Assertion {
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        }],
+        source: format!("{category}.json"),
+        http: None,
+    }
+}
+
 fn render_build_zig(groups: Vec<FixtureGroup>) -> String {
     let cfg: NewAlefConfig = toml::from_str(CONFIG_TOML).expect("config parses");
+    let resolved = cfg.clone().resolve().expect("resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config");
+    let files = ZigE2eCodegen
+        .generate(&groups, &e2e, &resolved, &[], &[])
+        .expect("generation succeeds");
+    files
+        .iter()
+        .find(|f| f.path.file_name().is_some_and(|n| n == "build.zig"))
+        .expect("build.zig generated")
+        .content
+        .clone()
+}
+
+fn render_build_zig_file(groups: Vec<FixtureGroup>) -> String {
+    let cfg: NewAlefConfig = toml::from_str(CONFIG_TOML_FILE).expect("config parses");
     let resolved = cfg.clone().resolve().expect("resolves").remove(0);
     let e2e = cfg.crates[0].e2e.clone().expect("e2e config");
     let files = ZigE2eCodegen
@@ -164,14 +233,15 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
         "build.zig must not register test artifacts under getInstallStep:\n{content}"
     );
 
-    // Tests must `setCwd` to `test_documents/` so generated fixture-relative
-    // reads (e.g. `pdf/fake_memo.pdf`) resolve correctly. With `.use_llvm =
-    // true` pinned above, the binary's spawn path is absolute and not
-    // affected by the child cwd, so this is now safe on Zig 0.16+.
+    // For mock-server-only consumers (no file_path / bytes args), setCwd must
+    // NOT be emitted. The consumer has no `test_documents/` directory; zig's
+    // RunStep would call chdir(2) into a non-existent path and the OS would
+    // return ENOENT, surfacing as FileNotFound at spawn time even though the
+    // binary compiled successfully.
     assert!(
-        content.contains(".setCwd(b.path(\"../../test_documents\"));"),
-        "build.zig must point each test run step at the repo-root \
-         test_documents/ directory:\n{content}"
+        !content.contains("setCwd"),
+        "build.zig must NOT emit setCwd for mock-server-only consumers \
+         that have no test_documents/ directory:\n{content}"
     );
 
     // Each test must still be wired up: addTest -> addRunArtifact ->
@@ -198,5 +268,32 @@ fn every_test_artifact_runs_via_addrunartifact_directly() {
     assert!(
         add_test_pos < run_pos && run_pos < depend_pos,
         "expected addTest -> addRunArtifact -> test_step.dependOn(run) order:\n{content}"
+    );
+}
+
+#[test]
+fn set_cwd_emitted_only_for_file_fixture_consumers() {
+    // Consumer with file_path args (kreuzberg-style): setCwd must be present.
+    let groups_file = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![fixture_for_file("smoke", "pdf_basic")],
+    }];
+    let content_file = render_build_zig_file(groups_file);
+    assert!(
+        content_file.contains(".setCwd(b.path(\"../../test_documents\"));"),
+        "build.zig for file-fixture consumer must emit setCwd pointing at \
+         test_documents/:\n{content_file}"
+    );
+
+    // Consumer without file_path args (kreuzcrawl-style): setCwd must be absent.
+    let groups_mock = vec![FixtureGroup {
+        category: "scrape".to_string(),
+        fixtures: vec![fixture_for("scrape", "basic_html")],
+    }];
+    let content_mock = render_build_zig(groups_mock);
+    assert!(
+        !content_mock.contains("setCwd"),
+        "build.zig for mock-server-only consumer must NOT emit setCwd \
+         (no test_documents/ directory exists):\n{content_mock}"
     );
 }
