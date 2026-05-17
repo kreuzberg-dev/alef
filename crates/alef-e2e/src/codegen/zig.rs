@@ -84,6 +84,20 @@ impl E2eCodegen for ZigE2eCodegen {
             &e2e_config.fields_method_calls,
         );
 
+        // Whether any active fixture uses file-based args (`file_path` or
+        // `bytes`). Only when true do the generated tests need the working
+        // directory to be `test_documents/` at run time. Consumers whose
+        // fixtures are mock-server-only (e.g. kreuzcrawl) have no
+        // `test_documents/` directory, so emitting `setCwd` for them causes
+        // `FileNotFound` at spawn time because zig tries to `chdir` into a
+        // directory that does not exist before execing the test binary.
+        let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+            let cc = e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.input);
+            cc.args
+                .iter()
+                .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
+        });
+
         // Generate test files per category and collect their names.
         let mut test_filenames: Vec<String> = Vec::new();
         for group in groups {
@@ -132,6 +146,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     &module_name,
                     &config.ffi_lib_name(),
                     &config.ffi_crate_path(),
+                    has_file_fixtures,
                     &e2e_config.test_documents_relative_from(0),
                 ),
                 generated_header: false,
@@ -212,6 +227,7 @@ fn render_build_zig(
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
+    has_file_fixtures: bool,
     test_documents_path: &str,
 ) -> String {
     if test_filenames.is_empty() {
@@ -313,26 +329,30 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
-        // Run the test binary via `addRunArtifact` and point its working
-        // directory at the repo-root `test_documents/` so generated tests can
-        // resolve fixture paths like `pdf/fake_memo.pdf` via plain
-        // `std.Io.Dir.cwd().readFileAlloc(...)`. Other languages perform this
-        // chdir in a per-suite hook (Go `TestMain`, Python conftest, Kotlin
-        // Gradle `workingDir`); Zig has no equivalent test-suite init hook, so
-        // it must happen at the build-step level.
+        // Run the test binary via `addRunArtifact`. When any fixture reads
+        // files from `test_documents/` (arg type `file_path` or `bytes`),
+        // also point the working directory at the repo-root `test_documents/`
+        // so that `std.Io.Dir.cwd().readFileAlloc(...)` resolves paths like
+        // `pdf/fake_memo.pdf` correctly. Other languages perform this chdir
+        // in a per-suite hook (Go `TestMain`, Python conftest, Kotlin Gradle
+        // `workingDir`); Zig has no equivalent test-suite init hook, so it
+        // must happen at the build-step level.
         //
-        // `.use_llvm = true` above ensures the test binary is emitted at the
-        // path `Run.make` expects, so `getEmittedBin()` resolves to an
-        // absolute cache path before `convertPathArg` runs — `setCwd` on the
-        // run step then only affects the *child process* cwd, not how Zig
-        // looks up the binary to spawn. This combination keeps the binary
-        // findable and lets generated test bodies use fixture-relative paths.
+        // IMPORTANT: `setCwd` is only emitted when `has_file_fixtures` is
+        // true. For consumers whose fixtures are mock-server-only (e.g.
+        // kreuzcrawl), there is no `test_documents/` directory. Zig's
+        // RunStep chdirs into the path before execing the test binary; if
+        // the directory does not exist, `chdir(2)` returns ENOENT and the
+        // spawn fails with `FileNotFound` — even though the binary itself
+        // was compiled successfully and exists in the zig cache.
         content.push_str(&format!(
             "    const {test_name}_run = b.addRunArtifact({test_name}_tests);\n"
         ));
-        content.push_str(&format!(
-            "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
-        ));
+        if has_file_fixtures {
+            content.push_str(&format!(
+                "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
+            ));
+        }
         content.push_str(&format!("    test_step.dependOn(&{test_name}_run.step);\n\n"));
     }
 
