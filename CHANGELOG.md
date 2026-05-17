@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.32] - 2026-05-17
+
 ### Fixed
 
 - **alef-scaffold wasm: strip `-node` suffix before appending `-wasm` to derive the npm package name**: `scaffold_wasm` previously appended `-wasm` directly to `node_package_name()`, so consumers following the `-node` naming convention (e.g. `@kreuzberg/html-to-markdown-node`) got `@kreuzberg/html-to-markdown-node-wasm` instead of the correct `@kreuzberg/html-to-markdown-wasm`. The fix strips a trailing `-node` before appending; names without that suffix are unchanged. Three new unit tests cover the scoped case, the unscoped case, and the no-suffix fallback. (`crates/alef-scaffold/src/languages/wasm.rs`)
