@@ -1,11 +1,25 @@
 use super::types::gen_rustler_wrap_return;
 use crate::template_env;
 use crate::type_map::RustlerMapper;
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use alef_codegen::doc_emission;
 use alef_codegen::shared;
 use alef_codegen::type_mapper::TypeMapper;
-use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeRef};
+use alef_core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+
+/// Resolve the fully-qualified core path for a named type.
+///
+/// When the TypeDef is found in `types_by_name` its `rust_path` is used (which
+/// may be `kreuzberg::extraction::docx::drawing::DrawingType`). When not found
+/// (e.g. a type that doesn't appear in the API surface but is referenced as a
+/// param type) the short fallback `{core_import}::{name}` is used.
+fn resolve_core_type_path<'a>(name: &str, types_by_name: &AHashMap<&'a str, &'a TypeDef>, core_import: &str) -> String {
+    if let Some(typ) = types_by_name.get(name) {
+        alef_codegen::conversions::core_type_path(typ, core_import)
+    } else {
+        format!("{core_import}::{name}")
+    }
+}
 
 fn render_deser_line(template_name: &str, name: &str, core_type: &str) -> String {
     template_env::render(
@@ -178,6 +192,7 @@ pub(super) fn gen_nif_function(
     default_types: &AHashSet<String>,
     core_import: &str,
     cpu_bound_functions: &AHashSet<String>,
+    types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
     let params_str = func
         .params
@@ -237,7 +252,7 @@ pub(super) fn gen_nif_function(
             .map(|p| {
                 if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
-                        let core_ty = format!("{core_import}::{n}");
+                        let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                         // Optional JSON string → Option<CoreType> via serde.
                         // For Result-returning fns we use `?` to surface deser errors;
                         // for non-Result fns (e.g. `from`/`default` static helpers) we
@@ -374,7 +389,7 @@ pub(super) fn gen_nif_function(
                     if default_types.contains(n) {
                         // Default types already handled in the can_delegate branch above.
                         // They cannot appear here, but guard for completeness.
-                        let core_ty = format!("{core_import}::{n}");
+                        let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                         deser_lines.push(render_deser_line(
                             "default_deser_with_error.rs.jinja",
                             &p.name,
@@ -389,7 +404,7 @@ pub(super) fn gen_nif_function(
                         };
                     }
                     // Non-opaque Named param: round-trip via serde_json.
-                    let core_ty = format!("{core_import}::{n}");
+                    let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                     deser_lines.push(render_named_deser_line("named_param_to_json.rs.jinja", &p.name));
                     deser_lines.push(render_deser_line("named_param_from_json.rs.jinja", &p.name, &core_ty));
                     return if p.is_ref {
@@ -486,6 +501,7 @@ pub(super) fn gen_nif_async_function(
     opaque_types: &AHashSet<String>,
     default_types: &AHashSet<String>,
     core_import: &str,
+    types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
     // If the Rust function name already ends with `_async` (e.g. `embed_texts_async`),
     // do not append another `_async` suffix — the NIF name is already the async variant.
@@ -561,7 +577,7 @@ pub(super) fn gen_nif_async_function(
             .map(|p| {
                 if let TypeRef::Named(n) = &p.ty {
                     if default_types.contains(n) {
-                        let core_ty = format!("{core_import}::{n}");
+                        let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                         deser_lines.push(render_deser_line(
                             "default_deser_with_error.rs.jinja",
                             &p.name,
@@ -689,6 +705,7 @@ pub(super) fn gen_nif_method(
     default_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
     let method_fn_name = format!("{}_{}", struct_name.to_lowercase(), method.name);
 
@@ -741,7 +758,7 @@ pub(super) fn gen_nif_method(
 
     // Build deserialization preamble for default-typed (JSON-string) params.
     let deser_preamble =
-        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some());
+        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some(), types_by_name);
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
@@ -790,7 +807,7 @@ pub(super) fn gen_nif_method(
                 for p in named_params {
                     if let TypeRef::Named(type_name) = &p.ty {
                         let core_var = format!("{}_core", p.name);
-                        let core_type = format!("{core_import}::{type_name}");
+                        let core_type = resolve_core_type_path(type_name, types_by_name, core_import);
                         let src = if p.optional {
                             format!("{}.map(Into::into)", p.name)
                         } else {
@@ -885,12 +902,13 @@ fn build_default_deser_preamble(
     default_types: &AHashSet<String>,
     core_import: &str,
     has_error: bool,
+    types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
     let mut lines: Vec<String> = Vec::new();
     for p in params {
         if let TypeRef::Named(n) = &p.ty {
             if default_types.contains(n) {
-                let core_ty = format!("{core_import}::{n}");
+                let core_ty = resolve_core_type_path(n, types_by_name, core_import);
                 let line = if has_error {
                     render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
                 } else {
@@ -915,6 +933,7 @@ pub(super) fn gen_nif_async_method(
     default_types: &AHashSet<String>,
     core_import: &str,
     adapter_bodies: &alef_adapters::AdapterBodies,
+    types_by_name: &AHashMap<&str, &TypeDef>,
 ) -> String {
     let method_fn_name = format!("{}_{}_async", struct_name.to_lowercase(), method.name);
 
@@ -967,7 +986,7 @@ pub(super) fn gen_nif_async_method(
 
     // Build deserialization preamble for default-typed (JSON-string) params.
     let deser_preamble =
-        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some());
+        build_default_deser_preamble(&method.params, default_types, core_import, method.error_type.is_some(), types_by_name);
 
     let body = if can_delegate {
         let call_args = gen_rustler_method_call_args(&method.params, opaque_types, default_types);
