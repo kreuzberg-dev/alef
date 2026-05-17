@@ -47,6 +47,24 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     } else {
         format!("\n{all_deps}")
     };
+    // Build the cargo-machete ignored list. `serde_json` and `tokio` are
+    // emitted unconditionally above so they are always ignored. Conditional
+    // deps (`async-trait` for trait bridges, `futures-util` for streaming)
+    // are appended only when the scaffold actually adds them to
+    // `[dependencies]`, so cargo-machete doesn't flap on umbrellas whose
+    // API surface doesn't exercise the trait-bridge / streaming codepath.
+    let mut machete_ignored: Vec<&str> = vec!["serde_json", "tokio"];
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+    }
+    if has_streaming {
+        machete_ignored.push("futures-util");
+    }
+    let machete_ignored_str = machete_ignored
+        .iter()
+        .map(|d| format!("\"{d}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
     let content = format!(
         r#"{pkg_header}
 
@@ -62,10 +80,12 @@ tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
 # `serde_json` and `tokio` are emitted unconditionally above so the manifest
 # is stable across regens, but for umbrella crates with no async fns and no
-# JSON-marshalled return types they are genuinely unused. List them here so
-# `cargo machete` doesn't flag the no-async-no-json case as a real finding.
+# JSON-marshalled return types they are genuinely unused. The conditional
+# `async-trait` / `futures-util` deps are similarly flagged when the
+# umbrella has trait-bridge / streaming adapters configured but no actual
+# async-trait callsite in the generated PHP shim.
 [package.metadata.cargo-machete]
-ignored = ["serde_json", "tokio"]
+ignored = [{machete_ignored_str}]
 
 [features]
 extension-module = []
