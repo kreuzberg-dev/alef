@@ -693,7 +693,18 @@ pub(super) fn gen_record_type(
                         // default to null so the field is left unset (deserialized from JSON).
                         "null".to_string()
                     } else {
-                        format!("{}.{}", base_type, v.to_pascal_case())
+                        // Tagged-union enums (serde-tagged data enums) are emitted as a C#
+                        // `public abstract record Base { public sealed record Variant() : Base; }`
+                        // hierarchy. `Base.Variant` therefore names a TYPE, not an instance —
+                        // the property default needs `new Base.Variant()` to construct an
+                        // instance, otherwise C# raises CS0119 ("X is a type, which is not
+                        // valid in the given context").
+                        let base_naked = base_type.trim_end_matches('?');
+                        if complex_enums.contains(base_naked) {
+                            format!("new {}.{}()", base_naked, v.to_pascal_case())
+                        } else {
+                            format!("{}.{}", base_type, v.to_pascal_case())
+                        }
                     }
                 }
                 Some(DefaultValue::None) => "null".to_string(),
