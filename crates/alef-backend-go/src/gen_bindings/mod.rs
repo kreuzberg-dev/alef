@@ -61,7 +61,13 @@ impl Backend for GoBackend {
             .unwrap_or_else(|| Self::package_name(&module_path));
         let ffi_prefix = config.ffi_prefix();
 
-        let output_dir = resolve_output_dir(config.output_paths.get("go"), &config.name, "packages/go/");
+        let output_dir = {
+            let mut d = resolve_output_dir(config.output_paths.get("go"), &config.name, "packages/go/");
+            if !d.ends_with('/') {
+                d.push('/');
+            }
+            d
+        };
 
         let ffi_lib_name = config.ffi_lib_name();
         let ffi_header = config.ffi_header_name();

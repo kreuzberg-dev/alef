@@ -643,8 +643,8 @@ fn test_methods_generation() {
     );
 
     // Verify instance method with error return.
-    // Long signatures may be wrapped across lines (`Process(\n\tdata string) error`),
-    // so check for the receiver/name and the trailing `error` separately.
+    // The generator emits single-line canonical signatures, so check for the
+    // complete signature or unambiguous substrings.
     assert!(
         content.contains("func (r *Handler) Process("),
         "Should define Process method receiver with name"
