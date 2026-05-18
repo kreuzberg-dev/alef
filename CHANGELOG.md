@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.43] - 2026-05-18
+
 ### Fixed
 
 - **alef-cli: `finalize_hashes` no longer applies `normalize_whitespace` to non-Rust files**. Language-native formatters (`gofmt`, `oxfmt`/oxlint, `php-cs-fixer`, `ruff`, etc.) have already produced idempotent canonical output by the time `finalize_hashes` runs; the additional `normalize_whitespace` pass mutated that output (e.g. collapsing blank lines that `php-cs-fixer` intentionally inserts after `<?php`) so the on-disk bytes after finalisation differed from what prek's formatter hooks would produce, causing `alef verify` to report a stale hash on every `prek` run. The fix restricts `normalize_whitespace` to `.rs` files only (where it is needed to match a subsequent `cargo fmt`); all other languages hash the raw stripped on-disk content directly, matching what `compute_file_hash` in the verify path computes. Regression-covered by `test_finalize_hashes_non_rust_skips_normalize_whitespace`. Surfaced on html-to-markdown `alef verify` reporting `crates/html-to-markdown-node/index.d.ts` and `packages/go/visitor.go` as stale after every `prek` run. (`crates/alef-cli/src/pipeline/generate.rs`)
