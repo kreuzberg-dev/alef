@@ -271,10 +271,13 @@ fn build_php_getter_map(
 ) -> PhpGetterMap {
     let mut getters: HashMap<String, HashSet<String>> = HashMap::new();
     let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+    let mut all_fields: HashMap<String, HashSet<String>> = HashMap::new();
     for td in type_defs {
         let mut getter_fields: HashSet<String> = HashSet::new();
         let mut field_type_map: HashMap<String, String> = HashMap::new();
+        let mut td_all_fields: HashSet<String> = HashSet::new();
         for f in &td.fields {
+            td_all_fields.insert(f.name.clone());
             if !is_php_scalar(&f.ty, enum_names) {
                 getter_fields.insert(f.name.clone());
             }
@@ -283,6 +286,7 @@ fn build_php_getter_map(
             }
         }
         getters.insert(td.name.clone(), getter_fields);
+        all_fields.insert(td.name.clone(), td_all_fields);
         if !field_type_map.is_empty() {
             field_types.insert(td.name.clone(), field_type_map);
         }
@@ -292,6 +296,7 @@ fn build_php_getter_map(
         getters,
         field_types,
         root_type,
+        all_fields,
     }
 }
 

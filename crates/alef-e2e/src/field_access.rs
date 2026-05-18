@@ -51,6 +51,12 @@ pub struct PhpGetterMap {
     pub getters: HashMap<String, HashSet<String>>,
     pub field_types: HashMap<String, HashMap<String, String>>,
     pub root_type: Option<String>,
+    /// All field names per type — used to detect when the recorded `root_type`
+    /// is a misclassification (a workspace-global root_type may not match the
+    /// actual return type of a per-fixture call). When `owner_type` is set but
+    /// `all_fields[owner_type]` doesn't contain `field_name`, the renderer
+    /// falls back to the bare-name union instead of trusting the (wrong) owner.
+    pub all_fields: HashMap<String, HashSet<String>>,
 }
 
 impl PhpGetterMap {
@@ -62,8 +68,15 @@ impl PhpGetterMap {
     /// is the legacy behaviour and is unsafe when field names collide.
     pub fn needs_getter(&self, owner_type: Option<&str>, field_name: &str) -> bool {
         if let Some(t) = owner_type {
-            if let Some(fields) = self.getters.get(t) {
-                return fields.contains(field_name);
+            // Only trust the owner-type classification if the type actually declares
+            // this field. A misclassified root_type (workspace-global guess that
+            // doesn't match the per-fixture call's actual return type) shouldn't
+            // shadow the bare-name fallback.
+            let owner_has_field = self.all_fields.get(t).is_some_and(|s| s.contains(field_name));
+            if owner_has_field {
+                if let Some(fields) = self.getters.get(t) {
+                    return fields.contains(field_name);
+                }
             }
         }
         self.getters.values().any(|set| set.contains(field_name))
@@ -2139,6 +2152,7 @@ mod tests {
             getters,
             field_types: HashMap::new(),
             root_type: Some("Root".to_string()),
+            all_fields: HashMap::new(),
         };
         FieldResolver::new_with_php_getters(
             &HashMap::new(),
@@ -2180,6 +2194,7 @@ mod tests {
             getters,
             field_types,
             root_type: Some("Root".to_string()),
+            all_fields: HashMap::new(),
         };
         let r = FieldResolver::new_with_php_getters(
             &fields,
@@ -2204,6 +2219,7 @@ mod tests {
             getters,
             field_types: HashMap::new(),
             root_type: Some("Root".to_string()),
+            all_fields: HashMap::new(),
         };
         let r = FieldResolver::new_with_php_getters(
             &fields,
@@ -2242,15 +2258,22 @@ mod tests {
         getters.insert("A".to_string(), ["content".to_string()].into_iter().collect());
         // B.content is scalar — explicit empty set.
         getters.insert("B".to_string(), HashSet::new());
+        // Both A and B declare a "content" field — needed so the per-type
+        // classification is consulted (not fallback bare-name union).
+        let mut all_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        all_fields.insert("A".to_string(), ["content".to_string()].into_iter().collect());
+        all_fields.insert("B".to_string(), ["content".to_string()].into_iter().collect());
         let map_a = PhpGetterMap {
             getters: getters.clone(),
             field_types: HashMap::new(),
             root_type: Some("A".to_string()),
+            all_fields: all_fields.clone(),
         };
         let map_b = PhpGetterMap {
             getters,
             field_types: HashMap::new(),
             root_type: Some("B".to_string()),
+            all_fields,
         };
         let r_a = FieldResolver::new_with_php_getters(
             &HashMap::new(),
@@ -2294,10 +2317,15 @@ mod tests {
             "Outer".to_string(),
             [("inner".to_string(), "B".to_string())].into_iter().collect(),
         );
+        let mut all_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        all_fields.insert("Outer".to_string(), ["inner".to_string()].into_iter().collect());
+        all_fields.insert("B".to_string(), ["content".to_string()].into_iter().collect());
+        all_fields.insert("Decoy".to_string(), ["content".to_string()].into_iter().collect());
         let map = PhpGetterMap {
             getters,
             field_types,
             root_type: Some("Outer".to_string()),
+            all_fields,
         };
         let r = FieldResolver::new_with_php_getters(
             &fields,

@@ -385,6 +385,18 @@ impl Backend for CsharpBackend {
         // keep their wrapper-class type instead of being downcast to JsonElement.
         let complex_enums: HashSet<String> = HashSet::new();
 
+        // Tagged-union enums (serde-tagged data enums) are emitted as
+        // `public abstract record Base { public sealed record Variant() : Base; }`
+        // where `Base.Variant` is a TYPE — property defaults must be `new Base.Variant()`
+        // rather than the bare `Base.Variant`, otherwise C# raises CS0119
+        // ("X is a type, which is not valid in the given context").
+        let tagged_union_enums: HashSet<String> = api
+            .enums
+            .iter()
+            .filter(|e| e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+            .map(|e| e.name.to_pascal_case())
+            .collect();
+
         // Collect enums that require a custom JsonConverter (non-standard serialized names only).
         // Tagged unions are generated as abstract records with [JsonPolymorphic] and do NOT need
         // a custom converter — the attribute on the type itself handles polymorphic deserialization.
@@ -456,6 +468,7 @@ impl Backend for CsharpBackend {
                         &bridge_type_aliases,
                         &exception_class_name,
                         &excluded_types,
+                        &tagged_union_enums,
                     )),
                     generated_header: true,
                 });
