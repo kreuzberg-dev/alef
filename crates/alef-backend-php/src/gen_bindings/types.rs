@@ -6,7 +6,6 @@ use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{binding_fields, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
-use heck::ToUpperCamelCase;
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
@@ -658,10 +657,12 @@ fn gen_struct_methods_impl(
     for field in binding_fields(&typ.fields) {
         let effective_ty = &field.ty;
         if !is_php_prop_scalar_with_enums(effective_ty, enum_names) {
-            let php_field_name = alef_codegen::naming::to_php_name(&field.name);
-            // Rust ident in the form `getCamelCase` so the PHP-side method name matches the
-            // `$obj->getCamelCase()` pattern emitted by alef-e2e for non-scalar fields.
-            let getter_ident = format!("get{}", php_field_name.to_upper_camel_case());
+            // Use a snake_case Rust ident — ext-php-rs's `#[php_impl]` macro auto-converts
+            // `get_camel_case` (snake_case Rust) to `getCamelCase()` (camelCase PHP method).
+            // The previous v0.16.55 attempt at a camelCase Rust ident was not surfaced
+            // correctly by ext-php-rs (the resulting PHP method dispatch failed at runtime
+            // with "Call to undefined method getCamelCase()").
+            let getter_ident = format!("get_{}", field.name);
 
             // Untagged data enums and `TypeRef::Json` both map to `serde_json::Value` in
             // the binding struct, but ext-php-rs has no IntoZval impl for `serde_json::Value`.
