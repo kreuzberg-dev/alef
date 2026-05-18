@@ -483,6 +483,7 @@ pub(super) fn gen_record_type(
     bridge_type_aliases: &HashSet<String>,
     exception_class: &str,
     excluded_types: &HashSet<String>,
+    tagged_union_enums: &HashSet<String>,
 ) -> String {
     use crate::template_env::render;
 
@@ -700,7 +701,7 @@ pub(super) fn gen_record_type(
                         // instance, otherwise C# raises CS0119 ("X is a type, which is not
                         // valid in the given context").
                         let base_naked = base_type.trim_end_matches('?');
-                        if complex_enums.contains(base_naked) {
+                        if tagged_union_enums.contains(base_naked) {
                             format!("new {}.{}()", base_naked, v.to_pascal_case())
                         } else {
                             format!("{}.{}", base_type, v.to_pascal_case())
