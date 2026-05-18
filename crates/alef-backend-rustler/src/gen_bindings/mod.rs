@@ -1327,6 +1327,10 @@ impl Backend for RustlerBackend {
                     native_mod => &native_mod,
                 },
             ));
+            // mix-format requires a blank line before each `@doc`. The template
+            // source's trailing newlines get stripped by end-of-file-fixer, so
+            // insert the separator explicitly here.
+            content.push('\n');
 
             // _next delegate
             content.push_str(&template_env::render(
@@ -1336,6 +1340,7 @@ impl Backend for RustlerBackend {
                     native_mod => &native_mod,
                 },
             ));
+            content.push('\n');
 
             // High-level Stream.unfold wrapper. The request map is passed directly
             // to the NIF (Rustler decodes via NifMap); the NIF returns chunk JSON
