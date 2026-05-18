@@ -293,6 +293,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/method_empty_return.jinja"),
     ),
     (
+        "method_signature_instance.jinja",
+        include_str!("../templates/method_signature_instance.jinja"),
+    ),
+    (
+        "method_signature_static.jinja",
+        include_str!("../templates/method_signature_static.jinja"),
+    ),
+    (
         "streaming_method_signature.jinja",
         include_str!("../templates/streaming_method_signature.jinja"),
     ),

@@ -171,26 +171,6 @@ pub(super) fn gen_method_wrapper(
     let receiver_name = if typ.is_opaque { "h" } else { "r" };
     let go_receiver_type = go_type_name(&typ.name);
 
-    // Static methods become package-level functions (no receiver in Go)
-    if method.is_static {
-        out.push_str(&crate::template_env::render(
-            "method_receiver_static.jinja",
-            minijinja::context! {
-                receiver_type => &go_receiver_type,
-                method_name => &method_go_name,
-            },
-        ));
-    } else {
-        out.push_str(&crate::template_env::render(
-            "method_receiver_instance.jinja",
-            minijinja::context! {
-                receiver_name => receiver_name,
-                receiver_type => &go_receiver_type,
-                method_name => &method_go_name,
-            },
-        ));
-    }
-
     let params: Vec<String> = method
         .params
         .iter()
@@ -209,18 +189,36 @@ pub(super) fn gen_method_wrapper(
             format!("{} {}", go_param_name(&p.name), param_type)
         })
         .collect();
-    out.push_str(&params.join(", "));
+    let params_str = params.join(", ");
 
-    if return_type.is_empty() {
+    // Prefix return type with a space so the template can emit `() returntype {`
+    // or `() {` (no double-space) when return_type is empty.
+    let ret_type_str = if return_type.is_empty() {
+        String::new()
+    } else {
+        format!(" {return_type}")
+    };
+
+    // Emit the full method signature on a single canonical line so gofmt is a no-op.
+    if method.is_static {
         out.push_str(&crate::template_env::render(
-            "method_empty_return.jinja",
-            minijinja::Value::default(),
+            "method_signature_static.jinja",
+            minijinja::context! {
+                receiver_type => &go_receiver_type,
+                method_name => &method_go_name,
+                params => &params_str,
+                return_type => &ret_type_str,
+            },
         ));
     } else {
         out.push_str(&crate::template_env::render(
-            "method_return.jinja",
+            "method_signature_instance.jinja",
             minijinja::context! {
-                return_type => &return_type,
+                receiver_name => receiver_name,
+                receiver_type => &go_receiver_type,
+                method_name => &method_go_name,
+                params => &params_str,
+                return_type => &ret_type_str,
             },
         ));
     }
