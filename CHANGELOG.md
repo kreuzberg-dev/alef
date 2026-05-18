@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.40] - 2026-05-18
+
 ### Fixed
 
 - **alef-e2e swift: emit e2e package under `e2e/swift_e2e/` instead of `e2e/swift/` to avoid SwiftPM 6.0 identity collision with `packages/swift/`**. SwiftPM 6.0 derives path-based dependency identity from the path's basename and silently ignores any `.package(name: "...", path: "...")` override (deprecated since 5.5). When the e2e consumer and the binding dep both live in directories named `swift/`, SwiftPM treats them as the same package and resolution fails with `product 'X' required by package 'swift' target '...' not found in package 'swift'`. Surfaced on kreuzberg's `cd e2e/swift && swift build` step. The fix moves the emitted consumer package to `<output>/swift_e2e/`, drops the deprecated `name:` parameter on `.package(path:)`, and uses the path basename (`swift`) for the `.product(package:)` reference — the product `name:` still matches the binding's library declaration (`Kreuzberg`, `LiterLlm`, etc). Consumers must update `[crates.test.swift] e2e` in their `alef.toml` to `cd e2e/swift_e2e && swift test`. Locked in with `package_swift_uses_path_basename_for_product_package_ref` regression test asserting emit path, no `.package(name:`, `.package(path:)`, and basename-based `.product(package:)`. (`crates/alef-e2e/src/codegen/swift.rs`, `crates/alef-e2e/tests/swift_client_factory.rs`)
