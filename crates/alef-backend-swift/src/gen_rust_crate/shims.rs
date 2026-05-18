@@ -31,10 +31,10 @@ pub(crate) fn is_bridgeable_fn(
 ) -> bool {
     for p in &f.params {
         match &p.ty {
-            TypeRef::Named(n) if enum_names.contains(n.as_str()) => {
-                if p.is_ref || no_serde_enum_names.contains(n.as_str()) {
-                    return false;
-                }
+            TypeRef::Named(n)
+                if enum_names.contains(n.as_str()) && (p.is_ref || no_serde_enum_names.contains(n.as_str())) =>
+            {
+                return false;
             }
             TypeRef::Vec(inner) => {
                 if let TypeRef::Named(n) = inner.as_ref() {

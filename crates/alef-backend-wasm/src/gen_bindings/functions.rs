@@ -574,69 +574,6 @@ pub(super) fn gen_function(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use alef_core::ir::{ParamDef, TypeRef};
-    use std::collections::HashMap;
-
-    fn param(name: &str, ty: TypeRef) -> ParamDef {
-        ParamDef {
-            name: name.to_string(),
-            ty,
-            optional: false,
-            default: None,
-            sanitized: false,
-            typed_default: None,
-            is_ref: false,
-            is_mut: false,
-            newtype_wrapper: None,
-            original_type: None,
-        }
-    }
-
-    fn async_function(params: Vec<ParamDef>) -> FunctionDef {
-        FunctionDef {
-            name: "interact".to_string(),
-            rust_path: "kreuzcrawl::interact".to_string(),
-            original_rust_path: String::new(),
-            params,
-            return_type: TypeRef::Unit,
-            is_async: true,
-            error_type: Some("CrawlError".to_string()),
-            doc: String::new(),
-            cfg: None,
-            sanitized: false,
-            return_sanitized: false,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-        }
-    }
-
-    #[test]
-    fn async_vec_named_params_convert_to_core_vec() {
-        let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
-        let func = async_function(vec![param(
-            "actions",
-            TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
-        )]);
-
-        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new());
-
-        assert!(out.contains("actions: Vec<WasmPageAction>"));
-        assert!(
-            out.contains(
-                "let actions_core: Vec<kreuzcrawl::PageAction> = actions.into_iter().map(Into::into).collect();"
-            ),
-            "{out}"
-        );
-        assert!(out.contains("kreuzcrawl::interact(actions_core).await"), "{out}");
-    }
-}
-
 /// Generate WASM environment shims for wide-character C functions used by external scanners.
 ///
 /// Some tree-sitter external scanners call C wide-character functions (`iswspace`, `iswalnum`,
@@ -1000,5 +937,68 @@ pub(super) fn wasm_wrap_return_fn(
             _ => expr.to_string(),
         },
         _ => expr.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alef_core::ir::{ParamDef, TypeRef};
+    use std::collections::HashMap;
+
+    fn param(name: &str, ty: TypeRef) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: false,
+            newtype_wrapper: None,
+            original_type: None,
+        }
+    }
+
+    fn async_function(params: Vec<ParamDef>) -> FunctionDef {
+        FunctionDef {
+            name: "interact".to_string(),
+            rust_path: "kreuzcrawl::interact".to_string(),
+            original_rust_path: String::new(),
+            params,
+            return_type: TypeRef::Unit,
+            is_async: true,
+            error_type: Some("CrawlError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn async_vec_named_params_convert_to_core_vec() {
+        let mapper = WasmMapper::new(HashMap::new(), "Wasm".to_string());
+        let func = async_function(vec![param(
+            "actions",
+            TypeRef::Vec(Box::new(TypeRef::Named("PageAction".to_string()))),
+        )]);
+
+        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new());
+
+        assert!(out.contains("actions: Vec<WasmPageAction>"));
+        assert!(
+            out.contains(
+                "let actions_core: Vec<kreuzcrawl::PageAction> = actions.into_iter().map(Into::into).collect();"
+            ),
+            "{out}"
+        );
+        assert!(out.contains("kreuzcrawl::interact(actions_core).await"), "{out}");
     }
 }
