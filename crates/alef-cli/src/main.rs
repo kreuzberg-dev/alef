@@ -1290,7 +1290,7 @@ fn main() -> Result<()> {
 
                 eprintln!("Generating READMEs...");
                 let readme_files = pipeline::readme(&api, resolved_cfg, &languages)?;
-                let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, clean)?;
+                let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
                 for file in &readme_files {
                     current_gen_paths.insert(base_dir.join(&file.path));
                 }

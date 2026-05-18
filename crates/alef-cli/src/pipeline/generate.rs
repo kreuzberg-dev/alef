@@ -951,6 +951,63 @@ mod write_scaffold_normalize_tests {
         );
     }
 
+    /// Regression: `write_scaffold_files_with_overwrite(overwrite=false)` must
+    /// skip files that already exist on disk, leaving the existing content
+    /// unchanged.  This is the invariant relied on by scaffold-once files
+    /// (Cargo.toml, package.json, gemspec) — user customisations are preserved.
+    ///
+    /// README files are NOT scaffold-once: they are always regenerated from
+    /// templates.  Using `overwrite=false` for READMEs means a file modified by
+    /// an external tool (e.g. `rumdl-fmt` padding table columns) is silently
+    /// preserved, while `alef readme` (which always uses `overwrite=true`) writes
+    /// fresh compact content.  The two commands then produce different bytes for
+    /// the same README — the root cause of the `alef generate`/`alef readme`
+    /// divergence surfaced on html-to-markdown regen.
+    #[test]
+    fn readme_overwrite_false_preserves_existing_content_producing_divergence() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let base = dir.path();
+
+        // Simulate rumdl-fmt having padded the README table columns.
+        let padded_content = "# My README\n\n| Document            | Size  |\n| ------------------- | ----- |\n| Lists (Timeline)    | 129KB |\n";
+        std::fs::write(base.join("README.md"), padded_content).expect("write padded README");
+
+        // Simulate alef regenerating the README with compact table separators.
+        let compact_content = "# My README\n\n| Document | Size |\n|----------|------|\n| Lists (Timeline) | 129KB |\n";
+        let files = vec![make_file("README.md", compact_content)];
+
+        // overwrite=false (the bug path used by `alef all` without --clean):
+        // the file already exists so it is skipped — padded content remains on disk.
+        write_scaffold_files_with_overwrite(&files, base, false).expect("write ok (overwrite=false)");
+        let after_false = std::fs::read_to_string(base.join("README.md")).expect("read");
+        assert_eq!(
+            after_false, padded_content,
+            "overwrite=false must not touch an existing README — padded content preserved (bug state)"
+        );
+
+        // overwrite=true (the correct path used by `alef readme` and the fixed `alef all`):
+        // the file is always rewritten with the freshly-generated compact content.
+        write_scaffold_files_with_overwrite(&files, base, true).expect("write ok (overwrite=true)");
+        let after_true = std::fs::read_to_string(base.join("README.md")).expect("read");
+        // normalize_content is applied on write; the compact content already has a trailing newline.
+        assert!(
+            after_true.contains("|----------|"),
+            "overwrite=true must write compact-separator content, got:\n{after_true}"
+        );
+        assert!(
+            !after_true.contains("| ------------------- |"),
+            "overwrite=true must NOT preserve rumdl-fmt-padded separators, got:\n{after_true}"
+        );
+
+        // Core invariant: both alef readme (overwrite=true) and alef all (fixed to overwrite=true)
+        // must produce identical bytes when starting from the same padded-on-disk state.
+        assert_eq!(
+            after_true,
+            normalize_content(&std::path::PathBuf::from("README.md"), compact_content),
+            "alef readme and alef all must produce identical on-disk bytes for README files"
+        );
+    }
+
     /// `detect_crate_edition` must return the edition declared in the nearest
     /// `Cargo.toml` when one is present, and fall back to `"2024"` when absent.
     #[test]
