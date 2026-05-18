@@ -111,10 +111,13 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
     out.push_str("#![allow(unused_mut)]\n");
     out.push_str("#![allow(dead_code)]\n");
     // Unit-returning methods bind `let v = call();` and emit bare `()` match arms;
-    // both are clippy lints (let_unit_value, unused_unit, unneeded_unit_expression)
-    // that don't reflect real bugs in generated FFI marshalling code.
+    // bool-returning methods emit `let v = call(); v` since the jboolean marshal
+    // is a pass-through. Both are clippy lints (let_unit_value, unused_unit,
+    // unneeded_unit_expression, let_and_return) that don't reflect real bugs in
+    // generated FFI marshalling code.
     out.push_str("#![allow(clippy::let_unit_value)]\n");
     out.push_str("#![allow(clippy::unused_unit)]\n");
+    out.push_str("#![allow(clippy::let_and_return)]\n");
     out.push('\n');
     out.push_str("use std::sync::OnceLock;\n");
     out.push_str("use std::sync::Mutex;\n");
