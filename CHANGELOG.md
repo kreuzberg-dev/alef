@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.45] - 2026-05-18
+
+### Fixed
+
+- **alef-backend-rustler: insert blank line between concatenated elixir streaming wrappers**. The `elixir_streaming_start_wrapper.jinja` and `elixir_streaming_next_wrapper.jinja` templates rely on trailing blank lines to separate from the following `@doc`/`def` block, but the shared `end-of-file-fixer` pre-commit hook strips trailing blank lines from template source files. The runtime concatenation in `gen_bindings/mod.rs` therefore produced `end\n@doc "..."` (no blank line), which fails `mix format --check-formatted` ("a blank line is required before each `@doc` that precedes a function definition"). Insert the separator explicitly via `content.push('\n')` between successive `template_env::render` outputs so the boundary is independent of template file contents. Surfaced on liter-llm CI Lint (`packages/elixir/lib/liter_llm.ex`). (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
+
 ## [0.16.44] - 2026-05-18
 
 ### Fixed
