@@ -737,7 +737,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 methods.push(
                     concat!(
                         "    /// HTTP status code for this error (0 means no associated status).\n",
-                        "    #[php_method]\n",
                         "    pub fn status_code(&self) -> u16 {\n",
                         "        self.status_code\n",
                         "    }",
@@ -751,7 +750,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 methods.push(
                     concat!(
                         "    /// Returns `true` if the error is transient and a retry may succeed.\n",
-                        "    #[php_method]\n",
                         "    pub fn is_transient(&self) -> bool {\n",
                         "        self.is_transient\n",
                         "    }",
@@ -765,7 +763,6 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
                 methods.push(
                     concat!(
                         "    /// Machine-readable error category string for matching and logging.\n",
-                        "    #[php_method]\n",
                         "    pub fn error_type(&self) -> String {\n",
                         "        self.error_type.clone()\n",
                         "    }",
@@ -776,7 +773,7 @@ pub fn gen_php_error_methods_impl(error: &ErrorDef, core_import: &str) -> String
             }
             other => {
                 methods.push(format!(
-                    "    // TODO: emit #[php_method] for `{other}` on `{struct_name}`"
+                    "    // TODO: emit method for `{other}` on `{struct_name}`"
                 ));
             }
         }
