@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-adapters: Node streaming methods now return a `#[napi]` iterator class instead of materializing the entire stream into a Vec.** Callers consume items via `await iter.next()` (returns `null` at end-of-stream), matching the existing Python AsyncIterator pattern. The previous behavior collected every chunk into a JS Array eagerly, defeating the point of streaming.
+
 - **alef-backend-zig: Zig streaming methods now return all chunks as a JSON array instead of only the last chunk.** Previously, `_last_json` was overwritten on every iteration, dropping every event except the final one. Now emits `[chunk1,chunk2,...]` so callers receive the full stream.
 
 ## [0.16.69] - 2026-05-19

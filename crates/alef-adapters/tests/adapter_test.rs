@@ -372,15 +372,19 @@ fn test_streaming_node() {
 
     let body = &bodies["Client.list_items"];
 
-    // Node collects stream into Vec synchronously
+    // Node now spawns an mpsc-backed iterator instead of collecting eagerly
     assert!(
-        body.contains("collect"),
-        "Node streaming should collect stream. Got: {}",
+        body.contains("tokio::sync::mpsc"),
+        "Node streaming should use mpsc channel. Got: {}",
         body
     );
     assert!(
-        body.contains("futures_util::StreamExt"),
-        "Should use futures_util crate"
+        body.contains("tokio::spawn"),
+        "Node streaming should spawn background task"
+    );
+    assert!(
+        body.contains("ListItemsIterator"),
+        "Node streaming should return iterator struct"
     );
 }
 
