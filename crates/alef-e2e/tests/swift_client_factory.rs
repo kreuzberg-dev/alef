@@ -225,7 +225,11 @@ options_via = "from_json"
     // E2e package is emitted under `swift_e2e/`, not `swift/`, to avoid
     // SwiftPM identity collision with `packages/swift/`.
     assert!(
-        pkg_file.path.to_string_lossy().contains("/swift_e2e/Package.swift"),
+        pkg_file
+            .path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .contains("/swift_e2e/Package.swift"),
         "Package.swift must be emitted under swift_e2e/. Path: {:?}",
         pkg_file.path
     );
