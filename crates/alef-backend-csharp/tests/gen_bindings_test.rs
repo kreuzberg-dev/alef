@@ -512,15 +512,15 @@ fn test_opaque_method_return_wraps_handle_without_to_json() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let graph_ql_route_config = files
         .iter()
-        .find(|file| file.path.ends_with("GraphQlRouteConfig.cs"))
+        .find(|file| file.path.ends_with("GraphQLRouteConfig.cs"))
         .unwrap();
 
     assert!(
         graph_ql_route_config
             .content
-            .contains("var returnValue = new GraphQlRouteConfig(nativeResult);")
+            .contains("var returnValue = new GraphQLRouteConfig(nativeResult);")
     );
-    assert!(!graph_ql_route_config.content.contains("GraphQlRouteConfigToJson"));
+    assert!(!graph_ql_route_config.content.contains("GraphQLRouteConfigToJson"));
 }
 
 #[test]
