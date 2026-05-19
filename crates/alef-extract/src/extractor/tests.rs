@@ -3446,3 +3446,56 @@ fn test_error_enum_methods_whitelist() {
         "is_transient must return bool"
     );
 }
+
+/// embed_texts_async has `<T: AsRef<str> + Send + 'static>` — the `'static` lifetime bound
+/// on a type parameter must not prevent monomorphization to String. This shape is exactly what
+/// kreuzberg exposes at its public API surface.
+#[test]
+fn test_extract_cfg_gated_generic_async_fn_embed_texts_async_shape() {
+    let source = r#"
+        #[cfg(all(feature = "tokio-runtime", feature = "embeddings"))]
+        pub async fn embed_texts_async<T: AsRef<str> + Send + 'static>(
+            texts: Vec<T>,
+            config: &EmbeddingConfig,
+        ) -> Result<Vec<Vec<f32>>, KreuzbergError> {
+            todo!()
+        }
+    "#;
+
+    let surface = extract_from_source(source);
+    assert_eq!(
+        surface.functions.len(),
+        1,
+        "embed_texts_async with <T: AsRef<str> + Send + 'static> must be extracted (monomorphized to String)"
+    );
+
+    let func = &surface.functions[0];
+    assert_eq!(func.name, "embed_texts_async");
+    assert!(func.is_async, "must be async");
+    // syn tokenizes with spaces inside all(); match the actual output
+    let cfg = func.cfg.as_deref().unwrap_or("");
+    assert!(
+        cfg.contains("tokio-runtime") && cfg.contains("embeddings"),
+        "cfg gate must be preserved in the IR; got: {cfg:?}"
+    );
+
+    // Vec<T> monomorphized to Vec<String>
+    assert_eq!(func.params[0].name, "texts", "first param is texts");
+    assert_eq!(
+        func.params[0].ty,
+        TypeRef::Vec(Box::new(TypeRef::String)),
+        "Vec<T> must be monomorphized to Vec<String>"
+    );
+
+    // &EmbeddingConfig stays as Named("EmbeddingConfig")
+    assert_eq!(func.params[1].name, "config");
+    assert!(func.params[1].is_ref, "config is a reference param");
+
+    // Return: Vec<Vec<f32>>
+    assert_eq!(
+        func.return_type,
+        TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(PrimitiveType::F32))))),
+        "return type must be Vec<Vec<f32>>"
+    );
+    assert_eq!(func.error_type.as_deref(), Some("KreuzbergError"));
+}
