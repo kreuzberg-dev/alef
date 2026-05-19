@@ -1,3 +1,4 @@
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
 use std::collections::HashMap;
@@ -20,6 +21,124 @@ fn method_param_needs_alloc(p: &ParamDef) -> bool {
         inner,
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
     )
+}
+
+/// Map a Rust FFI type string to the corresponding Zig type.
+///
+/// Only the types actually used in `client_constructors` configs are handled here.
+fn ffi_ty_to_zig(rust_ty: &str) -> &'static str {
+    let normalized = rust_ty.trim();
+    if normalized.contains("c_char") || normalized.contains("CStr") {
+        return "[]const u8";
+    }
+    if matches!(normalized, "u8" | "uint8_t") {
+        return "u8";
+    }
+    if matches!(normalized, "u16" | "uint16_t") {
+        return "u16";
+    }
+    if matches!(normalized, "u32" | "uint32_t") {
+        return "u32";
+    }
+    if matches!(normalized, "u64" | "uint64_t" | "usize") {
+        return "u64";
+    }
+    if matches!(normalized, "i8" | "int8_t") {
+        return "i8";
+    }
+    if matches!(normalized, "i16" | "int16_t") {
+        return "i16";
+    }
+    if matches!(normalized, "i32" | "int32_t" | "c_int") {
+        return "i32";
+    }
+    if matches!(normalized, "i64" | "int64_t" | "isize") {
+        return "i64";
+    }
+    if matches!(normalized, "bool") {
+        return "bool";
+    }
+    if matches!(normalized, "f32" | "float") {
+        return "f32";
+    }
+    if matches!(normalized, "f64" | "double") {
+        return "f64";
+    }
+    "*anyopaque"
+}
+
+/// Returns true if a Rust FFI type is a string/CStr pointer that needs
+/// `dupeZ` conversion before passing to the C function.
+fn ffi_ty_needs_dupez(rust_ty: &str) -> bool {
+    let normalized = rust_ty.trim();
+    normalized.contains("c_char") || normalized.contains("CStr")
+}
+
+/// Emit a top-level `pub fn create_<type_snake>(allocator, params...) !TypeName`
+/// constructor that wraps the `c.{prefix}_{type_snake}_new(...)` FFI symbol.
+pub(crate) fn emit_opaque_constructor(ty: &TypeDef, prefix: &str, ctor: &ClientConstructorConfig, out: &mut String) {
+    let type_snake = AsSnakeCase(&ty.name).to_string();
+    let upper_prefix = prefix.to_uppercase();
+    let has_string_param = ctor.params.iter().any(|p| ffi_ty_needs_dupez(&p.ty));
+
+    // Doc comment
+    let _ = writeln!(out, "/// Create a new `{}` handle via the FFI constructor.", ty.name);
+
+    // Signature: allocator is only needed when string params require dupeZ.
+    let alloc_param = if has_string_param {
+        "allocator: std.mem.Allocator, "
+    } else {
+        ""
+    };
+
+    // Build param list.
+    let params_str: String = ctor
+        .params
+        .iter()
+        .map(|p| format!("{}: {}", p.name, ffi_ty_to_zig(&p.ty)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(
+        out,
+        "pub fn create_{type_snake}({alloc_param}{params_str}) !{type_name} {{",
+        type_name = ty.name,
+    );
+
+    // Emit allocator-based dupeZ for string params.
+    for p in &ctor.params {
+        if ffi_ty_needs_dupez(&p.ty) {
+            let c_name = format!("{}_z", p.name);
+            let _ = writeln!(
+                out,
+                "    const {c_name} = try allocator.dupeZ(u8, {param_name});",
+                param_name = p.name,
+            );
+            let _ = writeln!(out, "    defer allocator.free({c_name});");
+        }
+    }
+
+    // Build the C argument list.
+    let c_args: String = ctor
+        .params
+        .iter()
+        .map(|p| {
+            if ffi_ty_needs_dupez(&p.ty) {
+                format!("{}_z.ptr", p.name)
+            } else {
+                p.name.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let _ = writeln!(out, "    const _handle = c.{prefix}_{type_snake}_new({c_args});",);
+    let _ = writeln!(out, "    if (_handle == null) return _first_error(anyerror);",);
+    let _ = writeln!(
+        out,
+        "    return .{{ ._handle = @as(*c.{upper_prefix}{type_name}, @ptrCast(_handle.?)) }};",
+        type_name = ty.name,
+    );
+    let _ = writeln!(out, "}}");
 }
 
 /// Emit a Zig struct wrapper for an opaque handle type (one with `is_opaque = true`

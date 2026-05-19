@@ -559,6 +559,12 @@ mod alef_json_str_opt {
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
+                // Client constructor — emit a separate #[pymethods] impl with #[new]
+                if let Some(ctor) = config.client_constructors.get(&typ.name) {
+                    let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[new]");
+                    let ctor_impl = format!("#[pymethods]\nimpl {} {{\n{}}}", typ.name, ctor_body);
+                    builder.add_item(&ctor_impl);
+                }
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.

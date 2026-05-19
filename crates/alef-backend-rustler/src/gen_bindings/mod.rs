@@ -163,6 +163,12 @@ impl Backend for RustlerBackend {
         {
             if typ.is_opaque {
                 builder.add_item(&gen_opaque_resource(typ, &core_import, &opaque_types));
+                // Client constructor
+                if let Some(ctor) = config.client_constructors.get(&typ.name) {
+                    let ctor_body = alef_codegen::generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "");
+                    let ctor_impl = format!("impl {} {{\n{}}}", typ.name, ctor_body);
+                    builder.add_item(&ctor_impl);
+                }
             } else {
                 // gen_struct adds Default to derives when typ.has_default is true,
                 // so no separate Default impl is needed.

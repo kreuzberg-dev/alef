@@ -276,6 +276,21 @@ fn emit_lib_rs(
         );
     }
 
+    // Client constructors for opaque handles (emit a separate impl block with #[frb])
+    for ty in api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+    {
+        if let Some(ctor) = config.client_constructors.get(&ty.name) {
+            let ctor_body =
+                alef_codegen::generators::gen_opaque_constructor(ctor, &ty.name, source_crate_name, "#[frb]");
+            content.push('\n');
+            content.push_str(&format!("impl {} {{\n{}}}", ty.name, ctor_body));
+            content.push('\n');
+        }
+    }
+
     for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
         content.push('\n');
         emit_mirror_enum(&mut content, en);

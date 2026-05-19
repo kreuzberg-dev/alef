@@ -130,7 +130,7 @@ pub use functions::{
 };
 pub use methods::{
     gen_constructor, gen_constructor_with_renames, gen_impl_block, gen_impl_block_with_renames, gen_method,
-    gen_opaque_impl_block, gen_static_method, is_trait_method_name,
+    gen_opaque_constructor, gen_opaque_impl_block, gen_static_method, is_trait_method_name,
 };
 pub use structs::{
     can_generate_default_impl, gen_opaque_struct, gen_opaque_struct_prefixed, gen_struct, gen_struct_default_impl,

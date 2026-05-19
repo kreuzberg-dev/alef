@@ -384,3 +384,29 @@ pub(super) fn gen_enum_from_json(enum_def: &EnumDef, prefix: &str, core_import: 
         },
     )
 }
+
+pub(super) fn gen_type_new(
+    typ: &TypeDef,
+    prefix: &str,
+    core_import: &str,
+    params_str: &str,
+    body: &str,
+    err_ty: &str,
+) -> String {
+    let type_snake = typ.name.to_snake_case();
+    let type_name = &typ.name;
+    let qualified = core_type_path(typ, core_import);
+
+    crate::template_env::render(
+        "type_new.jinja",
+        context! {
+            type_name => type_name,
+            type_snake => type_snake,
+            prefix => prefix,
+            qualified => qualified,
+            params => params_str,
+            body => body,
+            err_ty => err_ty,
+        },
+    )
+}

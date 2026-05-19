@@ -1,5 +1,6 @@
 use alef_backend_jni::JniBackend;
 use alef_core::backend::Backend;
+use alef_core::config::workspace::{ClientConstructorConfig, ConstructorParam};
 use alef_core::config::{AdapterConfig, AdapterParam, AdapterPattern, NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{
     ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
@@ -1432,4 +1433,72 @@ fn panic_safety_run_or_throw_replaces_bare_block_on() {
 
     let next = extract_fn_section(content, "nativeDemoClientStreamDataNext");
     assert!(next.contains("run_or_throw"), "streaming Next must use run_or_throw");
+}
+
+// ---------------------------------------------------------------------------
+// client_constructors: nativeNew<TypeName> shim
+// ---------------------------------------------------------------------------
+
+/// When `client_constructors` contains an entry for an opaque type,
+/// `emit_lib_rs` must emit a `nativeNew<TypeName>` shim that:
+/// - receives each `*const c_char` param as `JString`
+/// - unmarshals via `jstring_to_string`
+/// - calls the configured body
+/// - returns `jlong` (Box::into_raw on success) or `0` on error
+#[test]
+fn client_constructors_emits_native_new_shim() {
+    let api = make_demo_api();
+    let mut config = make_demo_config();
+    config.client_constructors.insert(
+        "DemoClient".to_string(),
+        ClientConstructorConfig {
+            params: vec![ConstructorParam {
+                name: "api_key".to_string(),
+                ty: "*const std::ffi::c_char".to_string(),
+            }],
+            body: "{source_path}::new(api_key)".to_string(),
+            error_type: Some("DemoError".to_string()),
+        },
+    );
+
+    let files = JniBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    // The constructor shim symbol must use nativeNew<TypeName>.
+    assert!(
+        content.contains("nativeNewDemoClient"),
+        "constructor shim must use nativeNewDemoClient; got:\n{content}"
+    );
+
+    let section = extract_fn_section(content, "nativeNewDemoClient");
+
+    // Param must be JString (c_char maps to string).
+    assert!(
+        section.contains("api_key: JString"),
+        "c_char param must receive JString; section:\n{section}"
+    );
+
+    // Must unmarshal via jstring_to_string.
+    assert!(
+        section.contains("jstring_to_string(env, api_key)"),
+        "must unmarshal api_key via jstring_to_string; section:\n{section}"
+    );
+
+    // Must return jlong.
+    assert!(
+        section.contains("-> jlong"),
+        "constructor shim must return jlong; section:\n{section}"
+    );
+
+    // Must box the result.
+    assert!(
+        section.contains("Box::into_raw(Box::new(v)) as jlong"),
+        "constructor must Box::into_raw result; section:\n{section}"
+    );
+
+    // Must return 0 on error.
+    assert!(
+        section.contains("throw_jni_error"),
+        "constructor must call throw_jni_error on failure; section:\n{section}"
+    );
 }

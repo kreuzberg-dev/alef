@@ -16,6 +16,7 @@
 use std::path::PathBuf;
 
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use alef_core::jni::{
@@ -336,6 +337,13 @@ fn emit_client_shims(
     let free_name = destructor_method_name(&ty.name);
     let free_symbol = jni_symbol(package, bridge, &free_name);
     emit_destructor_shim(out, &free_symbol, &ty.name);
+
+    // Constructor shim (when client_constructors config is present for this type).
+    if let Some(ctor) = config.client_constructors.get(&ty.name) {
+        let ctor_method_name = format!("nativeNew{}", &ty.name);
+        let ctor_symbol = jni_symbol(package, bridge, &ctor_method_name);
+        emit_constructor_shim(out, &ctor_symbol, ty, config, ctor);
+    }
 
     // Streaming adapter shims owned by this type.
     let streaming: Vec<_> = config
@@ -948,6 +956,99 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}string_to_jstring(env, &s)\n"));
         }
     }
+}
+
+/// Emit a constructor shim for an opaque client type.
+///
+/// The `client_constructors` workspace config supplies the body template and
+/// the ordered list of parameters.  Each parameter whose `ty` contains
+/// `c_char` is received as `JString` and unmarshalled via `jstring_to_string`;
+/// other parameter types are received as their JNI primitive equivalent.
+///
+/// The emitted shim returns `jlong` (a `Box::into_raw` pointer) on success or
+/// `0` on failure (with a JNI exception pending).
+fn emit_constructor_shim(
+    out: &mut String,
+    symbol: &str,
+    ty: &TypeDef,
+    config: &ResolvedCrateConfig,
+    ctor: &ClientConstructorConfig,
+) {
+    let type_name = &ty.name;
+    let core_prefix = core_use_path(config);
+
+    // Build param signature lines and unmarshal blocks.
+    let mut param_sigs = String::new();
+    let mut unmarshal = String::new();
+    let mut call_args = Vec::new();
+
+    for param in &ctor.params {
+        let rust_name = param.name.replace('-', "_");
+        if param.ty.contains("c_char") {
+            // String parameter: receive as JString and unmarshal to Rust String.
+            param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
+            unmarshal.push_str(&format!(
+                "    let {rust_name} = match jstring_to_string(env, {rust_name}) {{\n"
+            ));
+            unmarshal.push_str("        Ok(s) => s,\n");
+            unmarshal.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
+            unmarshal.push_str("    };\n");
+            call_args.push(rust_name.clone());
+        } else {
+            // Non-string: use as-is (caller passes primitive JNI type).
+            param_sigs.push_str(&format!("    {rust_name}: jlong,\n"));
+            call_args.push(rust_name.clone());
+        }
+    }
+
+    // Expand the body template.
+    let body_expr = ctor
+        .body
+        .replace("{type_name}", type_name)
+        .replace("{source_path}", &format!("{core_prefix}::{type_name}"));
+
+    // Build the call expression: body_expr already encodes the full constructor
+    // call (e.g. `core_crate::DemoClient::new(api_key)`).  If the body uses
+    // positional references we substitute them; otherwise trust the template.
+    // When the body template ends with `(...)` we leave it intact.
+    let call_expr = if call_args.is_empty() || body_expr.contains('(') {
+        body_expr.clone()
+    } else {
+        format!("{}({})", body_expr, call_args.join(", "))
+    };
+
+    // Open the function.
+    out.push_str(&format!(
+        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n{param_sigs}) -> jlong {{\n"
+    ));
+    out.push_str("    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n");
+    out.push_str("    let mut __jni_attach_guard = unsafe { jni::AttachGuard::from_unowned(env.as_raw()) };\n");
+    out.push_str("    let env = __jni_attach_guard.borrow_env_mut();\n");
+
+    out.push_str(&unmarshal);
+
+    // Emit match on Result or direct boxing.
+    let has_error = ctor.error_type.is_some() || ctor.body.contains("->") || {
+        // Heuristic: treat as fallible when body returns Result-like expression.
+        call_expr.contains("?") || call_expr.ends_with(")")
+    };
+    // Always treat the constructor as fallible (match Result<_, E>) since the
+    // typical body is `core_crate::TypeName::new(param)` which returns Result.
+    out.push_str(&format!(
+        "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| {call_expr})) else {{\n"
+    ));
+    out.push_str("        return 0;\n");
+    out.push_str("    };\n");
+    out.push_str("    match result {\n");
+    out.push_str("        Err(e) => {\n");
+    out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
+    out.push_str("            0\n");
+    out.push_str("        }\n");
+    out.push_str("        Ok(v) => Box::into_raw(Box::new(v)) as jlong,\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
+    let _ = has_error; // consumed above
 }
 
 /// Emit the destructor shim for an opaque type.

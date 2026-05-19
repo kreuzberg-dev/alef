@@ -37,6 +37,7 @@ use crate::config::output::{
 use crate::config::publish::PublishConfig;
 use crate::config::tools::ToolsConfig;
 use crate::config::trait_bridge::TraitBridgeConfig;
+use crate::config::workspace::ClientConstructorConfig;
 use crate::config::{FormatConfig, GenerateConfig};
 
 /// Fully-resolved configuration for one crate.
@@ -136,6 +137,7 @@ pub struct ResolvedCrateConfig {
     // -----------------------------------------------------------------
     pub tools: ToolsConfig,
     pub opaque_types: HashMap<String, String>,
+    pub client_constructors: HashMap<String, ClientConstructorConfig>,
     pub sync: Option<SyncConfig>,
     pub citation: Option<CitationConfig>,
 

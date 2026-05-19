@@ -174,7 +174,14 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
 
     let mut body_lines: Vec<String> = Vec::new();
     for typ in &non_opaque {
-        body_lines.push(gen_type_stub(typ, api, config, &capsule_names, &options_field_bridges, emit_docstrings));
+        body_lines.push(gen_type_stub(
+            typ,
+            api,
+            config,
+            &capsule_names,
+            &options_field_bridges,
+            emit_docstrings,
+        ));
         body_lines.push("".to_string());
     }
 

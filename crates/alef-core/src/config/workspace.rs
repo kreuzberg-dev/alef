@@ -22,6 +22,36 @@ use super::output::{
 use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
 
+/// One parameter in a [`ClientConstructorConfig`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConstructorParam {
+    /// Parameter name as it appears in the generated function signature.
+    pub name: String,
+    /// Rust type of the parameter (e.g. `"*const c_char"` for FFI, `"&str"` for Rust-embedded).
+    #[serde(rename = "type")]
+    pub ty: String,
+}
+
+/// Custom constructor configuration for an opaque handle type.
+///
+/// When present under `[workspace.client_constructors.<TypeName>]`, every
+/// backend that wraps the type in an opaque handle emits a constructor whose
+/// body is the `body` template string with `{type_name}` and `{source_path}`
+/// substituted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ClientConstructorConfig {
+    /// Ordered list of constructor parameters.
+    #[serde(default)]
+    pub params: Vec<ConstructorParam>,
+    /// Body template.  Use `{type_name}` for the bare type name and
+    /// `{source_path}` for the fully-qualified core path.
+    pub body: String,
+    /// Error type returned by the constructor (`Result<Self, ErrType>`).
+    /// Defaults to `String` when absent.
+    #[serde(default)]
+    pub error_type: Option<String>,
+}
+
 /// Workspace-level configuration shared across all `[[crates]]` entries.
 ///
 /// Every field is optional; an empty `[workspace]` section is valid and means
@@ -132,6 +162,12 @@ pub struct WorkspaceConfig {
     #[serde(default)]
     pub opaque_types: HashMap<String, String>,
 
+    /// Per-type custom constructors emitted by every backend that supports
+    /// opaque handles.  Key: type name (e.g. `"DefaultClient"`).
+    /// Value: [`ClientConstructorConfig`] describing params and a body template.
+    #[serde(default)]
+    pub client_constructors: HashMap<String, ClientConstructorConfig>,
+
     /// Workspace-wide version sync rules. A per-crate publish step still runs
     /// independently per crate; sync rules in this section apply globally.
     #[serde(default)]
@@ -189,5 +225,23 @@ Tree = "tree_sitter::Tree"
             cfg.opaque_types.get("Tree").map(String::as_str),
             Some("tree_sitter::Tree")
         );
+    }
+
+    #[test]
+    fn workspace_config_deserializes_client_constructors() {
+        let toml_str = r#"
+[client_constructors.DefaultClient]
+body = "{source_path}::new().map_err(|e| e.to_string())"
+
+[[client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "*const std::ffi::c_char"
+"#;
+        let cfg: WorkspaceConfig = toml::from_str(toml_str).unwrap();
+        let ctor = cfg.client_constructors.get("DefaultClient").unwrap();
+        assert_eq!(ctor.params.len(), 1);
+        assert_eq!(ctor.params[0].name, "api_key");
+        assert_eq!(ctor.params[0].ty, "*const std::ffi::c_char");
+        assert!(ctor.body.contains("{source_path}"));
     }
 }

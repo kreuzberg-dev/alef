@@ -16,6 +16,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     ),
     ("type_to_json.jinja", include_str!("../templates/type_to_json.jinja")),
     ("type_free.jinja", include_str!("../templates/type_free.jinja")),
+    ("type_new.jinja", include_str!("../templates/type_new.jinja")),
     (
         "field_accessor_header.jinja",
         include_str!("../templates/field_accessor_header.jinja"),

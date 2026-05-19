@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use alef_core::backend::GeneratedFile;
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::config::{AdapterPattern, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, TypeRef};
 
@@ -97,6 +98,9 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Emit streaming external funs.
     emit_streaming_jni_external_funs(&mut body, config, &exception_class);
+
+    // Emit nativeNew<TypeName> external funs for client_constructors entries.
+    emit_constructor_jni_external_funs(&mut body, api, config, &exception_class);
 
     // Emit nativeFreeXxx destructors for opaque types returned by top-level functions
     // that do NOT have instance methods (those are handled via emit_method_jni_external_funs
@@ -373,14 +377,21 @@ pub fn emit_jni_client_class(
             .iter()
             .filter(|m| !m.sanitized && !m.is_static)
             .any(|m| !m.params.is_empty() || needs_json_deserialize(&m.return_type));
-        if has_json_methods {
+        let ctor_config = config.client_constructors.get(class_name.as_str());
+        let needs_companion = has_json_methods || ctor_config.is_some();
+        if needs_companion {
             body.push_str("    companion object {\n");
-            body.push_str("        private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()\n");
-            body.push_str("            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
-            body.push_str("            .findAndRegisterModules()\n");
-            body.push_str(
-                "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
-            );
+            if has_json_methods {
+                body.push_str("        private val MAPPER = com.fasterxml.jackson.databind.ObjectMapper()\n");
+                body.push_str("            .registerModule(com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
+                body.push_str("            .findAndRegisterModules()\n");
+                body.push_str(
+                    "            .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
+                );
+            }
+            if let Some(ctor) = ctor_config {
+                emit_jni_client_factory(class_name, &bridge_name, ctor, &mut body);
+            }
             body.push_str("    }\n\n");
         }
 
@@ -797,6 +808,78 @@ fn jni_param_type(ty: &TypeRef) -> &'static str {
         // All complex types (named, optional, vec, map) are passed as JSON String.
         _ => "String",
     }
+}
+
+/// Emit `external fun nativeNew<TypeName>(params...): Long` declarations in the
+/// Bridge object for every entry in `config.client_constructors` that names an
+/// opaque type in the API surface.
+///
+/// Each `*const c_char` param maps to `String`; other param types are mapped to
+/// `Long`.  The return type is always `Long` (raw Box pointer).
+fn emit_constructor_jni_external_funs(
+    out: &mut String,
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    exception_class: &str,
+) {
+    let opaque_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| t.is_opaque && !t.is_trait)
+        .map(|t| t.name.as_str())
+        .collect();
+
+    let mut sorted: Vec<(&str, &ClientConstructorConfig)> = config
+        .client_constructors
+        .iter()
+        .filter(|(name, _)| opaque_names.contains(name.as_str()))
+        .map(|(name, ctor)| (name.as_str(), ctor))
+        .collect();
+    sorted.sort_by_key(|(name, _)| *name);
+
+    if sorted.is_empty() {
+        return;
+    }
+
+    out.push_str("\n    // JNI constructor external funs — implementations are Rust JNI shims.\n");
+    for (type_name, ctor) in sorted {
+        let native_name = format!("nativeNew{}", to_pascal_case(type_name));
+        let params: Vec<String> = ctor
+            .params
+            .iter()
+            .map(|p| {
+                let kt_ty = if p.ty.contains("c_char") { "String" } else { "Long" };
+                let param_name = to_lower_camel(&p.name);
+                format!("{param_name}: {kt_ty}")
+            })
+            .collect();
+        let params_str = params.join(", ");
+        out.push_str(&format!(
+            "    @Throws({exception_class}::class)\n    external fun {native_name}({params_str}): Long\n"
+        ));
+    }
+}
+
+/// Emit a `fun create(params...): TypeName` factory method inside the
+/// companion object of the JNI client class.  Calls `Bridge.nativeNew<TypeName>(...)`
+/// and wraps the returned `Long` handle in a new instance.
+fn emit_jni_client_factory(class_name: &str, bridge_name: &str, ctor: &ClientConstructorConfig, out: &mut String) {
+    let native_name = format!("nativeNew{}", to_pascal_case(class_name));
+    let params: Vec<String> = ctor
+        .params
+        .iter()
+        .map(|p| {
+            let kt_ty = if p.ty.contains("c_char") { "String" } else { "Long" };
+            let param_name = to_lower_camel(&p.name);
+            format!("{param_name}: {kt_ty}")
+        })
+        .collect();
+    let param_names: Vec<String> = ctor.params.iter().map(|p| to_lower_camel(&p.name)).collect();
+    let params_str = params.join(", ");
+    let call_args = param_names.join(", ");
+    out.push_str(&format!(
+        "        fun create({params_str}): {class_name} = {class_name}({bridge_name}.{native_name}({call_args}))\n"
+    ));
 }
 
 /// Resolve the Kotlin package for JNI-mode output.

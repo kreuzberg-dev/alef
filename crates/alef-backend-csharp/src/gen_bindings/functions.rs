@@ -3,9 +3,36 @@
 use super::{StreamingMethodMeta, is_bridge_param, pinvoke_param_type, pinvoke_return_type};
 use alef_codegen::naming::to_csharp_name;
 use alef_core::config::TraitBridgeConfig;
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
+
+/// Map a Rust FFI type string to the C# P/Invoke parameter declaration.
+///
+/// String parameters use `[MarshalAs(UnmanagedType.LPStr)]` to match the C `const char*` ABI.
+fn ffi_ty_to_pinvoke_param(rust_ty: &str, param_name: &str) -> String {
+    let normalized = rust_ty.trim();
+    let cs_name = param_name.to_lower_camel_case();
+    if normalized.contains("c_char") || normalized.contains("CStr") {
+        return format!("[MarshalAs(UnmanagedType.LPStr)] string {cs_name}");
+    }
+    let cs_type = match normalized {
+        "bool" => "bool",
+        "u8" | "uint8_t" => "byte",
+        "u16" | "uint16_t" => "ushort",
+        "u32" | "uint32_t" => "uint",
+        "u64" | "uint64_t" | "usize" => "ulong",
+        "i8" | "int8_t" => "sbyte",
+        "i16" | "int16_t" => "short",
+        "i32" | "int32_t" | "c_int" => "int",
+        "i64" | "int64_t" | "isize" => "long",
+        "f32" | "float" => "float",
+        "f64" | "double" => "double",
+        _ => "IntPtr",
+    };
+    format!("{cs_type} {cs_name}")
+}
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_native_methods(
@@ -20,6 +47,7 @@ pub(super) fn gen_native_methods(
     streaming_methods: &HashSet<String>,
     streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     exclude_functions: &HashSet<String>,
+    client_constructors: &HashMap<String, ClientConstructorConfig>,
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -130,6 +158,32 @@ pub(super) fn gen_native_methods(
                 "extern_void_ptr.jinja",
                 minijinja::context! { cs_name => &free_cs },
             ));
+            out.push('\n');
+        }
+    }
+
+    // Emit _new P/Invoke declarations for opaque types that have a configured client_constructor.
+    // These are paired with the _free entries emitted above.
+    let mut sorted_ctor_types: Vec<&String> = client_constructors.keys().collect();
+    sorted_ctor_types.sort();
+    for type_name in sorted_ctor_types {
+        let ctor = &client_constructors[type_name];
+        let snake = type_name.to_snake_case();
+        let new_entry = format!("{prefix}_{snake}_new");
+        let new_cs = format!("{}New", type_name.to_pascal_case());
+        if emitted.insert(new_entry.clone()) {
+            // Build the P/Invoke param list with appropriate marshalling attributes.
+            let params_str: String = ctor
+                .params
+                .iter()
+                .map(|p| ffi_ty_to_pinvoke_param(&p.ty, &p.name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            out.push_str(&render(
+                "dll_import_attr.jinja",
+                minijinja::context! { entry_point => &new_entry },
+            ));
+            out.push_str(&format!("    internal static extern IntPtr {new_cs}({params_str});\n"));
             out.push('\n');
         }
     }

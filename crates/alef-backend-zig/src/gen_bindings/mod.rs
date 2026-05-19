@@ -15,7 +15,7 @@ mod types;
 use errors::emit_error_set;
 use functions::emit_function;
 use helpers::emit_helpers;
-use opaque_handles::emit_opaque_handle;
+use opaque_handles::{emit_opaque_constructor, emit_opaque_handle};
 use types::{emit_enum, emit_type};
 
 fn zig_module_name(crate_name: &str) -> String {
@@ -286,6 +286,11 @@ impl Backend for ZigBackend {
                 &mut content,
             );
             content.push('\n');
+            // Client constructor — emit create_<type_snake> when configured.
+            if let Some(ctor) = config.client_constructors.get(&ty.name) {
+                emit_opaque_constructor(ty, &prefix, ctor, &mut content);
+                content.push('\n');
+            }
         }
 
         let dir = resolve_output_dir(None, &config.name, "packages/zig/src");
