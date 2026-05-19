@@ -200,6 +200,7 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{prefix}{raw_item}")
     };
     let core_import = config.core_import_name();
+    let iter_name = iterator_name(adapter);
 
     let args = call_args(adapter);
     let call_str = args.join(", ");
@@ -211,21 +212,62 @@ fn gen_node_body(adapter: &AdapterConfig, config: &ResolvedCrateConfig) -> (Stri
         format!("{}\n    ", let_bindings.join("\n    "))
     };
 
-    let body = format!(
-        "use futures_util::StreamExt;\n    \
-         {bindings_block}\
-         let stream = self.inner.{core_path}({call_str}).await\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
-         let chunks: Vec<{item_type}> = stream\n        \
-             .collect::<Vec<_>>().await\n        \
-             .into_iter()\n        \
-             .collect::<std::result::Result<Vec<_>, _>>()\n        \
-             .map(|v| v.into_iter().map({item_type}::from).collect())\n        \
-             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n    \
-         Ok(chunks)"
+    // The iterator forwards stream items through an mpsc channel populated by a
+    // background tokio task. This avoids the NAPI-rs serialization overhead of
+    // collecting all chunks into a Vec before returning to JavaScript.
+    let struct_def = format!(
+        "#[napi]\n\
+         pub struct {iter_name} {{\n    \
+             receiver: Arc<tokio::sync::Mutex<tokio::sync::mpsc::Receiver<napi::Result<{item_type}>>>>,\n\
+         }}\n\
+         \n\
+         #[napi]\n\
+         impl {iter_name} {{\n    \
+             #[napi]\n    \
+             pub async fn next(&self) -> napi::Result<Option<{item_type}>> {{\n        \
+                 let receiver = self.receiver.clone();\n        \
+                 let mut rx = receiver.lock().await;\n        \
+                 match rx.recv().await {{\n            \
+                     Some(res) => res.map(Some),\n            \
+                     None => Ok(None),\n        \
+                 }}\n    \
+             }}\n\
+         }}"
     );
 
-    (body, None)
+    let method_body = format!(
+        "let inner = self.inner.clone();\n    \
+         {bindings_block}\
+         let (tx, rx) = tokio::sync::mpsc::channel(32);\n    \
+         tokio::spawn(async move {{\n        \
+             use futures_util::StreamExt;\n        \
+             match inner.{core_path}({call_str}).await {{\n            \
+                 Err(e) => {{\n                \
+                     let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;\n            \
+                 }}\n            \
+                 Ok(mut stream) => {{\n                \
+                     while let Some(chunk) = stream.next().await {{\n                    \
+                         let item = match chunk {{\n                        \
+                             Ok(c) => {item_type}::from(c),\n                        \
+                             Err(e) => {{\n                            \
+                                 let _ = tx.send(Err(napi::Error::new(napi::Status::GenericFailure, e.to_string()))).await;\n                            \
+                                 break;\n                        \
+                             }}\n                        \
+                         }};\n                    \
+                         if tx.send(Ok(item)).await.is_err() {{\n                        \
+                             break;\n                    \
+                         }}\n                \
+                     }}\n            \
+                 }}\n        \
+             }}\n    \
+         }});\n    \
+         let iter = {iter_name} {{\n        \
+             receiver: Arc::new(tokio::sync::Mutex::new(rx)),\n    \
+         }};\n    \
+         Ok(iter)"
+    );
+
+    (method_body, Some(struct_def))
 }
 
 // ---------------------------------------------------------------------------
