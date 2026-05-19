@@ -302,46 +302,43 @@ fn emit_module_kt(
                 // adapter config, and we'd need to strip to simple names here. For now,
                 // the safe assumption is same-package types with no import needed.
 
-                // The `= callbackFlow { ... }` body is a multiline expression. ktlint's
-                // `standard:multiline-expression-wrapping` rule requires multiline expressions
-                // to start on a new line, so break the assignment after `=` and emit the
-                // `callbackFlow` opener on the next line. Body lines are indented one extra
-                // level (4 spaces) to sit inside `callbackFlow {` and ktfmt/ktlint format-clean.
+                // ktfmt collapses expression-bodied functions back to a single line, so
+                // we emit the natural `fun ... = callbackFlow {` shape and rely on ktfmt for
+                // formatting. The ktlint multiline-expression-wrapping rule is disabled in
+                // the generated `.editorconfig` because it conflicts with ktfmt here.
                 body.push_str("    @Suppress(\"TooGenericExceptionCaught\")\n");
                 body.push_str(&format!(
-                    "    fun {method_name}({}): Flow<{item_type}> =\n        callbackFlow {{\n",
+                    "    fun {method_name}({}): Flow<{item_type}> = callbackFlow {{\n",
                     if params.is_empty() {
                         "".to_string()
                     } else {
                         params.join(", ")
                     }
                 ));
-                body.push_str("            val streamHandle: Long = withContext(Dispatchers.IO) {\n");
+                body.push_str("        val streamHandle: Long = withContext(Dispatchers.IO) {\n");
                 body.push_str(&format!(
-                    "                {bridge_name}.{jni_start}(handle, mapper.writeValueAsString({first_param_name}))\n"
+                    "            {bridge_name}.{jni_start}(handle, mapper.writeValueAsString({first_param_name}))\n"
                 ));
-                body.push_str("            }\n");
-                body.push_str("            try {\n");
-                body.push_str("                while (true) {\n");
-                body.push_str("                    val chunkJson: String? = withContext(Dispatchers.IO) {\n");
-                body.push_str(&format!(
-                    "                        {bridge_name}.{jni_next}(streamHandle)\n"
-                ));
-                body.push_str("                    }\n");
-                body.push_str("                    if (chunkJson == null) break\n");
-                body.push_str(&format!(
-                    "                    val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
-                ));
-                body.push_str("                    send(chunk)\n");
+                body.push_str("        }\n");
+                body.push_str("        try {\n");
+                body.push_str("            while (true) {\n");
+                body.push_str("                val chunkJson: String? = withContext(Dispatchers.IO) {\n");
+                body.push_str(&format!("                    {bridge_name}.{jni_next}(streamHandle)\n"));
                 body.push_str("                }\n");
-                body.push_str("                close()\n");
-                body.push_str("            } catch (e: Throwable) {\n");
-                body.push_str("                close(e)\n");
+                body.push_str("                if (chunkJson == null) break\n");
+                body.push_str(&format!(
+                    "                val chunk = mapper.readValue(chunkJson, {item_type}::class.java)\n"
+                ));
+                body.push_str("                send(chunk)\n");
                 body.push_str("            }\n");
-                body.push_str("            awaitClose {\n");
-                body.push_str(&format!("                {bridge_name}.{jni_free}(streamHandle)\n"));
-                body.push_str("            }\n");
-                body.push_str("        }\n\n");
+                body.push_str("            close()\n");
+                body.push_str("        } catch (e: Throwable) {\n");
+                body.push_str("            close(e)\n");
+                body.push_str("        }\n");
+                body.push_str("        awaitClose {\n");
+                body.push_str(&format!("            {bridge_name}.{jni_free}(streamHandle)\n"));
+                body.push_str("        }\n");
+                body.push_str("    }\n\n");
             }
         }
 
