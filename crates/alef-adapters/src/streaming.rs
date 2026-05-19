@@ -18,6 +18,7 @@ pub fn generate_body(
         Language::Ruby => Ok(gen_ruby_body(adapter, config)),
         Language::Php => Ok(gen_php_body(adapter, config)),
         Language::Elixir => Ok(gen_elixir_body(adapter, config)),
+        Language::Wasm => Ok(gen_wasm_body(adapter, config)),
         Language::Ffi => gen_ffi_body(adapter, config),
         Language::Go => Ok(gen_go_body(adapter)),
         Language::Java => Ok(gen_java_body(adapter)),
@@ -25,9 +26,6 @@ pub fn generate_body(
         Language::R => Ok(gen_r_body(adapter, config)),
         Language::Rust | Language::C | Language::Jni => {
             anyhow::bail!("Rust/C/JNI do not need generated binding adapters")
-        }
-        Language::Wasm => {
-            anyhow::bail!("WASM streaming is not supported via adapters (core library does not expose streaming methods in WASM builds)")
         }
         Language::Dart => Ok(gen_dart_body(adapter, config)),
         Language::Kotlin | Language::KotlinAndroid | Language::Swift | Language::Gleam | Language::Zig => {
