@@ -221,13 +221,13 @@ pub mod maven {
     pub const CENTRAL_PUBLISHING_PLUGIN: &str = "0.10.0";
 
     // renovate: datasource=maven depName=com.diffplug.spotless:spotless-maven-plugin
-    pub const SPOTLESS_MAVEN_PLUGIN: &str = "3.5.0";
+    pub const SPOTLESS_MAVEN_PLUGIN: &str = "3.5.1";
 
     // renovate: datasource=maven depName=org.codehaus.mojo:versions-maven-plugin
     pub const VERSIONS_MAVEN_PLUGIN: &str = "2.21.0";
 
     // renovate: datasource=maven depName=org.apache.maven.plugins:maven-enforcer-plugin
-    pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.2";
+    pub const MAVEN_ENFORCER_PLUGIN: &str = "3.6.3";
 
     // renovate: datasource=maven depName=org.jacoco:jacoco-maven-plugin
     pub const JACOCO_MAVEN_PLUGIN: &str = "0.8.14";
