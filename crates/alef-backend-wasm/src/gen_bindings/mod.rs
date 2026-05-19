@@ -18,7 +18,7 @@ use alef_core::template_versions as tv;
 use std::path::PathBuf;
 
 use enums::gen_enum;
-use errors::gen_error_converter;
+use errors::{gen_error_converter, gen_error_methods};
 use functions::{gen_env_shims, gen_function};
 use types::{gen_opaque_struct, gen_opaque_struct_methods, gen_struct, gen_struct_methods};
 
@@ -627,12 +627,18 @@ impl Backend for WasmBackend {
             }
         }
 
-        // Error converter functions (skip excluded errors)
+        // Error converter functions (skip excluded errors).
+        // When an error declares whitelisted introspection methods, also emit an opaque
+        // WASM struct + impl block so JS/TS callers can inspect the error object.
         for error in &api.errors {
             if exclude_types.contains(&error.name) {
                 continue;
             }
             builder.add_item(&gen_error_converter(error, &core_import));
+            let methods_block = gen_error_methods(error, &core_import, &prefix);
+            if !methods_block.is_empty() {
+                builder.add_item(&methods_block);
+            }
         }
 
         let mut content = builder.build();

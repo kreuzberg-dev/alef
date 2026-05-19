@@ -306,6 +306,362 @@ pub fn wasm_converter_fn_name(error: &ErrorDef) -> String {
     format!("{}_to_js_value", to_snake_case(&error.name))
 }
 
+/// Generate a `#[wasm_bindgen]` opaque struct for an error type together with an
+/// `impl` block that exposes the whitelisted introspection methods
+/// (`status_code`, `is_transient`, `error_type`) declared in `error.methods`.
+///
+/// The struct follows the same `pub(crate) inner: CoreType` convention used by
+/// all other opaque WASM handles in the codebase.
+///
+/// Returns an empty string when `error.methods` is empty so callers can
+/// unconditionally append the result without adding noise to the output file.
+pub fn gen_wasm_error_methods(error: &ErrorDef, core_import: &str, prefix: &str) -> String {
+    use heck::ToPascalCase as _;
+
+    if error.methods.is_empty() {
+        return String::new();
+    }
+
+    let rust_path = if error.rust_path.is_empty() {
+        format!("{core_import}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    };
+
+    let wasm_struct_name = format!("Wasm{}{}", prefix.to_pascal_case(), error.name);
+
+    let struct_def = format!(
+        "/// Opaque WASM handle for [`{rust_path}`] that exposes introspection methods.\n\
+         #[wasm_bindgen]\n\
+         pub struct {wasm_struct_name} {{\n\
+             pub(crate) inner: {rust_path},\n\
+         }}"
+    );
+
+    let mut method_bodies = Vec::new();
+    for method in &error.methods {
+        let method_src = match method.name.as_str() {
+            "status_code" => {
+                "    /// HTTP status code for this error variant.\n    \
+                 #[wasm_bindgen(js_name = \"statusCode\")]\n    \
+                 pub fn status_code(&self) -> u16 {\n        \
+                 self.inner.status_code()\n    }"
+                    .to_string()
+            }
+            "is_transient" => {
+                "    /// Returns `true` if the error is transient and a retry may succeed.\n    \
+                 #[wasm_bindgen(js_name = \"isTransient\")]\n    \
+                 pub fn is_transient(&self) -> bool {\n        \
+                 self.inner.is_transient()\n    }"
+                    .to_string()
+            }
+            "error_type" => {
+                "    /// Returns a machine-readable error category string.\n    \
+                 #[wasm_bindgen(js_name = \"errorType\")]\n    \
+                 pub fn error_type(&self) -> String {\n        \
+                 self.inner.error_type().to_string()\n    }"
+                    .to_string()
+            }
+            other => {
+                // Unrecognised whitelisted method — emit a dead-code stub so the binding
+                // still compiles and the method name remains visible to reviewers.
+                format!(
+                    "    // TODO: emit binding for method `{other}` on `{wasm_struct_name}`\n    \
+                     #[allow(dead_code)]\n    \
+                     pub fn {other}(&self) {{}}"
+                )
+            }
+        };
+        method_bodies.push(method_src);
+    }
+
+    let impl_block = format!(
+        "#[wasm_bindgen]\nimpl {wasm_struct_name} {{\n{}\n}}",
+        method_bodies.join("\n\n")
+    );
+
+    format!("{struct_def}\n\n{impl_block}")
+}
+
+// ---------------------------------------------------------------------------
+// PyO3 (Python) error methods impl
+// ---------------------------------------------------------------------------
+
+/// Generate a `#[pymethods]` impl block for the base exception class, exposing
+/// the whitelisted introspection methods as `#[getter]` properties.
+///
+/// The converter stores `(message, status_code, is_transient, error_type)` in
+/// the exception args tuple; this impl reads them back by index.
+///
+/// Returns an empty string when `error.methods` is empty.
+pub fn gen_pyo3_error_methods_impl(error: &ErrorDef) -> String {
+    if error.methods.is_empty() {
+        return String::new();
+    }
+
+    let mut method_bodies = Vec::new();
+    for method in &error.methods {
+        let body = match method.name.as_str() {
+            "status_code" => concat!(
+                "    /// HTTP status code for this error (0 means no associated status).\n",
+                "    #[getter]\n",
+                "    fn status_code(&self, py: pyo3::Python<'_>) -> u16 {\n",
+                "        self.args(py)\n",
+                "            .get_item(1)\n",
+                "            .and_then(|v| v.extract::<u16>())\n",
+                "            .unwrap_or(0)\n",
+                "    }",
+            )
+            .to_string(),
+            "is_transient" => concat!(
+                "    /// Returns `true` if the error is transient and a retry may succeed.\n",
+                "    #[getter]\n",
+                "    fn is_transient(&self, py: pyo3::Python<'_>) -> bool {\n",
+                "        self.args(py)\n",
+                "            .get_item(2)\n",
+                "            .and_then(|v| v.extract::<bool>())\n",
+                "            .unwrap_or(false)\n",
+                "    }",
+            )
+            .to_string(),
+            "error_type" => concat!(
+                "    /// Machine-readable error category string for matching and logging.\n",
+                "    #[getter]\n",
+                "    fn error_type<'py>(&self, py: pyo3::Python<'py>) -> pyo3::Bound<'py, pyo3::types::PyString> {\n",
+                "        self.args(py)\n",
+                "            .get_item(3)\n",
+                "            .and_then(|v| v.downcast_into::<pyo3::types::PyString>())\n",
+                "            .unwrap_or_else(|_| pyo3::types::PyString::new(py, \"\"))\n",
+                "    }",
+            )
+            .to_string(),
+            other => format!("    // TODO: emit getter for method `{other}` on `{}`", error.name),
+        };
+        method_bodies.push(body);
+    }
+
+    format!(
+        "#[pymethods]\nimpl {} {{\n{}\n}}",
+        error.name,
+        method_bodies.join("\n\n")
+    )
+}
+
+/// Returns `true` when the error has whitelisted introspection methods that
+/// require extended constructor args `(msg, status_code, is_transient, error_type)`.
+pub fn pyo3_error_has_methods(error: &ErrorDef) -> bool {
+    !error.methods.is_empty()
+}
+
+// ---------------------------------------------------------------------------
+// NAPI (Node.js) error methods class
+// ---------------------------------------------------------------------------
+
+/// Generate a `#[napi]` class struct for the error type that stores the
+/// whitelisted introspection method values as fields and exposes them as methods.
+///
+/// Returns an empty string when `error.methods` is empty.
+pub fn gen_napi_error_class(error: &ErrorDef, core_import: &str) -> String {
+    if error.methods.is_empty() {
+        return String::new();
+    }
+
+    let rust_path = if error.rust_path.is_empty() {
+        format!("{core_import}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    };
+
+    let struct_name = format!("Js{}Info", error.name);
+
+    let mut fields = Vec::new();
+    let mut methods = Vec::new();
+    let mut ctor_assignments = Vec::new();
+
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" => {
+                fields.push("    pub status_code: u16,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// HTTP status code for this error (0 means no associated status).\n",
+                        "    #[napi(js_name = \"statusCode\")]\n",
+                        "    pub fn status_code(&self) -> u16 {\n",
+                        "        self.status_code\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        status_code: e.status_code(),".to_string());
+            }
+            "is_transient" => {
+                fields.push("    pub is_transient: bool,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// Returns `true` if the error is transient and a retry may succeed.\n",
+                        "    #[napi(js_name = \"isTransient\")]\n",
+                        "    pub fn is_transient(&self) -> bool {\n",
+                        "        self.is_transient\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        is_transient: e.is_transient(),".to_string());
+            }
+            "error_type" => {
+                fields.push("    pub error_type: String,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// Machine-readable error category string for matching and logging.\n",
+                        "    #[napi(js_name = \"errorType\")]\n",
+                        "    pub fn error_type(&self) -> String {\n",
+                        "        self.error_type.clone()\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
+            }
+            other => {
+                methods.push(format!(
+                    "    // TODO: emit #[napi] method `{other}` on `{struct_name}`"
+                ));
+            }
+        }
+    }
+
+    let struct_def = format!(
+        "#[napi]\npub struct {struct_name} {{\n{}\n}}",
+        fields.join("\n")
+    );
+
+    let from_fn = format!(
+        "#[allow(dead_code)]\nfn {snake_name}_info(e: &{rust_path}) -> {struct_name} {{\n    {struct_name} {{\n{}\n    }}\n}}",
+        ctor_assignments.join("\n"),
+        snake_name = to_snake_case(&error.name),
+    );
+
+    let impl_block = format!(
+        "#[napi]\nimpl {struct_name} {{\n{}\n}}",
+        methods.join("\n\n")
+    );
+
+    format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
+}
+
+// ---------------------------------------------------------------------------
+// Magnus (Ruby) error methods struct
+// ---------------------------------------------------------------------------
+
+/// Generate a Magnus-wrapped Rust struct that stores the whitelisted error
+/// introspection method return values and exposes them as Ruby instance methods.
+///
+/// Returns an empty string when `error.methods` is empty.
+pub fn gen_magnus_error_methods_struct(error: &ErrorDef, core_import: &str) -> String {
+    if error.methods.is_empty() {
+        return String::new();
+    }
+
+    let rust_path = if error.rust_path.is_empty() {
+        format!("{core_import}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    };
+
+    let struct_name = format!("{}Info", error.name);
+
+    let mut fields = Vec::new();
+    let mut methods = Vec::new();
+    let mut ctor_assignments = Vec::new();
+
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" => {
+                fields.push("    status_code: u16,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// HTTP status code for this error (0 means no associated status).\n",
+                        "    pub fn status_code(&self) -> u16 {\n",
+                        "        self.status_code\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        status_code: e.status_code(),".to_string());
+            }
+            "is_transient" => {
+                fields.push("    is_transient: bool,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// Returns `true` if the error is transient and a retry may succeed.\n",
+                        "    pub fn transient(&self) -> bool {\n",
+                        "        self.is_transient\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        is_transient: e.is_transient(),".to_string());
+            }
+            "error_type" => {
+                fields.push("    error_type: String,".to_string());
+                methods.push(
+                    concat!(
+                        "    /// Machine-readable error category string for matching and logging.\n",
+                        "    pub fn error_type(&self) -> String {\n",
+                        "        self.error_type.clone()\n",
+                        "    }",
+                    )
+                    .to_string(),
+                );
+                ctor_assignments.push("        error_type: e.error_type().to_string(),".to_string());
+            }
+            other => {
+                methods.push(format!("    // TODO: emit method `{other}` on `{struct_name}`"));
+            }
+        }
+    }
+
+    let struct_def = format!(
+        "#[magnus::wrap(class = \"{struct_name}\", free_immediately, size)]\npub struct {struct_name} {{\n{}\n}}",
+        fields.join("\n")
+    );
+
+    let from_fn = format!(
+        "#[allow(dead_code)]\nfn {snake_name}_info(e: &{rust_path}) -> {struct_name} {{\n    {struct_name} {{\n{}\n    }}\n}}",
+        ctor_assignments.join("\n"),
+        snake_name = to_snake_case(&error.name),
+    );
+
+    let impl_block = format!("impl {struct_name} {{\n{}\n}}", methods.join("\n\n"));
+
+    format!("{struct_def}\n\n{from_fn}\n\n{impl_block}")
+}
+
+/// Returns the `define_class` + `define_method` registration lines for the error info struct.
+pub fn magnus_error_methods_registrations(error: &ErrorDef) -> Vec<String> {
+    if error.methods.is_empty() {
+        return Vec::new();
+    }
+    let struct_name = format!("{}Info", error.name);
+    let snake = to_snake_case(&error.name);
+    let class_var = format!("{snake}_info_class");
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "    let {class_var} = module.define_class(\"{struct_name}\", ruby.class_object())?;"
+    ));
+    for method in &error.methods {
+        let (ruby_name, rust_fn) = if method.name == "is_transient" {
+            ("transient?".to_string(), "transient".to_string())
+        } else {
+            (method.name.clone(), method.name.clone())
+        };
+        lines.push(format!(
+            "    {class_var}.define_method(\"{ruby_name}\", magnus::method!({struct_name}::{rust_fn}, 0))?;"
+        ));
+    }
+    lines
+}
+
 // ---------------------------------------------------------------------------
 // PHP (ext-php-rs) error generation
 // ---------------------------------------------------------------------------
@@ -428,6 +784,110 @@ pub fn gen_ffi_error_codes(error: &ErrorDef) -> String {
     )
 }
 
+/// Generate `#[no_mangle] extern "C"` helper functions for the whitelisted
+/// introspection methods (`status_code`, `is_transient`, `error_type`) declared
+/// in `error.methods`.
+///
+/// Each function follows the opaque-pointer convention: accepts a
+/// `*const {rust_path}` (null-checked before dereference) and returns the
+/// method's value. For `error_type` an additional `*_error_type_free` companion
+/// is emitted so callers can release the `CString`-allocated memory.
+///
+/// Returns an empty string when `error.methods` is empty.
+pub fn gen_ffi_error_methods(error: &ErrorDef, core_import: &str, api_prefix: &str) -> String {
+    if error.methods.is_empty() {
+        return String::new();
+    }
+
+    let rust_path = if error.rust_path.is_empty() {
+        format!("{core_import}::{}", error.name)
+    } else {
+        error.rust_path.replace('-', "_")
+    };
+
+    let error_snake = to_snake_case(&error.name);
+    let mut items: Vec<String> = Vec::new();
+
+    for method in &error.methods {
+        match method.name.as_str() {
+            "status_code" => {
+                let fn_name = format!("{api_prefix}_{error_snake}_status_code");
+                items.push(format!(
+                    "/// Return the HTTP status code for the error pointed to by `err`.\n\
+                     /// Returns `0` if `err` is null.\n\
+                     #[no_mangle]\n\
+                     pub unsafe extern \"C\" fn {fn_name}(err: *const {rust_path}) -> u16 {{\n\
+                         // SAFETY: caller guarantees `err` points to a live `{rust_path}` value\n\
+                         // allocated by this library, or is null.\n\
+                         if err.is_null() {{\n\
+                             return 0;\n\
+                         }}\n\
+                         (*err).status_code()\n\
+                     }}"
+                ));
+            }
+            "is_transient" => {
+                let fn_name = format!("{api_prefix}_{error_snake}_is_transient");
+                items.push(format!(
+                    "/// Return whether the error pointed to by `err` is transient.\n\
+                     /// Returns `false` if `err` is null.\n\
+                     #[no_mangle]\n\
+                     pub unsafe extern \"C\" fn {fn_name}(err: *const {rust_path}) -> bool {{\n\
+                         // SAFETY: caller guarantees `err` points to a live `{rust_path}` value\n\
+                         // allocated by this library, or is null.\n\
+                         if err.is_null() {{\n\
+                             return false;\n\
+                         }}\n\
+                         (*err).is_transient()\n\
+                     }}"
+                ));
+            }
+            "error_type" => {
+                let fn_name = format!("{api_prefix}_{error_snake}_error_type");
+                let free_fn_name = format!("{fn_name}_free");
+                items.push(format!(
+                    "/// Return the machine-readable error category string for the error pointed\n\
+                     /// to by `err` as a heap-allocated, NUL-terminated C string.\n\
+                     /// The caller must free the returned pointer with `{free_fn_name}`.\n\
+                     /// Returns a null pointer if `err` is null.\n\
+                     #[no_mangle]\n\
+                     pub unsafe extern \"C\" fn {fn_name}(err: *const {rust_path}) -> *mut std::ffi::c_char {{\n\
+                         // SAFETY: caller guarantees `err` points to a live `{rust_path}` value\n\
+                         // allocated by this library, or is null.\n\
+                         if err.is_null() {{\n\
+                             return std::ptr::null_mut();\n\
+                         }}\n\
+                         let s = (*err).error_type();\n\
+                         // SAFETY: `error_type()` returns a `'static str` containing no NUL bytes.\n\
+                         std::ffi::CString::new(s)\n\
+                             .map(|c| c.into_raw())\n\
+                             .unwrap_or(std::ptr::null_mut())\n\
+                     }}\n\n\
+                     /// Free a string previously returned by `{fn_name}`.\n\
+                     /// Passing a null pointer is a no-op.\n\
+                     #[no_mangle]\n\
+                     pub unsafe extern \"C\" fn {free_fn_name}(ptr: *mut std::ffi::c_char) {{\n\
+                         // SAFETY: `ptr` was allocated by `CString::into_raw` inside\n\
+                         // `{fn_name}` and is now being reclaimed by the matching\n\
+                         // `CString::from_raw`.  Passing null is explicitly allowed.\n\
+                         if !ptr.is_null() {{\n\
+                             drop(std::ffi::CString::from_raw(ptr));\n\
+                         }}\n\
+                     }}"
+                ));
+            }
+            other => {
+                // Unknown whitelisted method — emit a comment so it is visible in review.
+                items.push(format!(
+                    "// TODO: emit FFI helper for method `{other}` on `{rust_path}`"
+                ));
+            }
+        }
+    }
+
+    items.join("\n\n")
+}
+
 // ---------------------------------------------------------------------------
 // Go error type generation
 // ---------------------------------------------------------------------------
@@ -494,15 +954,77 @@ pub fn gen_go_sentinel_errors(errors: &[ErrorDef]) -> String {
 /// Generate the structured error type (struct + Error() method) for a single
 /// error definition. Sentinel errors are emitted separately by
 /// [`gen_go_sentinel_errors`].
+///
+/// When `error.methods` is non-empty, each whitelisted introspection method
+/// produces an exported struct field of the matching Go type plus a receiver
+/// method that returns that field.
 pub fn gen_go_error_struct(error: &ErrorDef, pkg_name: &str) -> String {
     let go_type_name = strip_package_prefix(&error.name, pkg_name);
+
+    // Build per-method info for the template.
+    // Each entry: { field_name, go_type, method_name, doc }
+    // field_name: PascalCase exported field (e.g. StatusCode)
+    // go_type:    Go type string (uint16 / bool / string)
+    // method_name: exported Go method name (e.g. StatusCode)
+    let methods: Vec<serde_json::Value> = error
+        .methods
+        .iter()
+        .map(|m| {
+            let go_type = typeref_to_go_type(&m.return_type);
+            let method_name = to_pascal_case(&m.name);
+            serde_json::json!({
+                "field_name": method_name,
+                "go_type": go_type,
+                "method_name": method_name,
+                "doc": m.doc,
+            })
+        })
+        .collect();
+    let has_methods = !methods.is_empty();
 
     crate::template_env::render(
         "error_gen/go_error_struct.jinja",
         minijinja::context! {
             go_type_name => go_type_name.as_str(),
+            methods => methods,
+            has_methods => has_methods,
         },
     )
+}
+
+/// Map an IR `TypeRef` to a Go type string for error introspection method returns.
+/// Only the primitive subset needed for the whitelisted methods is handled;
+/// everything else falls back to `string`.
+fn typeref_to_go_type(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "bool",
+        TypeRef::Primitive(PrimitiveType::U8) => "uint8",
+        TypeRef::Primitive(PrimitiveType::U16) => "uint16",
+        TypeRef::Primitive(PrimitiveType::U32) => "uint32",
+        TypeRef::Primitive(PrimitiveType::U64) => "uint64",
+        TypeRef::Primitive(PrimitiveType::I8) => "int8",
+        TypeRef::Primitive(PrimitiveType::I16) => "int16",
+        TypeRef::Primitive(PrimitiveType::I32) => "int32",
+        TypeRef::Primitive(PrimitiveType::I64) => "int64",
+        TypeRef::Primitive(PrimitiveType::F32) => "float32",
+        TypeRef::Primitive(PrimitiveType::F64) => "float64",
+        TypeRef::String => "string",
+        _ => "string",
+    }
+}
+
+/// Convert a snake_case or camelCase name to PascalCase.
+fn to_pascal_case(s: &str) -> String {
+    s.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect()
 }
 
 /// Strip the package-name prefix from a type name to avoid revive's stutter lint.
@@ -536,12 +1058,37 @@ fn strip_package_prefix(type_name: &str, pkg_name: &str) -> String {
 /// Returns a `Vec` of `(class_name, file_content)` tuples: the base exception
 /// class followed by one per-variant exception.  The caller writes each to a
 /// separate `.java` file.
+///
+/// When `error.methods` is non-empty, the base exception class gains private
+/// final fields, an extended constructor, and public getter methods for each
+/// whitelisted introspection method.  Variant classes delegate via `super(…)`.
 pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, String)> {
     let mut files = Vec::with_capacity(error.variants.len() + 1);
 
     // Base exception class
     let base_name = format!("{}Exception", error.name);
     let doc_lines: Vec<&str> = error.doc.lines().collect();
+
+    // Build per-method info for the template.
+    // Each entry: { field_name, java_type, getter_name, doc }
+    let method_infos: Vec<serde_json::Value> = error
+        .methods
+        .iter()
+        .map(|m| {
+            let java_type = typeref_to_java_type(&m.return_type);
+            let getter_name = java_getter_name(&m.name);
+            let field_name = java_field_name(&m.name);
+            let default_value = java_default_value(&m.return_type);
+            serde_json::json!({
+                "field_name": field_name,
+                "java_type": java_type,
+                "getter_name": getter_name,
+                "default_value": default_value,
+                "doc": m.doc,
+            })
+        })
+        .collect();
+    let has_methods = !method_infos.is_empty();
 
     let base = crate::template_env::render(
         "error_gen/java_error_base.jinja",
@@ -550,6 +1097,8 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
             base_name => base_name.as_str(),
             doc => !error.doc.is_empty(),
             doc_lines => doc_lines,
+            methods => method_infos,
+            has_methods => has_methods,
         },
     );
     files.push((base_name.clone(), base));
@@ -567,12 +1116,80 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
                 base_name => base_name.as_str(),
                 doc => !variant.doc.is_empty(),
                 doc_lines => doc_lines,
+                has_methods => has_methods,
             },
         );
         files.push((class_name, content));
     }
 
     files
+}
+
+/// Map an IR `TypeRef` to a Java type string for error introspection getters.
+fn typeref_to_java_type(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "boolean",
+        TypeRef::Primitive(
+            PrimitiveType::U8
+            | PrimitiveType::I8
+            | PrimitiveType::I16
+            | PrimitiveType::U16
+            | PrimitiveType::I32
+            | PrimitiveType::U32,
+        ) => "int",
+        TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64) => "long",
+        TypeRef::Primitive(PrimitiveType::F32) => "float",
+        TypeRef::Primitive(PrimitiveType::F64) => "double",
+        TypeRef::String => "String",
+        _ => "String",
+    }
+}
+
+/// Convert a snake_case method name to a Java getter name.
+/// E.g. `status_code` → `getStatusCode`, `is_transient` → `isTransient`.
+fn java_getter_name(snake: &str) -> String {
+    if snake.starts_with("is_") {
+        // is_transient → isTransient
+        let rest = &snake[3..];
+        let pascal = to_pascal_case(rest);
+        format!("is{pascal}")
+    } else {
+        // status_code → getStatusCode, error_type → getErrorType
+        let pascal = to_pascal_case(snake);
+        format!("get{pascal}")
+    }
+}
+
+/// Convert a snake_case method name to a Java field name (camelCase).
+/// E.g. `status_code` → `statusCode`, `is_transient` → `isTransient`.
+fn java_field_name(snake: &str) -> String {
+    let parts: Vec<&str> = snake.split('_').collect();
+    if parts.is_empty() {
+        return snake.to_string();
+    }
+    let mut out = parts[0].to_string();
+    for part in &parts[1..] {
+        let mut chars = part.chars();
+        match chars.next() {
+            None => {}
+            Some(first) => {
+                out.push_str(&first.to_uppercase().to_string());
+                out.push_str(chars.as_str());
+            }
+        }
+    }
+    out
+}
+
+/// Return the Java zero-value literal for a type (used in the no-args default constructor).
+fn java_default_value(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "false",
+        TypeRef::String => "\"\"",
+        _ => "0",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -588,6 +1205,10 @@ pub fn gen_java_error_types(error: &ErrorDef, package: &str) -> Vec<(String, Str
 /// `fallback_class` is the name of the generic library exception class (e.g.
 /// `TreeSitterLanguagePackException`) that the base error class should extend so that
 /// callers can `catch` the general library exception and catch all typed errors.
+///
+/// When `error.methods` is non-empty, the base exception class gains get-only
+/// properties for each whitelisted introspection method.  Variant classes
+/// delegate via `base(…)` and inherit the properties.
 pub fn gen_csharp_error_types(
     error: &ErrorDef,
     namespace: &str,
@@ -601,6 +1222,27 @@ pub fn gen_csharp_error_types(
     let base_parent = fallback_class.unwrap_or("Exception");
     let error_doc_lines: Vec<&str> = error.doc.lines().collect();
 
+    // Build per-method info for the template.
+    // Each entry: { prop_name, cs_type, param_name, doc }
+    let method_infos: Vec<serde_json::Value> = error
+        .methods
+        .iter()
+        .map(|m| {
+            let cs_type = typeref_to_csharp_type(&m.return_type);
+            let prop_name = to_pascal_case(&m.name);
+            let param_name = java_field_name(&m.name); // camelCase ctor parameter
+            let default_value = csharp_default_value(&m.return_type);
+            serde_json::json!({
+                "prop_name": prop_name,
+                "cs_type": cs_type,
+                "param_name": param_name,
+                "default_value": default_value,
+                "doc": m.doc,
+            })
+        })
+        .collect();
+    let has_methods = !method_infos.is_empty();
+
     // Base exception class
     {
         let out = crate::template_env::render(
@@ -611,6 +1253,8 @@ pub fn gen_csharp_error_types(
                 base_parent => base_parent,
                 doc => !error.doc.is_empty(),
                 doc_lines => error_doc_lines,
+                methods => method_infos,
+                has_methods => has_methods,
             },
         );
         files.push((base_name.clone(), out));
@@ -629,12 +1273,43 @@ pub fn gen_csharp_error_types(
                 base_name => base_name.as_str(),
                 doc => !variant.doc.is_empty(),
                 doc_lines => variant_doc_lines,
+                has_methods => has_methods,
             },
         );
         files.push((class_name, out));
     }
 
     files
+}
+
+/// Map an IR `TypeRef` to a C# type string for error introspection properties.
+fn typeref_to_csharp_type(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "bool",
+        TypeRef::Primitive(PrimitiveType::U8) => "byte",
+        TypeRef::Primitive(PrimitiveType::I8) => "sbyte",
+        TypeRef::Primitive(PrimitiveType::I16) => "short",
+        TypeRef::Primitive(PrimitiveType::U16) => "ushort",
+        TypeRef::Primitive(PrimitiveType::I32) => "int",
+        TypeRef::Primitive(PrimitiveType::U32) => "uint",
+        TypeRef::Primitive(PrimitiveType::I64) => "long",
+        TypeRef::Primitive(PrimitiveType::U64) => "ulong",
+        TypeRef::Primitive(PrimitiveType::F32) => "float",
+        TypeRef::Primitive(PrimitiveType::F64) => "double",
+        TypeRef::String => "string",
+        _ => "string",
+    }
+}
+
+/// Return the C# zero-value literal for a type (used in the default constructor).
+fn csharp_default_value(ty: &alef_core::ir::TypeRef) -> &'static str {
+    use alef_core::ir::{PrimitiveType, TypeRef};
+    match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "false",
+        TypeRef::String => "string.Empty",
+        _ => "0",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1436,5 +2111,145 @@ mod tests {
             python_exception_name("CrawlConnectionError", "CrawlError"),
             "CrawlConnectionError"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // WASM error methods tests
+    // -----------------------------------------------------------------------
+
+    fn sample_method(name: &str, return_type: TypeRef) -> alef_core::ir::MethodDef {
+        alef_core::ir::MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(alef_core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn error_with_methods() -> ErrorDef {
+        ErrorDef {
+            name: "LiterLlmError".to_string(),
+            rust_path: "liter_llm::error::LiterLlmError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            methods: vec![
+                sample_method("status_code", TypeRef::Primitive(alef_core::ir::PrimitiveType::U16)),
+                sample_method("is_transient", TypeRef::Primitive(alef_core::ir::PrimitiveType::Bool)),
+                sample_method("error_type", TypeRef::String),
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    #[test]
+    fn test_gen_wasm_error_methods_empty_when_no_methods() {
+        let error = sample_error(); // methods: vec![]
+        let output = gen_wasm_error_methods(&error, "html_to_markdown_rs", "");
+        assert!(output.is_empty(), "should produce no output when methods is empty");
+    }
+
+    #[test]
+    fn test_gen_wasm_error_methods_struct_and_impl() {
+        let error = error_with_methods();
+        let output = gen_wasm_error_methods(&error, "liter_llm", "liter_llm");
+        // Struct definition
+        assert!(
+            output.contains("pub struct WasmLiterLlmLiterLlmError"),
+            "must emit opaque struct: {output}"
+        );
+        assert!(output.contains("pub(crate) inner: liter_llm::error::LiterLlmError"), "{output}");
+        // Impl block
+        assert!(output.contains("#[wasm_bindgen]\nimpl WasmLiterLlmLiterLlmError"), "{output}");
+        // Methods with camelCase js_name
+        assert!(output.contains("js_name = \"statusCode\""), "{output}");
+        assert!(output.contains("pub fn status_code(&self) -> u16"), "{output}");
+        assert!(output.contains("self.inner.status_code()"), "{output}");
+        assert!(output.contains("js_name = \"isTransient\""), "{output}");
+        assert!(output.contains("pub fn is_transient(&self) -> bool"), "{output}");
+        assert!(output.contains("self.inner.is_transient()"), "{output}");
+        assert!(output.contains("js_name = \"errorType\""), "{output}");
+        assert!(output.contains("pub fn error_type(&self) -> String"), "{output}");
+        assert!(output.contains("self.inner.error_type().to_string()"), "{output}");
+    }
+
+    // -----------------------------------------------------------------------
+    // FFI error methods tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_gen_ffi_error_methods_empty_when_no_methods() {
+        let error = sample_error(); // methods: vec![]
+        let output = gen_ffi_error_methods(&error, "html_to_markdown_rs", "h2m");
+        assert!(output.is_empty(), "should produce no output when methods is empty");
+    }
+
+    #[test]
+    fn test_gen_ffi_error_methods_status_code() {
+        let error = error_with_methods();
+        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        assert!(
+            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_status_code("),
+            "must emit status_code fn: {output}"
+        );
+        assert!(output.contains("err: *const liter_llm::error::LiterLlmError"), "{output}");
+        assert!(output.contains("-> u16"), "{output}");
+        assert!(output.contains("(*err).status_code()"), "{output}");
+        assert!(output.contains("if err.is_null()"), "{output}");
+        assert!(output.contains("return 0;"), "{output}");
+    }
+
+    #[test]
+    fn test_gen_ffi_error_methods_is_transient() {
+        let error = error_with_methods();
+        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        assert!(
+            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_is_transient("),
+            "must emit is_transient fn: {output}"
+        );
+        assert!(output.contains("-> bool"), "{output}");
+        assert!(output.contains("(*err).is_transient()"), "{output}");
+        assert!(output.contains("return false;"), "{output}");
+    }
+
+    #[test]
+    fn test_gen_ffi_error_methods_error_type_with_free() {
+        let error = error_with_methods();
+        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        assert!(
+            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_error_type("),
+            "must emit error_type fn: {output}"
+        );
+        assert!(output.contains("-> *mut std::ffi::c_char"), "{output}");
+        assert!(output.contains("(*err).error_type()"), "{output}");
+        assert!(output.contains("CString::new(s)"), "{output}");
+        assert!(output.contains(".into_raw()"), "{output}");
+        assert!(output.contains("return std::ptr::null_mut();"), "{output}");
+        // free companion
+        assert!(
+            output.contains("pub unsafe extern \"C\" fn literllm_liter_llm_error_error_type_free("),
+            "must emit _free companion: {output}"
+        );
+        assert!(output.contains("drop(std::ffi::CString::from_raw(ptr))"), "{output}");
+    }
+
+    #[test]
+    fn test_gen_ffi_error_methods_safety_comments() {
+        let error = error_with_methods();
+        let output = gen_ffi_error_methods(&error, "liter_llm", "literllm");
+        assert!(output.contains("// SAFETY:"), "must include SAFETY comments: {output}");
     }
 }
