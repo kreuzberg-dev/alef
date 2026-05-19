@@ -239,7 +239,7 @@ fn test_generate_public_api_creates_all_files() {
     assert!(result.is_ok(), "generate_public_api should succeed: {:?}", result);
     let files = result.unwrap();
 
-    let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
+    let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().replace('\\', "/")).collect();
 
     // Should generate the main module file
     assert!(
@@ -337,7 +337,7 @@ fn test_native_ex_has_all_nif_stubs() {
 
     let native = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/native.ex"))
         .expect("native.ex should be generated");
 
     let content = &native.content;
@@ -467,7 +467,7 @@ fn test_struct_module_has_defstruct() {
 
     let struct_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/conversion_options.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/conversion_options.ex"))
         .expect("conversion_options.ex should be generated");
 
     let content = &struct_file.content;
@@ -547,7 +547,7 @@ fn test_main_module_has_method_wrappers() {
 
     let main = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib.ex"))
         .expect("my_lib.ex should be generated");
 
     let content = &main.content;
@@ -608,7 +608,7 @@ fn test_opaque_types_not_get_struct_module() {
     // emitted for non-opaque types.
     let engine_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/engine.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/engine.ex"))
         .expect("opaque type Engine should produce an engine.ex wrapper module");
     assert!(
         engine_file.content.contains("defstruct [:ref]"),
@@ -673,7 +673,7 @@ fn test_simple_enum_module_has_type_and_accessors() {
 
     let enum_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/heading_style.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/heading_style.ex"))
         .expect("heading_style.ex should be generated");
 
     let content = &enum_file.content;
@@ -755,7 +755,7 @@ fn test_generate_bindings_nif_init_uses_native_module() {
 
     let lib_rs = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("lib.rs"))
         .expect("lib.rs should be generated");
 
     // The rustler::init! should use the .Native module name to match native.ex
@@ -820,7 +820,7 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
 
     let enum_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/message.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/message.ex"))
         .expect("message.ex should be generated");
 
     let content = &enum_file.content;
@@ -857,7 +857,7 @@ fn test_native_ex_force_build_line_within_98_chars() {
 
     let native = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/native.ex"))
         .expect("native.ex should be generated");
 
     // Only check lines related to force_build — the ~w(...) targets line is a pre-existing
@@ -944,7 +944,7 @@ fn test_reserved_attr_doc_variant_uses_safe_name() {
 
     let enum_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/comment_kind.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/comment_kind.ex"))
         .expect("comment_kind.ex should be generated");
 
     let content = &enum_file.content;
@@ -1029,7 +1029,7 @@ fn test_trailing_optional_params_emit_keyword_opts_function() {
 
     let main = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib.ex"))
         .expect("my_lib.ex should be generated");
 
     let content = &main.content;
@@ -1110,7 +1110,7 @@ fn test_defstruct_string_fields_default_to_nil() {
 
     let struct_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/message.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/message.ex"))
         .expect("message.ex should be generated");
 
     let content = &struct_file.content;
@@ -1170,7 +1170,7 @@ fn render_native_ex(functions: Vec<FunctionDef>) -> String {
         .expect("generate_public_api should succeed");
     files
         .into_iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib/native.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib/native.ex"))
         .expect("native.ex should be generated")
         .content
 }
@@ -1289,7 +1289,7 @@ fn test_wrapper_module_doc_uses_full_first_paragraph_summary() {
     let files = backend.generate_public_api(&api, &config).unwrap();
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("my_lib.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("my_lib.ex"))
         .expect("my_lib.ex must be generated");
     let content = &wrapper.content;
     assert!(
@@ -1395,7 +1395,7 @@ fn error_methods_emit_nif_shims_in_lib_rs() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib_rs = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("lib.rs"))
         .expect("lib.rs must be generated");
     let content = &lib_rs.content;
     assert!(
@@ -1429,7 +1429,7 @@ fn error_methods_emit_elixir_spec_and_def_wrappers() {
     let files = backend.generate_public_api(&api, &config).unwrap();
     let ex_file = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("demo.ex"))
+        .find(|f| f.path.to_string_lossy().replace('\\', "/").ends_with("demo.ex"))
         .expect("demo.ex must be generated");
     let content = &ex_file.content;
     assert!(
