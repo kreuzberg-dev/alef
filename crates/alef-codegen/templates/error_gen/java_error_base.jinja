@@ -9,6 +9,41 @@ package {{ package }};
  */
 {% endif %}
 public class {{ base_name }} extends Exception {
+{% if has_methods %}
+{% for m in methods %}
+    private final {{ m.java_type }} {{ m.field_name }};
+{% endfor %}
+
+    /** Creates a new {{ base_name }} with the given message. */
+    public {{ base_name }}(final String message) {
+        super(message);
+{% for m in methods %}
+        this.{{ m.field_name }} = {{ m.default_value }};
+{% endfor %}
+    }
+
+    /** Creates a new {{ base_name }} with the given message and cause. */
+    public {{ base_name }}(final String message, final Throwable cause) {
+        super(message, cause);
+{% for m in methods %}
+        this.{{ m.field_name }} = {{ m.default_value }};
+{% endfor %}
+    }
+
+    /** Creates a new {{ base_name }} with the given message and all introspection fields. */
+    public {{ base_name }}(final String message{% for m in methods %}, final {{ m.java_type }} {{ m.field_name }}{% endfor %}) {
+        super(message);
+{% for m in methods %}
+        this.{{ m.field_name }} = {{ m.field_name }};
+{% endfor %}
+    }
+{% for m in methods %}
+
+{% if m.doc %}    /** {{ m.doc }} */
+{% else %}    /** Returns the {{ m.field_name }} for this error. */
+{% endif %}    public {{ m.java_type }} {{ m.getter_name }}() { return this.{{ m.field_name }}; }
+{% endfor %}
+{% else %}
     /** Creates a new {{ base_name }} with the given message. */
     public {{ base_name }}(final String message) {
         super(message);
@@ -18,4 +53,5 @@ public class {{ base_name }} extends Exception {
     public {{ base_name }}(final String message, final Throwable cause) {
         super(message, cause);
     }
+{% endif %}
 }

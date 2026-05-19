@@ -1,11 +1,22 @@
 /// Convert a `{{ rust_path }}` error to a Python exception.
 fn {{ fn_name }}(e: {{ rust_path }}) -> pyo3::PyErr {
     let msg = e.to_string();
+{%- if has_methods %}
+    let args = (msg.clone(), e.status_code(), e.is_transient(), e.error_type().to_string());
+{%- endif %}
     #[allow(unreachable_patterns)]
     match &e {
 {%- for pattern, variant_exc_name in variants %}
+{%- if has_methods %}
+        {{ pattern }} => {{ variant_exc_name }}::new_err(args),
+{%- else %}
         {{ pattern }} => {{ variant_exc_name }}::new_err(msg),
+{%- endif %}
 {%- endfor %}
+{%- if has_methods %}
+        _ => {{ error_name }}::new_err(args),
+{%- else %}
         _ => {{ error_name }}::new_err(msg),
+{%- endif %}
     }
 }

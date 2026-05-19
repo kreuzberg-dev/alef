@@ -14,7 +14,43 @@ namespace {{ namespace }};
 {% endif %}
 public class {{ base_name }} : {{ base_parent }}
 {
+{% if has_methods %}
+{% for m in methods %}
+{% if m.doc %}    /// <summary>{{ m.doc }}</summary>
+{% endif %}
+    public {{ m.cs_type }} {{ m.prop_name }} { get; }
+{% endfor %}
+
+    public {{ base_name }}(string message) : base(message)
+    {
+{% for m in methods %}
+        {{ m.prop_name }} = {{ m.default_value }};
+{% endfor %}
+    }
+
+    public {{ base_name }}(string message, Exception innerException) : base(message, innerException)
+    {
+{% for m in methods %}
+        {{ m.prop_name }} = {{ m.default_value }};
+{% endfor %}
+    }
+
+    public {{ base_name }}(string message{% for m in methods %}, {{ m.cs_type }} {{ m.param_name }}{% endfor %}) : base(message)
+    {
+{% for m in methods %}
+        {{ m.prop_name }} = {{ m.param_name }};
+{% endfor %}
+    }
+
+    public {{ base_name }}(string message, Exception innerException{% for m in methods %}, {{ m.cs_type }} {{ m.param_name }}{% endfor %}) : base(message, innerException)
+    {
+{% for m in methods %}
+        {{ m.prop_name }} = {{ m.param_name }};
+{% endfor %}
+    }
+{% else %}
     public {{ base_name }}(string message) : base(message) { }
 
     public {{ base_name }}(string message, Exception innerException) : base(message, innerException) { }
+{% endif %}
 }

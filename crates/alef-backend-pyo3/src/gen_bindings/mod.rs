@@ -783,6 +783,13 @@ mod alef_json_str_opt {
                 &mut seen_exceptions,
             ));
             builder.add_item(&alef_codegen::error_gen::gen_pyo3_error_converter(error, &core_import));
+            // Emit #[pymethods] impl block when the error exposes introspection methods.
+            // The impl adds #[getter] properties that read from the exception args tuple
+            // populated by the converter above.
+            let methods_impl = alef_codegen::error_gen::gen_pyo3_error_methods_impl(error);
+            if !methods_impl.is_empty() {
+                builder.add_item(&methods_impl);
+            }
         }
 
         let binding_to_core = alef_codegen::conversions::convertible_types(api);

@@ -48,10 +48,30 @@ pub(super) fn emit_error(error: &ErrorDef, out: &mut String, imports: &mut BTree
             },
         ));
     }
+    // Pre-render method descriptors: (dart_type, dart_getter_name) pairs.
+    // The sealed class declares each as an abstract getter; concrete variant
+    // subclasses may override them when they naturally carry the relevant field.
+    let method_entries: Vec<(String, String)> = error
+        .methods
+        .iter()
+        .filter(|m| !m.sanitized)
+        .map(|m| {
+            let ty = render_type(&m.return_type, imports);
+            let getter_name = dart_safe_ident(&m.name.to_lower_camel_case());
+            (ty, getter_name)
+        })
+        .collect();
+    let methods_ctx: Vec<minijinja::Value> = method_entries
+        .iter()
+        .map(|(ty, name)| {
+            minijinja::Value::from_iter([("return_type", ty.as_str()), ("name", name.as_str())])
+        })
+        .collect();
     out.push_str(&template_env::render(
         "error_sealed_class.jinja",
         minijinja::context! {
             name => error.name.as_str(),
+            methods => methods_ctx,
         },
     ));
     out.push('\n');

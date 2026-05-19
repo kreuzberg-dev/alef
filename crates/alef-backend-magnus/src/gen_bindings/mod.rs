@@ -719,6 +719,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &alef_core::ir::EnumDef, module_name: 
     }
     out.push_str(&format!("  module {class_name}\n"));
     out.push_str("    extend T::Helpers\n");
+    out.push_str("    extend T::Sig\n");
     // `interface!` already declares the module abstract; calling `abstract!` again
     // raises `T::Private::Abstract::Declare: already declared as abstract`.
     out.push_str("    interface!\n\n");

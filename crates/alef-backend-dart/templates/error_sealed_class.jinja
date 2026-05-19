@@ -1,3 +1,4 @@
 sealed class {{ name }} implements Exception {
   String get message;
-}
+{% for method in methods %}  {{ method.return_type }} get {{ method.name }};
+{% endfor %}}
