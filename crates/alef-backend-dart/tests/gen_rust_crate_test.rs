@@ -578,9 +578,10 @@ fn generate_bindings_returns_dart_file_plus_rust_crate_files() {
     // Should have: 1 .dart + Cargo.toml + lib.rs + build.rs + flutter_rust_bridge.yaml + frb_generated.rs = 6
     assert_eq!(files.len(), 6, "expected 6 generated files, got {}", files.len());
 
-    let has_dart = files
-        .iter()
-        .any(|f| f.path.to_string_lossy().ends_with(".dart") && !f.path.to_string_lossy().contains("rust/"));
+    let has_dart = files.iter().any(|f| {
+        let p = f.path.to_string_lossy().replace('\\', "/");
+        p.ends_with(".dart") && !p.contains("rust/")
+    });
     assert!(has_dart, "missing Dart wrapper file");
 }
 
