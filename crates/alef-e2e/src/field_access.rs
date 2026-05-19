@@ -850,10 +850,19 @@ fn render_swift_with_first_class_map(
     let mut out = result_var.to_string();
     let mut path_so_far = String::new();
     let mut current_type: Option<String> = map.root_type.clone();
+    // Once a chain crosses an `ArrayField` segment, every subsequent segment
+    // operates on an element pulled from a `RustVec<T>` — and `RustVec[i]`
+    // yields the OPAQUE `RustBridge.T` (whose fields are swift-bridge methods),
+    // never the first-class Codable Swift struct `T`. swift-bridge generates
+    // `RustVec` as a thin wrapper around the Rust vector, not as a converter
+    // to the binding's first-class struct. Pin opaque (method-call) syntax
+    // after the first index step so paths like `data[0].id` emit `.id()` even
+    // when the Codable `Model` first-class struct also exists.
+    let mut via_rust_vec = false;
     let total = segments.len();
     for (i, seg) in segments.iter().enumerate() {
         let is_leaf = i == total - 1;
-        let property_syntax = map.is_first_class(current_type.as_deref());
+        let property_syntax = !via_rust_vec && map.is_first_class(current_type.as_deref());
         match seg {
             PathSegment::Field(f) => {
                 if !path_so_far.is_empty() {
@@ -885,8 +894,10 @@ fn render_swift_with_first_class_map(
                     out.push_str(&format!("{access}[{index}]"));
                 }
                 path_so_far.push_str("[0]");
-                // Indexing into a Vec<Named> yields a Named element — advance current_type.
+                // Indexing into a Vec<Named> yields a Named element — advance current_type
+                // and pin opaque syntax for the rest of the chain (see `via_rust_vec` note).
                 current_type = map.advance(current_type.as_deref(), name);
+                via_rust_vec = true;
             }
             PathSegment::MapAccess { field, key } => {
                 if !path_so_far.is_empty() {
