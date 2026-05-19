@@ -293,21 +293,13 @@ fn emit_module_kt(
                     .map(|p| to_lower_camel(&p.name))
                     .unwrap_or_else(|| "request".to_string());
 
-                // Add import for the item type (DTO).
-                if let Some(item) = adapter.item_type.as_deref() {
-                    let simple_item = item.rsplit("::").next().unwrap_or(item);
-                    if !matches!(simple_item, "Any" | "Unit" | "String" | "Long" | "Int" | "Boolean" | "Float" | "Double") {
-                        imports.insert(format!("import {item}"));
-                    }
-                }
-
-                // Add imports for param types.
-                for param in &adapter.params {
-                    let simple_ty = param.ty.rsplit("::").next().unwrap_or(&param.ty);
-                    if !matches!(simple_ty, "String" | "Long" | "Int" | "Boolean" | "Float" | "Double") {
-                        imports.insert(format!("import {}", param.ty));
-                    }
-                }
+                // Note: We do not add imports for param and item types here because
+                // they are expected to be simple names (CrawlEvent, CrawlStreamRequest, etc.)
+                // that exist in the same package as this generated file. The Kotlin backend
+                // is responsible for emitting those DTOs alongside this file. If types
+                // were to come from a different package, they would have full paths in the
+                // adapter config, and we'd need to strip to simple names here. For now,
+                // the safe assumption is same-package types with no import needed.
 
                 body.push_str("    @Suppress(\"TooGenericExceptionCaught\")\n");
                 body.push_str(&format!(
