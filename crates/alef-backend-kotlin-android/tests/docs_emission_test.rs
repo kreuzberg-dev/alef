@@ -14,8 +14,8 @@ use alef_backend_kotlin_android::KotlinAndroidBackend;
 use alef_core::backend::Backend;
 use alef_core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
 use alef_core::ir::{
-    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef,
-    TypeRef,
+    ApiSurface, CoreWrapper, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef,
+    PrimitiveType, ReceiverKind, TypeDef, TypeRef,
 };
 
 fn make_config() -> ResolvedCrateConfig {
@@ -235,5 +235,110 @@ fn module_free_function_facade_carries_kdoc() {
     assert!(
         body.contains("Send a ping request to the target host and return the response."),
         "free-fn KDoc missing:\n{body}"
+    );
+}
+
+#[test]
+fn error_type_with_methods_emits_abstract_properties() {
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![ErrorDef {
+            name: "DemoError".into(),
+            rust_path: "demo::DemoError".into(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "NotFound".into(),
+                message_template: Some("not found".into()),
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: String::new(),
+            }],
+            doc: String::new(),
+            methods: vec![
+                MethodDef {
+                    name: "status_code".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::U16),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "is_transient".into(),
+                    params: vec![],
+                    return_type: TypeRef::Primitive(PrimitiveType::Bool),
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+                MethodDef {
+                    name: "error_type".into(),
+                    params: vec![],
+                    return_type: TypeRef::String,
+                    is_async: false,
+                    is_static: false,
+                    error_type: None,
+                    doc: String::new(),
+                    receiver: Some(ReceiverKind::Ref),
+                    sanitized: false,
+                    trait_source: None,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                },
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let files = render(api);
+    // kotlin-android emits each error type as a separate .kt file.
+    let error_kt = files
+        .iter()
+        .find(|(p, _)| p.ends_with("DemoError.kt"))
+        .expect("DemoError.kt must be emitted");
+    let body = &error_kt.1;
+    assert!(
+        body.contains("abstract val statusCode: Short"),
+        "missing statusCode abstract property: {body}"
+    );
+    assert!(
+        body.contains("abstract val isTransient: Boolean"),
+        "missing isTransient abstract property: {body}"
+    );
+    assert!(
+        body.contains("abstract val errorType: String"),
+        "missing errorType abstract property: {body}"
     );
 }
