@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **alef-extract: support cfg-gated generic functions (embed_texts_async).** Added a snapshot test confirming that `pub async fn embed_texts_async<T: AsRef<str> + Send + 'static>(texts: Vec<T>, config: &EmbeddingConfig) -> Result<Vec<Vec<f32>>, E>` is extracted and monomorphized correctly — `Vec<T>` becomes `Vec<String>`, the `'static` lifetime bound on the type parameter is accepted, and the `#[cfg(all(...))]` gate is preserved in the IR `cfg` field. The extractor's `can_monomorphize_to_string` already handled this shape; the test documents and pins the behaviour so downstream fixtures in kreuzberg can drop their global language skip. (`crates/alef-extract/src/extractor/tests.rs`)
+
 ### Fixed
 
 - **alef-backend-kotlin-android: honour `alef(skip)` annotations in DTO and enum emission.** The Kotlin source emitter iterated `api.types` and `api.enums` filtering only `is_opaque`/`is_trait`, ignoring the `binding_excluded` IR flag set by `#[cfg_attr(alef, alef(skip))]` (or `#[doc(hidden)]`) on the upstream Rust source. As a result, skipped types and enums still produced `.kt` wrapper files (e.g. `OcrTesseractConfig.kt`, `Table2.kt`, `OcrPipelineConfig.kt` in kreuzberg's Android package), even though every other backend (PHP, WASM, NAPI, etc.) already filtered them out. Skip both loops on `binding_excluded` to bring the kotlin-android backend in line with the rest of the polyglot surfaces. (`crates/alef-backend-kotlin-android/src/gen_bindings.rs`)
