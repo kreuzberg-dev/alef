@@ -113,13 +113,14 @@ For each public Rust item, check presence across all binding sets:
 ```bash
 # Pseudo-algorithm:
 for each item in reference_set:
-    langs_present = [ lang for lang in ["python", "typescript", "ruby", "go", "java", "csharp"] 
+    langs_present = [ lang for lang in ["python", "typescript", "ruby", "go", "java", "csharp"]
                       if item in binding_sets[lang] ]
     if len(langs_present) < len(["python", "typescript", "ruby", "go", "java", "csharp"]):
         report(item, langs_present, missing_from=all_langs - langs_present)
 ```
 
 **Output:** gap report with columns:
+
 - `Rust item` (function/type name)
 - `Present in` (comma-separated languages)
 - `Missing from` (comma-separated languages)

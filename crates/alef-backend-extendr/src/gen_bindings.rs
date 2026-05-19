@@ -1681,11 +1681,7 @@ pub(crate) struct TraitBridgeFn {
 pub(crate) fn collect_trait_bridge_functions(config: &ResolvedCrateConfig) -> Vec<TraitBridgeFn> {
     let mut out = Vec::new();
     for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .iter()
-            .any(|l| l == "r" || l == "extendr")
-        {
+        if bridge_cfg.exclude_languages.iter().any(|l| l == "r" || l == "extendr") {
             continue;
         }
         // register_fn(r_backend: Robj) — the R caller passes a named list of closures.
@@ -2185,12 +2181,9 @@ fn gen_extendr_wrappers_r(
         roxygen_block.push_str(&format!("#' {}\n", bridge_fn.name));
         roxygen_block.push_str("#'\n");
         if bridge_fn.name.starts_with("register_") {
-            roxygen_block.push_str(
-                "#' Register an R-side plugin implementation. Pass a named list whose entries\n",
-            );
-            roxygen_block.push_str(
-                "#' implement the trait's required methods (e.g. `list(name = function() \"my\", ...)`).\n",
-            );
+            roxygen_block.push_str("#' Register an R-side plugin implementation. Pass a named list whose entries\n");
+            roxygen_block
+                .push_str("#' implement the trait's required methods (e.g. `list(name = function() \"my\", ...)`).\n");
             roxygen_block.push_str("#'\n");
             roxygen_block.push_str("#' @param r_backend Named list of R closures implementing the trait surface.\n");
         } else if bridge_fn.name.starts_with("unregister_") {
@@ -2198,7 +2191,8 @@ fn gen_extendr_wrappers_r(
             roxygen_block.push_str("#'\n");
             roxygen_block.push_str("#' @param name Plugin name string as returned by the backend's `name()` method.\n");
         } else if bridge_fn.name.starts_with("clear_") {
-            roxygen_block.push_str("#' Remove every registered plugin of this type. Typically used in test teardown.\n");
+            roxygen_block
+                .push_str("#' Remove every registered plugin of this type. Typically used in test teardown.\n");
         }
         roxygen_block.push_str("#'\n");
         roxygen_block.push_str("#' @return Invisible NULL on success; raises an R error on failure.\n");

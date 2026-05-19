@@ -408,9 +408,7 @@ fn emit_lib_rs(
             .filter_map(|ty_name| api.types.iter().find(|t| t.name == ty_name))
             .collect();
         if !streaming_param_mirror_types.is_empty() {
-            content.push_str(
-                "\n// From<T> for SourceT conversions for streaming-adapter mirror request types.\n",
-            );
+            content.push_str("\n// From<T> for SourceT conversions for streaming-adapter mirror request types.\n");
             for ty in streaming_param_mirror_types {
                 content.push('\n');
                 emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);

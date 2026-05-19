@@ -28,6 +28,7 @@ GEMINI.md
 
 .agents/
 .ruff_cache/
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .claude/
 .codex/

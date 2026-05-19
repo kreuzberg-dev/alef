@@ -1801,7 +1801,11 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
         "ChatRequest",
         vec![
             make_field("model", TypeRef::String, false),
-            make_field("messages", TypeRef::Vec(Box::new(TypeRef::Named("Message".into()))), false),
+            make_field(
+                "messages",
+                TypeRef::Vec(Box::new(TypeRef::Named("Message".into()))),
+                false,
+            ),
             make_field("temperature", TypeRef::Primitive(PrimitiveType::F64), true),
         ],
     );
@@ -1820,12 +1824,21 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
     let content = &swift.content;
 
     // Both types must be emitted as public structs.
-    assert!(content.contains("public struct Message:"), "Message must be first-class; got:\n{content}");
-    assert!(content.contains("public struct ChatRequest:"), "ChatRequest must be first-class; got:\n{content}");
+    assert!(
+        content.contains("public struct Message:"),
+        "Message must be first-class; got:\n{content}"
+    );
+    assert!(
+        content.contains("public struct ChatRequest:"),
+        "ChatRequest must be first-class; got:\n{content}"
+    );
 
     // Vec<Message> → [Message] stored property.
     assert!(
@@ -1840,8 +1853,14 @@ fn complex_dto_with_vec_named_field_emits_first_class_struct() {
     );
 
     // intoRust() must fall back to JSON (no direct constructor for complex type).
-    assert!(content.contains("JSONEncoder().encode(self)"), "intoRust() must use JSON fallback; got:\n{content}");
-    assert!(content.contains("chatRequestFromJson"), "intoRust() must call from-json shim; got:\n{content}");
+    assert!(
+        content.contains("JSONEncoder().encode(self)"),
+        "intoRust() must use JSON fallback; got:\n{content}"
+    );
+    assert!(
+        content.contains("chatRequestFromJson"),
+        "intoRust() must call from-json shim; got:\n{content}"
+    );
 }
 
 /// A DTO with a `Named(S)` field (optional nested struct via field.optional=true) must be
@@ -1881,13 +1900,22 @@ fn complex_dto_with_named_struct_field_emits_first_class_struct() {
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
     let content = &swift.content;
 
-    assert!(content.contains("public struct ChatResponse:"), "ChatResponse must be first-class; got:\n{content}");
+    assert!(
+        content.contains("public struct ChatResponse:"),
+        "ChatResponse must be first-class; got:\n{content}"
+    );
 
     // Optional Named field emits `Usage?`.
-    assert!(content.contains("public let usage: Usage?"), "Optional Named field must be Usage?; got:\n{content}");
+    assert!(
+        content.contains("public let usage: Usage?"),
+        "Optional Named field must be Usage?; got:\n{content}"
+    );
 
     // init must convert optional Named field via .map.
     assert!(
@@ -1930,13 +1958,22 @@ fn complex_dto_with_optional_vec_named_field_emits_first_class_struct() {
 
     let config = make_config();
     let files = SwiftBackend.generate_bindings(&api, &config).unwrap();
-    let swift = files.iter().find(|f| f.path.to_string_lossy().ends_with(".swift")).unwrap();
+    let swift = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".swift"))
+        .unwrap();
     let content = &swift.content;
 
-    assert!(content.contains("public struct ToolRequest:"), "ToolRequest must be first-class; got:\n{content}");
+    assert!(
+        content.contains("public struct ToolRequest:"),
+        "ToolRequest must be first-class; got:\n{content}"
+    );
 
     // Optional<Vec<Tool>> → [Tool]?
-    assert!(content.contains("public let tools: [Tool]?"), "Optional<Vec<Tool>> must emit [Tool]?; got:\n{content}");
+    assert!(
+        content.contains("public let tools: [Tool]?"),
+        "Optional<Vec<Tool>> must emit [Tool]?; got:\n{content}"
+    );
 
     // init must handle Optional<Vec<Named>> via ?.map.
     assert!(

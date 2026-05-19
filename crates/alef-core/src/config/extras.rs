@@ -194,8 +194,26 @@ mod tests {
     #[test]
     fn is_known_language_accepts_all_canonical_names() {
         for name in &[
-            "python", "node", "ruby", "php", "elixir", "wasm", "ffi", "go", "java", "csharp",
-            "r", "rust", "kotlin", "kotlin_android", "swift", "dart", "gleam", "zig", "c", "jni",
+            "python",
+            "node",
+            "ruby",
+            "php",
+            "elixir",
+            "wasm",
+            "ffi",
+            "go",
+            "java",
+            "csharp",
+            "r",
+            "rust",
+            "kotlin",
+            "kotlin_android",
+            "swift",
+            "dart",
+            "gleam",
+            "zig",
+            "c",
+            "jni",
         ] {
             assert!(is_known_language(name), "{name} should be recognised");
         }

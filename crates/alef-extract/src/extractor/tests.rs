@@ -3421,8 +3421,7 @@ fn test_error_enum_methods_whitelist() {
         err.methods.iter().map(|m| &m.name).collect::<Vec<_>>()
     );
 
-    let method_names: std::collections::HashSet<&str> =
-        err.methods.iter().map(|m| m.name.as_str()).collect();
+    let method_names: std::collections::HashSet<&str> = err.methods.iter().map(|m| m.name.as_str()).collect();
 
     assert!(method_names.contains("status_code"), "status_code must be extracted");
     assert!(method_names.contains("is_transient"), "is_transient must be extracted");
