@@ -213,9 +213,9 @@ fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out: &mut Stri
 ///   1. Creates the request handle from JSON.
 ///   2. Calls `{prefix}_{type_snake}_{method_name}_start(client, req_handle)`.
 ///   3. Loops `{prefix}_{type_snake}_{method_name}_next(handle)` until null.
-///   4. Serialises each chunk to JSON, keeping the last one.
+///   4. Serialises each chunk to JSON, accumulating them into a `[chunk1,chunk2,...]` array.
 ///   5. Frees the stream handle.
-///   6. Returns the last chunk JSON (or `"{}"` if the stream was empty).
+///   6. Returns the full JSON array string so callers receive every event in the stream.
 fn emit_opaque_streaming_method(
     method: &MethodDef,
     ty: &TypeDef,
@@ -297,34 +297,31 @@ fn emit_opaque_streaming_method(
         "        defer c.{prefix}_{type_snake}_{method_snake}_free(_stream_handle);",
     );
 
-    // Collect chunks; keep the last one.
-    let _ = writeln!(out, "        var _last_json: ?[]u8 = null;");
+    // Accumulate all chunks into a JSON array — the Zig caller parses elements lazily.
+    let _ = writeln!(out, "        var _buf = std.ArrayList(u8).init(std.heap.c_allocator);");
+    let _ = writeln!(out, "        defer _buf.deinit();");
+    let _ = writeln!(out, "        try _buf.append('[');");
+    let _ = writeln!(out, "        var _first = true;");
     let _ = writeln!(out, "        while (true) {{");
     let _ = writeln!(
         out,
         "            const _chunk = c.{prefix}_{type_snake}_{method_snake}_next(_stream_handle);",
     );
     let _ = writeln!(out, "            if (_chunk == null) break;");
-    let _ = writeln!(out, "            if (_last_json) |j| std.heap.c_allocator.free(j);");
     let _ = writeln!(
         out,
         "            const _chunk_json_ptr = c.{prefix}_{item_snake}_to_json(_chunk);",
     );
-    let _ = writeln!(out, "            c.{prefix}_{item_snake}_free(_chunk);",);
+    let _ = writeln!(out, "            c.{prefix}_{item_snake}_free(_chunk);");
     let _ = writeln!(out, "            if (_chunk_json_ptr == null) continue;");
-    let _ = writeln!(out, "            const _chunk_slice = std.mem.span(_chunk_json_ptr);",);
-    let _ = writeln!(
-        out,
-        "            _last_json = try std.heap.c_allocator.dupe(u8, _chunk_slice);",
-    );
-    let _ = writeln!(out, "            c.{prefix}_free_string(_chunk_json_ptr);",);
+    let _ = writeln!(out, "            if (!_first) try _buf.append(',');");
+    let _ = writeln!(out, "            _first = false;");
+    let _ = writeln!(out, "            const _chunk_slice = std.mem.span(_chunk_json_ptr);");
+    let _ = writeln!(out, "            try _buf.appendSlice(_chunk_slice);");
+    let _ = writeln!(out, "            c.{prefix}_free_string(_chunk_json_ptr);");
     let _ = writeln!(out, "        }}");
-
-    // Return last chunk JSON or empty object if stream was empty.
-    let _ = writeln!(
-        out,
-        "        return _last_json orelse try std.heap.c_allocator.dupe(u8, \"{{}}\");",
-    );
+    let _ = writeln!(out, "        try _buf.append(']');");
+    let _ = writeln!(out, "        return _buf.toOwnedSlice();");
     let _ = writeln!(out, "    }}");
 }
 
