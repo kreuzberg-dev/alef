@@ -956,6 +956,22 @@ fn gen_wrapper_method(
             out.push_str("            );\n");
         }
 
+        if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
+            if matches!(method.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
+                );
+            } else {
+                out.push_str(
+                    "            if (nativeResult == IntPtr.Zero)\n            {\n                throw GetLastError();\n            }\n",
+                );
+            }
+        } else if method.error_type.is_some() {
+            out.push_str(
+                "            if (NativeMethods.LastErrorCode() != 0)\n            {\n                throw GetLastError();\n            }\n",
+            );
+        }
+
         emit_return_marshalling_indented(
             &mut out,
             &method.return_type,
@@ -1008,6 +1024,22 @@ fn gen_wrapper_method(
                 out.push('\n');
             }
             out.push_str("        );\n");
+        }
+
+        if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
+            if matches!(method.return_type, TypeRef::Optional(_)) {
+                out.push_str(
+                    "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
+                );
+            } else {
+                out.push_str(
+                    "        if (nativeResult == IntPtr.Zero)\n        {\n            throw GetLastError();\n        }\n",
+                );
+            }
+        } else if method.error_type.is_some() {
+            out.push_str(
+                "        if (NativeMethods.LastErrorCode() != 0)\n        {\n            throw GetLastError();\n        }\n",
+            );
         }
 
         emit_return_marshalling_indented(

@@ -572,6 +572,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "php_visitor_template_var_let_binding.jinja",
         include_str!("../templates/php_visitor_template_var_let_binding.jinja"),
     ),
+    (
+        "php_visitor_interface_start.jinja",
+        include_str!("../templates/php_visitor_interface_start.jinja"),
+    ),
+    (
+        "php_visitor_interface_method.jinja",
+        include_str!("../templates/php_visitor_interface_method.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
