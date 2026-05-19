@@ -1595,7 +1595,7 @@ fn gen_static_factory_method(
     }
     out.push_str(&format!(
         "            if (handle == null || handle.equals(MemorySegment.NULL)) {{\n\
-                 throw new {exception_class}(\"{method_name} returned null\");\n            }}\n"
+                 throw new {exception_class}(\"{method_name} returned null\", (Throwable) null);\n            }}\n"
     ));
     out.push_str(&format!("            return new {class_name}(handle);\n"));
     out.push_str("        }\n");
