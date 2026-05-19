@@ -1,6 +1,7 @@
 use alef_backend_jni::JniBackend;
 use alef_backend_kotlin::KotlinBackend;
 use alef_core::backend::Backend;
+use alef_core::config::workspace::{ClientConstructorConfig, ConstructorParam};
 use alef_core::config::{NewAlefConfig, ResolvedCrateConfig};
 use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
@@ -916,4 +917,60 @@ fn extract_rust_java_symbols(content: &str) -> std::collections::BTreeSet<String
         }
     }
     syms
+}
+
+// ---------------------------------------------------------------------------
+// client_constructors: Bridge external fun + DefaultClient factory method
+// ---------------------------------------------------------------------------
+
+/// When `client_constructors` has an entry for an opaque type, the Bridge object
+/// must emit `external fun nativeNew<TypeName>(params...): Long` and the
+/// DefaultClient companion object must emit `fun create(params...): DefaultClient`.
+#[test]
+fn client_constructors_emits_bridge_extern_and_factory_method() {
+    let api = make_jni_api_with_client_and_function();
+    let mut config = make_jni_config_no_streaming();
+    config.client_constructors.insert(
+        "DefaultClient".to_string(),
+        ClientConstructorConfig {
+            params: vec![ConstructorParam {
+                name: "api_key".to_string(),
+                ty: "*const std::ffi::c_char".to_string(),
+            }],
+            body: "{source_path}::new(api_key)".to_string(),
+            error_type: Some("DemoError".to_string()),
+        },
+    );
+
+    let files = KotlinBackend.generate_bindings(&api, &config).unwrap();
+    let bridge_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Bridge.kt"))
+        .expect("Bridge.kt must be emitted");
+    let client_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("DefaultClient.kt"))
+        .expect("DefaultClient.kt must be emitted");
+
+    // Bridge must declare the external fun.
+    let bridge = &bridge_file.content;
+    assert!(
+        bridge.contains("external fun nativeNewDefaultClient(apiKey: String): Long"),
+        "Bridge must declare nativeNewDefaultClient; got:\n{bridge}"
+    );
+    assert!(
+        bridge.contains("@Throws(DemoBridgeException::class)"),
+        "Bridge nativeNew must have @Throws annotation; got:\n{bridge}"
+    );
+
+    // DefaultClient companion object must have the factory method.
+    let client = &client_file.content;
+    assert!(
+        client.contains("fun create(apiKey: String): DefaultClient"),
+        "DefaultClient must have create factory method; got:\n{client}"
+    );
+    assert!(
+        client.contains("DemoBridge.nativeNewDefaultClient(apiKey)"),
+        "factory method must call DemoBridge.nativeNewDefaultClient; got:\n{client}"
+    );
 }

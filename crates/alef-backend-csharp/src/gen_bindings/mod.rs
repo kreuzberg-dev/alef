@@ -188,6 +188,7 @@ impl Backend for CsharpBackend {
                 &streaming_methods,
                 &streaming_methods_meta,
                 &exclude_functions,
+                &config.client_constructors,
             )),
             generated_header: true,
         });
@@ -364,6 +365,7 @@ impl Backend for CsharpBackend {
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {
             if typ.is_opaque {
                 let type_filename = typ.name.to_pascal_case();
+                let client_ctor = config.client_constructors.get(&typ.name);
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}.cs", type_filename)),
                     content: strip_trailing_whitespace(&types::gen_opaque_handle(
@@ -374,6 +376,7 @@ impl Backend for CsharpBackend {
                         &streaming_methods,
                         &streaming_methods_meta,
                         &all_opaque_type_names,
+                        client_ctor,
                     )),
                     generated_header: true,
                 });

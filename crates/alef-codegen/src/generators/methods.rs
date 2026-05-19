@@ -8,6 +8,7 @@ use crate::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::shared::{function_params, function_sig_defaults, partition_methods};
 use crate::type_mapper::TypeMapper;
 use ahash::AHashSet;
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{MethodDef, TypeDef, TypeRef};
 
 /// Returns true when `name` matches a known trait method that would trigger
@@ -225,12 +226,15 @@ pub fn gen_method(
         }
     };
 
-    let body = if !opaque_can_delegate {
-        // Check if an adapter provides the body
-        let adapter_key_inner = format!("{}.{}", type_name, method.name);
-        if let Some(adapter_body) = adapter_bodies.get(&adapter_key_inner) {
-            adapter_body.clone()
-        } else if cfg.has_serde
+    // Explicit adapter bodies always take precedence over auto-generated delegation —
+    // they are user overrides that capture intentional non-default behavior.
+    let adapter_key_inner = format!("{}.{}", type_name, method.name);
+    let adapter_override = adapter_bodies.get(&adapter_key_inner).cloned();
+
+    let body = if let Some(adapter_body) = adapter_override {
+        adapter_body
+    } else if !opaque_can_delegate {
+        if cfg.has_serde
             && is_opaque
             && !method.sanitized
             && !is_trait_method
@@ -749,21 +753,22 @@ pub fn gen_static_method(
 
     let can_delegate = crate::shared::can_auto_delegate(method, opaque_types);
 
-    let body = if !can_delegate {
-        // Check if an adapter provides the body
-        let adapter_key = format!("{}.{}", type_name, method.name);
-        if let Some(adapter_body) = adapter_bodies.get(&adapter_key) {
-            adapter_body.clone()
-        } else {
-            gen_unimplemented_body(
-                &method.return_type,
-                &format!("{type_name}::{}", method.name),
-                method.error_type.is_some(),
-                cfg,
-                &method.params,
-                opaque_types,
-            )
-        }
+    // Explicit adapter bodies always take precedence over auto-generated delegation —
+    // they are user overrides that capture intentional non-default behavior.
+    let adapter_key = format!("{}.{}", type_name, method.name);
+    let adapter_override = adapter_bodies.get(&adapter_key).cloned();
+
+    let body = if let Some(adapter_body) = adapter_override {
+        adapter_body
+    } else if !can_delegate {
+        gen_unimplemented_body(
+            &method.return_type,
+            &format!("{type_name}::{}", method.name),
+            method.error_type.is_some(),
+            cfg,
+            &method.params,
+            opaque_types,
+        )
     } else if method.is_async {
         let core_call = format!("{core_type_path}::{}({call_args})", method.name);
         let return_wrap = format!("{return_type}::from(result)");
@@ -1120,4 +1125,50 @@ pub fn gen_opaque_impl_block(
             content => content,
         },
     )
+}
+
+/// Generate a custom opaque-handle constructor from a [`ClientConstructorConfig`].
+///
+/// Emits a `pub fn new(params…) -> Result<Self, ErrType>` method body suitable
+/// for inclusion inside an `impl TypeName { … }` block.
+///
+/// * `constructor_attr` — optional attribute line placed immediately before the
+///   `pub fn new` line (e.g. `"#[new]"` for PyO3, `"#[napi(constructor)]"` for
+///   NAPI-RS, or `""` to emit no attribute).
+pub fn gen_opaque_constructor(
+    ctor: &ClientConstructorConfig,
+    type_name: &str,
+    core_import: &str,
+    constructor_attr: &str,
+) -> String {
+    let source_path = if core_import.is_empty() {
+        type_name.to_string()
+    } else {
+        format!("{core_import}::{type_name}")
+    };
+
+    let params_str = if ctor.params.is_empty() {
+        String::new()
+    } else {
+        ctor.params
+            .iter()
+            .map(|p| format!("{}: {}", p.name, p.ty))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+
+    let body = ctor
+        .body
+        .replace("{type_name}", type_name)
+        .replace("{source_path}", &source_path);
+
+    let err_ty = ctor.error_type.as_deref().unwrap_or("String");
+
+    let attr_prefix = if constructor_attr.is_empty() {
+        String::new()
+    } else {
+        format!("    {constructor_attr}\n")
+    };
+
+    format!("{attr_prefix}    pub fn new({params_str}) -> Result<Self, {err_ty}> {{\n        {body}\n    }}\n")
 }

@@ -8,6 +8,7 @@ use super::{
 use crate::type_map::csharp_type;
 use alef_codegen::naming::to_csharp_name;
 use alef_codegen::shared::binding_fields;
+use alef_core::config::workspace::ClientConstructorConfig;
 use alef_core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToPascalCase};
 use std::collections::{HashMap, HashSet};
@@ -20,6 +21,7 @@ pub(super) fn gen_opaque_handle(
     streaming_methods: &HashSet<String>,
     streaming_methods_meta: &HashMap<String, StreamingMethodMeta>,
     all_opaque_type_names: &HashSet<String>,
+    client_constructor: Option<&ClientConstructorConfig>,
 ) -> String {
     use crate::template_env::render;
     use minijinja::Value;
@@ -99,7 +101,106 @@ pub(super) fn gen_opaque_handle(
         ));
     }
 
+    // Client constructor factory method.
+    if let Some(ctor) = client_constructor {
+        out.push('\n');
+        out.push_str(&gen_opaque_factory_method(&class_name, exception_name, ctor));
+    }
+
     out.push_str("}\n");
+
+    out
+}
+
+/// Map a Rust FFI type string to the C# type used in the public factory method signature.
+fn ffi_ty_to_csharp_public(rust_ty: &str) -> &'static str {
+    let normalized = rust_ty.trim();
+    if normalized.contains("c_char") || normalized.contains("CStr") {
+        return "string";
+    }
+    if matches!(normalized, "bool") {
+        return "bool";
+    }
+    if matches!(normalized, "u8" | "uint8_t") {
+        return "byte";
+    }
+    if matches!(normalized, "u16" | "uint16_t") {
+        return "ushort";
+    }
+    if matches!(normalized, "u32" | "uint32_t") {
+        return "uint";
+    }
+    if matches!(normalized, "u64" | "uint64_t" | "usize") {
+        return "ulong";
+    }
+    if matches!(normalized, "i8" | "int8_t") {
+        return "sbyte";
+    }
+    if matches!(normalized, "i16" | "int16_t") {
+        return "short";
+    }
+    if matches!(normalized, "i32" | "int32_t" | "c_int") {
+        return "int";
+    }
+    if matches!(normalized, "i64" | "int64_t" | "isize") {
+        return "long";
+    }
+    if matches!(normalized, "f32" | "float") {
+        return "float";
+    }
+    if matches!(normalized, "f64" | "double") {
+        return "double";
+    }
+    "IntPtr"
+}
+
+/// Generate the public factory method `public static TypeName Create(params...)` that
+/// calls `NativeMethods.{TypeName}New(...)` and wraps the returned handle.
+fn gen_opaque_factory_method(class_name: &str, exception_name: &str, ctor: &ClientConstructorConfig) -> String {
+    let mut out = String::new();
+
+    // Public param list: `string apiKey`
+    let param_list: String = ctor
+        .params
+        .iter()
+        .map(|p| {
+            let cs_type = ffi_ty_to_csharp_public(&p.ty);
+            let cs_name = p.name.to_lower_camel_case();
+            format!("{cs_type} {cs_name}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    // Native call arg list: pass params directly (P/Invoke handles marshalling via attributes on
+    // the NativeMethods declaration).
+    let call_args: String = ctor
+        .params
+        .iter()
+        .map(|p| p.name.to_lower_camel_case())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let native_method = format!("{class_name}New");
+
+    out.push_str(&format!(
+        "    /// <summary>Creates a new <see cref=\"{class_name}\"/> handle.</summary>\n"
+    ));
+    out.push_str(&format!(
+        "    public static {class_name} Create({param_list})\n    {{\n"
+    ));
+    out.push_str(&format!(
+        "        var handle = NativeMethods.{native_method}({call_args});\n"
+    ));
+    out.push_str("        if (handle == IntPtr.Zero)\n        {\n");
+    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
+    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
+    out.push_str(
+        "            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Create failed\";\n",
+    );
+    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
+    out.push_str("        }\n");
+    out.push_str(&format!("        return new {class_name}(handle);\n"));
+    out.push_str("    }\n");
 
     out
 }

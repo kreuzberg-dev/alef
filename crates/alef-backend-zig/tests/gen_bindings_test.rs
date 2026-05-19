@@ -1083,3 +1083,76 @@ fn optional_string_return_uses_len_companion_with_null_guard() {
         "optional return must slice _result[0.._result_len] after the null check: {content}"
     );
 }
+
+#[test]
+fn client_constructors_emits_create_function() {
+    let toml = r#"
+[workspace]
+languages = ["zig"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[workspace.client_constructors.DefaultClient]
+body = "demo::DefaultClient::new(api_key)"
+error_type = "String"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "*const std::ffi::c_char"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "demo::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub fn create_default_client("),
+        "should emit create_default_client function: {content}"
+    );
+    assert!(
+        content.contains("api_key: []const u8"),
+        "string param should map to []const u8: {content}"
+    );
+    assert!(
+        content.contains("c.demo_default_client_new("),
+        "should call FFI constructor: {content}"
+    );
+    assert!(
+        content.contains("_first_error(anyerror)"),
+        "should return error on null handle: {content}"
+    );
+}

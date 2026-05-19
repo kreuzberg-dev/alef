@@ -376,6 +376,18 @@ impl Backend for WasmBackend {
                     &adapter_bodies,
                     &mutex_types,
                 ));
+                // Client constructor — emit a #[wasm_bindgen(constructor)] impl
+                if let Some(ctor) = config.client_constructors.get(&typ.name) {
+                    let struct_name = format!("{prefix}{}", typ.name);
+                    let ctor_body = generators::gen_opaque_constructor(
+                        ctor,
+                        &typ.name,
+                        &core_import,
+                        "#[wasm_bindgen(constructor)]",
+                    );
+                    let ctor_impl = format!("#[wasm_bindgen]\nimpl {struct_name} {{\n{}}}", ctor_body);
+                    builder.add_item(&ctor_impl);
+                }
             } else {
                 // gen_struct adds #[derive(Default)] when typ.has_default is true,
                 // so no separate Default impl is needed.

@@ -406,6 +406,18 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                     &mutex_types,
                     &capsule_types,
                 ));
+                // Client constructor — emit a #[napi(constructor)] impl
+                if let Some(ctor) = config.client_constructors.get(&typ.name) {
+                    let struct_name = format!("{prefix}{}", typ.name);
+                    let ctor_body = alef_codegen::generators::gen_opaque_constructor(
+                        ctor,
+                        &typ.name,
+                        &core_import,
+                        "#[napi(constructor)]",
+                    );
+                    let ctor_impl = format!("#[napi]\nimpl {struct_name} {{\n{}}}", ctor_body);
+                    builder.add_item(&ctor_impl);
+                }
             } else {
                 // Non-opaque structs use #[napi(object)] — plain JS objects without methods.
                 // napi(object) structs cannot have #[napi] impl blocks.

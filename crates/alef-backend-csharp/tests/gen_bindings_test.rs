@@ -2083,3 +2083,98 @@ fn test_using_directives_each_on_own_line() {
         );
     }
 }
+
+#[test]
+fn test_client_constructors_emits_factory_method_and_pinvoke() {
+    let toml_str = r#"
+[workspace]
+languages = ["csharp"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.csharp]
+namespace = "MyLib"
+
+[workspace.client_constructors.DefaultClient]
+body = "my_lib::DefaultClient::new(api_key)"
+error_type = "String"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "*const std::ffi::c_char"
+"#;
+    let cfg: NewAlefConfig = toml::from_str(toml_str).unwrap();
+    let config = cfg.resolve().unwrap().remove(0);
+
+    let api = ApiSurface {
+        crate_name: "my-lib".to_string(),
+        version: "1.0.0".to_string(),
+        types: vec![TypeDef {
+            name: "DefaultClient".to_string(),
+            rust_path: "my_lib::DefaultClient".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let backend = CsharpBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Find DefaultClient.cs — should contain the factory method.
+    let handle_file = files.iter().find(|f| f.path.ends_with("DefaultClient.cs"));
+    assert!(handle_file.is_some(), "DefaultClient.cs must be emitted");
+    let handle_content = &handle_file.unwrap().content;
+
+    assert!(
+        handle_content.contains("public static DefaultClient Create("),
+        "should emit public static Create factory: {handle_content}"
+    );
+    assert!(
+        handle_content.contains("string apiKey"),
+        "string param should appear as C# string in factory signature: {handle_content}"
+    );
+    assert!(
+        handle_content.contains("NativeMethods.DefaultClientNew("),
+        "factory should call NativeMethods.DefaultClientNew: {handle_content}"
+    );
+
+    // Find NativeMethods.cs — should contain the P/Invoke for _new.
+    let native_methods_file = files.iter().find(|f| f.path.ends_with("NativeMethods.cs"));
+    assert!(native_methods_file.is_some(), "NativeMethods.cs must be emitted");
+    let native_content = &native_methods_file.unwrap().content;
+
+    assert!(
+        native_content.contains("DefaultClientNew("),
+        "NativeMethods should declare DefaultClientNew P/Invoke: {native_content}"
+    );
+    assert!(
+        native_content.contains("[MarshalAs(UnmanagedType.LPStr)] string apiKey"),
+        "string param should use LPStr marshalling in P/Invoke: {native_content}"
+    );
+    assert!(
+        native_content.contains("IntPtr DefaultClientNew("),
+        "P/Invoke should return IntPtr: {native_content}"
+    );
+}

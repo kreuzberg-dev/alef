@@ -23,7 +23,7 @@ use helpers::{
 };
 use types::{
     gen_enum_free, gen_enum_from_i32, gen_enum_from_json, gen_enum_to_i32, gen_enum_to_json, gen_enum_to_string,
-    gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_to_json,
+    gen_field_accessor, gen_type_free, gen_type_from_json, gen_type_new, gen_type_to_json,
 };
 
 pub struct FfiBackend;
@@ -302,6 +302,27 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
         builder.add_item(&gen_type_free(typ, prefix, &core_import));
+
+        // Client constructor — emit #[no_mangle] extern "C" fn {prefix}_{snake}_new(...)
+        if let Some(ctor) = config.client_constructors.get(&typ.name) {
+            let source_path = if core_import.is_empty() {
+                typ.name.clone()
+            } else {
+                format!("{}::{}", core_import, typ.name)
+            };
+            let params_str = ctor
+                .params
+                .iter()
+                .map(|p| format!("{}: {}", p.name, p.ty))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let body = ctor
+                .body
+                .replace("{type_name}", &typ.name)
+                .replace("{source_path}", &source_path);
+            let err_ty = ctor.error_type.as_deref().unwrap_or("String");
+            builder.add_item(&gen_type_new(typ, prefix, &core_import, &params_str, &body, err_ty));
+        }
 
         // Field accessors — skip sanitized fields (binding type differs from core)
         for field in &typ.fields {
@@ -2501,6 +2522,90 @@ type = "ChatRequest"
         assert!(
             lib.content.contains("set_last_error"),
             "_next must call set_last_error on error"
+        );
+    }
+
+    #[test]
+    fn test_client_constructors_emits_type_new_function() {
+        let config = resolved_one(
+            r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[workspace.client_constructors.DefaultClient]
+body = "my_lib::DefaultClient::new(api_key)"
+error_type = "String"
+
+[[workspace.client_constructors.DefaultClient.params]]
+name = "api_key"
+type = "*const std::ffi::c_char"
+"#,
+        );
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "DefaultClient".to_string(),
+                rust_path: "my_lib::DefaultClient".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let backend = FfiBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(
+            lib.content.contains("fn ml_default_client_new("),
+            "should emit _new function: got\n{}",
+            &lib.content[..lib.content.len().min(2000)]
+        );
+        assert!(
+            lib.content.contains("api_key: *const std::ffi::c_char"),
+            "should include typed param in signature"
+        );
+        assert!(
+            lib.content.contains("-> *mut my_lib::DefaultClient"),
+            "should return *mut TypeName"
+        );
+        assert!(
+            lib.content.contains("clear_last_error"),
+            "should call clear_last_error at function entry"
+        );
+        assert!(
+            lib.content.contains("set_last_error"),
+            "should call set_last_error on Err path"
+        );
+        assert!(
+            lib.content.contains("Box::into_raw(Box::new(val))"),
+            "should box the value on Ok path"
         );
     }
 }

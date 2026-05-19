@@ -219,6 +219,7 @@ impl NewAlefConfig {
             dto: krate.dto.clone().unwrap_or_else(|| ws.dto.clone()),
             tools: ws.tools.clone(),
             opaque_types: ws.opaque_types.clone(),
+            client_constructors: ws.client_constructors.clone(),
             sync: ws.sync.clone(),
             citation: ws.citation.clone(),
             publish: krate.publish.clone(),

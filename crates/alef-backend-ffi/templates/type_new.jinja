@@ -1,0 +1,20 @@
+/// Construct a new `{{ type_name }}` handle from the provided parameters.
+///
+/// Returns a heap-allocated `*mut {{ qualified }}` on success, or `null` on failure.
+/// Call `{{ prefix }}_last_error_context()` to retrieve the error message when null
+/// is returned.
+///
+/// # Safety
+/// All pointer parameters must be valid for the duration of this call.
+/// The returned pointer is owned by the caller; free it with `{{ prefix }}_{{ type_snake }}_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ prefix }}_{{ type_snake }}_new({{ params }}) -> *mut {{ qualified }} {
+    clear_last_error();
+    match {{ body }} {
+        Ok(val) => Box::into_raw(Box::new(val)),
+        Err(e) => {
+            set_last_error(1, &e.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}

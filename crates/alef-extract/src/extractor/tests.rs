@@ -3348,7 +3348,10 @@ fn test_disambiguation_pass_runs_on_full_extract() {
 
     let names: Vec<&str> = surface.types.iter().map(|t| t.name.as_str()).collect();
     // First-seen by sorted rust_path: `my_crate::stream::Event` < `my_crate::testing::Event`.
-    assert!(names.contains(&"Event"), "stream::Event kept its original name: {names:?}");
+    assert!(
+        names.contains(&"Event"),
+        "stream::Event kept its original name: {names:?}"
+    );
     assert!(
         names.contains(&"TestingEvent"),
         "testing::Event renamed with PascalCase parent: {names:?}"
