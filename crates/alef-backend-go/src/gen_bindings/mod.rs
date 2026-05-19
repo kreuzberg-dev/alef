@@ -683,9 +683,14 @@ fn gen_go_file(
             continue;
         }
         for method in &typ.methods {
+            // Skip methods named "default" — these are Rust's Default::default() trait impl
+            // and should not be emitted as free functions in Go (use struct literals instead).
+            if method.name == "default" {
+                continue;
+            }
             // For opaque types skip static methods that return Named types — the opaque
             // handle conversion pipeline is not implemented for those. For non-opaque DTO
-            // types, static preset constructors (e.g. All(), Minimal(), Default()) are
+            // types, static preset constructors (e.g. All(), Minimal()) are
             // emitted as package-level free functions via gen_method_wrapper and must not
             // be suppressed.
             if typ.is_opaque && method.is_static && matches!(method.return_type, TypeRef::Named(_)) {

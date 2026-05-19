@@ -219,6 +219,22 @@ fn push_godoc_line(out: &mut String, text: &str) {
     }
 }
 
+/// Sanitize Rust-specific syntax and idioms from code examples for Go consumption.
+/// Removes or translates patterns like .unwrap(), use statements, and Rust module syntax.
+fn sanitize_rust_code_for_go(line: &str) -> String {
+    let mut result = line.to_string();
+    // Remove Rust use statements entirely.
+    if result.trim().starts_with("use ") {
+        return String::new();
+    }
+    // Remove .unwrap() and .expect(_) calls — Go idiom is explicit error handling.
+    result = result.replace(".unwrap()", "").replace(".expect(\"", "/* error: ");
+    if result.contains(".expect") {
+        result = result.replace("\")", " */");
+    }
+    result
+}
+
 /// Emit a section body prefixed with `lead` on the first line.
 ///
 /// If the body already starts with the lead phrase (case-insensitive) the body
@@ -288,7 +304,7 @@ fn emit_godoc_sections(out: &mut String, sections: &alef_codegen::doc_emission::
         push_godoc_blank(out);
         push_godoc_line(out, "Example:");
         // Godoc renders indented blocks as preformatted code. Strip a single
-        // ``` fence pair if present, then indent each line with two spaces.
+        // ``` fence pair if present, sanitize Rust-specific syntax, then indent each line with two spaces.
         let mut in_fence = false;
         for line in body.lines() {
             let trimmed = line.trim_start();
@@ -299,9 +315,13 @@ fn emit_godoc_sections(out: &mut String, sections: &alef_codegen::doc_emission::
             if line.trim().is_empty() {
                 out.push_str("//\n");
             } else {
-                out.push_str("//   ");
-                out.push_str(line.trim_end());
-                out.push('\n');
+                let sanitized = sanitize_rust_code_for_go(line.trim_end());
+                // Skip empty lines that result from stripping use statements.
+                if !sanitized.trim().is_empty() {
+                    out.push_str("//   ");
+                    out.push_str(&sanitized);
+                    out.push('\n');
+                }
             }
             let _ = in_fence;
         }
