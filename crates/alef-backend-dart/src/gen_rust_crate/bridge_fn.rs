@@ -91,7 +91,7 @@ pub(crate) fn emit_bridge_fn(
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
     // Determine if the return type needs a mirror-transmute (Named or Vec<Named> or Option<Named>).
-    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths, opaque_type_names);
+    let ret_transmute = return_transmute_expr(&f.return_type, source_crate_name, type_paths, opaque_type_names, f.returns_ref);
 
     // Build suffix cast for primitives / Strings.
     let result_cast = if ret_transmute.is_empty() {
@@ -347,6 +347,7 @@ fn return_transmute_expr(
     _source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
     opaque_type_names: &std::collections::HashSet<String>,
+    returns_ref: bool,
 ) -> String {
     match ty {
         TypeRef::Named(mirror_name) => {
@@ -362,7 +363,14 @@ fn return_transmute_expr(
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
-                if opaque_type_names.contains(mirror_name.as_str()) {
+                if returns_ref {
+                    // v is &[T]; iter() yields &T — must clone before converting via From.
+                    if opaque_type_names.contains(mirror_name.as_str()) {
+                        format!("|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect()")
+                    } else {
+                        format!("|v| v.iter().map(|x| {mirror_name}::from(x.clone())).collect()")
+                    }
+                } else if opaque_type_names.contains(mirror_name.as_str()) {
                     format!("|v| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect()")
                 } else {
                     format!("|v| v.into_iter().map({mirror_name}::from).collect()")
