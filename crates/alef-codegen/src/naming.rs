@@ -25,13 +25,21 @@ pub fn to_elixir_name(name: &str) -> String {
     name.to_snake_case()
 }
 
-/// Well-known initialisms that must be fully uppercased per Go and C# naming conventions.
+/// Well-known initialisms that must be fully uppercased per Go naming conventions.
 /// See: https://go.dev/wiki/CodeReviewComments#initialisms
 const INITIALISMS: &[&str] = &[
     "API", "ASCII", "CPU", "CSS", "DNS", "EOF", "FTP", "GID", "GraphQL", "GUI", "HTML", "HTTP", "HTTPS", "ID", "IMAP",
     "IP", "JSON", "LHS", "MFA", "POP", "QPS", "RAM", "RHS", "RPC", "SLA", "SMTP", "SQL", "SSH", "SSL", "TCP", "TLS",
     "TTL", "UDP", "UI", "UID", "UUID", "URI", "URL", "UTF8", "VM", "XML", "XMPP", "XSRF", "XSS",
 ];
+
+/// Initialisms preserved in C# PascalCase. Microsoft's framework design guidelines
+/// recommend `Json`/`Http`/`Url` rather than `JSON`/`HTTP`/`URL` (3+ letter
+/// initialisms use PascalCase, 2-letter ones use all-caps). This list intentionally
+/// excludes generic acronyms so they round-trip cleanly through heck's PascalCase
+/// (matching alef's hardcoded helper names like `{Type}ToJson`/`{Type}FromJson`),
+/// while still preserving product names like `GraphQL` that heck would mangle.
+const CSHARP_INITIALISMS: &[&str] = &["GraphQL", "ID", "UUID", "URI"];
 
 /// Apply initialism uppercasing to a PascalCase name using the provided list.
 ///
@@ -170,26 +178,29 @@ pub fn to_java_name(name: &str) -> String {
 
 /// Convert a Rust snake_case name to C# PascalCase convention with initialism uppercasing.
 ///
-/// Converts snake_case to PascalCase via `heck` and then restores known initialisms so that
-/// e.g. `graphql_route_config` → `GraphQLRouteConfig` (not `GraphqlRouteConfig`) and
-/// `http_status` → `HTTPStatus` (not `HttpStatus`).
+/// Converts snake_case to PascalCase via `heck` and then restores C#-preserved initialisms.
+/// The C# list is intentionally narrow (Microsoft's framework design guidelines prefer
+/// `Json`/`Http`/`Url` over `JSON`/`HTTP`/`URL`), so only product names like `GraphQL`
+/// and short 2-letter abbreviations get all-caps. This keeps method names like
+/// `to_json` → `ToJson` in lockstep with alef's hardcoded `{Type}ToJson` /
+/// `{Type}FromJson` helper declarations.
 pub fn to_csharp_name(name: &str) -> String {
-    apply_initialisms(&name.to_pascal_case(), INITIALISMS)
+    apply_initialisms(&name.to_pascal_case(), CSHARP_INITIALISMS)
 }
 
-/// Apply initialism uppercasing to a name that is already in PascalCase (e.g. an IR type name).
+/// Apply C# initialism handling to a name that is already in PascalCase (e.g. an IR type name).
 ///
-/// IR type names come directly from Rust PascalCase (e.g. `GraphQLRouteConfig`, `ImageUrl`).
+/// IR type names come directly from Rust PascalCase (e.g. `GraphQLRouteConfig`, `HttpStatus`).
 /// When such names have been processed by `heck::ToPascalCase` they may lose initialism
-/// capitalisation (e.g. `GraphQLRouteConfig` → `GraphQlRouteConfig`). This function restores
-/// the canonical form regardless of whether the input is already correct or heck-corrupted.
+/// capitalisation for the names we explicitly preserve (e.g. `GraphQLRouteConfig` →
+/// `GraphQlRouteConfig`). This function restores them.
 ///
 /// Examples:
 /// - `GraphQlRouteConfig`   → `GraphQLRouteConfig`
 /// - `GraphQLRouteConfig`   → `GraphQLRouteConfig`  (idempotent)
-/// - `HttpStatus`           → `HTTPStatus`
+/// - `HttpStatus`           → `HttpStatus`          (left alone — `Http` not in `CSHARP_INITIALISMS`)
 pub fn csharp_type_name(name: &str) -> String {
-    apply_initialisms(name, INITIALISMS)
+    apply_initialisms(name, CSHARP_INITIALISMS)
 }
 
 /// Convert a Rust name to a C-style prefixed snake_case identifier (e.g. `prefix_name`).
@@ -431,8 +442,17 @@ mod tests {
     }
 
     #[test]
-    fn test_to_csharp_name_http_status() {
-        assert_eq!(to_csharp_name("http_status"), "HTTPStatus");
+    fn test_to_csharp_name_http_status_no_acronym() {
+        // C# follows Microsoft style — 3+ letter initialisms use PascalCase ("Http"),
+        // not all-caps ("HTTP"). Only product names like GraphQL get all-caps.
+        assert_eq!(to_csharp_name("http_status"), "HttpStatus");
+    }
+
+    #[test]
+    fn test_to_csharp_name_to_json_no_acronym() {
+        // Keeps `to_json` → `ToJson` so it matches alef's hardcoded helper names
+        // (`{Type}ToJson`, `{Type}FromJson`) on the FFI declaration side.
+        assert_eq!(to_csharp_name("to_json"), "ToJson");
     }
 
     #[test]
@@ -455,7 +475,8 @@ mod tests {
     }
 
     #[test]
-    fn test_csharp_type_name_http_status() {
-        assert_eq!(csharp_type_name("HttpStatus"), "HTTPStatus");
+    fn test_csharp_type_name_http_status_no_acronym() {
+        // `Http` is intentionally not in CSHARP_INITIALISMS — Microsoft style prefers `Http`.
+        assert_eq!(csharp_type_name("HttpStatus"), "HttpStatus");
     }
 }
