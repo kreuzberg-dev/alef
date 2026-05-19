@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-php: drop bogus `#[php_method]` attribute from error info methods.** Methods inside a `#[php_impl]` block need no per-method attribute to be exposed to PHP — the `#[php_impl]` wrapper is sufficient. The `#[php_method]` attribute does not exist in ext-php-rs, causing `cannot find attribute 'php_method' in this scope` compile errors in any consumer crate. Removed the attribute from `status_code`, `is_transient`, and `error_type` method bodies in `gen_php_error_methods_impl`. (`crates/alef-codegen/src/error_gen.rs`)
+
 - **alef-backend-rustler: append `visitor` to the trailing args of the emitted `Native.{fn}_with_visitor(...)` call.** The high-level Elixir wrapper module `lib/<crate>.ex` invokes the visitor NIF with arity `base+1` (extra trailing `visitor` parameter), but the args-builder for the call only re-mapped the existing NIF params and forgot to append `visitor`. Generated code was emitting `Native.convert_with_visitor(html, opts)` (arity 2) for an arity-3 NIF, producing `undefined function convert_with_visitor/2 (expected /3)` compile warnings (and runtime `:undef` on the visitor branch). Append the visitor parameter explicitly. (`crates/alef-backend-rustler/src/gen_bindings/mod.rs`)
 
 ### Added
