@@ -10,21 +10,10 @@ use alef_core::ir::ApiSurface;
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
-/// Convert a Rust variant name to SCREAMING_SNAKE_CASE for Python (str, Enum) members.
-///
-/// Handles acronym-style names correctly: names with 2+ leading uppercase characters
-/// followed only by lowercase (e.g. `RDFa`) are fully uppercased to `RDFA` rather than
-/// incorrectly split to `RD_FA` by `to_shouty_snake_case`.
-fn to_python_screaming(name: &str) -> String {
-    use heck::ToShoutySnakeCase;
-    let chars: Vec<char> = name.chars().collect();
-    let upper_prefix_len = chars.iter().take_while(|c| c.is_uppercase()).count();
-    // Acronym: 2+ leading uppercase chars with only lowercase (or empty) remainder
-    if upper_prefix_len >= 2 && chars[upper_prefix_len..].iter().all(|c| c.is_lowercase()) {
-        name.to_ascii_uppercase()
-    } else {
-        name.to_shouty_snake_case()
-    }
+/// Convert a Rust variant name to snake_case for Python enum members (PEP 8).
+fn to_python_enum_variant(name: &str) -> String {
+    use heck::ToSnakeCase;
+    name.to_snake_case()
 }
 
 /// Generate options.py — Python-side enums (StrEnum) and @dataclass / TypedDict config types.
@@ -309,7 +298,7 @@ pub(super) fn gen_options_py(api: &ApiSurface, module_name: &str, dto: &DtoConfi
             out.push_str(&crate::template_env::render(
                 "enum_variant.jinja",
                 minijinja::context! {
-                    name => to_python_screaming(&variant.name),
+                    name => to_python_enum_variant(&variant.name),
                     value => &value,
                 },
             ));

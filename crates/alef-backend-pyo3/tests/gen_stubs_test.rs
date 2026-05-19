@@ -187,15 +187,15 @@ fn test_basic_stubs() {
         "Should have process function stub with multi-line signature (input is a builtin)"
     );
 
-    // Assert enum stub — variants are emitted as UPPER_SNAKE_CASE (PEP 8)
+    // Assert enum stub — variants are emitted as snake_case (PEP 8)
     assert!(content.contains("class Mode:"), "Should define Mode enum class stub");
     assert!(
-        content.contains("FAST: Mode = ..."),
-        "Should have FAST variant typed as Mode (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("fast: Mode = ..."),
+        "Should have fast variant typed as Mode (PEP 8 snake_case)"
     );
     assert!(
-        content.contains("ACCURATE: Mode = ..."),
-        "Should have ACCURATE variant typed as Mode (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("accurate: Mode = ..."),
+        "Should have accurate variant typed as Mode (PEP 8 snake_case)"
     );
     assert!(
         content.contains("def __init__(self, value: int | str) -> None:"),
@@ -355,18 +355,18 @@ fn test_enum_stubs() {
     // Assert enum class definition
     assert!(content.contains("class Status:"), "Should define Status enum class");
 
-    // Assert enum variants typed as the enum class itself — UPPER_SNAKE_CASE (PEP 8)
+    // Assert enum variants typed as the enum class itself — snake_case (PEP 8)
     assert!(
-        content.contains("PENDING: Status = ..."),
-        "Should have PENDING variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("pending: Status = ..."),
+        "Should have pending variant typed as Status (PEP 8 snake_case)"
     );
     assert!(
-        content.contains("ACTIVE: Status = ..."),
-        "Should have ACTIVE variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("active: Status = ..."),
+        "Should have active variant typed as Status (PEP 8 snake_case)"
     );
     assert!(
-        content.contains("COMPLETE: Status = ..."),
-        "Should have COMPLETE variant typed as Status (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("complete: Status = ..."),
+        "Should have complete variant typed as Status (PEP 8 snake_case)"
     );
 
     // Assert enum __init__ signature
@@ -1041,12 +1041,12 @@ fn test_multiple_types_and_functions() {
     // Assert enum is defined
     assert!(content.contains("class SortOrder:"), "Should define SortOrder enum");
     assert!(
-        content.contains("ASC: SortOrder = ..."),
-        "Should have ASC variant typed as SortOrder (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("asc: SortOrder = ..."),
+        "Should have asc variant typed as SortOrder (PEP 8 snake_case)"
     );
     assert!(
-        content.contains("DESC: SortOrder = ..."),
-        "Should have DESC variant typed as SortOrder (PEP 8 UPPER_SNAKE_CASE)"
+        content.contains("desc: SortOrder = ..."),
+        "Should have desc variant typed as SortOrder (PEP 8 snake_case)"
     );
 }
 
@@ -1299,20 +1299,20 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
     let result = backend.generate_type_stubs(&api, &config).unwrap();
     let content = result.into_iter().next().unwrap().content;
 
-    // UPPER_SNAKE_CASE names must be present
+    // snake_case names must be present
     assert!(
-        content.contains("VALIDATING: BatchStatus = ..."),
-        "stub must declare VALIDATING in UPPER_SNAKE_CASE, got:\n{}",
+        content.contains("validating: BatchStatus = ..."),
+        "stub must declare validating in snake_case, got:\n{}",
         content
     );
     assert!(
-        content.contains("IN_PROGRESS: BatchStatus = ..."),
-        "stub must declare IN_PROGRESS in UPPER_SNAKE_CASE, got:\n{}",
+        content.contains("in_progress: BatchStatus = ..."),
+        "stub must declare in_progress in snake_case, got:\n{}",
         content
     );
     assert!(
-        content.contains("COMPLETE: BatchStatus = ..."),
-        "stub must declare COMPLETE in UPPER_SNAKE_CASE, got:\n{}",
+        content.contains("complete: BatchStatus = ..."),
+        "stub must declare complete in snake_case, got:\n{}",
         content
     );
 
