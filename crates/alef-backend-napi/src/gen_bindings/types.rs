@@ -197,6 +197,14 @@ pub(super) fn gen_struct(
 }
 
 /// Generate NAPI methods for an opaque struct (delegates to self.inner).
+///
+/// NOTE: NAPI-RS (TypeScript/Node.js) intentionally does NOT emit fluent builder classes
+/// for DTO types (non-opaque structs with #[napi(object)]). TypeScript idiomatically uses
+/// object literals for construction: `convert(html, { headingStyle: 'atx', wrap: true })`
+/// rather than fluent builders like `new ConversionOptionsBuilder().headingStyle(...).build()`.
+/// This contrasts with the Java backend, which nests builders inside records for idiomatic
+/// Java construction patterns. DTO methods (withers returning Self) are exposed as free functions
+/// accepting the instance as the first parameter (see gen_dto_method_fns).
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_opaque_struct_methods(
     typ: &TypeDef,
