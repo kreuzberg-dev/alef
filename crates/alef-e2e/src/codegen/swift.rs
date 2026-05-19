@@ -1609,10 +1609,17 @@ fn render_assertion(
                     // When the accessor contains a `?.` optional chain, `.count` returns an
                     // Optional which Swift cannot compare directly to `0`; coalesce via `?? 0`
                     // so the assertion typechecks.
+                    //
+                    // For opaque method-call accessors (`result.id()`), the returned type is
+                    // `RustString`, which lacks `.count`. Convert to Swift `String` first via
+                    // `.toString()`. Array fields short-circuit above via `field_is_array`, so
+                    // method-call accessors landing here are guaranteed to be the scalar /
+                    // string flavour; vec accessors return `RustVec` (whose `.count` is fine).
+                    let count_target = swift_count_target(&field_expr);
                     let len_expr = if accessor_is_optional {
-                        format!("({field_expr}.count ?? 0)")
+                        format!("({count_target}.count ?? 0)")
                     } else {
-                        format!("{field_expr}.count")
+                        format!("{count_target}.count")
                     };
                     let _ = writeln!(
                         out,
@@ -1633,10 +1640,13 @@ fn render_assertion(
                 );
             } else {
                 // Symmetric with not_empty: use .count == 0 on first-class Swift types.
+                // Wrap opaque method-call accessors (`result.id()`) with `.toString()` so
+                // `.count` lands on Swift `String`, not `RustString` (which lacks `.count`).
+                let count_target = swift_count_target(&field_expr);
                 let len_expr = if accessor_is_optional {
-                    format!("({field_expr}.count ?? 0)")
+                    format!("({count_target}.count ?? 0)")
                 } else {
-                    format!("{field_expr}.count")
+                    format!("{count_target}.count")
                 };
                 let _ = writeln!(out, "        XCTAssertEqual({len_expr}, 0, \"expected empty value\")");
             }
@@ -2055,6 +2065,26 @@ fn json_to_swift(value: &serde_json::Value) -> String {
 /// Escape a string for embedding in a Swift double-quoted string literal.
 fn escape_swift(s: &str) -> String {
     escape_swift_str(s)
+}
+
+/// Return the count-able target expression for `field_expr`.
+///
+/// For opaque method-call accessors (ending in `()` or `()?`), the returned
+/// value is `RustString` (or another swift-bridge wrapper) which does NOT
+/// expose `.count`. Wrap with `.toString()` so `.count` lands on Swift
+/// `String`. First-class property accessors (no trailing parens) return Swift
+/// values that already support `.count` directly.
+///
+/// The discriminator is purely textual: `.id()` ⇒ opaque, `.id` ⇒ first-class.
+/// Array accessors short-circuit before reaching this helper, so a method-call
+/// ending here is guaranteed to be a scalar string field (the only opaque
+/// scalar leaf whose `.count` is unsupported).
+fn swift_count_target(field_expr: &str) -> String {
+    if field_expr.trim_end().ends_with(')') {
+        format!("{field_expr}.toString()")
+    } else {
+        field_expr.to_string()
+    }
 }
 
 /// Resolve the IR type name backing this call's result.
