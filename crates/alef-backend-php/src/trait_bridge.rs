@@ -286,7 +286,13 @@ pub fn gen_trait_bridge(
     if is_visitor_bridge {
         let struct_name = format!("Php{}Bridge", bridge_cfg.trait_name);
         let trait_path = trait_type.rust_path.replace('-', "_");
-        let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+        let mut code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
+
+        // Also emit the PHP interface stub so users can implement custom visitors
+        let interface_code = gen_visitor_interface(trait_type, bridge_cfg, &type_paths);
+        code.push_str(&interface_code);
+        code.push('\n');
+
         BridgeOutput { imports: vec![], code }
     } else {
         // Use the IR-driven TraitBridgeGenerator infrastructure
@@ -789,6 +795,92 @@ pub fn gen_bridge_function(
             body => &body,
         },
     ));
+
+    out
+}
+
+/// Generate a PHP interface stub definition for the trait.
+/// This allows PHP users to implement the interface and pass their implementation to functions.
+fn gen_visitor_interface(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let interface_name = format!("{}Interface", bridge_cfg.trait_name);
+    let mut out = String::with_capacity(2048);
+
+    // Interface declaration header
+    out.push_str(&crate::template_env::render(
+        "php_visitor_interface_start.jinja",
+        context! {
+            interface_name => &interface_name,
+        },
+    ));
+    out.push('\n');
+
+    // Generate each interface method
+    for method in &trait_type.methods {
+        if method.trait_source.is_some() {
+            continue;
+        }
+
+        let name = &method.name;
+
+        // Build method signature parameters (excluding self and only PHP-visible ones)
+        let mut method_params_parts = Vec::new();
+        let mut param_docs = Vec::new();
+
+        for p in &method.params {
+            // Skip the context parameter - it's internal to the bridge
+            let is_ctx_param = match &p.ty {
+                TypeRef::Named(n) => {
+                    Some(n.as_str()) == bridge_cfg.context_type.as_deref()
+                }
+                _ => false,
+            };
+            if is_ctx_param {
+                continue;
+            }
+
+            let ty_str = visitor_param_type(&p.ty, p.is_ref, p.optional, type_paths);
+            method_params_parts.push(format!("{}: {}", p.name, ty_str));
+
+            let doc = format!("     * @param {} ${}", ty_str, p.name);
+            param_docs.push(doc);
+        }
+
+        let method_params = if method_params_parts.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", method_params_parts.join(", "))
+        };
+
+        let param_docs_str = if param_docs.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", param_docs.join("\n"))
+        };
+
+        // Get docstring from method
+        let doc_lines = if !method.doc.is_empty() {
+            method.doc.lines().next().unwrap_or("").to_string()
+        } else {
+            format!("Handle for {} callback", name)
+        };
+
+        out.push_str(&crate::template_env::render(
+            "php_visitor_interface_method.jinja",
+            context! {
+                method_name => name,
+                method_params => &method_params,
+                doc_lines => &doc_lines,
+                param_docs => &param_docs_str,
+            },
+        ));
+        out.push('\n');
+    }
+
+    out.push_str("}\n");
 
     out
 }

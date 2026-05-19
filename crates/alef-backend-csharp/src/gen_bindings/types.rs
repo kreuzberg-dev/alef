@@ -479,6 +479,10 @@ fn gen_opaque_method(
                     minijinja::context! { indent => "            ", exception_name, cs_native_name },
                 ));
             }
+        } else if method.error_type.is_some() {
+            out.push_str(
+                "            if (NativeMethods.LastErrorCode() != 0)\n            {\n                throw GetLastError();\n            }\n",
+            );
         }
 
         emit_return_marshalling_indented(
@@ -556,6 +560,10 @@ fn gen_opaque_method(
                     minijinja::context! { indent => "        ", exception_name, cs_native_name },
                 ));
             }
+        } else if method.error_type.is_some() {
+            out.push_str(
+                "        if (NativeMethods.LastErrorCode() != 0)\n        {\n            throw GetLastError();\n        }\n",
+            );
         }
 
         emit_return_marshalling_indented(
