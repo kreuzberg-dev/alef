@@ -33,7 +33,6 @@ fn should_skip_ffi_method(func: &FunctionDef) -> bool {
     false
 }
 
-
 fn sanitize_doc_for_csharp(doc: &str) -> String {
     doc.lines()
         .filter_map(|line| {
@@ -101,10 +100,11 @@ pub(super) fn gen_wrapper_class(
     let handle_returned_types = super::errors::compute_handle_returned_types(api);
 
     // Generate wrapper methods for functions
-    for func in api.functions.iter().filter(|f| {
-        !exclude_functions.contains(&f.name)
-            && !should_skip_ffi_method(f)
-    }) {
+    for func in api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name) && !should_skip_ffi_method(f))
+    {
         // Check if this function has a bridge_field binding (e.g., visitor field on options)
         let bridge_field = find_bridge_field(func, &api.types, trait_bridges);
         if let Some(bm) = bridge_field {
