@@ -132,6 +132,9 @@ pub(super) fn gen_init_py(
     // type seen by static analysis tools matches the actual runtime object returned by functions.
     let mut native_return_types: Vec<String> = Vec::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        if typ.name.ends_with("Builder") {
+            continue;
+        }
         if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() {
             let is_native_return = typ.is_return_type && output_style != PythonDtoStyle::TypedDict;
             if is_native_return {
@@ -172,9 +175,9 @@ pub(super) fn gen_init_py(
     let mut imports_from_native: Vec<String> = Vec::new();
     let options_type_set: AHashSet<&str> = config_types.iter().map(|s| s.as_str()).collect();
     let error_type_set: AHashSet<&str> = api.errors.iter().map(|e| e.name.as_str()).collect();
-    // Update types are internal; skip them.
+    // Update and Builder types are internal; skip them.
     for typ in api.types.iter().filter(|t| !t.is_trait) {
-        if typ.name.ends_with("Update") {
+        if typ.name.ends_with("Update") || typ.name.ends_with("Builder") {
             continue;
         }
         if error_type_set.contains(typ.name.as_str()) {
