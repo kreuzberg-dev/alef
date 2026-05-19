@@ -569,9 +569,6 @@ pub(crate) fn gen_native_lib(
         .collect();
     for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
         for method in &typ.methods {
-            if method.is_static {
-                continue;
-            }
             if streaming_adapter_method_keys.contains(&(typ.name.clone(), method.name.to_snake_case())) {
                 continue;
             }
@@ -582,7 +579,15 @@ pub(crate) fn gen_native_lib(
             let handle_name = format!("{}_{}_{}", prefix.to_uppercase(), owner_upper, method_upper);
             let ffi_name = format!("{}_{}_{}", prefix, owner_snake, method_snake);
 
-            let mut param_layouts: Vec<String> = vec!["ValueLayout.ADDRESS".to_string()];
+            // Instance methods carry the receiver pointer as the first FFI param;
+            // static factory methods do not. The static-factory case still needs a
+            // MethodHandle for the same FFI symbol — see `gen_static_factory_method`
+            // in `types.rs` which references this handle.
+            let mut param_layouts: Vec<String> = if method.is_static {
+                Vec::new()
+            } else {
+                vec!["ValueLayout.ADDRESS".to_string()]
+            };
             // For method parameters, expand Bytes to (ptr, len) pairs
             for p in &method.params {
                 match &p.ty {
