@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-extract: skip `From`/`Into`/`TryFrom`/`TryInto` trait method extraction.** These conversion-trait impls reference Rust-only counterpart types (e.g. `impl From<tree_sitter::Point> for Point` references `tree_sitter::Point`, which has no representation in any target language). Emitting them produced nonsensical signatures like `Point.from(Point p)` in Java/C# and uncompilable code in napi where the input type was ambiguous between the JsX wrapper and the Rust counterpart. `Default` is intentionally retained — `Default::default()` is a legitimate preset constructor we want emitted. Fix in `crates/alef-extract/src/extractor/functions.rs::extract_trait_impl_methods`.
+
 ### Added
 
 - **alef-backend-java: keyword-safe sanitiser `safe_java_method_name` for Rust impl-method names.** Rust impl blocks use names that are Java reserved words — `default`, `new`, `class`, etc. — and emitting them verbatim produces non-compiling Java (`public static Parser default()`). Sanitiser renames `default` → `defaultInstance` and `new` → `create`; any other `JAVA_KEYWORDS` collision falls back to a trailing-underscore suffix. Replaces the ad-hoc `if method.name == "default"` check in `emit_record_methods` and wires the new opaque static-factory and instance-method emission through the same helper. Lives in `crates/alef-backend-java/src/gen_bindings/helpers.rs`.
