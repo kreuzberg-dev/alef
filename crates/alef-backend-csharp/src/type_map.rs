@@ -190,7 +190,7 @@ mod tests {
         );
         assert_eq!(
             CsharpMapper.map_type(&TypeRef::Named("HttpStatus".to_string())),
-            "HTTPStatus"
+            "HttpStatus"
         );
     }
 

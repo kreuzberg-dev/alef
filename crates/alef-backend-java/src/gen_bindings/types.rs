@@ -209,12 +209,14 @@ pub(crate) fn gen_record_type(
     if typ.has_serde {
         record_block.push_str("@JsonInclude(JsonInclude.Include.NON_ABSENT)\n");
     }
-    // When a builder is available, configure Jackson to use it during deserialization.
+    // When a builder is emitted, configure Jackson to use it during deserialization.
     // This ensures that fields with serde defaults (e.g., `enabled = true`) use the
     // builder's defaults instead of Java primitive defaults (false for bool).
     // The builder is emitted as a nested static class `Builder` inside this record,
-    // so the reference is `<TypeName>.Builder.class` (not `<TypeName>Builder.class`).
-    if typ.has_default {
+    // so the reference is `<TypeName>.Builder.class`. Gate on `should_emit_builder`
+    // — without the nested Builder, `@JsonDeserialize(builder = ...)` references a
+    // non-existent class.
+    if should_emit_builder(typ, builder_mode) {
         record_block.push_str("@JsonDeserialize(builder = ");
         record_block.push_str(&typ.name);
         record_block.push_str(".Builder.class)\n");
@@ -246,9 +248,11 @@ pub(crate) fn gen_record_type(
         record_block.push_str(") {\n");
     }
 
-    // Add builder() factory method if type has defaults.
-    // Returns the nested `Builder` class rather than a sibling top-level `FooBuilder`.
-    if typ.has_default {
+    // Add builder() factory method only when the nested Builder class is also
+    // emitted (mirrors `should_emit_builder` at the nested-class emission site
+    // below). Records that fall below the auto-emit threshold should not
+    // expose a factory whose return type doesn't exist.
+    if should_emit_builder(typ, builder_mode) {
         record_block.push_str("    public static Builder builder() {\n");
         record_block.push_str("        return new Builder();\n");
         record_block.push_str("    }\n");
@@ -478,8 +482,10 @@ pub(crate) fn gen_record_type(
     if needs_json_serialize {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonSerialize");
     }
-    // @JsonPOJOBuilder is needed when the nested Builder class is emitted inside the record.
-    if typ.has_default {
+    // @JsonPOJOBuilder is needed only when the nested Builder class is actually
+    // emitted inside the record — match `should_emit_builder` (line 362) so we
+    // don't import a class we don't reference.
+    if should_emit_builder(typ, builder_mode) {
         imports.push("com.fasterxml.jackson.databind.annotation.JsonPOJOBuilder");
     }
     // No `import java.beans.Transient;` is needed: records have no fields to mark

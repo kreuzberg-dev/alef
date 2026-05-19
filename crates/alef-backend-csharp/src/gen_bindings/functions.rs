@@ -129,6 +129,21 @@ pub(super) fn gen_native_methods(
                     opaque_return_types.insert(name.to_string());
                 }
             }
+            // Instance methods (`fn with_*(self, ...)`) get a C# wrapper that
+            // serialises `this` via `NativeMethods.{Type}FromJson(selfJson)` and
+            // calls `{Type}ToJson` / `{Type}Free` on the returned handle. Those
+            // calls need matching DllImport declarations, so register the owner
+            // type as both a param and return type. Without this, types whose
+            // only self-consuming methods take no Named params (e.g.
+            // `ProblemDetails.with_detail(self, detail: String) -> Self`) never
+            // appear in opaque_param_types / opaque_return_types and the
+            // declarations are omitted.
+            if method.receiver.is_some() {
+                opaque_param_types.insert(typ.name.clone());
+                if !enum_names.contains(&typ.name) {
+                    opaque_return_types.insert(typ.name.clone());
+                }
+            }
         }
     }
 

@@ -1629,6 +1629,7 @@ fn go_return_expr_inner(
                 // The FFI backend emits _to_json for all non-opaque types (including those whose
                 // fields are all primitives/strings), so we always use the JSON path here.
                 let type_snake = name.to_snake_case();
+                let go_type = go_type_name(name);
                 format!(
                     "func() *{go_type} {{\n\
                      \tjsonPtr := C.{ffi_prefix}_{type_snake}_to_json({var_name})\n\
@@ -1638,7 +1639,7 @@ fn go_return_expr_inner(
                      \tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {{ return nil }}\n\
                      \treturn &result\n\
                      }}()",
-                    go_type = name,
+                    go_type = go_type,
                     ffi_prefix = ffi_prefix,
                     type_snake = type_snake,
                     var_name = var_name,
