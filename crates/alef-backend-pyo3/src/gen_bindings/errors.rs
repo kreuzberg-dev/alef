@@ -39,6 +39,33 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
             minijinja::context! { name => &error.name, doc => doc },
         ));
 
+        // Introspection @property stubs on the base exception class.
+        // These are backed by #[getter] methods in the PyO3 #[pymethods] impl block
+        // which reads the values from the exception's args tuple (indices 1, 2, 3).
+        for method in &error.methods {
+            match method.name.as_str() {
+                "status_code" => {
+                    out.push_str(
+                        "    @property\n    def status_code(self) -> int:\n        \
+                         \"\"\"HTTP status code for this error (0 means no associated status).\"\"\"\n        ...\n",
+                    );
+                }
+                "is_transient" => {
+                    out.push_str(
+                        "    @property\n    def is_transient(self) -> bool:\n        \
+                         \"\"\"Returns True if the error is transient and a retry may succeed.\"\"\"\n        ...\n",
+                    );
+                }
+                "error_type" => {
+                    out.push_str(
+                        "    @property\n    def error_type(self) -> str:\n        \
+                         \"\"\"Machine-readable error category string for matching and logging.\"\"\"\n        ...\n",
+                    );
+                }
+                _ => {}
+            }
+        }
+
         // Per-variant exception subclasses
         for variant in &error.variants {
             let variant_name = alef_codegen::error_gen::python_exception_name(&variant.name, &error.name);
