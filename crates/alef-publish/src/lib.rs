@@ -640,6 +640,7 @@ fn run_publish_after_hooks(lang: Language, lang_config: &PublishLanguageConfig) 
 mod tests {
     use super::*;
     use alef_core::config::output::StringOrVec;
+    #[cfg(not(target_os = "windows"))]
     use std::fs;
     use std::path::PathBuf;
     use tempfile::TempDir;
