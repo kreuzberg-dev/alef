@@ -1719,10 +1719,7 @@ const BUILDER_AUTO_THRESHOLD: usize = 8;
 fn is_complex_field_type(ty: &TypeRef) -> bool {
     matches!(
         ty,
-        TypeRef::Named(_)
-            | TypeRef::Vec(_)
-            | TypeRef::Map(_, _)
-            | TypeRef::Json
+        TypeRef::Named(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Json
     )
 }
 

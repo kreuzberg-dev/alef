@@ -83,9 +83,8 @@ fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>)
     for typ in &mut filtered.types {
         typ.fields
             .retain(|field| !references_excluded_type(&field.ty, exclude_types));
-        typ.methods.retain(|method| {
-            !signature_references_excluded_type(&method.params, &method.return_type, exclude_types)
-        });
+        typ.methods
+            .retain(|method| !signature_references_excluded_type(&method.params, &method.return_type, exclude_types));
     }
     filtered
         .enums
@@ -97,12 +96,10 @@ fn api_without_excluded_types(api: &ApiSurface, exclude_types: &HashSet<String>)
                 .retain(|field| !references_excluded_type(&field.ty, exclude_types));
         }
     }
-    filtered.functions.retain(|func| {
-        !signature_references_excluded_type(&func.params, &func.return_type, exclude_types)
-    });
     filtered
-        .errors
-        .retain(|error| !exclude_types.contains(&error.name));
+        .functions
+        .retain(|func| !signature_references_excluded_type(&func.params, &func.return_type, exclude_types));
+    filtered.errors.retain(|error| !exclude_types.contains(&error.name));
     filtered
 }
 

@@ -431,16 +431,14 @@ impl Backend for PhpBackend {
                     method_items.push(format!(
                         "pub fn {}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
                         crate::{}(name)\n}}",
-                        unregister_fn,
-                        unregister_fn
+                        unregister_fn, unregister_fn
                     ));
                 }
                 if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                     method_items.push(format!(
                         "pub fn {}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
                         crate::{}()\n}}",
-                        clear_fn,
-                        clear_fn
+                        clear_fn, clear_fn
                     ));
                 }
             }

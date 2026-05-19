@@ -490,6 +490,41 @@ pub fn emit_trait_bridge(prefix: &str, bridge_cfg: &TraitBridgeConfig, trait_def
         ));
         out.push_str("}\n");
         out.push('\n');
+
+        // ---------------------------------------------------------------
+        // Clear wrapper (registry-wide reset).
+        //
+        // The Zig wrapper is named after `bridge_cfg.clear_fn` verbatim
+        // (e.g. `clear_ocr_backends` — pluralised by convention to signal
+        // multi-removal). The underlying C FFI symbol follows the singular
+        // trait-snake naming used elsewhere in `kreuzberg-ffi`
+        // (`kreuzberg_clear_ocr_backend`), so derive `c_clear` from
+        // `trait_snake` rather than from `clear_fn`.
+        // ---------------------------------------------------------------
+        if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+            let c_clear = format!("c.{prefix}_clear_{snake}");
+
+            out.push_str(&crate::template_env::render(
+                "clear_fn_doc.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "clear_fn_signature.jinja",
+                minijinja::context! {
+                    clear_fn => clear_fn,
+                },
+            ));
+            out.push_str(&crate::template_env::render(
+                "clear_fn_body.jinja",
+                minijinja::context! {
+                    c_clear => &c_clear,
+                },
+            ));
+            out.push_str("}\n");
+            out.push('\n');
+        }
     } else {
         // Options-field binding: emit a vtable -> handle helper that wraps the
         // C callbacks struct into the trait-object handle expected by the

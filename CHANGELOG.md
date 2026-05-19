@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-csharp**: emit `Clear()` static method on each trait-bridge nested class (was previously omitted, leaving plugin registries un-clearable from .NET consumers).
+
 ### Added
 
 - **alef-backend-magnus: emit Ruby 3.2+ `Data.define` sum types with marker modules instead of class inheritance.** Data-carrying internally-tagged enums now generate a marker module with `interface!` and `abstract!` Sorbet annotations, plus a dispatcher `from_hash(hash)` that routes to the correct variant by discriminator tag. Each variant becomes `<Name> = Data.define(:field1, :field2) do include MarkerModule ... end`, gaining Sorbet-typed attribute readers, variant predicate methods (e.g., `characters?`, `tokenizer?`), and per-variant `from_hash` factories. This is the canonical Ruby 3.2+ idiom for sealed sum types: modules can be mixed into Data classes, so instances return `true` for `is_a?(MarkerModule)` while retaining all Data-class ergonomics (immutability, destructuring, equality). The previous class-inheritance hierarchy pattern caused issues with advanced Ruby idioms and prevented safe integration with other Data-based code. (`crates/alef-backend-magnus/src/gen_bindings/mod.rs`)

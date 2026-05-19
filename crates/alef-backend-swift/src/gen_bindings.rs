@@ -118,8 +118,8 @@ impl Backend for SwiftBackend {
                 }
                 // Check if all visible (binding-non-excluded) fields are supported given the
                 // current known set (struct DTOs + unit serde enums).
-                let all_supported = binding_fields(&ty.fields)
-                    .all(|field| first_class_field_supported(&field.ty, &known_dto_names));
+                let all_supported =
+                    binding_fields(&ty.fields).all(|field| first_class_field_supported(&field.ty, &known_dto_names));
                 if all_supported {
                     known_dto_names.insert(ty.name.clone());
                 }
@@ -143,7 +143,14 @@ impl Backend for SwiftBackend {
         {
             emit_doc_comment(&ty.doc, "", &mut body);
             if can_emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names) {
-                emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names, &unit_serde_enum_names, &mut body);
+                emit_first_class_struct(
+                    ty,
+                    &mapper,
+                    &exclude_fields,
+                    &known_dto_names,
+                    &unit_serde_enum_names,
+                    &mut body,
+                );
             } else {
                 body.push_str(&crate::template_env::render(
                     "typealias.jinja",
@@ -272,7 +279,14 @@ impl Backend for SwiftBackend {
         // free function accessible via `RustBridge.{swiftName}(json)`. Without a
         // forwarding wrapper in this module, callers would need the `RustBridge.`
         // prefix, which the generated e2e test layer doesn't use.
-        emit_from_json_forwarders(api, &exclude_types, &mapper, &exclude_fields, &known_dto_names, &mut body);
+        emit_from_json_forwarders(
+            api,
+            &exclude_types,
+            &mapper,
+            &exclude_fields,
+            &known_dto_names,
+            &mut body,
+        );
 
         // Emit Swift protocol + adapter class for OptionsField inbound trait bridges.
         // Each bridge in `config.trait_bridges` where `bind_via = "options_field"` gets:
@@ -765,7 +779,9 @@ fn swift_ffi_read_expr(
             // Since the bridge generates the value, the rawValue is always valid for known variants
             // (unknown variants map to `other` when the enum has a catch-all, or panic otherwise).
             // Using non-optional init here: callers that care about safety should make the field optional.
-            format!("{name}(rawValue: rb.{accessor}().toString()) ?? {{ fatalError(\"Unknown {name}: \\(rb.{accessor}().toString())\") }}()")
+            format!(
+                "{name}(rawValue: rb.{accessor}().toString()) ?? {{ fatalError(\"Unknown {name}: \\(rb.{accessor}().toString())\") }}()"
+            )
         }
 
         // Named(S) where S is a first-class struct: getter returns RustBridge.S (or S?).
@@ -794,16 +810,14 @@ fn swift_ffi_read_expr(
                 }
             }
         }
-        TypeRef::Vec(inner) => {
-            match inner.as_ref() {
-                TypeRef::Primitive(_) => format!("Array(rb.{accessor}())"),
-                TypeRef::String => format!("rb.{accessor}().map {{ $0.toString() }}"),
-                TypeRef::Named(name) if known_dto_names.contains(name) => {
-                    format!("try rb.{accessor}().map {{ try {name}($0) }}")
-                }
-                _ => format!("rb.{accessor}()"),
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Primitive(_) => format!("Array(rb.{accessor}())"),
+            TypeRef::String => format!("rb.{accessor}().map {{ $0.toString() }}"),
+            TypeRef::Named(name) if known_dto_names.contains(name) => {
+                format!("try rb.{accessor}().map {{ try {name}($0) }}")
             }
-        }
+            _ => format!("rb.{accessor}()"),
+        },
 
         // TypeRef::Optional(inner) — the extractor-wrapped nullable form.
         // For Optional<Named(unit_enum)>: getter returns Option<String> (serde-serialized).
@@ -833,7 +847,10 @@ fn swift_ffi_read_expr(
 
 /// Returns the element-level Swift expression used in a `.map { ... }` closure when
 /// converting a `RustVec<T>` element to its first-class Swift equivalent.
-fn vec_elem_convert_expr(inner: &alef_core::ir::TypeRef, known_dto_names: &std::collections::HashSet<String>) -> String {
+fn vec_elem_convert_expr(
+    inner: &alef_core::ir::TypeRef,
+    known_dto_names: &std::collections::HashSet<String>,
+) -> String {
     use alef_core::ir::TypeRef;
     match inner {
         TypeRef::String => "$0.toString()".to_string(),
@@ -874,7 +891,10 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         // and per-variant serde_rename overrides) so JSONDecoder/JSONEncoder round-trip
         // correctly against the Rust wire format.
         let _ = mapper; // mapper unused for case bodies — suppress unused warning
-        out.push_str(&format!("public enum {}: String, Codable, Sendable, Hashable {{\n", en.name));
+        out.push_str(&format!(
+            "public enum {}: String, Codable, Sendable, Hashable {{\n",
+            en.name
+        ));
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
@@ -2458,7 +2478,9 @@ fn emit_single_free_function_forwarder(func: &FunctionDef, swift_name: &str, out
     if !func.doc.is_empty() {
         emit_doc_comment(&func.doc, "", out);
     }
-    out.push_str(&format!("public func {swift_name}({sig}){throws_clause}{return_clause} {{\n"));
+    out.push_str(&format!(
+        "public func {swift_name}({sig}){throws_clause}{return_clause} {{\n"
+    ));
     for line in &conversion_lines {
         out.push_str(&format!("    {line}\n"));
     }
@@ -2652,10 +2674,7 @@ fn emit_trait_bridge_forwarders(config: &ResolvedCrateConfig, out: &mut String) 
         if bridge_cfg.exclude_languages.iter().any(|l| l == "swift") {
             continue;
         }
-        if bridge_cfg.register_fn.is_none()
-            && bridge_cfg.unregister_fn.is_none()
-            && bridge_cfg.clear_fn.is_none()
-        {
+        if bridge_cfg.register_fn.is_none() && bridge_cfg.unregister_fn.is_none() && bridge_cfg.clear_fn.is_none() {
             continue;
         }
         if !emitted_any {

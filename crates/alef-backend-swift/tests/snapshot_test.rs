@@ -1293,7 +1293,9 @@ fn snapshot_into_rust_bulk_constructor_nested() {
 
     // ProcessResult.init(_ rb:) must use .map conversions for Vec fields.
     assert!(
-        swift_file.content.contains("try rb.diagnostics().map { try Diagnostic($0) }"),
+        swift_file
+            .content
+            .contains("try rb.diagnostics().map { try Diagnostic($0) }"),
         "ProcessResult init must convert Vec<Diagnostic> via .map:\n{}",
         swift_file.content
     );

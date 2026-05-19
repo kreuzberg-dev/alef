@@ -210,21 +210,26 @@ impl Backend for ZigBackend {
             map
         };
 
-        // Functions matching `register_{trait_snake}` / `unregister_{trait_snake}` for
-        // any configured trait bridge are emitted by `emit_trait_bridge` with a
-        // proper vtable signature. Skip the regular C-FFI shim to avoid duplicate
-        // function definitions.
+        // Functions matching `register_{trait_snake}` / `unregister_{trait_snake}` /
+        // the configured `clear_fn` for any configured trait bridge are emitted by
+        // `emit_trait_bridge` with a proper vtable signature. Skip the regular
+        // C-FFI shim to avoid duplicate function definitions.
         let trait_bridge_fn_names: std::collections::HashSet<String> = config
             .trait_bridges
             .iter()
             .filter(|b| !b.exclude_languages.iter().any(|lang| lang == "zig"))
-            .filter_map(|b| {
-                api.types
-                    .iter()
-                    .find(|t| t.name == b.trait_name && t.is_trait)
-                    .map(|t| heck::AsSnakeCase(&t.name).to_string())
+            .flat_map(|b| {
+                let mut names = Vec::new();
+                if let Some(trait_def) = api.types.iter().find(|t| t.name == b.trait_name && t.is_trait) {
+                    let snake = heck::AsSnakeCase(&trait_def.name).to_string();
+                    names.push(format!("register_{snake}"));
+                    names.push(format!("unregister_{snake}"));
+                }
+                if let Some(clear_fn) = b.clear_fn.as_deref() {
+                    names.push(clear_fn.to_string());
+                }
+                names
             })
-            .flat_map(|snake| [format!("register_{snake}"), format!("unregister_{snake}")])
             .collect();
         for f in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
             if trait_bridge_fn_names.contains(&f.name) {

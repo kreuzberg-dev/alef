@@ -722,19 +722,16 @@ pub(super) fn gen_dto_method_fns(
 
                 // Look up the param's core type from the API surface
                 let core_param_type = match &param.ty {
-                    alef_core::ir::TypeRef::Named(param_type_name) => {
-                        api.types
-                            .iter()
-                            .find(|t| t.name == *param_type_name)
-                            .map(|t| t.rust_path.replace('-', "_"))
-                            .unwrap_or_else(|| param_type_name.clone())
-                    }
+                    alef_core::ir::TypeRef::Named(param_type_name) => api
+                        .types
+                        .iter()
+                        .find(|t| t.name == *param_type_name)
+                        .map(|t| t.rust_path.replace('-', "_"))
+                        .unwrap_or_else(|| param_type_name.clone()),
                     other_ty => mapper.map_type(other_ty).to_string(),
                 };
 
-                format!(
-                    "let _arg: {core_param_type} = {param_expr};\n    {core_type_path}::from(_arg)",
-                )
+                format!("let _arg: {core_param_type} = {param_expr};\n    {core_type_path}::from(_arg)",)
             } else {
                 format!("{core_type_path}::{}({call_args_str})", method.name)
             };

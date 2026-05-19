@@ -8,4 +8,10 @@
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ bridge.unregister_fn }}")]
     internal static extern int Unregister{{ bridge.trait_name }}([MarshalAs(UnmanagedType.LPUTF8Str)] string name, out IntPtr outError);
 {% endif %}
+
+{% if bridge.has_clear %}
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "{{ bridge.clear_fn }}")]
+    internal static extern int Clear{{ bridge.trait_name }}(out IntPtr outError);
+{% endif %}
+
 {% endfor %}

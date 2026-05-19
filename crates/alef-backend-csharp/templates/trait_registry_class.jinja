@@ -61,4 +61,18 @@ public static class {{ trait_pascal }}Registry {
         }
     }
 {% endif %}
+
+{% if has_clear %}
+    /// <summary>Clear all registered {{ trait_pascal }} implementations</summary>
+    public static void Clear() {
+        var result = NativeMethods.Clear{{ trait_pascal }}(out var outError);
+        if (result != 0) {
+            var errorMsg = Marshal.PtrToStringUTF8(outError) ?? "Unknown error";
+            Marshal.FreeCoTaskMem(outError);
+            throw new InvalidOperationException($"Failed to clear {{ trait_pascal }} registry: {errorMsg}");
+        }
+
+        _bridges.Clear();
+    }
+{% endif %}
 }

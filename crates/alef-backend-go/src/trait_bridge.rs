@@ -179,6 +179,10 @@ pub fn gen_trait_bridges_file(
 
     // Generate interfaces, trampolines, and registration functions for each bridge
     for bridge_cfg in &config.trait_bridges {
+        // Skip trait bridges excluded for this language
+        if bridge_cfg.exclude_languages.iter().any(|lang| lang == "go") {
+            continue;
+        }
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
             gen_trait_bridge(
                 &mut out,

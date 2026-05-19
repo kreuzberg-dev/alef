@@ -90,11 +90,15 @@ pub fn gen_native_methods_trait_bridges(
                 .unwrap_or_else(|| format!("{prefix}_register_{trait_snake}"));
             let has_unregister = config.unregister_fn.is_some();
             let unregister_fn = config.unregister_fn.as_deref().unwrap_or("").to_string();
+            let has_clear = config.clear_fn.is_some();
+            let clear_fn = config.clear_fn.as_deref().unwrap_or("").to_string();
             Value::from_serialize(serde_json::json!({
                 "trait_name": trait_name,
                 "register_fn": register_fn,
                 "has_unregister": has_unregister,
                 "unregister_fn": unregister_fn,
+                "has_clear": has_clear,
+                "clear_fn": clear_fn,
             }))
         })
         .collect();
@@ -558,12 +562,16 @@ fn gen_single_trait_bridge(
 
     // --- Registry Class ---
     let has_unregister = bridge_cfg.unregister_fn.is_some();
+    let has_clear = bridge_cfg.clear_fn.is_some();
+    let clear_fn = bridge_cfg.clear_fn.as_deref().unwrap_or("").to_string();
     out.push_str(&render(
         "trait_registry_class.jinja",
         Value::from_serialize(serde_json::json!({
             "trait_pascal": trait_pascal,
             "has_super_trait": has_super_trait,
             "has_unregister": has_unregister,
+            "has_clear": has_clear,
+            "clear_fn": clear_fn,
         })),
     ));
 }
