@@ -602,6 +602,23 @@ impl Backend for PhpBackend {
         // From impls for tagged data enums lowered to flat PHP classes.
         for enum_def in api.enums.iter().filter(|e| is_tagged_data_enum(e)) {
             builder.add_item(&gen_flat_data_enum_from_impls(enum_def, &core_import));
+            // Also generate From impls for variant data types (e.g., ArchiveMetadata from FormatMetadata::Archive).
+            // These are needed when flat enum binding→core conversion calls `.into()` on variant fields.
+            for variant in &enum_def.variants {
+                for field in &variant.fields {
+                    if let TypeRef::Named(type_name) = &field.ty {
+                        if let Some(typ) = api.types.iter().find(|t| &t.name == type_name) {
+                            if alef_codegen::conversions::can_generate_conversion(typ, &convertible) {
+                                builder.add_item(&alef_codegen::conversions::gen_from_binding_to_core_cfg(
+                                    typ,
+                                    &core_import,
+                                    &php_conv_config,
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Error converter functions + optional introspection method impl structs
