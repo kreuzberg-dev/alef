@@ -2808,3 +2808,119 @@ fn test_record_static_factory_named_param_emits_handle_marshaling() {
         result_file.content
     );
 }
+
+/// Compile-level check: generate C# for a record type whose instance method takes a `bool`
+/// parameter, write all files to a temp directory, and invoke `dotnet build` to verify the
+/// generated output is free of type errors (e.g. passing `int` to a `bool` P/Invoke param).
+#[test]
+fn test_bool_param_record_method_compiles_with_dotnet() {
+    if std::process::Command::new("dotnet").arg("--version").output().is_err() {
+        eprintln!("dotnet not in PATH — skipping compile test");
+        return;
+    }
+
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "PaddleOcrConfig".to_string(),
+            rust_path: "test::PaddleOcrConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "with_table_detection".to_string(),
+                params: vec![ParamDef {
+                    name: "enable".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Write generated files to a temp directory preserving their relative paths.
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    for file in &files {
+        let dest = tmp.path().join(&file.path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).expect("failed to create dir");
+        }
+        std::fs::write(&dest, &file.content).expect("failed to write generated file");
+    }
+
+    // Place the .csproj alongside the generated Directory.Build.props so MSBuild
+    // inherits Nullable/LangVersion/TreatWarningsAsErrors and discovers all .cs
+    // files in the Test/ subdirectory automatically.
+    let csproj_dir = tmp.path().join("packages/csharp");
+    std::fs::create_dir_all(&csproj_dir).unwrap();
+    std::fs::write(
+        csproj_dir.join("Compilation.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\">\n\
+         <PropertyGroup>\n\
+           <TargetFramework>net8.0</TargetFramework>\n\
+           <OutputType>Library</OutputType>\n\
+         </PropertyGroup>\n\
+         </Project>\n",
+    )
+    .expect("failed to write csproj");
+
+    let output = std::process::Command::new("dotnet")
+        .args(["build", "--nologo", "-v:quiet"])
+        .current_dir(&csproj_dir)
+        .output()
+        .expect("failed to spawn dotnet build");
+
+    assert!(
+        output.status.success(),
+        "dotnet build failed — the generated C# does not compile.\n\
+         This catches type mismatches such as passing int to a bool P/Invoke parameter.\n\
+         stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+}
