@@ -3964,6 +3964,77 @@ fn test_options_py_does_not_emit_screaming_alias_lines() {
     );
 }
 
+/// `options.py` must escape variant names whose snake_case form collides with a Python
+/// reserved keyword. The HTML `<del>` tag maps to a Rust `NodeType::Del` variant; without
+/// escaping, this emits `del = "del"` which is unparseable as a class-body statement.
+/// `alef_core::keywords::python_ident` appends `_` (`del_ = "del"`).
+#[test]
+fn test_options_py_escapes_python_keyword_variant_names() {
+    let backend = Pyo3Backend;
+    // Need a has_default type referencing the enum so it ends up in `needed_enums` and
+    // the StrEnum class body is emitted into options.py.
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ConversionOptions".to_string(),
+            rust_path: "test_lib::ConversionOptions".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("node", TypeRef::Named("NodeType".to_string()), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![make_unit_enum_def("NodeType", &["Del", "Ins"])],
+        errors: vec![],
+        excluded_type_paths: HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_config();
+    let files = backend
+        .generate_public_api(&api, &config)
+        .expect("generate_public_api must succeed");
+    let options_py = files
+        .iter()
+        .find(|f| f.path.ends_with("options.py"))
+        .map(|f| f.content.as_str())
+        .unwrap_or_else(|| {
+            panic!(
+                "options.py not emitted. files: {:?}",
+                files.iter().map(|f| f.path.display().to_string()).collect::<Vec<_>>()
+            )
+        });
+
+    assert!(
+        options_py.contains("del_ = \"del\"") || options_py.contains("del_ = 'del'"),
+        "options.py must escape Python-keyword variant Del → del_ (with original 'del' as value), got:\n{}",
+        options_py
+    );
+    assert!(
+        !options_py.contains("\n    del = "),
+        "options.py must NOT emit the unescaped keyword `del` as a class attribute, got:\n{}",
+        options_py
+    );
+    assert!(
+        options_py.contains("ins = \"ins\"") || options_py.contains("ins = 'ins'"),
+        "non-keyword variants must still emit unescaped (ins), got:\n{}",
+        options_py
+    );
+}
+
 /// Bug A: void-returning functions should NOT emit `return` statement.
 /// Functions with `-> None` annotation must emit a bare call without `return`.
 #[test]

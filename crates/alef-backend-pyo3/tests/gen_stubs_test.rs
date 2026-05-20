@@ -1328,3 +1328,72 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
         content
     );
 }
+
+/// `.pyi` stub must escape variant names whose snake_case form collides with a Python
+/// reserved keyword. `Del` snake-cases to `del`, which is a Python statement keyword and
+/// produces unparseable stubs. The escape strategy appends `_` (`del_`), matching the
+/// field-name escape convention via `alef_core::keywords::python_ident`.
+#[test]
+fn test_pyi_stub_escapes_python_keyword_variant_names() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "NodeType".to_string(),
+            rust_path: "test_lib::NodeType".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Del".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "Ins".to_string(),
+                    fields: vec![],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+    let config = make_config_with_stubs();
+    let result = backend.generate_type_stubs(&api, &config).unwrap();
+    let content = result.into_iter().next().unwrap().content;
+
+    assert!(
+        content.contains("del_: NodeType = ..."),
+        "stub must escape Python-keyword variant Del → del_, got:\n{}",
+        content
+    );
+    assert!(
+        !content.contains("del: NodeType = ..."),
+        "stub must NOT emit the unescaped keyword `del` as an attribute name, got:\n{}",
+        content
+    );
+    assert!(
+        content.contains("ins: NodeType = ..."),
+        "non-keyword variants must still emit unescaped (ins), got:\n{}",
+        content
+    );
+}
