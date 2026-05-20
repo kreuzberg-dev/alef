@@ -1698,6 +1698,18 @@ fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
             let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
             let field_count = visible_fields.len();
 
+            // A `#[serde(flatten)]` field on a `serde_json::Value` type requires
+            // `@JsonAnySetter` to absorb unknown sibling keys at deserialize-time.
+            // That annotation can only live on a builder setter method — it cannot
+            // appear on a record component.  Force builder emission for any type
+            // that carries such a field, regardless of the Auto field-count thresholds.
+            if visible_fields
+                .iter()
+                .any(|f| f.serde_flatten && matches!(&f.ty, TypeRef::Json))
+            {
+                return true;
+            }
+
             // Auto: emit if field count >= 8, OR (has complex field AND count >= 5).
             if field_count >= BUILDER_AUTO_THRESHOLD {
                 return true;
@@ -2413,6 +2425,102 @@ mod tests {
         assert!(
             !out.contains("requestTimeout == 0"),
             "must not coerce explicit 0 — that is a user-intentional value"
+        );
+    }
+
+    /// A type with only 2 visible fields but one carrying `#[serde(flatten)]` on a
+    /// `serde_json::Value` field must still emit a Builder (with `@JsonAnySetter`)
+    /// regardless of the Auto field-count threshold.  Without the Builder, Jackson
+    /// cannot absorb unknown sibling keys and throws
+    /// `Unrecognized field "..." not marked as ignorable`.
+    #[test]
+    fn flatten_json_field_forces_builder_emission_below_auto_threshold() {
+        use alef_core::ir::CoreWrapper;
+        let typ = TypeDef {
+            name: "ResponseTool".to_string(),
+            rust_path: "liter_llm::ResponseTool".to_string(),
+            original_rust_path: "liter_llm::ResponseTool".to_string(),
+            fields: vec![
+                FieldDef {
+                    name: "tool_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: Some("\"\"".to_string()),
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: Some("type".to_string()),
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                },
+                FieldDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Json,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: true,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                },
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let out = gen_record_type(
+            "dev.kreuzberg.literllm",
+            &typ,
+            &AHashSet::default(),
+            &AHashSet::default(),
+            "SNAKE_CASE",
+            false,
+            "LiterLlmRs",
+            JavaBuilderMode::Auto,
+        );
+        // Builder must be emitted so @JsonAnySetter can absorb unknown sibling fields.
+        assert!(
+            out.contains("@JsonDeserialize(builder = ResponseTool.Builder.class)"),
+            "flatten+Json type must emit Builder even with < 5 fields"
+        );
+        assert!(
+            out.contains("@com.fasterxml.jackson.annotation.JsonAnySetter"),
+            "Builder must have @JsonAnySetter to absorb unknown sibling fields"
+        );
+        // The record field itself should still use @JsonAnyGetter for serialization.
+        assert!(
+            out.contains("@com.fasterxml.jackson.annotation.JsonAnyGetter"),
+            "record field must still carry @JsonAnyGetter for serialization"
         );
     }
 }
