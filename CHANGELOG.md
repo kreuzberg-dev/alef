@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.12] - 2026-05-20
+
 ### Fixed
 
 - **alef-backend-kotlin: emit `open val` with zero-value defaults instead of `abstract val` for error introspection properties (`statusCode`/`isTransient`/`errorType`).** The Kotlin Android JNI bridge throws a flat `<App>BridgeException` (see `crates/<lib>-jni/src/lib.rs`'s `throw_jni_error`) rather than constructing sealed-class variants. With `abstract val`, every `data class` variant in the sealed hierarchy failed `Class '<App>Error.X' is not abstract and does not implement abstract base class members: val errorType: String` and broke `assembleRelease`. The new `kotlin_zero_value` helper returns the literal zero for `Boolean`/`Byte`/`Short`/`Int`/`Long`/`Float`/`Double`/`String`/nullable types so the sealed class compiles. Variants can still opt into a concrete override when domain code constructs the error directly. Surfaced on liter-llm CI Mobile (`packages/kotlin-android/src/main/kotlin/dev/kreuzberg/literllm/android/LiterLlmError.kt`). (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`, `crates/alef-backend-kotlin/tests/gen_bindings_test.rs`, `crates/alef-backend-kotlin-android/tests/docs_emission_test.rs`)
