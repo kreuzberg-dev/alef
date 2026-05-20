@@ -550,13 +550,20 @@ fn emit_first_class_struct(
     out.push_str(&format!("\n// MARK: - Internal FFI conversions for {type_name}\n"));
     out.push_str(&format!("internal extension {type_name} {{\n"));
 
-    // init(_ rb: RustBridge.Foo) throws
+    // init(_ rb: RustBridge.FooRef) throws
+    //
+    // Accept the `Ref` base class rather than the owned class so callers can
+    // pass either: an owned `RustBridge.Foo` (which is-a `RustBridge.FooRef`
+    // via swift-bridge's class hierarchy `Foo: FooRefMut: FooRef`) or a
+    // `FooRef` borrowed out of a `RustVec<Foo>` iteration. Without this, code
+    // like `try rb.layouts().map { try Layout($0) }` fails to compile with
+    // `cannot convert value of type 'LayoutRef' to expected argument type 'Layout'`.
     //
     // The Swift-side property name uses backtick escape (`swift_case_ident`),
     // while the RustBridge accessor uses the trailing-underscore form
     // (`swift_ident`) to match the swift-bridge-generated Rust method name —
     // see `gen_rust_crate::extern_block::emit_extern_block_for_type`.
-    out.push_str(&format!("    init(_ rb: RustBridge.{type_name}) throws {{\n"));
+    out.push_str(&format!("    init(_ rb: RustBridge.{type_name}Ref) throws {{\n"));
     for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
         let rust_accessor = swift_ident(&field.name.to_snake_case());
@@ -712,7 +719,8 @@ fn field_intorust_arg(
 
 /// Emit a `RustVec<U>` materialisation prelude and the argument referencing it.
 ///
-/// Supports inner types: Primitive (`RustVec<Int>` etc.), String (`RustVec<String>`),
+/// Supports inner types: Primitive (`RustVec<Int>` etc.), String (`RustVec<RustString>`,
+/// because swift-bridge's `Vectorizable` is implemented for `RustString` not `String`),
 /// and Named (`RustVec<RustBridge.Foo>` via per-element `intoRust()`).
 fn emit_vec_arg(elem: &alef_core::ir::TypeRef, self_property: &str, local: &str) -> Option<FieldArg> {
     use alef_core::ir::TypeRef;
@@ -722,7 +730,11 @@ fn emit_vec_arg(elem: &alef_core::ir::TypeRef, self_property: &str, local: &str)
             let swift_prim = SwiftMapper.primitive(prim).into_owned();
             (swift_prim, "__elem".to_string())
         }
-        TypeRef::String => ("String".to_string(), "__elem".to_string()),
+        // swift-bridge: `RustVec<T>` requires `T: Vectorizable`. Only `RustString` satisfies
+        // that for textual data — bare Swift `String` does not. Wrap each element with
+        // `RustString(__elem)` so the resulting `RustVec<RustString>` matches the Rust
+        // `Vec<String>` ABI expected by the bridge.
+        TypeRef::String => ("RustString".to_string(), "RustString(__elem)".to_string()),
         TypeRef::Named(name) => (format!("RustBridge.{name}"), "try __elem.intoRust()".to_string()),
         _ => return None,
     };
@@ -922,6 +934,7 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
             }
         }
         out.push_str("}\n");
+        emit_enum_into_rust_extension(&en.name, out);
         return;
     }
     // Data-variant enum (has_serde + not all_unit): emit as native Swift enum with associated values.
@@ -934,6 +947,36 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     for variant in &en.variants {
         emit_variant_with_data(variant, out, mapper);
     }
+    out.push_str("}\n");
+    emit_enum_into_rust_extension(&en.name, out);
+}
+
+/// Emits an `extension {EnumName} { func intoRust() throws -> RustBridge.{EnumName} { ... } }`
+/// block that converts a public Swift enum back to its opaque FFI-bridge counterpart.
+///
+/// The bridge enum (a swift-bridge `extern "Rust" { type {Name}; }`) is exposed as an
+/// opaque Swift class with no public initializer — there is no way to construct one from
+/// individual cases. To round-trip across the FFI boundary, the extension JSON-encodes
+/// `self` and delegates to the `{enum_snake}_from_json` swift-bridge shim emitted by the
+/// Rust bridge crate. This mirrors the JSON-fallback path used in struct `intoRust()`
+/// emission (see `emit_first_class_struct`) and gives every enum the same shape of
+/// reverse-conversion that first-class structs already have.
+///
+/// `throws` because `JSONEncoder.encode` and the Rust shim both fail on malformed
+/// input. The extension is internal-visibility (no `public` keyword): callers are other
+/// generated bindings inside the same module, never end-users.
+fn emit_enum_into_rust_extension(name: &str, out: &mut String) {
+    let from_json_fn = format!("{}_from_json", AsSnakeCase(name)).to_lower_camel_case();
+    out.push_str(&format!("extension {name} {{\n"));
+    out.push_str(&format!(
+        "    func intoRust() throws -> RustBridge.{name} {{\n"
+    ));
+    out.push_str("        let data = try JSONEncoder().encode(self)\n");
+    out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"null\"\n");
+    out.push_str(&format!(
+        "        return try RustBridge.{from_json_fn}(json)\n"
+    ));
+    out.push_str("    }\n");
     out.push_str("}\n");
 }
 

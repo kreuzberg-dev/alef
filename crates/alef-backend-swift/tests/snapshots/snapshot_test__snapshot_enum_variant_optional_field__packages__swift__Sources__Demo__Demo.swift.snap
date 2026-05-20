@@ -18,7 +18,7 @@ public struct Chunk: Codable, Sendable, Hashable {
 
 // MARK: - Internal FFI conversions for Chunk
 internal extension Chunk {
-    init(_ rb: RustBridge.Chunk) throws {
+    init(_ rb: RustBridge.ChunkRef) throws {
         self.text = rb.text().toString()
     }
     func intoRust() throws -> RustBridge.Chunk {
@@ -34,4 +34,11 @@ public enum StreamEvent {
     case error(message: String?)
     /// Stream completed with item count.
     case done(count: UInt32)
+}
+extension StreamEvent {
+    func intoRust() throws -> RustBridge.StreamEvent {
+        let data = try JSONEncoder().encode(self)
+        let json = String(data: data, encoding: .utf8) ?? "null"
+        return try RustBridge.streamEventFromJson(json)
+    }
 }
