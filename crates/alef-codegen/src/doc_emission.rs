@@ -2644,7 +2644,8 @@ mod tests {
     #[test]
     fn sanitize_bare_some_followed_by_lowercase_noun_is_dropped() {
         // Real leak from html-to-markdown PreprocessingOptionsUpdate.java:16.
-        let input = "Only specified fields (Some values) will override existing options; None values leave the previous";
+        let input =
+            "Only specified fields (Some values) will override existing options; None values leave the previous";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
         assert!(
             out.contains("(values)"),
@@ -2660,7 +2661,12 @@ mod tests {
     #[test]
     fn sanitize_bare_some_does_not_touch_identifiers_or_uppercase_followers() {
         // SomeType, Some.method(), Some(x), and "Some Title" (proper noun) all preserved.
-        let cases = ["SomeType lives on.", "Some.method() returns Self.", "Some Title", "Some(x) is a value."];
+        let cases = [
+            "SomeType lives on.",
+            "Some.method() returns Self.",
+            "Some Title",
+            "Some(x) is a value.",
+        ];
         for case in cases {
             let out = sanitize_rust_idioms(case, DocTarget::JavaDoc);
             // For the Some(x) case, replace_some_calls (run earlier) converts to "the value (x)"
