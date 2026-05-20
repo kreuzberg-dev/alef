@@ -2444,3 +2444,202 @@ type = "*const std::ffi::c_char"
         "P/Invoke should return IntPtr: {native_content}"
     );
 }
+
+#[test]
+fn test_record_method_bool_param_emits_int_conversion() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "PaddleOcrConfig".to_string(),
+            rust_path: "test::PaddleOcrConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![MethodDef {
+                name: "with_table_detection".to_string(),
+                params: vec![ParamDef {
+                    name: "enable".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                }],
+                return_type: TypeRef::Named("PaddleOcrConfig".to_string()),
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: "Enable table detection.".to_string(),
+                receiver: Some(ReceiverKind::Ref),
+                sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                trait_source: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    let config_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("PaddleOcrConfig.cs"))
+        .expect("PaddleOcrConfig.cs should be generated");
+
+    // Should contain bool → int conversion for the enable parameter
+    assert!(
+        config_file.content.contains("(enable ? 1 : 0)"),
+        "Bool parameter should be converted to int with (enable ? 1 : 0) in method call: {}",
+        config_file.content
+    );
+}
+
+#[test]
+fn test_record_static_factory_named_param_emits_handle_marshaling() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "OcrExtractionResult".to_string(),
+                rust_path: "test::OcrExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "test::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![MethodDef {
+                    name: "from_ocr".to_string(),
+                    params: vec![ParamDef {
+                        name: "ocr".to_string(),
+                        ty: TypeRef::Named("OcrExtractionResult".to_string()),
+                        optional: false,
+                        default: None,
+                        sanitized: false,
+                        typed_default: None,
+                        is_ref: false,
+                        is_mut: false,
+                        newtype_wrapper: None,
+                        original_type: None,
+                    }],
+                    return_type: TypeRef::Named("ExtractionResult".to_string()),
+                    is_async: false,
+                    is_static: true,
+                    error_type: None,
+                    doc: "Create from OCR result.".to_string(),
+                    receiver: None,
+                    sanitized: false,
+                    returns_ref: false,
+                    returns_cow: false,
+                    return_newtype_wrapper: None,
+                    has_default_impl: false,
+                    trait_source: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                }],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Find the ExtractionResult file (not OcrExtractionResult)
+    let result_file = files
+        .iter()
+        .find(|f| {
+            let fname = f.path.to_string_lossy().to_string();
+            fname.contains("ExtractionResult.cs") && !fname.contains("OcrExtractionResult.cs")
+        })
+        .expect("ExtractionResult.cs should be generated");
+
+    // Should contain FromJson handle creation for the Named param
+    assert!(
+        result_file.content.contains("FromJson"),
+        "Should create handle using FromJson: {}",
+        result_file.content
+    );
+
+    // Should contain try/finally block for handle cleanup
+    assert!(
+        result_file.content.contains("try") && result_file.content.contains("finally"),
+        "Should wrap native call in try/finally for cleanup: {}",
+        result_file.content
+    );
+
+    // Should contain Free call for the Named param handle
+    assert!(
+        result_file.content.contains("OcrExtractionResultFree"),
+        "Should free Named param handle: {}",
+        result_file.content
+    );
+}
