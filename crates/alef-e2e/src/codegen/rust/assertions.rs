@@ -178,14 +178,13 @@ pub fn render_assertion_with_streaming(
     // Streaming virtual fields: intercept before is_valid_for_result so they are
     // never skipped.  These fields resolve against the `chunks` collected-list variable.
     //
-    // Streaming-only auto-detect (see `STREAMING_ONLY_AUTO_DETECT_FIELDS`) ensures
-    // a fixture referencing any of these field names is rendered as a streaming
-    // call, so the `chunks` local is always bound when this path is taken.  No
-    // additional `result_var` gate is required.
+    // For streaming fixtures, `chunks` is bound by the collect snippet emitted in
+    // `render_test_function`.  For non-streaming fixtures whose result struct has a
+    // literal field whose name collides with a streaming-virtual name (e.g. `chunks`,
+    // `imports`, `structure`), `render_test_function` emits `let {f} = &result.{f};`
+    // before assertions, so the hardcoded `chunks` identifier used below still resolves.
     if let Some(f) = &assertion.field {
-        if !f.is_empty()
-            && crate::codegen::streaming_assertions::is_streaming_virtual_field(f)
-        {
+        if !f.is_empty() && crate::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
                 crate::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "rust", "chunks")
             {
