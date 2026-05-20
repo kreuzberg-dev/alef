@@ -160,6 +160,18 @@ pub(crate) fn emit_extern_block_for_type(
             bridge_ty
         };
         let name = swift_ident(&field.name.to_snake_case());
+        // Rust-side getter keeps the snake_case ident; Swift-side gets a camelCase
+        // accessor via `swift_name` so consumer code reads `ref.deviceId()` rather
+        // than `ref.device_id()`.
+        let swift_name = swift_ident(&field.name.to_lower_camel_case());
+        if swift_name != name {
+            block.push_str(&crate::template_env::render(
+                "extern_swift_name_attr.jinja",
+                minijinja::context! {
+                    swift_name => &swift_name,
+                },
+            ));
+        }
         block.push_str(&crate::template_env::render(
             "extern_fn_getter.jinja",
             minijinja::context! {

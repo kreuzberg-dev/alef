@@ -46,6 +46,7 @@ mod ffi {
         type ConversionOptions;
         #[swift_bridge(init)]
         fn new(timeout_ms: u32) -> ConversionOptions;
+        #[swift_bridge(swift_name = "timeoutMs")]
         fn timeout_ms(&self) -> u32;
     }
 

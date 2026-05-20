@@ -42,7 +42,9 @@ mod ffi {
         type KeywordConfig;
         #[swift_bridge(init)]
         fn new(max_keywords: usize, ngram_range: Vec<usize>) -> KeywordConfig;
+        #[swift_bridge(swift_name = "maxKeywords")]
         fn max_keywords(&self) -> usize;
+        #[swift_bridge(swift_name = "ngramRange")]
         fn ngram_range(&self) -> Vec<usize>;
     }
 

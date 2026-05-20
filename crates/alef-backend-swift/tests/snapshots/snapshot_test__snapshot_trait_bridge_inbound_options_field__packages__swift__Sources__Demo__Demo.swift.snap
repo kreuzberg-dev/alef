@@ -25,7 +25,7 @@ public struct ConversionOptions: Codable, Sendable, Hashable {
 // MARK: - Internal FFI conversions for ConversionOptions
 internal extension ConversionOptions {
     init(_ rb: RustBridge.ConversionOptionsRef) throws {
-        self.timeoutMs = rb.timeout_ms()
+        self.timeoutMs = rb.timeoutMs()
     }
     func intoRust() throws -> RustBridge.ConversionOptions {
         return RustBridge.ConversionOptions(self.timeoutMs)
@@ -60,7 +60,7 @@ public extension HtmlVisitorProtocol {
 private final class _HtmlVisitorProtocolAdapter: _SwiftHtmlVisitorBoxDelegate {
     private let inner: any HtmlVisitorProtocol
     init(_ inner: any HtmlVisitorProtocol) { self.inner = inner }
-    func visit_node(_ tag: RustString) -> String {
+    func visitNode(_ tag: RustString) -> String {
         return "{}"
     }
 }
