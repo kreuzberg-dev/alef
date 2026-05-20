@@ -21,7 +21,7 @@ pub(crate) fn gen_record_type(
     sealed_unions_with_unwrapped: &AHashSet<String>,
     _lang_rename_all: &str,
     has_visitor_pattern: bool,
-    main_class: &str,
+    _main_class: &str,
     builder_mode: JavaBuilderMode,
 ) -> String {
     // `fields_joined` holds the comma-separated parameter list used both for the
@@ -259,49 +259,8 @@ pub(crate) fn gen_record_type(
         record_block.push_str("    }\n");
     }
 
-    // Emit a static `fromJson(String)` factory for binding consumers (e2e tests
-    // and downstream user code). Mirrors the wider STREAM_MAPPER configuration
-    // used by the opaque-handle class so SNAKE_CASE field names round-trip
-    // correctly with the Rust core's serde representation.
-    record_block.push_str("\n    /**\n");
-    record_block.push_str("     * Parse a {@code ");
-    record_block.push_str(&typ.name);
-    record_block.push_str("} from a JSON string.\n");
-    record_block.push_str("     *\n");
-    record_block.push_str("     * @param json JSON serialisation matching the Rust-side field names (snake_case).\n");
-    record_block.push_str("     * @throws ");
-    record_block.push_str(main_class);
-    record_block.push_str("Exception if the JSON cannot be deserialised.\n");
-    record_block.push_str("     */\n");
-    record_block.push_str("    public static ");
-    record_block.push_str(&typ.name);
-    record_block.push_str(" fromJson(String json) throws ");
-    record_block.push_str(main_class);
-    record_block.push_str("Exception {\n");
-    record_block.push_str("        try {\n");
-    record_block.push_str("            return new com.fasterxml.jackson.databind.ObjectMapper()\n");
-    record_block.push_str("                .registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module())\n");
-    record_block.push_str("                .findAndRegisterModules()\n");
-    record_block.push_str(
-        "                .setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)\n",
-    );
-    record_block.push_str(
-        "                .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n",
-    );
-    record_block.push_str(
-        "                .configure(com.fasterxml.jackson.databind.MapperFeature.ACCEPT_CASE_INSENSITIVE_ENUMS, true)\n",
-    );
-    record_block.push_str("                .readValue(json, ");
-    record_block.push_str(&typ.name);
-    record_block.push_str(".class);\n");
-    record_block.push_str("        } catch (Exception e) {\n");
-    record_block.push_str("            throw new ");
-    record_block.push_str(main_class);
-    record_block.push_str("Exception(\"Failed to parse ");
-    record_block.push_str(&typ.name);
-    record_block.push_str(" from JSON: \" + e.getMessage(), e);\n");
-    record_block.push_str("        }\n");
-    record_block.push_str("    }\n");
+    // FromJson factory methods are now centralized in JsonUtil.
+    // Call JsonUtil.fromJson(json, ClassName.class) instead of ClassName.fromJson(json).
 
     // Generate a compact constructor that applies Rust-side defaults for non-optional
     // primitive fields whose Java default (0, false, etc.) differs from the Rust default.
