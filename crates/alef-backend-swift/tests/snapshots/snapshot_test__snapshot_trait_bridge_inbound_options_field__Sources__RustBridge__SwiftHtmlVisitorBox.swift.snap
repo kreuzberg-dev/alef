@@ -18,7 +18,7 @@ import RustBridgeC
 /// user-facing API. Must remain `public` because Swift requires public visibility
 /// for cross-module protocol conformance (implementer lives in the main target).
 public protocol _SwiftHtmlVisitorBoxDelegate: AnyObject {
-    func visit_node(_ tag: RustString) -> String
+    func visitNode(_ tag: RustString) -> String
 }
 
 /// Opaque box class retained by Rust via `Unmanaged<SwiftHtmlVisitorBox>.passRetained`.
@@ -29,6 +29,6 @@ public final class SwiftHtmlVisitorBox {
     private let delegate: any _SwiftHtmlVisitorBoxDelegate
     public init(_ delegate: any _SwiftHtmlVisitorBoxDelegate) { self.delegate = delegate }
     public func alef_visit_node(tag: RustString) -> String {
-        return delegate.visit_node(tag)
+        return delegate.visitNode(tag)
     }
 }

@@ -42,7 +42,9 @@ mod ffi {
         type Span;
         #[swift_bridge(init)]
         fn new(start_byte: usize, end_byte: usize) -> Span;
+        #[swift_bridge(swift_name = "startByte")]
         fn start_byte(&self) -> usize;
+        #[swift_bridge(swift_name = "endByte")]
         fn end_byte(&self) -> usize;
     }
 

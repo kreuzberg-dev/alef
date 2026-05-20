@@ -566,7 +566,10 @@ fn emit_first_class_struct(
     out.push_str(&format!("    init(_ rb: RustBridge.{type_name}Ref) throws {{\n"));
     for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
-        let rust_accessor = swift_ident(&field.name.to_snake_case());
+        // The RustBridge accessor name now follows lowerCamelCase because the
+        // swift-bridge getter extern emits `swift_name = "<camel>"` (see
+        // `gen_rust_crate::extern_block::emit_extern_block_for_type`).
+        let rust_accessor = swift_ident(&field.name.to_lower_camel_case());
         let is_optional = field.optional || matches!(&field.ty, TypeRef::Optional(_));
         let expr = swift_ffi_read_expr(&field.ty, is_optional, &rust_accessor, known_dto_names, unit_enum_names);
         out.push_str(&format!("        self.{swift_field} = {expr}\n"));
@@ -2569,9 +2572,12 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
+            let delegate_method = swift_ident(&method_camel);
             let delegate_params = swift_box_params(method); // RustString-typed
             let (conversion_lines, call_args) = swift_adapter_conversions(method);
-            out.push_str(&format!("    func {method_snake}({delegate_params}) -> String {{\n"));
+            // Adapter implements the delegate protocol: method name must match the
+            // protocol's lowerCamelCase declaration emitted in `emit_inbound_box_files`.
+            out.push_str(&format!("    func {delegate_method}({delegate_params}) -> String {{\n"));
             for line in &conversion_lines {
                 out.push_str(&format!("        {line}\n"));
             }
@@ -3248,9 +3254,15 @@ fn emit_inbound_box_files(
              public protocol {delegate_protocol_name}: AnyObject {{\n"
         ));
         for method in &trait_def.methods {
-            let method_snake = method.name.to_snake_case();
+            // Delegate protocol methods are part of the user-facing public Swift API
+            // (consumers implement this protocol). Swift convention is lowerCamelCase
+            // for method names, so we emit `processImage(...)` rather than the raw
+            // Rust `process_image`. The shim's `alef_<snake>` C-ABI name remains
+            // snake_case (matched by swift-bridge's @_cdecl exports) — only the
+            // delegate-side method name is camelCased.
+            let method_camel = swift_ident(&method.name.to_lower_camel_case());
             let delegate_params = swift_box_params(method);
-            content.push_str(&format!("    func {method_snake}({delegate_params}) -> String\n"));
+            content.push_str(&format!("    func {method_camel}({delegate_params}) -> String\n"));
         }
         content.push_str("}\n\n");
 
@@ -3267,14 +3279,18 @@ fn emit_inbound_box_files(
 
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
+            // Shim name MUST stay snake_case — swift-bridge's @_cdecl exports on the
+            // Rust side reference `__swift_bridge__$Swift{Trait}Box$alef_<method_snake>`.
             let shim_name = format!("alef_{method_snake}");
             // Box method params: keyword labels + RustString/RustVec types.
             let box_params = swift_box_params_keyword(method);
             // Args to pass to delegate (same names, no conversion needed — delegate takes same types).
             let delegate_call_args = swift_box_delegate_call_args(method);
+            // Delegate call uses the camelCase protocol method (see protocol emission above).
+            let method_camel = swift_ident(&method.name.to_lower_camel_case());
             content.push_str(&format!(
                 "    public func {shim_name}({box_params}) -> String {{\n\
-                 \x20       return delegate.{method_snake}({delegate_call_args})\n\
+                 \x20       return delegate.{method_camel}({delegate_call_args})\n\
                  \x20   }}\n"
             ));
         }
@@ -3329,12 +3345,13 @@ fn swift_box_ffi_type(ty: &TypeRef, optional: bool) -> String {
 /// Types match `swift_box_ffi_type`: `RustString` for strings/named, `UInt` for usize.
 /// Used in both the `Swift{Trait}BoxDelegate` protocol and the private adapter class
 /// (which implements the delegate and converts to user-friendly types before delegation).
+/// Param names are lowerCamelCase to match Swift API conventions.
 fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            let name = p.name.to_snake_case();
+            let name = swift_ident(&p.name.to_lower_camel_case());
             let ty = swift_box_ffi_type(&p.ty, p.optional);
             format!("_ {name}: {ty}")
         })
@@ -3344,12 +3361,15 @@ fn swift_box_params(method: &alef_core::ir::MethodDef) -> String {
 
 /// Box class method params with keyword argument labels (`name: FFIType`), no leading `_`.
 /// Used by the `public final class {Box}` methods exposed via `@_cdecl` shims.
+/// Param names are lowerCamelCase to match Swift API conventions; the keyword labels
+/// surface in the Rust-side `extern "Swift"` declaration verbatim, but swift-bridge
+/// uses the FFI symbol (not the label) for the actual C-level dispatch.
 fn swift_box_params_keyword(method: &alef_core::ir::MethodDef) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            let name = p.name.to_snake_case();
+            let name = swift_ident(&p.name.to_lower_camel_case());
             let ty = swift_box_ffi_type(&p.ty, p.optional);
             format!("{name}: {ty}")
         })
@@ -3384,11 +3404,15 @@ fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>,
         .params
         .iter()
         .map(|p| {
-            let snake = p.name.to_snake_case();
+            // Param identifier matches the delegate-protocol label, which is lowerCamelCase
+            // (see `swift_box_params` / `swift_box_params_keyword`). Local variable names
+            // derived from it are also camelCase so they don't clash with the Swift keyword
+            // escape produced by `swift_ident`.
+            let snake = swift_ident(&p.name.to_lower_camel_case());
             match &p.ty {
                 TypeRef::Named(name) => {
                     let from_json = format!("{name}FromJson").to_lower_camel_case();
-                    let local = format!("{snake}_decoded");
+                    let local = format!("{snake}Decoded");
                     if p.optional {
                         setup_lines.push(format!(
                             "let {local}: {name}? = {snake}.flatMap {{ try? {from_json}($0.toString()) }}"
@@ -3410,7 +3434,7 @@ fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>,
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Named(name) => {
                         let from_json = format!("{name}FromJson").to_lower_camel_case();
-                        let local = format!("{snake}_decoded");
+                        let local = format!("{snake}Decoded");
                         setup_lines.push(format!(
                             "let {local}: {name}? = {snake}.flatMap {{ try? {from_json}($0.toString()) }}"
                         ));
@@ -3433,11 +3457,13 @@ fn swift_adapter_conversions(method: &alef_core::ir::MethodDef) -> (Vec<String>,
 
 /// Argument list for forwarding from box class to delegate protocol method.
 /// Produces `name1, name2` (positional, matching `_ name:` labels in protocol).
+/// Names are lowerCamelCase to match the param labels emitted by
+/// `swift_box_params` / `swift_box_params_keyword`.
 fn swift_box_delegate_call_args(method: &alef_core::ir::MethodDef) -> String {
     method
         .params
         .iter()
-        .map(|p| p.name.to_snake_case())
+        .map(|p| swift_ident(&p.name.to_lower_camel_case()))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -3471,12 +3497,13 @@ fn swift_protocol_underscore_params(method: &alef_core::ir::MethodDef) -> String
 
 /// Argument list for the `inner.{methodCamel}(...)` delegation call.
 /// `ctx` is `method.params[0]` so it is included naturally.
+/// Param identifiers are lowerCamelCase to match the protocol-level labels.
 #[allow(dead_code)]
 fn swift_shim_call_args(method: &alef_core::ir::MethodDef) -> String {
     method
         .params
         .iter()
-        .map(|p| p.name.to_snake_case())
+        .map(|p| swift_ident(&p.name.to_lower_camel_case()))
         .collect::<Vec<_>>()
         .join(", ")
 }

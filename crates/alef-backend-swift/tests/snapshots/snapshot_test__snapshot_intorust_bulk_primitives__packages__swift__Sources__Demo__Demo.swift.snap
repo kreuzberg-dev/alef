@@ -25,8 +25,8 @@ public struct Span: Codable, Sendable, Hashable {
 // MARK: - Internal FFI conversions for Span
 internal extension Span {
     init(_ rb: RustBridge.SpanRef) throws {
-        self.startByte = rb.start_byte()
-        self.endByte = rb.end_byte()
+        self.startByte = rb.startByte()
+        self.endByte = rb.endByte()
     }
     func intoRust() throws -> RustBridge.Span {
         return RustBridge.Span(self.startByte, self.endByte)
