@@ -1134,7 +1134,7 @@ fn render_test_method(
     // bindings like $choices0MessageToolCalls and $segments, leaving
     // assertions that reference them to fail with "Undefined variable".
     let mut field_bindings = String::new();
-    for (_field_name, (var_name, accessor)) in &fields_array_bindings {
+    for (var_name, accessor) in fields_array_bindings.values() {
         field_bindings.push_str(&format!("        ${} = {};\n", var_name, accessor));
     }
 
