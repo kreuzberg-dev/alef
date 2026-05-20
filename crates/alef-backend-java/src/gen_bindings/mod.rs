@@ -17,7 +17,7 @@ mod types;
 
 use facade::gen_facade_class;
 use ffi_class::gen_main_class;
-use helpers::{gen_exception_class, gen_infrastructure_exception_class};
+use helpers::{gen_exception_class, gen_infrastructure_exception_class, gen_json_util_class};
 use native_lib::gen_native_lib;
 use types::{gen_byte_array_serializer, gen_enum_class, gen_opaque_handle_class, gen_record_type};
 
@@ -306,6 +306,13 @@ impl Backend for JavaBackend {
                 generated_header: true,
             });
         }
+
+        // 4a. JsonUtil class for centralized JSON deserialization
+        files.push(GeneratedFile {
+            path: base_path.join("JsonUtil.java"),
+            content: gen_json_util_class(&package, &main_class),
+            generated_header: true,
+        });
 
         // 4b. Opaque handle types
         for typ in api.types.iter().filter(|typ| !typ.is_trait) {

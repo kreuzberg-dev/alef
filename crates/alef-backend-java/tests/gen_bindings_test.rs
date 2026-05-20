@@ -2641,3 +2641,95 @@ fn builder_optional_fields_use_nullable_not_optional_in_setters() {
         "@Nullable must be imported, got:\n{content}"
     );
 }
+
+#[test]
+fn json_util_centralizes_from_json_deserialization() {
+    let backend = JavaBackend;
+
+    // Create a minimal DTO to test JsonUtil emission
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "SimpleDto".to_string(),
+                rust_path: "test::SimpleDto".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![
+                    FieldDef {
+                        name: "value".to_string(),
+                        ty: TypeRef::String,
+                        optional: false,
+                        default: None,
+                        doc: "Some value".to_string(),
+                        sanitized: false,
+                        is_boxed: false,
+                        type_rust_path: None,
+                        cfg: None,
+                        typed_default: None,
+                        core_wrapper: alef_core::ir::CoreWrapper::None,
+                        vec_inner_core_wrapper: alef_core::ir::CoreWrapper::None,
+                        newtype_wrapper: None,
+                        serde_rename: None,
+                        serde_flatten: false,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
+                        original_type: None,
+                    },
+                ],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Simple DTO".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_test_config("dev.test");
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+
+    // Check that JsonUtil is emitted
+    let json_util = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("JsonUtil.java"))
+        .expect("JsonUtil.java must be emitted");
+    let util_content = &json_util.content;
+
+    // Verify JsonUtil structure
+    assert!(
+        util_content.contains("public final class JsonUtil"),
+        "JsonUtil class must be public final, got:\n{util_content}"
+    );
+    assert!(
+        util_content.contains("public static <T> T fromJson(final String json, final Class<T> targetClass)"),
+        "JsonUtil must have fromJson generic method, got:\n{util_content}"
+    );
+
+    // Check that per-DTO fromJson is removed
+    let dto_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("SimpleDto.java"))
+        .expect("SimpleDto.java must be emitted");
+    let dto_content = &dto_file.content;
+
+    assert!(
+        !dto_content.contains("public static SimpleDto fromJson(String json)"),
+        "Per-DTO fromJson must be removed (use JsonUtil instead), got:\n{dto_content}"
+    );
+}

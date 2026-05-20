@@ -282,3 +282,16 @@ pub(crate) fn format_optional_value(ty: &TypeRef, default: &str) -> String {
 
     format!("Optional.of({})", formatted_value)
 }
+
+/// Generate the JsonUtil class for centralized JSON deserialization.
+pub(crate) fn gen_json_util_class(package: &str, main_class: &str) -> String {
+    let header = alef_core::hash::header(alef_core::hash::CommentStyle::DoubleSlash);
+    crate::template_env::render(
+        "json_util.jinja",
+        minijinja::context! {
+            header => header,
+            package => package,
+            main_class => main_class,
+        },
+    )
+}

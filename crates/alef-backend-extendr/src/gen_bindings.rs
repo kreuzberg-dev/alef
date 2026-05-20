@@ -2386,6 +2386,16 @@ fn gen_extendr_wrappers_r(
         ));
     }
 
+    // S3 generics: one `name <- function(x, ...) UseMethod("name")` per unique instance
+    // method name across every emitted class. Emit last so all class methods they dispatch
+    // over are already defined in source order.
+    for generic_name in unique_s3_generic_names(&s3_pairs) {
+        out.push_str(&crate::template_env::render(
+            "r_s3_generic.jinja",
+            minijinja::context! { name => generic_name },
+        ));
+    }
+
     out
 }
 
@@ -2900,6 +2910,146 @@ package_name = "testlib"
             !namespace.content.contains("#' @useDynLib"),
             "NAMESPACE must not contain roxygen2 useDynLib form: {}",
             namespace.content
+        );
+    }
+
+    fn make_instance_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            sanitized: false,
+            receiver: Some(ReceiverKind::Ref),
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn make_api_with_instance_method() -> ApiSurface {
+        ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "HeaderMetadata".to_string(),
+                rust_path: "test_lib::HeaderMetadata".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![make_field("level", TypeRef::Primitive(PrimitiveType::U32), false)],
+                methods: vec![make_instance_method("is_valid")],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        }
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_s3_generic_and_method_for_instance_methods() {
+        // Regression: bare env-class form `meta$is_valid()` leaks the extendr implementation
+        // detail. Generate an S3 generic + class method so callers can write `is_valid(meta)`.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let api = make_api_with_instance_method();
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            content.contains("is_valid <- function(x, ...) UseMethod(\"is_valid\")"),
+            "S3 generic must be emitted for instance methods:\n{content}"
+        );
+        assert!(
+            content.contains("is_valid.HeaderMetadata <- function(x, ...) x$is_valid(...)"),
+            "S3 class method must forward to the env-class binding:\n{content}"
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_skips_s3_wrappers_for_static_methods() {
+        // Static factories like `default` / `from_json` are accessed off the class env
+        // (`Type$from_json(json)`) — no `self`, no S3 forwarding needed.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let mut api = make_api_with_instance_method();
+        let static_method = MethodDef {
+            is_static: true,
+            ..make_instance_method("default")
+        };
+        api.types[0].methods.push(static_method);
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        assert!(
+            !content.contains("default <- function(x, ...) UseMethod"),
+            "must not emit S3 generic for static methods:\n{content}"
+        );
+        assert!(
+            !content.contains("default.HeaderMetadata <-"),
+            "must not emit S3 class method for static methods:\n{content}"
+        );
+    }
+
+    #[test]
+    fn extendr_wrappers_emits_one_generic_per_unique_method_name() {
+        // Two classes both expose `is_valid` — only one generic should be emitted to
+        // avoid `UseMethod` being clobbered by a second definition.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let mut api = make_api_with_instance_method();
+        let second_type = TypeDef {
+            name: "LinkMetadata".to_string(),
+            rust_path: "test_lib::LinkMetadata".to_string(),
+            methods: vec![make_instance_method("is_valid")],
+            ..api.types[0].clone()
+        };
+        api.types.push(second_type);
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+        let generic_count = content.matches("is_valid <- function(x, ...) UseMethod").count();
+        assert_eq!(
+            generic_count, 1,
+            "exactly one S3 generic per unique method name, got {generic_count}:\n{content}"
+        );
+        assert!(
+            content.contains("is_valid.HeaderMetadata <- function(x, ...) x$is_valid(...)"),
+            "S3 method for HeaderMetadata must be emitted:\n{content}"
+        );
+        assert!(
+            content.contains("is_valid.LinkMetadata <- function(x, ...) x$is_valid(...)"),
+            "S3 method for LinkMetadata must be emitted:\n{content}"
         );
     }
 
