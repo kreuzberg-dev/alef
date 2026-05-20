@@ -806,7 +806,7 @@ fn swift_ffi_read_expr(
             // Use `?.map` for the optional chain.
             match inner.as_ref() {
                 TypeRef::Primitive(_) => format!("rb.{accessor}().map {{ Array($0) }}"),
-                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.toString() }}"),
+                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.as_str().toString() }}"),
                 TypeRef::Named(name) if known_dto_names.contains(name) => {
                     format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
                 }
@@ -818,7 +818,7 @@ fn swift_ffi_read_expr(
         }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(_) => format!("Array(rb.{accessor}())"),
-            TypeRef::String => format!("rb.{accessor}().map {{ $0.toString() }}"),
+            TypeRef::String => format!("rb.{accessor}().map {{ $0.as_str().toString() }}"),
             TypeRef::Named(name) if known_dto_names.contains(name) => {
                 format!("try rb.{accessor}().map {{ try {name}($0) }}")
             }
@@ -836,7 +836,7 @@ fn swift_ffi_read_expr(
                 format!("try rb.{accessor}().map {{ try {name}($0) }}")
             }
             TypeRef::Vec(elem) => match elem.as_ref() {
-                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.toString() }}"),
+                TypeRef::String => format!("rb.{accessor}()?.map {{ $0.as_str().toString() }}"),
                 TypeRef::Named(name) if known_dto_names.contains(name) => {
                     format!("try rb.{accessor}()?.map {{ try {name}($0) }}")
                 }
@@ -859,7 +859,10 @@ fn vec_elem_convert_expr(
 ) -> String {
     use alef_core::ir::TypeRef;
     match inner {
-        TypeRef::String => "$0.toString()".to_string(),
+        // RustVec<RustString> iteration yields RustStringRef — see RustStringRef
+        // shim comment in `forwarder_return_conversion_suffix` for why we use
+        // `as_str().toString()` instead of `toString()` directly.
+        TypeRef::String => "$0.as_str().toString()".to_string(),
         TypeRef::Named(name) if known_dto_names.contains(name) => format!("try {name}($0)"),
         TypeRef::Primitive(_) => "$0".to_string(),
         _ => "$0".to_string(),
@@ -2942,16 +2945,14 @@ fn forwarder_return_conversion_suffix(
     match ty {
         TypeRef::Bytes => ".map { $0 }".to_string(),
         TypeRef::Vec(inner) => match inner.as_ref() {
-            // RustVec<RustString> iteration yields `RustStringRef` (borrowed), so
-            // `$0.toString()` only resolves because alef post-processes
-            // swift-bridge's `SwiftBridgeCore.swift` to append a
-            // `extension RustStringRef { func toString() -> String }` shim. The
-            // shim simply chains to `as_str().toString()`. We could inline that
-            // longer expression here as well, but emitting `.toString()`
-            // matches the symmetric pattern used for `RustString` (owned) and
-            // keeps generated diff-noise low if swift-bridge ever upstreams the
-            // missing extension.
-            TypeRef::String => ".map { $0.toString() }".to_string(),
+            // RustVec<RustString> iteration yields `RustStringRef` (borrowed).
+            // We must NOT add a `RustStringRef.toString()` shim because
+            // `RustString` is a subclass of `RustStringRef` and declares its
+            // own `toString()` — Swift rejects this with "non-'@objc' instance
+            // method 'toString()' is declared in extension of 'RustStringRef'
+            // and cannot be overridden". Use the longer but type-safe
+            // `as_str().toString()` chain directly at every call site.
+            TypeRef::String => ".map { $0.as_str().toString() }".to_string(),
             TypeRef::Primitive(_) => ".map { $0 }".to_string(),
             // RustVec<RustBridge.{Dto}> iteration yields `RustBridge.{Dto}Ref` — there
             // is no symmetric `init(_ rb: {Dto}Ref)`, so we route through the owned
@@ -3440,42 +3441,31 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
 /// Idempotent: if the file already starts with `import RustBridgeC` or the
 /// `swift-format-ignore-file` directive is already present, neither is
 /// duplicated.
-/// Append an `extension RustStringRef { public func toString() -> String }`
-/// declaration to swift-bridge's generated `SwiftBridgeCore.swift`.
+/// Previously appended an `extension RustStringRef { func toString() }` shim
+/// to swift-bridge's generated `SwiftBridgeCore.swift`. That approach broke
+/// the Swift compiler with "non-'@objc' instance method 'toString()' is
+/// declared in extension of 'RustStringRef' and cannot be overridden",
+/// because `RustString` is a subclass of `RustStringRef` and declares its
+/// own `toString()` in another extension — Swift cannot resolve the override
+/// chain across two non-@objc extensions in the same hierarchy.
 ///
-/// swift-bridge generates `RustString` (owned) with a `toString()` extension
-/// (`as_str().toString()` shortcut), but iterating a `RustVec<RustString>`
-/// yields `RustStringRef` (`T.SelfRef` per `RustVecIterator.next`). The Ref
-/// class has no symmetric `.toString()` method, which forces every consumer
-/// (and every alef-emitted `.map { $0.toString() }` snippet for a
-/// `RustVec<RustString>` return type) to manually expand to
-/// `.map { $0.as_str().toString() }`. That string is correct but leaks the
-/// underlying borrowed-reference layer into call sites.
-///
-/// Idempotent: the function checks for the marker comment before appending.
+/// We now emit `$0.as_str().toString()` directly at every callsite and
+/// preserve this no-op function as a marker that the codegen contract has
+/// shifted (it also strips any stale shim previously appended by an older
+/// alef revision).
 fn append_rust_string_ref_to_string_extension(content: &str) -> String {
     const MARKER: &str = "// alef: RustStringRef.toString() shim";
-    if content.contains(MARKER) {
-        return content.to_string();
+    if let Some(idx) = content.find(MARKER) {
+        // Strip the previously-appended shim (everything from MARKER to EOF).
+        let mut head = content[..idx].to_string();
+        while head.ends_with('\n') {
+            head.pop();
+        }
+        head.push('\n');
+        head
+    } else {
+        content.to_string()
     }
-    let mut out = content.to_string();
-    if !out.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push_str(&format!(
-        "\n{MARKER}\n\
-         // swift-bridge emits `extension RustString {{ func toString() }}` but the\n\
-         // borrowed-reference companion `RustStringRef` (yielded by\n\
-         // `RustVecIterator<RustString>.next`) does not get the same shortcut.\n\
-         // Without this, `RustVec<RustString>().map {{ $0.toString() }}` fails to\n\
-         // resolve because `$0` lands on `RustStringRef`, not `RustString`.\n\
-         extension RustStringRef {{\n    \
-             public func toString() -> String {{\n        \
-                 self.as_str().toString()\n    \
-             }}\n\
-         }}\n",
-    ));
-    out
 }
 
 fn prepend_rust_bridge_c_import(content: &str) -> String {
@@ -3556,35 +3546,32 @@ mod tests {
         );
     }
 
-    /// The `RustStringRef.toString()` shim must be appended to fresh
-    /// SwiftBridgeCore content so iterating `RustVec<RustString>` resolves
-    /// `$0.toString()` against the borrowed-reference companion.
+    /// Fresh swift-bridge output must pass through unchanged — we no longer
+    /// append a `RustStringRef.toString()` shim because Swift rejects it as
+    /// a non-@objc override of `RustString.toString()` (RustString is a
+    /// subclass of RustStringRef).
     #[test]
-    fn append_adds_rust_string_ref_to_string_shim_when_missing() {
+    fn append_passes_through_when_no_marker() {
         let core_swift = "import Foundation\n\npublic class RustString {}\n";
         let result = append_rust_string_ref_to_string_extension(core_swift);
-        assert!(
-            result.contains("extension RustStringRef {"),
-            "expected RustStringRef extension to be appended, got: {result:?}",
-        );
-        assert!(
-            result.contains("self.as_str().toString()"),
-            "expected the shim body to delegate to `as_str().toString()`",
-        );
+        assert_eq!(result, core_swift, "no-op when the marker is absent");
     }
 
-    /// The append step must be idempotent so repeated `alef all` runs produce
-    /// stable content (no duplicated extension block).
+    /// A previously-appended shim must be stripped on regen so old workspaces
+    /// don't keep the broken extension after upgrading alef.
     #[test]
-    fn append_rust_string_ref_to_string_shim_is_idempotent() {
-        let core_swift = "import Foundation\n\npublic class RustString {}\n";
-        let once = append_rust_string_ref_to_string_extension(core_swift);
-        let twice = append_rust_string_ref_to_string_extension(&once);
-        assert_eq!(once, twice, "second pass must not append the extension again");
-        assert_eq!(
-            twice.matches("extension RustStringRef {").count(),
-            1,
-            "the RustStringRef extension must appear exactly once across regens",
+    fn append_strips_legacy_shim_when_present() {
+        let core_swift = "import Foundation\n\npublic class RustString {}\n\n\
+            // alef: RustStringRef.toString() shim\n\
+            extension RustStringRef {\n    public func toString() -> String { self.as_str().toString() }\n}\n";
+        let result = append_rust_string_ref_to_string_extension(core_swift);
+        assert!(
+            !result.contains("// alef: RustStringRef.toString() shim"),
+            "expected the legacy shim to be stripped, got: {result:?}",
+        );
+        assert!(
+            result.contains("public class RustString"),
+            "non-shim content must be preserved verbatim",
         );
     }
 
