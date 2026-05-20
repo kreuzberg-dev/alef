@@ -20,7 +20,7 @@ public struct Point: Codable, Sendable, Hashable {
 
 // MARK: - Internal FFI conversions for Point
 internal extension Point {
-    init(_ rb: RustBridge.Point) throws {
+    init(_ rb: RustBridge.PointRef) throws {
         self.row = rb.row()
         self.column = rb.column()
     }

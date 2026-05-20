@@ -20,7 +20,7 @@ public struct SystemMessage: Codable, Sendable, Hashable {
 
 // MARK: - Internal FFI conversions for SystemMessage
 internal extension SystemMessage {
-    init(_ rb: RustBridge.SystemMessage) throws {
+    init(_ rb: RustBridge.SystemMessageRef) throws {
         self.content = rb.content().toString()
         self.name = rb.name()?.toString()
     }
