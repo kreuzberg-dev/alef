@@ -42,24 +42,29 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         // Introspection @property stubs on the base exception class.
         // These are backed by #[getter] methods in the PyO3 #[pymethods] impl block
         // which reads the values from the exception's args tuple (indices 1, 2, 3).
+        //
+        // Bodies use `raise NotImplementedError` rather than `...` because ruff rule
+        // PIE790 ("Unnecessary `...` literal") removes `...` when it follows a
+        // docstring, leaving an empty-body `@property` that mypy rejects with
+        // `empty-body [empty-body]`.
         for method in &error.methods {
             match method.name.as_str() {
                 "status_code" => {
                     out.push_str(
                         "    @property\n    def status_code(self) -> int:\n        \
-                         \"\"\"HTTP status code for this error (0 means no associated status).\"\"\"\n        ...\n",
+                         \"\"\"HTTP status code for this error (0 means no associated status).\"\"\"\n        raise NotImplementedError\n",
                     );
                 }
                 "is_transient" => {
                     out.push_str(
                         "    @property\n    def is_transient(self) -> bool:\n        \
-                         \"\"\"Returns True if the error is transient and a retry may succeed.\"\"\"\n        ...\n",
+                         \"\"\"Returns True if the error is transient and a retry may succeed.\"\"\"\n        raise NotImplementedError\n",
                     );
                 }
                 "error_type" => {
                     out.push_str(
                         "    @property\n    def error_type(self) -> str:\n        \
-                         \"\"\"Machine-readable error category string for matching and logging.\"\"\"\n        ...\n",
+                         \"\"\"Machine-readable error category string for matching and logging.\"\"\"\n        raise NotImplementedError\n",
                     );
                 }
                 _ => {}
@@ -427,6 +432,77 @@ mod tests {
             excluded_type_paths: ::std::collections::HashMap::new(),
             excluded_trait_names: ::std::collections::HashSet::new(),
         }
+    }
+
+    /// `@property` stubs use `raise NotImplementedError` as the body so that ruff rule PIE790
+    /// ("Unnecessary `...` literal") does not strip the body and leave mypy with an `empty-body`
+    /// error.  Verify all three whitelisted method names produce the correct body.
+    #[test]
+    fn gen_exceptions_py_property_stubs_use_raise_not_implemented_error() {
+        use alef_core::ir::{ErrorDef, ErrorVariant, MethodDef, PrimitiveType, TypeRef};
+
+        let make_method = |name: &str| MethodDef {
+            name: name.to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(PrimitiveType::Bool),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let error = ErrorDef {
+            name: "LibError".to_string(),
+            rust_path: "lib::LibError".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![ErrorVariant {
+                name: "Io".to_string(),
+                message_template: None,
+                fields: vec![],
+                has_source: false,
+                has_from: false,
+                is_unit: true,
+                doc: "I/O error.".to_string(),
+            }],
+            doc: "Library errors.".to_string(),
+            methods: vec![
+                make_method("status_code"),
+                make_method("is_transient"),
+                make_method("error_type"),
+            ],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let mut api = empty_api();
+        api.errors.push(error);
+        let result = gen_exceptions_py(&api);
+
+        // Every @property must have a `raise NotImplementedError` body.
+        assert!(
+            result.contains("raise NotImplementedError"),
+            "@property body must use raise NotImplementedError, got:\n{result}",
+        );
+        // The count must equal the number of whitelisted properties (3).
+        let occurrences = result.matches("raise NotImplementedError").count();
+        assert_eq!(
+            occurrences, 3,
+            "expected 3 `raise NotImplementedError` for status_code/is_transient/error_type, got {occurrences} in:\n{result}",
+        );
+        // PIE790 guard: `...` must not appear as the 8-space-indented method body.
+        assert!(
+            !result.contains("\n        ...\n"),
+            "property body must not use `...` (ruff PIE790 strips it, causing mypy empty-body), got:\n{result}",
+        );
     }
 
     /// gen_exceptions_py with no errors produces a file with only the header.
