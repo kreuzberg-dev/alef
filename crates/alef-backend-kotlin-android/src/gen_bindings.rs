@@ -343,14 +343,9 @@ fn emit_module_kt(
         let mut body = String::new();
         let mut imports: BTreeSet<String> = BTreeSet::new();
 
-        // Prefer the IR-supplied rustdoc for the opaque type; fall back to a
-        // generic description when the source has no doc comment so the
-        // generated class still has *some* KDoc.
-        if type_def.doc.is_empty() {
-            body.push_str(&format!(
-                "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
-            ));
-        } else {
+        // Emit the IR-supplied rustdoc for the opaque type; omit Kdoc if no doc
+        // is provided to avoid leaking implementation details (JNI handles are internal).
+        if !type_def.doc.is_empty() {
             emit_kdoc_pub(&mut body, &type_def.doc, "");
         }
         body.push_str(&format!(
