@@ -72,6 +72,11 @@ fn test_scaffold_python() {
     assert!(files[0].content.contains("maturin"));
     assert!(files[0].content.contains("my-lib"));
     assert_eq!(files[1].path, PathBuf::from("packages/python/my_lib/py.typed"));
+    assert!(
+        files[1].content.ends_with('\n'),
+        "py.typed must end with a trailing newline so end-of-file-fixer doesn't rewrite it on every regen; content: {:?}",
+        files[1].content
+    );
     assert_eq!(files[2].path, PathBuf::from("crates/my-lib-py/Cargo.toml"));
     assert!(files[2].content.contains("pyo3"));
 }
@@ -1012,8 +1017,13 @@ fn test_scaffold_java_checkstyle_suppressions_use_config_location() {
         .find(|f| f.path.ends_with("checkstyle.properties"))
         .unwrap();
     assert!(
-        properties.content.is_empty(),
-        "checkstyle properties should stay empty; content:\n{}",
+        properties.content.trim().is_empty(),
+        "checkstyle properties should stay empty (apart from trailing newline); content:\n{}",
+        properties.content
+    );
+    assert!(
+        properties.content.ends_with('\n'),
+        "checkstyle properties must end with a trailing newline so end-of-file-fixer doesn't rewrite it on every regen; content:\n{}",
         properties.content
     );
 }
