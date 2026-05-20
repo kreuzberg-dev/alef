@@ -1326,6 +1326,31 @@ fn build_args_and_setup(
                         parts.push(options_var.to_string());
                         continue;
                     }
+                    // When options_type is set but options_via is NOT, emit struct-literal form.
+                    if let (Some(opts_type), None, Some(obj)) =
+                        (options_type, options_default_fn, v.as_object())
+                    {
+                        let options_var = "options";
+                        let mut field_strs = Vec::new();
+                        for (k, vv) in obj.iter() {
+                            let snake_key = k.to_snake_case();
+                            let elixir_val = if let Some(_enum_type) = enum_fields.get(k) {
+                                if let Some(s) = vv.as_str() {
+                                    let snake_val = s.to_snake_case();
+                                    format!(":{snake_val}")
+                                } else {
+                                    json_to_elixir(vv)
+                                }
+                            } else {
+                                json_to_elixir(vv)
+                            };
+                            field_strs.push(format!("{snake_key}: {elixir_val}"));
+                        }
+                        let fields = field_strs.join(", ");
+                        setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
+                        parts.push(options_var.to_string());
+                        continue;
+                    }
                     // When element_type is set to a batch item type, wrap items with constructors.
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {

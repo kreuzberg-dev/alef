@@ -2733,3 +2733,85 @@ fn json_util_centralizes_from_json_deserialization() {
         "Per-DTO fromJson must be removed (use JsonUtil instead), got:\n{dto_content}"
     );
 }
+
+#[test]
+fn javadoc_sanitizes_rust_syntax() {
+    let backend = JavaBackend;
+
+    // Create an opaque handle type to test documentation sanitization
+    // (opaque handles always emit full javadoc, unlike record field docs)
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![
+            TypeDef {
+                name: "ConfigHandle".to_string(),
+                rust_path: "test::ConfigHandle".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: r#"Configuration handle for processing.
+
+This handle manages the `OutputFormat::None` output format internally.
+Callers should never call `.unwrap()` directly — use the provided builder
+pattern. When calling `Option::expect()` in Rust code, ensure proper error
+handling. The underlying `self.format` field stores the configuration.
+
+Related: `ConversionOptions::output_format` and `Result::unwrap_or()`."#
+                    .to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_test_config("dev.test");
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let dto_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("ConfigHandle.java"))
+        .expect("ConfigHandle.java must be emitted");
+    let content = &dto_file.content;
+
+    // Rust :: should be converted to . (Java package style)
+    assert!(
+        content.contains("{@code OutputFormat.None}") || content.contains("OutputFormat.None"),
+        "Rust :: should become . in Javadoc, got:\n{content}"
+    );
+    assert!(
+        !content.contains("OutputFormat::None"),
+        "Rust :: should not appear in generated code, got:\n{content}"
+    );
+
+    // .unwrap() / .expect() should be sanitized (removed)
+    assert!(
+        !content.contains(".unwrap()"),
+        ".unwrap() Rust idiom must be removed, got:\n{content}"
+    );
+    assert!(
+        !content.contains(".expect("),
+        ".expect() Rust idiom must be removed, got:\n{content}"
+    );
+
+    // Verify the key idioms are gone
+    assert!(
+        !content.contains("Result::unwrap_or()"),
+        "Rust Result::unwrap_or() must become Result.orElse(), got:\n{content}"
+    );
+}
