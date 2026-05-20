@@ -4,7 +4,7 @@ use super::{StreamingMethodMeta, is_bridge_param, pinvoke_param_type, pinvoke_re
 use alef_codegen::naming::{csharp_type_name, to_csharp_name};
 use alef_core::config::TraitBridgeConfig;
 use alef_core::config::workspace::ClientConstructorConfig;
-use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, TypeRef};
+use alef_core::ir::{ApiSurface, FunctionDef, MethodDef, PrimitiveType, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
 use std::collections::{HashMap, HashSet};
 
@@ -517,8 +517,16 @@ pub(super) fn gen_pinvoke_for_func(
         for param in visible_params.iter() {
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
+            // Emit [MarshalAs(...)] attributes for types that need them.
             if pinvoke_ty == "string" {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+            } else if pinvoke_ty == "int" && matches!(param.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
+                // bool cross FFI as C int (0/1) — use U1 to marshal as single byte
+                out.push_str("[MarshalAs(UnmanagedType.U1)] bool ");
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&param_name);
+                out.push_str(",\n");
+                continue;
             }
             let param_name = param.name.to_lower_camel_case();
             out.push_str(
@@ -584,8 +592,16 @@ pub(super) fn gen_pinvoke_for_method(c_name: &str, cs_name: &str, method: &Metho
         for param in method.params.iter() {
             out.push_str("        ");
             let pinvoke_ty = pinvoke_param_type(&param.ty);
+            // Emit [MarshalAs(...)] attributes for types that need them.
             if pinvoke_ty == "string" {
                 out.push_str("[MarshalAs(UnmanagedType.LPStr)] ");
+            } else if pinvoke_ty == "int" && matches!(param.ty, TypeRef::Primitive(PrimitiveType::Bool)) {
+                // bool cross FFI as C int (0/1) — use U1 to marshal as single byte
+                out.push_str("[MarshalAs(UnmanagedType.U1)] bool ");
+                let param_name = param.name.to_lower_camel_case();
+                out.push_str(&param_name);
+                out.push_str(",\n");
+                continue;
             }
             let param_name = param.name.to_lower_camel_case();
             out.push_str(
