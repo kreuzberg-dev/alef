@@ -403,7 +403,7 @@ impl FieldResolver {
         // `"browser.browser_used"` where `"browser"` is a virtual grouping prefix
         // and the real field is `"browser_used"`.
         if let Some(suffix) = self.namespace_stripped_path(resolved) {
-            let suffix_first = suffix.split('.').next().unwrap_or(&suffix);
+            let suffix_first = suffix.split('.').next().unwrap_or(suffix);
             let suffix_first = suffix_first.split('[').next().unwrap_or(suffix_first);
             return self.result_fields.contains(suffix_first);
         }
