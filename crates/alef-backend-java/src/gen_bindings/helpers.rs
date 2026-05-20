@@ -28,9 +28,16 @@ const JAVA_OBJECT_METHOD_NAMES: &[&str] = &[
 /// Leaving them raw lets Eclipse-formatter Spotless interpret content like
 /// `<pre>` as a block-level HTML element and shatter the line across
 /// multiple `* ` rows, which then breaks `alef-verify`'s embedded hash.
+///
+/// Also sanitizes Rust-specific syntax that leaks into Javadoc:
+/// - `::` (namespace separator) → `.` (Java package separator)
+/// - `.unwrap()` / `.expect()` → removed (Rust idioms with no Java equivalent)
 pub(crate) fn escape_javadoc_line(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
+    // First pass: sanitize Rust-specific syntax outside backticks
+    let sanitized = sanitize_rust_syntax(s);
+
+    let mut result = String::with_capacity(sanitized.len());
+    let mut chars = sanitized.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '`' {
             let mut code = String::new();
@@ -66,6 +73,57 @@ pub(crate) fn escape_javadoc_line(s: &str) -> String {
         }
     }
     result
+}
+
+/// Sanitize Rust-specific syntax in docstrings.
+/// Replaces Rust idioms with Java-friendly equivalents or removes them.
+fn sanitize_rust_syntax(s: &str) -> String {
+    let mut result = s.to_string();
+
+    // Replace :: (Rust namespace separator) with . (Java package separator)
+    result = result.replace("::", ".");
+
+    // Remove Rust-specific error handling idioms that have no Java equivalent
+    // .unwrap() / .expect(...) / .unwrap_or(...) are Rust-specific
+    result = result.replace(".unwrap()", "");
+    result = result.replace(".unwrap_or(", ".orElse(");
+
+    // Remove .expect(...) calls (Rust panicking assertion)
+    let mut cleaned = String::new();
+    let mut chars = result.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '.' {
+            // Check if this is the start of .expect( or similar
+            let remaining: String = chars.clone().take_while(|_| true).collect();
+            if remaining.starts_with("expect(") {
+                // Skip to the closing paren
+                let mut depth = 0;
+                let mut found_close = false;
+                for _ in 0..remaining.len() {
+                    if let Some(c) = chars.next() {
+                        if c == '(' {
+                            depth += 1;
+                        } else if c == ')' {
+                            depth -= 1;
+                            if depth == 0 {
+                                found_close = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if !found_close {
+                    // Malformed; just skip the .expect
+                    cleaned.push('.');
+                }
+                // Otherwise we've consumed the .expect(...) text
+                continue;
+            }
+        }
+        cleaned.push(ch);
+    }
+
+    cleaned
 }
 
 pub(crate) fn is_tuple_field_name(name: &str) -> bool {
