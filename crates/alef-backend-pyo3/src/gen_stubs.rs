@@ -669,9 +669,13 @@ fn gen_method_stub(
 /// Python enums use snake_case member names (PEP 8), matching the #[pyo3(name = "...")]
 /// rename emitted on the Rust pyclass variant. This allows Python users to write:
 /// `ConversionOptions(heading_style="atx_closed")` using the bare string value.
+///
+/// Variant names whose snake_case form collides with a Python reserved keyword
+/// (e.g. `Del` → `del`) are escaped with a trailing underscore (`del_`) so the
+/// generated `.pyi` parses.
 fn to_python_enum_variant(name: &str) -> String {
     use heck::ToSnakeCase;
-    name.to_snake_case()
+    alef_core::keywords::python_ident(&name.to_snake_case())
 }
 
 /// Generate a Python enum stub.
