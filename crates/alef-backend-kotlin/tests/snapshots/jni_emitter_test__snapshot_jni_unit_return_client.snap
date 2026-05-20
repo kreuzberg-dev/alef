@@ -19,7 +19,6 @@ package dev.kreuzberg
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** JNI-backed wrapper holding a native `DefaultClient` handle. */
 @Suppress("TooManyFunctions")
 class DefaultClient internal constructor(internal val handle: Long) : AutoCloseable {
     companion object {

@@ -366,9 +366,6 @@ pub fn emit_jni_client_class(
             }
         }
 
-        body.push_str(&format!(
-            "/** JNI-backed wrapper holding a native `{class_name}` handle. */\n"
-        ));
         // Suppress detekt TooManyFunctions: the number of methods scales with
         // the API surface; large APIs naturally exceed the default threshold of 11.
         body.push_str("@Suppress(\"TooManyFunctions\")\n");

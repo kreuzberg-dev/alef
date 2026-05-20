@@ -149,6 +149,40 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
     }
 }
 
+/// Emit TypeScript JSDoc-style documentation comments (/** ... */)
+/// Used by NAPI-RS backends for TypeScript .d.ts type annotations and binding Rust doc comments.
+///
+/// Sanitizes Rust-specific idioms before translating rustdoc sections
+/// (`# Arguments` → `@param`, `# Returns` → `@returns`, `# Errors` → `@throws`,
+/// `# Example` → ` ```typescript ` fence) via [`render_jsdoc_sections`].
+pub fn emit_tsdoc(out: &mut String, doc: &str, indent: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    // Sanitize Rust-specific idioms before processing sections.
+    let sanitized = sanitize_rust_idioms(doc, DocTarget::TsDoc);
+    let sections = parse_rustdoc_sections(&sanitized);
+    let any_section = sections.arguments.is_some()
+        || sections.returns.is_some()
+        || sections.errors.is_some()
+        || sections.example.is_some();
+    let body = if any_section {
+        render_jsdoc_sections(&sections)
+    } else {
+        sanitized
+    };
+    out.push_str(indent);
+    out.push_str("/**\n");
+    for line in body.lines() {
+        out.push_str(indent);
+        out.push_str(" * ");
+        out.push_str(line);
+        out.push('\n');
+    }
+    out.push_str(indent);
+    out.push_str(" */\n");
+}
+
 /// Escape Elixir doc line: handle triple-quote sequences that could close the heredoc early.
 fn escape_elixir_doc_line(s: &str) -> String {
     s.replace("\"\"\"", "\"\" \"")
@@ -1269,9 +1303,9 @@ pub enum DocTarget {
 ///
 /// Transformations are applied **outside** backtick spans and code fences only,
 /// so inline code examples and fenced blocks are never mutated (except that
-/// ` ```rust ` fences are dropped entirely for [`DocTarget::TsDoc`] /
-/// [`DocTarget::JsDoc`] and have their language tag stripped for
-/// [`DocTarget::PhpDoc`] / [`DocTarget::JavaDoc`]).
+/// ` ```rust ` fences and unmarked ` ``` ` code blocks are dropped entirely
+/// for all targets [`DocTarget::TsDoc`], [`DocTarget::JsDoc`], [`DocTarget::PhpDoc`],
+/// [`DocTarget::JavaDoc`], and [`DocTarget::CSharpDoc`]).
 ///
 /// # Transformations
 ///
@@ -1289,7 +1323,7 @@ pub enum DocTarget {
 /// - `pub fn `, `crate::`, `&self`, `&mut self` → stripped.
 /// - `#[…]` attribute macros on their own line or inline → stripped.
 /// - `.unwrap()`, `.expect("…")` → stripped.
-/// - ` ```rust ` fences → dropped entirely (TS/JS) or tag removed (PHP/Java).
+/// - ` ```rust ` and unmarked ` ``` ` code fences → dropped entirely.
 pub fn sanitize_rust_idioms(text: &str, target: DocTarget) -> String {
     // For C# XML doc the default is to drop rustdoc section headings
     // (`# Examples`, `# Arguments`, …) and the remainder of the comment,
@@ -1341,12 +1375,8 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
                 // Closing fence of a rust block.
                 in_rust_fence = false;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
+                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc | DocTarget::PhpDoc | DocTarget::JavaDoc => {
                         // Entire rust block dropped — don't emit closing fence.
-                    }
-                    DocTarget::PhpDoc | DocTarget::JavaDoc => {
-                        out.push_str(line);
-                        out.push('\n');
                     }
                 }
                 continue;
@@ -1364,17 +1394,9 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
             if is_rust {
                 in_rust_fence = true;
                 match target {
-                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
+                    DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc | DocTarget::PhpDoc | DocTarget::JavaDoc => {
                         // Drop the entire rust fence block — skip opening line.
-                    }
-                    DocTarget::PhpDoc | DocTarget::JavaDoc => {
-                        // Emit fence without language tag.
-                        let indent = &line[..line.len() - trimmed.len()];
-                        let after_lang = rest.find(',').map(|i| &rest[i..]).unwrap_or("");
-                        out.push_str(indent);
-                        out.push_str("```");
-                        out.push_str(after_lang);
-                        out.push('\n');
+                        // Rust code examples are not portable to any of the target languages.
                     }
                 }
                 continue;
@@ -1389,12 +1411,8 @@ fn sanitize_rust_idioms_inner(text: &str, target: DocTarget, drop_csharp_section
         // Inside a rust fence.
         if in_rust_fence {
             match target {
-                DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc => {
-                    // Drop content of rust fences.
-                }
-                DocTarget::PhpDoc | DocTarget::JavaDoc => {
-                    out.push_str(line);
-                    out.push('\n');
+                DocTarget::TsDoc | DocTarget::JsDoc | DocTarget::CSharpDoc | DocTarget::PhpDoc | DocTarget::JavaDoc => {
+                    // Drop content of rust fences — all targets filter out Rust code examples.
                 }
             }
             continue;
@@ -2230,6 +2248,46 @@ mod tests {
     }
 
     #[test]
+    fn test_emit_tsdoc() {
+        let mut out = String::new();
+        emit_tsdoc(&mut out, "TypeScript documentation", "    ");
+        assert!(out.contains("/**"));
+        assert!(out.contains("TypeScript documentation"));
+        assert!(out.contains("*/"));
+    }
+
+    #[test]
+    fn test_emit_tsdoc_strips_rust_code_blocks() {
+        // Verify that Rust code fences are stripped from TypeScript JSDoc.
+        let doc = "List all available languages.\n\n# Examples\n\n```rust\nuse tree_sitter_language_pack::available_languages;\nlet langs = available_languages();\nassert_eq!(langs.len(), 0);\n```";
+        let mut out = String::new();
+        emit_tsdoc(&mut out, doc, "");
+        // Should contain the summary and JSDoc structure.
+        assert!(out.contains("/**"));
+        assert!(out.contains("List all available languages"));
+        assert!(out.contains("*/"));
+        // Should NOT contain the Rust code or the ```rust fence.
+        assert!(!out.contains("use tree_sitter_language_pack"));
+        assert!(!out.contains("assert_eq!"));
+        assert!(!out.contains("```rust"));
+    }
+
+    #[test]
+    fn test_emit_tsdoc_strips_rust_idioms() {
+        // Verify that Rust idioms like .unwrap() and Some/None are sanitized.
+        let doc = "Get a language.\n\nReturns None if not found.\n\n# Example\n\n```typescript\nconst lang = getLanguage(\"rust\").unwrap();\n```";
+        let mut out = String::new();
+        emit_tsdoc(&mut out, doc, "");
+        // Should contain the summary and be valid JSDoc.
+        assert!(out.contains("/**"));
+        assert!(out.contains("Get a language"));
+        assert!(out.contains("*/"));
+        // Rust idioms should be sanitized in the prose.
+        assert!(out.contains("undefined")); // None -> undefined in TypeScript
+        // Note: .unwrap() in code fence stays as-is since it's inside backticks.
+    }
+
+    #[test]
     fn test_emit_dartdoc() {
         let mut out = String::new();
         emit_dartdoc(&mut out, "Dart documentation", "    ");
@@ -2932,16 +2990,17 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_rust_fence_tag_stripped_for_java() {
+    fn sanitize_rust_fence_dropped_for_java() {
         let input = "Intro.\n\n```rust\nlet x = 1;\n```\n\nTrailer.";
         let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
-        // Language tag is stripped; content is kept.
+        // Rust fences are now dropped entirely for Java (Rust code is not portable).
         assert!(
-            out.contains("let x = 1;"),
-            "fence content must survive for Java, got: {out}"
+            !out.contains("let x = 1;"),
+            "fence content must be dropped for Java, got: {out}"
         );
-        assert!(!out.contains("```rust"), "rust tag must be stripped, got: {out}");
-        assert!(out.contains("```\n"), "bare fence must be kept, got: {out}");
+        assert!(!out.contains("```"), "fence markers must be dropped, got: {out}");
+        assert!(out.contains("Intro."), "prose before fence kept: {out}");
+        assert!(out.contains("Trailer."), "prose after fence kept: {out}");
     }
 
     #[test]
@@ -3131,5 +3190,40 @@ mod tests {
         let once = sanitize_rust_idioms(input, DocTarget::CSharpDoc);
         let twice = sanitize_rust_idioms(&once, DocTarget::CSharpDoc);
         assert_eq!(once, twice, "CSharpDoc sanitisation must be idempotent");
+    }
+
+    #[test]
+    fn sanitize_phpdoc_drops_unmarked_rust_code_fences() {
+        // Regression test: unmarked code fences (```\n...\n```) in Rust docstrings
+        // are treated as Rust code and should be dropped for PHP target.
+        let input = "Detect language name from a file extension.\n\nReturns `None` for unrecognized extensions.\n\n```\nuse tree_sitter_language_pack::detect_language_from_extension;\nassert_eq!(detect_language_from_extension(\"py\"), Some(\"python\"));\nassert_eq!(detect_language_from_extension(\"RS\"), Some(\"rust\"));\nassert_eq!(detect_language_from_extension(\"xyz\"), None);\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
+        assert!(!out.contains("use tree_sitter_language_pack"), "Rust use stmt dropped: {out}");
+        assert!(!out.contains("assert_eq!"), "Rust code dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Detect language name"), "prose before fence kept: {out}");
+        assert!(out.contains("unrecognized extensions"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_javadoc_drops_unmarked_rust_code_fences() {
+        // Regression test: unmarked code fences in Rust docstrings should be dropped
+        // for Java target as well.
+        let input = "Process a file.\n\n```\nlet result = process(\"def hello(): pass\", &config).unwrap();\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::JavaDoc);
+        assert!(!out.contains("unwrap"), "Rust unwrap dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Process a file"), "prose kept: {out}");
+    }
+
+    #[test]
+    fn sanitize_phpdoc_drops_explicit_rust_fences() {
+        // Explicit ```rust fences should also be dropped for PHP.
+        let input = "Summary.\n\n```rust\nuse std::path::PathBuf;\nlet p = PathBuf::from(\"/tmp\");\n```";
+        let out = sanitize_rust_idioms(input, DocTarget::PhpDoc);
+        assert!(!out.contains("use std::"), "Rust code dropped: {out}");
+        assert!(!out.contains("PathBuf"), "Rust types dropped: {out}");
+        assert!(!out.contains("```"), "fence markers dropped: {out}");
+        assert!(out.contains("Summary"), "prose kept: {out}");
     }
 }
