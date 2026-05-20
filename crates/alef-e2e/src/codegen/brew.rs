@@ -919,3 +919,34 @@ fn json_value_to_shell_string(value: &serde_json::Value) -> String {
         other => escape_shell(&other.to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every leading-whitespace prefix in an emitted shell line must be a
+    /// multiple of 2 spaces. shfmt's default indent step (and the `shfmt -i 2`
+    /// pre-commit hook used downstream by `kreuzcrawl`) rewrites any other
+    /// indent step, which then causes the alef-emitted scripts to be rewritten
+    /// by pre-commit hooks on every consumer run.
+    fn assert_shfmt_canonical_indent(script: &str, context: &str) {
+        for (lineno, line) in script.lines().enumerate() {
+            let leading_spaces = line.chars().take_while(|c| *c == ' ').count();
+            assert!(
+                leading_spaces.is_multiple_of(2),
+                "{context}: line {lineno} has {leading_spaces}-space indent (must be a multiple of 2 for shfmt compatibility): {line:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn render_run_tests_uses_two_space_indent() {
+        let categories = vec!["auth".to_string(), "crawl".to_string()];
+        let script = render_run_tests(&categories);
+        assert_shfmt_canonical_indent(&script, "render_run_tests");
+        assert!(
+            script.lines().any(|l| l.starts_with("  ") && !l.starts_with("   ")),
+            "render_run_tests should emit at least one 2-space-indented line; got:\n{script}",
+        );
+    }
+}
