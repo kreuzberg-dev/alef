@@ -761,6 +761,33 @@ pub fn render_test_function(
         let _ = writeln!(out, "    let {result_binding} = {call_expr}{await_suffix};");
     }
 
+    // Emit local bindings for fields_array fields that are referenced in assertions
+    // AND whose names collide with streaming-virtual field names (e.g. `chunks`,
+    // `imports`, `structure`).  Without this, the streaming-virtual-field arm in
+    // `render_assertion` fires unconditionally on those field names — even for
+    // non-streaming fixtures — and emits `assert!(chunks.len() >= 2 as usize, ...)`
+    // referencing an undeclared variable.  Binding `let chunks = &result.chunks;`
+    // here makes the hardcoded `chunks` identifier in that arm resolve correctly.
+    //
+    // Only emit for non-streaming fixtures: streaming fixtures already drain the
+    // stream into a `chunks: Vec<_>` local via the collect snippet.
+    if !is_streaming {
+        let mut emitted_array_bindings: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for assertion in &fixture.assertions {
+            if let Some(f) = &assertion.field {
+                if !f.is_empty()
+                    && field_resolver.is_array(f)
+                    && crate::codegen::streaming_assertions::is_streaming_virtual_field(f)
+                    && !emitted_array_bindings.contains(f.as_str())
+                {
+                    let accessor = field_resolver.accessor(f, "rust", result_var);
+                    let _ = writeln!(out, "    let {f} = &{accessor};");
+                    emitted_array_bindings.insert(f.clone());
+                }
+            }
+        }
+    }
+
     // Emit Option field unwrap bindings for any fields accessed in assertions.
     // Use FieldResolver to handle optional fields, including nested/aliased paths.
     // Skipped when the call returns Vec<T>: per-element iteration is emitted by
@@ -879,5 +906,79 @@ mod tests {
         };
         let result = resolve_module_for_call(&call, "dep_name");
         assert_eq!(result, "custom_crate");
+    }
+
+    /// Regression test: a non-streaming fixture whose result struct has a `chunks`
+    /// field (registered in `fields_array`) must emit `let chunks = &result.chunks;`
+    /// before any assertion so the streaming-virtual-field arm's hardcoded `chunks`
+    /// identifier resolves.  Without the fix this generated
+    /// `assert!(chunks.len() >= 2 as usize, ...)` with `chunks` undeclared.
+    #[test]
+    fn fields_array_binding_emitted_before_count_min_assertion_for_non_streaming_fixture() {
+        use crate::config::CallConfig;
+        use crate::fixture::{Assertion, Fixture};
+        use std::collections::HashSet;
+
+        let mut fields_array = HashSet::new();
+        fields_array.insert("chunks".to_string());
+
+        let call = CallConfig {
+            function: "process".to_string(),
+            module: "my_crate".to_string(),
+            result_var: "result".to_string(),
+            fields_array,
+            returns_result: true,
+            streaming: Some(false),
+            ..Default::default()
+        };
+
+        let e2e_config = crate::config::E2eConfig {
+            call,
+            ..Default::default()
+        };
+
+        let fixture = Fixture {
+            id: "chunking_test".to_string(),
+            description: "Chunking produces multiple pieces".to_string(),
+            tags: Vec::new(),
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            assertions: vec![Assertion {
+                assertion_type: "count_min".to_string(),
+                field: Some("chunks".to_string()),
+                value: Some(serde_json::Value::Number(serde_json::Number::from(2u64))),
+                values: None,
+                method: None,
+                check: None,
+                args: None,
+                return_type: None,
+            }],
+            source: String::new(),
+            http: None,
+            category: None,
+        };
+
+        let mut out = String::new();
+        render_test_function(&mut out, &fixture, &e2e_config, "my_crate", None);
+
+        assert!(
+            out.contains("let chunks = &result.chunks"),
+            "expected `let chunks = &result.chunks` binding before assertion; got:\n{out}"
+        );
+        assert!(
+            out.contains("chunks.len() >= 2"),
+            "expected count_min assertion referencing `chunks`; got:\n{out}"
+        );
+        // The binding must appear before the assertion in the output.
+        let binding_pos = out.find("let chunks = &result.chunks").unwrap();
+        let assert_pos = out.find("chunks.len() >= 2").unwrap();
+        assert!(
+            binding_pos < assert_pos,
+            "binding must appear before assertion; got:\n{out}"
+        );
     }
 }
