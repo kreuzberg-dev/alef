@@ -544,7 +544,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 </module>
 "#;
 
-    let checkstyle_properties = "";
+    let checkstyle_properties = "\n";
 
     let checkstyle_suppressions_xml = r#"<?xml version="1.0"?>
 <!DOCTYPE suppressions PUBLIC
