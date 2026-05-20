@@ -1149,6 +1149,8 @@ pub(super) fn gen_api_py(
 fn adapter_param_python_type(rust_type: &str) -> &str {
     match rust_type {
         "String" | "&str" | "&'static str" => "str",
+        "bytes::Bytes" | "Vec<u8>" | "&[u8]" => "bytes",
+        "()" => "None",
         other => other,
     }
 }
@@ -1230,7 +1232,8 @@ fn emit_adapter_wrapper(
         AdapterPattern::AsyncMethod => {
             // Non-streaming: the engine method is a coroutine returning a single value.
             // Emit a plain async def that awaits and returns the result.
-            let return_type = adapter.returns.as_deref().unwrap_or("None");
+            let raw_return = adapter.returns.as_deref().unwrap_or("None");
+            let return_type = adapter_param_python_type(raw_return);
             out.push_str(&format!(
                 "async def {}({}) -> {}:\n",
                 adapter_name,
