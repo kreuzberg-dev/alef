@@ -167,7 +167,7 @@ impl Backend for SwiftBackend {
         // is unreliable (not all enum types are exposed). Instead, we emit them directly
         // as Swift enums that mirror the unit variants from the Rust bridge enum wrapper.
         for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
-            emit_enum(en, &mut body, &mapper);
+            emit_enum(en, &mut body, &mapper, &known_dto_names);
             body.push('\n');
         }
 
@@ -934,7 +934,12 @@ fn vec_elem_convert_expr(
 /// `JSONDecoder` can decode them. The raw value for each case is the `serde`
 /// serialized form derived from `serde_rename_all` (or the camelCase variant
 /// name when no rename strategy is set).
-fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
+fn emit_enum(
+    en: &EnumDef,
+    out: &mut String,
+    mapper: &SwiftMapper,
+    known_dto_names: &std::collections::HashSet<String>,
+) {
     emit_doc_comment(&en.doc, "", out);
 
     if !en.has_serde {
@@ -982,6 +987,28 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
         return;
     }
     // Data-variant enum (has_serde + not all_unit): emit as native Swift enum with associated values.
+    //
+    // The template adds `: Codable, Sendable, Hashable` so the userland `*FromJson`
+    // forwarder can call `JSONDecoder().decode(EnumName.self, ...)`. Swift can only
+    // auto-synthesise those conformances when every associated value type itself
+    // conforms — i.e. is a primitive, String, or a known first-class Codable struct
+    // (entries in `known_dto_names`, which already includes unit serde enums).
+    //
+    // When any associated value references a type that is *not* in `known_dto_names`
+    // (e.g. an opaque DTO typealiased to `RustBridge.X`, or a non-serde enum), Swift
+    // refuses to synthesise the protocol conformances and the whole enum fails to
+    // compile. In that case we fall back to a typealias to the opaque RustBridge
+    // wrapper — users lose Swift-side pattern matching for that enum but everything
+    // else stays usable.
+    if !all_variants_codable_safe(en, known_dto_names) {
+        out.push_str(&crate::template_env::render(
+            "typealias.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+        return;
+    }
     out.push_str(&crate::template_env::render(
         "swift_enum_header.jinja",
         minijinja::context! {
@@ -993,6 +1020,33 @@ fn emit_enum(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     }
     out.push_str("}\n");
     emit_enum_into_rust_extension(&en.name, out);
+}
+
+/// Returns `true` when every associated value type across `en.variants` is safe to
+/// reference inside a Codable+Sendable+Hashable Swift enum — i.e. the type is a
+/// primitive, String/Char/Path/Json/Bytes/Duration, or a Named type already known
+/// to be a first-class Codable struct or unit serde enum.
+fn all_variants_codable_safe(en: &EnumDef, known_dto_names: &std::collections::HashSet<String>) -> bool {
+    use alef_core::ir::TypeRef;
+    fn supported(ty: &TypeRef, known: &std::collections::HashSet<String>) -> bool {
+        match ty {
+            TypeRef::Primitive(_)
+            | TypeRef::String
+            | TypeRef::Char
+            | TypeRef::Path
+            | TypeRef::Json
+            | TypeRef::Unit
+            | TypeRef::Bytes
+            | TypeRef::Duration => true,
+            TypeRef::Named(n) => known.contains(n),
+            TypeRef::Optional(inner) | TypeRef::Vec(inner) => supported(inner, known),
+            TypeRef::Map(k, v) => supported(k, known) && supported(v, known),
+        }
+    }
+    en.variants
+        .iter()
+        .flat_map(|v| v.fields.iter())
+        .all(|f| supported(&f.ty, known_dto_names))
 }
 
 /// Emits an `extension {EnumName} { func intoRust() throws -> RustBridge.{EnumName} { ... } }`
