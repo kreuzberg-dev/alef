@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.11] - 2026-05-20
+
 ### Fixed
 
-- **alef-e2e: fix Elixir test helper to handle struct field values.** E2e Elixir test helper `alef_e2e_item_texts` called `to_string(str)` on all non-atom, non-nil field values, which failed when struct types (e.g., `TreeSitterLanguagePack.StructureKind`) were returned from NIF bindings with error: `protocol String.Chars not implemented for <struct>`. Replaced `to_string(str)` with `inspect(str)`, which safely converts any Elixir value to a string. (`crates/alef-e2e/src/codegen/elixir.rs`)
+- **alef-backend-swift: JSON-decode `Option<String>` returns on non-throwing free-function forwarders instead of optional-chaining `.toString()`.** v0.17.10 added a `?.toString()` suffix to coerce the bridge return for `Option<String>` results, but that fix was based on the false premise that swift-bridge surfaces the value as `RustString?`. In reality the bridge crate JSON-serializes ALL `Option<T>` returns (see `needs_json_bridge` in `crates/alef-backend-swift/src/gen_rust_crate/type_bridge.rs`: `Optional(_) => true`): for a non-throwing function the bridge declares `-> String` and swift-bridge surfaces it as `-> RustString` (NON-optional). Applying `?.toString()` therefore failed with `cannot use optional chaining on non-optional value of type 'RustString'` — observed in downstream tree-sitter-language-pack on `detectLanguageFromExtension(ext:)`. `emit_single_free_function_forwarder` now detects non-throwing `Option<String>` returns via a new `non_throwing_optional_string_uses_json_bridge` predicate and emits a JSON-decode body (`JSONDecoder().decode(String?.self, from: _rb_data)`) — JSON `null` decodes to `.none`, present values to `.some`. The Optional<String> arm of `forwarder_return_conversion_suffix_inner` now returns an empty suffix to leave the body branch in sole control. The v0.17.10 regression test is rewritten to assert the new JSON-decode body and to negative-assert against the v0.17.10 `?.toString()` pattern. (`crates/alef-backend-swift/src/gen_bindings.rs`, `crates/alef-backend-swift/tests/gen_bindings_test.rs`)
 
 ## [0.17.10] - 2026-05-20
 
