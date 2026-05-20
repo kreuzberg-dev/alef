@@ -1358,7 +1358,11 @@ fn render_test_function(
                     let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
                         let stripped_first = stripped.split('.').next().unwrap_or(stripped);
                         let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
-                        if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                        if field_resolver.is_valid_for_result(stripped_first) {
+                            stripped
+                        } else {
+                            resolved_raw
+                        }
                     } else {
                         resolved_raw
                     };
@@ -1741,7 +1745,11 @@ fn render_test_function(
                 let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
                     let stripped_first = stripped.split('.').next().unwrap_or(stripped);
                     let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
-                    if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                    if field_resolver.is_valid_for_result(stripped_first) {
+                        stripped
+                    } else {
+                        resolved_raw
+                    }
                 } else {
                     resolved_raw
                 };
@@ -2000,7 +2008,11 @@ fn render_engine_factory_test_function(
                 let resolved = if let Some(stripped) = field_resolver.namespace_stripped_path(resolved_raw) {
                     let stripped_first = stripped.split('.').next().unwrap_or(stripped);
                     let stripped_first = stripped_first.split('[').next().unwrap_or(stripped_first);
-                    if field_resolver.is_valid_for_result(stripped_first) { stripped } else { resolved_raw }
+                    if field_resolver.is_valid_for_result(stripped_first) {
+                        stripped
+                    } else {
+                        resolved_raw
+                    }
                 } else {
                     resolved_raw
                 };

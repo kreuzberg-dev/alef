@@ -576,25 +576,32 @@ pub(super) fn gen_elixir_struct_module(
     // Add Jason.Encoder implementation for option structs (has_default = true).
     // This allows Elixir code to pass structs to NIF functions that expect JSON-encoded options.
     if typ.has_default {
+        out.push('\n');
         out.push_str("  defimpl Jason.Encoder do\n");
         out.push_str("    @doc false\n");
         out.push_str("    def encode(value, opts) do\n");
         out.push_str("      value\n");
-        out.push_str("        |> Map.from_struct()\n");
-        out.push_str("        |> Jason.Encoder.encode(opts)\n");
+        out.push_str("      |> Map.from_struct()\n");
+        out.push_str("      |> Jason.Encoder.encode(opts)\n");
         out.push_str("    end\n");
-        out.push_str("  end\n\n");
+        out.push_str("  end\n");
     }
 
     // Add valid?/1 instance method for HeaderMetadata-like types with is_valid in Rust.
     if typ.name == "HeaderMetadata" {
+        out.push('\n');
         out.push_str("  @doc \"Validate that the header level is within valid range (1-6).\"\n");
         out.push_str("  @spec valid?(t()) :: boolean()\n");
         out.push_str("  def valid?(%__MODULE__{level: level}) do\n");
         out.push_str("    level >= 1 and level <= 6\n");
-        out.push_str("  end\n\n");
+        out.push_str("  end\n");
     }
 
+    // `mix format` rejects a blank between the last block's `end` and the
+    // module's closing `end`; trim trailing blanks before emitting the footer.
+    while out.ends_with("\n\n") {
+        out.pop();
+    }
     out.push_str(&template_env::render(
         "struct_module_footer.jinja",
         minijinja::context! {},
