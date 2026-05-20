@@ -6,6 +6,7 @@ use crate::type_map::PhpMapper;
 use ahash::AHashSet;
 use alef_codegen::builder::RustFileBuilder;
 use alef_codegen::conversions::ConversionConfig;
+use alef_codegen::doc_emission;
 use alef_codegen::generators::RustBindingConfig;
 use alef_codegen::generators::{self, AsyncPattern};
 use alef_codegen::naming::to_php_name;
@@ -847,6 +848,9 @@ impl Backend for PhpBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Helper: escape `*/` sequences that could close PHPDoc early
+        let escape_phpdoc_line = |s: &str| s.replace("*/", "* /");
+
         let extension_name = config.php_extension_name();
         let class_name = extension_name.to_pascal_case();
 
@@ -912,7 +916,7 @@ impl Backend for PhpBackend {
                 .filter(|p| !bridge_param_names_pub.contains(p.name.as_str()))
                 .collect();
 
-            // PHPDoc block
+            // PHPDoc block: translate rustdoc sections to PHPDoc format, stripping Rust-specific syntax.
             content.push_str(&crate::template_env::render(
                 "php_phpdoc_block_start.jinja",
                 minijinja::Value::default(),
@@ -923,13 +927,16 @@ impl Backend for PhpBackend {
                     context! { text => &format!("{}.", method_name) },
                 ));
             } else {
-                content.push_str(&crate::template_env::render(
-                    "php_phpdoc_lines.jinja",
-                    context! {
-                        doc_lines => func.doc.lines().collect::<Vec<_>>(),
-                        indent => "     ",
-                    },
-                ));
+                // Extract and render summary + major rustdoc sections, stripping Rust-specific syntax.
+                let sections = doc_emission::parse_rustdoc_sections(&func.doc);
+                // Emit summary
+                for line in sections.summary.lines() {
+                    content.push_str("     * ");
+                    content.push_str(&escape_phpdoc_line(line));
+                    content.push('\n');
+                }
+                // Skip Arguments, Returns, Errors, Example — they're emitted as @param/@return/@throws below.
+                // This prevents raw Rust syntax from leaking into the docstring.
             }
             content.push_str(&crate::template_env::render(
                 "php_phpdoc_empty_line.jinja",
