@@ -73,6 +73,13 @@ impl Backend for DartBackend {
             .functions
             .iter()
             .filter(|f| !exclude_functions.contains(f.name.as_str()))
+            // Skip trait-bridge-managed names (clear_fn) — `emit_trait_bridge_methods`
+            // emits its own static wrapper for them. Without this filter the userland
+            // Dart class declares `clearXxxs()` twice (regular forwarder + bridge
+            // wrapper) which Dart rejects with "already declared in this scope".
+            .filter(|f| {
+                !alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
+            })
             .collect();
 
         let mut imports: BTreeSet<String> = BTreeSet::new();
