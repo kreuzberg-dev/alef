@@ -71,7 +71,7 @@ internal extension ProcessResult {
     init(_ rb: RustBridge.ProcessResult) throws {
         self.language = rb.language().toString()
         self.diagnostics = try rb.diagnostics().map { try Diagnostic($0) }
-        self.tags = rb.tags().map { $0.toString() }
+        self.tags = rb.tags().map { $0.as_str().toString() }
     }
     func intoRust() throws -> RustBridge.ProcessResult {
         let __diagnostics = RustVec<RustBridge.Diagnostic>()
