@@ -488,8 +488,10 @@ pub fn validate(config: &ResolvedCrateConfig, languages: &[Language]) -> Result<
         let pkg_dir = config.package_dir(lang);
         let pkg_path = std::path::Path::new(&pkg_dir);
 
-        // Skip languages that don't have package dirs (Rust, FFI).
-        if matches!(lang, Language::Rust | Language::Ffi) {
+        // Skip languages that don't have standalone package dirs (Rust, FFI, JNI).
+        // JNI is a transitive language used by Java/Kotlin bindings — no separate
+        // publish artifact exists.
+        if matches!(lang, Language::Rust | Language::Ffi | Language::Jni) {
             continue;
         }
 
