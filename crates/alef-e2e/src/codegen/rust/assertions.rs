@@ -11,8 +11,9 @@ use super::assertion_helpers::{
     render_is_empty_assertion, render_method_result_assertion, render_not_empty_assertion,
 };
 use super::assertion_synthetic::{
-    numeric_literal, render_chunks_have_content, render_chunks_have_embeddings, render_embedding_dimensions,
-    render_embedding_quality, render_embeddings_assertion, render_keywords_assertion, render_keywords_count_assertion,
+    numeric_literal, render_chunks_have_content, render_chunks_have_embeddings, render_chunks_have_heading_context,
+    render_embedding_dimensions, render_embedding_quality, render_embeddings_assertion,
+    render_first_chunk_starts_with_heading, render_keywords_assertion, render_keywords_count_assertion,
     tree_field_access_expr, value_to_rust_string,
 };
 
@@ -164,6 +165,14 @@ pub fn render_assertion_with_streaming(
                 render_chunks_have_embeddings(out, result_var, assertion.assertion_type.as_str());
                 return;
             }
+            "chunks_have_heading_context" => {
+                render_chunks_have_heading_context(out, result_var, assertion.assertion_type.as_str());
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                render_first_chunk_starts_with_heading(out, result_var, assertion.assertion_type.as_str());
+                return;
+            }
             "embeddings" => {
                 render_embeddings_assertion(out, result_var, assertion);
                 return;
@@ -205,9 +214,14 @@ pub fn render_assertion_with_streaming(
                     "count_min" => {
                         if let Some(val) = &assertion.value {
                             if let Some(n) = val.as_u64() {
+                                let expr_for_len = if field_resolver.is_optional(f) {
+                                    format!("{expr}.as_ref().map_or(0, |v| v.len())")
+                                } else {
+                                    format!("{expr}.len()")
+                                };
                                 let _ = writeln!(
                                     out,
-                                    "    assert!({expr}.len() >= {n} as usize, \"expected >= {n} chunks\");"
+                                    "    assert!({expr_for_len} >= {n} as usize, \"expected >= {n} chunks\");"
                                 );
                             }
                         }
@@ -215,9 +229,14 @@ pub fn render_assertion_with_streaming(
                     "count_equals" => {
                         if let Some(val) = &assertion.value {
                             if let Some(n) = val.as_u64() {
+                                let expr_for_len = if field_resolver.is_optional(f) {
+                                    format!("{expr}.as_ref().map_or(0, |v| v.len())")
+                                } else {
+                                    format!("{expr}.len()")
+                                };
                                 let _ = writeln!(
                                     out,
-                                    "    assert_eq!({expr}.len(), {n} as usize, \"expected exactly {n} chunks\");"
+                                    "    assert_eq!({expr_for_len}, {n} as usize, \"expected exactly {n} chunks\");"
                                 );
                             }
                         }
@@ -232,10 +251,20 @@ pub fn render_assertion_with_streaming(
                         }
                     }
                     "not_empty" => {
-                        let _ = writeln!(out, "    assert!(!{expr}.is_empty(), \"expected non-empty\");");
+                        let check_expr = if field_resolver.is_optional(f) {
+                            format!("{expr}.as_ref().is_some_and(|v| !v.is_empty())")
+                        } else {
+                            format!("!{expr}.is_empty()")
+                        };
+                        let _ = writeln!(out, "    assert!({check_expr}, \"expected non-empty\");");
                     }
                     "is_empty" => {
-                        let _ = writeln!(out, "    assert!({expr}.is_empty(), \"expected empty\");");
+                        let check_expr = if field_resolver.is_optional(f) {
+                            format!("{expr}.as_ref().is_none_or(|v| v.is_empty())")
+                        } else {
+                            format!("{expr}.is_empty()")
+                        };
+                        let _ = writeln!(out, "    assert!({check_expr}, \"expected empty\");");
                     }
                     "is_true" => {
                         let _ = writeln!(out, "    assert!({expr}, \"expected true\");");
@@ -449,6 +478,7 @@ pub fn render_assertion_with_streaming(
                         let base = field_access.strip_suffix(".len()").unwrap();
                         let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected > 0\");");
                     } else if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                        // Use 0 for integer comparisons (the common case for > 0).
                         let _ = writeln!(out, "    assert!({field_access}.unwrap_or(0) > 0, \"expected > 0\");");
                     } else {
                         // Scalar types (usize, u64, etc.) — use direct comparison.
@@ -457,11 +487,16 @@ pub fn render_assertion_with_streaming(
                 } else {
                     let lit = numeric_literal(val);
                     if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
-                        // Option<usize>/Option<u64>: unwrap to 0 before comparing so the
-                        // assertion fails (rather than fails to compile) on a missing field.
+                        // Option<usize>/Option<u64>/Option<f64>: unwrap with appropriate zero literal
+                        // before comparing so the assertion fails (rather than fails to compile) on a missing field.
+                        let default_literal = if lit.contains("_f64") || lit.contains('.') {
+                            "0.0"
+                        } else {
+                            "0"
+                        };
                         let _ = writeln!(
                             out,
-                            "    assert!({field_access}.unwrap_or(0) > {lit}, \"expected > {lit}\");"
+                            "    assert!({field_access}.unwrap_or({default_literal}) > {lit}, \"expected > {lit}\");"
                         );
                     } else {
                         let _ = writeln!(out, "    assert!({field_access} > {lit}, \"expected > {lit}\");");
@@ -473,12 +508,17 @@ pub fn render_assertion_with_streaming(
             if let Some(val) = &assertion.value {
                 let lit = numeric_literal(val);
                 if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
-                    // Option<usize>/Option<u64>: unwrap to 0 before comparing. Note this
-                    // means a missing field will satisfy `< N` for any positive N, matching
-                    // the convention used by render_gte_assertion.
+                    // Option<usize>/Option<u64>/Option<f64>: unwrap with appropriate zero literal
+                    // before comparing. Note this means a missing field will satisfy `< N` for any positive N,
+                    // matching the convention used by render_gte_assertion.
+                    let default_literal = if lit.contains("_f64") || lit.contains('.') {
+                        "0.0"
+                    } else {
+                        "0"
+                    };
                     let _ = writeln!(
                         out,
-                        "    assert!({field_access}.unwrap_or(0) < {lit}, \"expected < {lit}\");"
+                        "    assert!({field_access}.unwrap_or({default_literal}) < {lit}, \"expected < {lit}\");"
                     );
                 } else {
                     let _ = writeln!(out, "    assert!({field_access} < {lit}, \"expected < {lit}\");");
@@ -492,9 +532,15 @@ pub fn render_assertion_with_streaming(
             if let Some(val) = &assertion.value {
                 let lit = numeric_literal(val);
                 if is_optional_scalar_field(assertion, is_unwrapped, field_resolver) {
+                    // Option<usize>/Option<u64>/Option<f64>: unwrap with appropriate zero literal.
+                    let default_literal = if lit.contains("_f64") || lit.contains('.') {
+                        "0.0"
+                    } else {
+                        "0"
+                    };
                     let _ = writeln!(
                         out,
-                        "    assert!({field_access}.unwrap_or(0) <= {lit}, \"expected <= {lit}\");"
+                        "    assert!({field_access}.unwrap_or({default_literal}) <= {lit}, \"expected <= {lit}\");"
                     );
                 } else {
                     let _ = writeln!(out, "    assert!({field_access} <= {lit}, \"expected <= {lit}\");");

@@ -742,7 +742,9 @@ impl FieldResolver {
         } else if is_array {
             format!("let {local_var} = {accessor}.as_deref().unwrap_or(&[]);")
         } else {
-            format!("let {local_var} = {accessor}.as_ref().map(|v| v.to_string()).unwrap_or_default();")
+            // Use Debug format instead of Display to handle types like FormatMetadata that don't impl to_string().
+            // This allows optional enum types to be converted to strings for comparison.
+            format!("let {local_var} = {accessor}.as_ref().map(|v| format!(\"{{:?}}\", v)).unwrap_or_default();")
         };
         Some((binding, local_var))
     }
@@ -2414,7 +2416,9 @@ mod tests {
         let r = make_resolver();
         let (binding, var) = r.rust_unwrap_binding("title", "result").unwrap();
         assert_eq!(var, "metadata_document_title");
-        assert!(binding.contains("as_ref().map(|v| v.to_string()).unwrap_or_default()"));
+        // Optional scalar fields are unwrapped via `Debug` format so types that don't
+        // implement `Display` (e.g. enum metadata) still convert to strings for comparison.
+        assert!(binding.contains("as_ref().map(|v| format!(\"{:?}\", v)).unwrap_or_default()"));
     }
 
     #[test]

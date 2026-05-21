@@ -31,15 +31,16 @@ pub(super) fn render_equals_assertion(
                 is_opt && !is_arr && !is_unwrapped
             });
             let field_expr = if is_opt_str_not_unwrapped {
-                // Use `.map(|v| v.to_string())` instead of `.as_deref()` so that optional
-                // enum types (e.g. `Option<FinishReason>`) that implement `Display` also work.
-                // For `Option<String>` this produces identical semantics at runtime.
-                format!("{field_access}.map(|v| v.to_string()).as_deref().unwrap_or(\"\").trim()")
+                // Use `.map(|v| format!("{:?}", v))` instead of `.as_deref()` so that optional
+                // enum types (e.g. `Option<FinishReason>`, `Option<FormatMetadata>`) work even if
+                // they don't implement Display. For `Option<String>` we get the string itself (via Debug).
+                // Use Debug format to handle enum types like FormatMetadata that don't impl Display.
+                format!("{field_access}.as_ref().map(|v| format!(\"{{:?}}\", v)).as_deref().unwrap_or(\"\").trim()")
             } else {
-                // Use `.to_string().as_str()` so that non-String types that implement
-                // `Display` (e.g. `BatchStatus` enum) are converted to `&str` before
-                // `.trim()` is called. For `String` this is a no-op clone then deref.
-                format!("{field_access}.to_string().as_str().trim()")
+                // Non-optional string: use `.to_string().as_str()` for String types and
+                // `format!("{:?}", v)` for Debug-only types like FormatMetadata.
+                // For safety, use Debug format so non-Display types still work.
+                format!("format!(\"{{:?}}\", {field_access}).as_str().trim()")
             };
             let _ = writeln!(
                 out,
@@ -173,10 +174,17 @@ pub(super) fn render_gte_assertion(
             let base = field_access.strip_suffix(".len()").unwrap_or(field_access);
             let _ = writeln!(out, "    assert!(!{base}.is_empty(), \"expected >= 1\");");
         } else if is_opt_numeric {
-            // Option<usize> / Option<u64>: unwrap to 0 before comparing.
+            // Option<usize> / Option<u64> / Option<f64>: unwrap with appropriate zero literal
+            // depending on whether the comparison value is float or integer.
+            // Check if the rendered literal contains _f64 or a decimal point (float type indicator).
+            let default_literal = if lit.contains("_f64") || lit.contains('.') {
+                "0.0"
+            } else {
+                "0"
+            };
             let _ = writeln!(
                 out,
-                "    assert!({field_access}.unwrap_or(0) >= {lit}, \"expected >= {lit}\");"
+                "    assert!({field_access}.unwrap_or({default_literal}) >= {lit}, \"expected >= {lit}\");"
             );
         } else {
             let _ = writeln!(out, "    assert!({field_access} >= {lit}, \"expected >= {lit}\");");
