@@ -654,12 +654,17 @@ fn render_test_file(
 
     // Determine if we need the "strings" import.
     // Only count assertions whose fields are actually valid for the result type.
+    // Also check if any fixture has mock_url_list args (needs strings.HasPrefix).
     let needs_strings = fixtures.iter().any(|f| {
         if !emits_executable_test(f) {
             return false;
         }
+        // Check for mock_url_list in call args
         let cc =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        if cc.args.iter().any(|arg| arg.arg_type == "mock_url_list") {
+            return true;
+        }
         let per_call_resolver = FieldResolver::new(
             e2e_config.effective_fields(cc),
             e2e_config.effective_fields_optional(cc),
@@ -1814,6 +1819,36 @@ fn build_args_and_setup(
                 ));
             }
             parts.push(arg.name.clone());
+            continue;
+        }
+
+        if arg.arg_type == "mock_url_list" {
+            // []string of URLs: each element is either a bare path (`/seed1`) — prefixed
+            // with the per-fixture mock-server URL at runtime — or an absolute URL kept as-is.
+            // Mirrors the `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first, then
+            // `MOCK_SERVER_URL/fixtures/<id>`.
+            let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field).unwrap_or(&serde_json::Value::Null);
+
+            let paths: Vec<String> = if let Some(arr) = val.as_array() {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| go_string_literal(s)))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let paths_literal = paths.join(", ");
+            let var_name = &arg.name;
+
+            setup_lines.push(format!(
+                "{var_name}Base := os.Getenv(\"{env_key}\")\n\tif {var_name}Base == \"\" {{\n\t\t{var_name}Base = os.Getenv(\"MOCK_SERVER_URL\") + \"/fixtures/{fixture_id}\"\n\t}}"
+            ));
+            setup_lines.push(format!(
+                "var {var_name} []string\n\tfor _, p := range []{{}}{paths_literal} {{\n\t\tif strings.HasPrefix(p, \"http\") {{\n\t\t\t{var_name} = append({var_name}, p)\n\t\t}} else {{\n\t\t\t{var_name} = append({var_name}, {var_name}Base + p)\n\t\t}}\n\t}}"
+            ));
+            parts.push(var_name.to_string());
             continue;
         }
 
