@@ -1457,12 +1457,13 @@ fn build_args_and_setup(
                         let kwargs: Vec<String> = obj
                             .iter()
                             .filter_map(|(k, vv)| {
-                                // Skip empty string enum values; they cause "Unknown preset" errors
-                                if enum_fields.contains_key(k) {
-                                    if let Some(s) = vv.as_str() {
-                                        if s.is_empty() {
-                                            return None; // Skip empty enum values
-                                        }
+                                // Skip empty string values (they cause enum parsing failures)
+                                if let Some(s) = vv.as_str() {
+                                    if s.is_empty() {
+                                        return None; // Skip all empty strings
+                                    }
+                                    // For known enum fields, use snake_case enum variant
+                                    if enum_fields.contains_key(k) {
                                         let snake_key = k.to_snake_case();
                                         let snake_val = s.to_snake_case();
                                         return Some(format!("{snake_key}: '{snake_val}'"));
