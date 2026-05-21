@@ -121,7 +121,7 @@ pub(super) fn gen_rustler_method_call_args(
         .iter()
         .map(|p| match &p.ty {
             TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                format!("&{}.inner", p.name)
+                format!("&*{}", p.name)
             }
             // Default-typed Named params are passed as Option<String> JSON and decoded
             // by the caller into a `{name}_core` local. Reference that local here.
@@ -280,7 +280,7 @@ pub(super) fn gen_nif_function(
                 // Fall back to the standard call-arg logic for all other types.
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&{}.inner", p.name)
+                        format!("&*{}", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
@@ -384,7 +384,7 @@ pub(super) fn gen_nif_function(
             .map(|p| {
                 if let TypeRef::Named(n) = &p.ty {
                     if opaque_types.contains(n) {
-                        return format!("&{}.inner", p.name);
+                        return format!("&*{}", p.name);
                     }
                     if default_types.contains(n) {
                         // Default types already handled in the can_delegate branch above.
@@ -598,7 +598,7 @@ pub(super) fn gen_nif_async_function(
                 }
                 match &p.ty {
                     TypeRef::Named(name) if opaque_types.contains(name.as_str()) => {
-                        format!("&{}.inner", p.name)
+                        format!("&*{}", p.name)
                     }
                     TypeRef::Named(_) => {
                         if p.optional {
