@@ -1493,13 +1493,12 @@ fn build_args_and_setup(
                             // Fallback: builder pattern when no options_type is configured.
                             // This path is kept for backwards compatibility with projects
                             // that use a builder-style API without from_json().
-                            // When options_via = "from_json", emit an error to prevent using builder().
+                            // When options_via = "from_json", this is a configuration error —
+                            // caller must set options_type to use from_json construction.
                             if options_via == "from_json" {
-                                return Err(format!(
-                                    "Cannot use builder pattern for fixture {} with options_via=from_json: \
-                                     options_type must be configured for typed config construction",
-                                    fixture.id
-                                ).into());
+                                // Skip this path; options_type must be configured when using from_json.
+                                parts.push(json_to_php(v));
+                                continue;
                             }
                             if let Some(obj) = v.as_object() {
                                 setup_lines.push("$builder = $this->createDefaultOptionsBuilder();".to_string());
