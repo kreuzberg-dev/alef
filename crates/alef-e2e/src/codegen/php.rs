@@ -1042,7 +1042,9 @@ fn render_test_method(
                 setup_lines.push(format!(
                     "$visitorHandle = \\{namespace}\\VisitorHandle::from_php_object($visitor);"
                 ));
-                setup_lines.push("$options = $options->with_visitor($visitorHandle);".to_string());
+                // ext-php-rs camel-cases snake_case method names; the generated PHP class
+                // exposes the wither as `withVisitor`, not `with_visitor`.
+                setup_lines.push("$options = $options->withVisitor($visitorHandle);".to_string());
             } else {
                 // Default builder pattern for other options_via modes
                 setup_lines.push(format!("$builder = \\{namespace}\\{options_type}::builder();"));

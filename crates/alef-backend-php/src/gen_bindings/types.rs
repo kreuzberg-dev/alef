@@ -859,22 +859,33 @@ fn gen_struct_methods_impl(
     // struct still carries the field and the wither is the only way to set it from PHP.
     let all_opaque_types: AHashSet<String> = opaque_types.iter().chain(bridge_type_aliases.iter()).cloned().collect();
     for field in typ.fields.iter() {
-        if let TypeRef::Optional(inner) = &field.ty {
-            if let TypeRef::Named(type_name) = inner.as_ref() {
-                if all_opaque_types.contains(type_name.as_str()) {
-                    let wither_name = format!("with_{}", field.name);
-                    let param_name = alef_codegen::naming::to_php_name(&field.name);
-                    let mapped_inner_type = mapper.map_type(inner.as_ref());
-                    let wither_method = format!(
-                        "pub fn {wither_name}(mut self, {param_name}: {mapped_inner_type}) -> Self {{\n    \
-                         self.{field_name} = Some({param_name});\n    \
-                         self\n\
-                         }}",
-                        field_name = field.name,
-                    );
-                    impl_builder.add_method(&wither_method);
-                }
-            }
+        // Trait-bridge / opaque fields lose their `Option<>` wrapper during IR extraction
+        // (they're inherently optional handles) but the generated struct re-wraps them in
+        // `Option<T>`. Match both shapes so the wither emits for either IR form.
+        let bridge_inner: Option<&str> = match &field.ty {
+            TypeRef::Optional(inner) => match inner.as_ref() {
+                TypeRef::Named(name) if all_opaque_types.contains(name.as_str()) => Some(name.as_str()),
+                _ => None,
+            },
+            TypeRef::Named(name) if all_opaque_types.contains(name.as_str()) => Some(name.as_str()),
+            _ => None,
+        };
+        if let Some(inner_name) = bridge_inner {
+            let wither_name = format!("with_{}", field.name);
+            let param_name = alef_codegen::naming::to_php_name(&field.name);
+            let mapped_inner_type = mapper.map_type(&TypeRef::Named(inner_name.to_string()));
+            // ext-php-rs heap-allocates PHP objects: both `self` and trait-bridge args must be
+            // passed by reference. Emit `&self -> Self` for chainable fluent calls, and accept
+            // the bridge handle as `&mut Inner` then clone it into the new instance.
+            let wither_method = format!(
+                "pub fn {wither_name}(&self, {param_name}: &mut {mapped_inner_type}) -> Self {{\n    \
+                 let mut next = self.clone();\n    \
+                 next.{field_name} = Some({param_name}.clone());\n    \
+                 next\n\
+                 }}",
+                field_name = field.name,
+            );
+            impl_builder.add_method(&wither_method);
         }
     }
 
