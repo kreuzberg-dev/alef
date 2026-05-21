@@ -807,13 +807,46 @@ fn emit_kotlin_untagged_serializer(out: &mut String, en: &EnumDef) {
                 &variant.name,
                 1,
             );
-            out.push_str("            is ");
-            out.push_str(name);
-            out.push('.');
-            out.push_str(&variant.name);
-            out.push_str(" -> mapper.writeValue(gen, value.");
-            out.push_str(&field_name);
-            out.push_str(")\n");
+            // When the inner type is Vec<SealedClass>, mapper.writeValue dispatches to
+            // each element's runtime-subtype serializer (which has @JsonSerialize reset
+            // to None), losing the sealed-class "type" discriminator. Use
+            // provider.findValueSerializer on the declared element type instead so the
+            // sealed-class serializer (which writes "type") is always called.
+            if let TypeRef::Vec(inner) = &field.ty {
+                if let TypeRef::Named(elem_type) = inner.as_ref() {
+                    out.push_str("            is ");
+                    out.push_str(name);
+                    out.push('.');
+                    out.push_str(&variant.name);
+                    out.push_str(" -> {\n");
+                    out.push_str("                gen.writeStartArray()\n");
+                    out.push_str(&format!(
+                        "                val elemSerializer = provider.findValueSerializer({}::class.java)\n",
+                        elem_type
+                    ));
+                    out.push_str(&format!("                for (elem in value.{field_name}) {{\n"));
+                    out.push_str("                    elemSerializer.serialize(elem, gen, provider)\n");
+                    out.push_str("                }\n");
+                    out.push_str("                gen.writeEndArray()\n");
+                    out.push_str("            }\n");
+                } else {
+                    out.push_str("            is ");
+                    out.push_str(name);
+                    out.push('.');
+                    out.push_str(&variant.name);
+                    out.push_str(" -> mapper.writeValue(gen, value.");
+                    out.push_str(&field_name);
+                    out.push_str(")\n");
+                }
+            } else {
+                out.push_str("            is ");
+                out.push_str(name);
+                out.push('.');
+                out.push_str(&variant.name);
+                out.push_str(" -> mapper.writeValue(gen, value.");
+                out.push_str(&field_name);
+                out.push_str(")\n");
+            }
         } else {
             // Named-field struct variant: cast to the concrete variant type before
             // serializing so Jackson resolves the serializer against the variant
@@ -1197,6 +1230,19 @@ fn render_kotlin_default(
             TypeRef::Vec(_) => Some("emptyList()".to_string()),
             TypeRef::Map(_, _) => Some("emptyMap()".to_string()),
             TypeRef::Optional(_) => Some("null".to_string()),
+            TypeRef::String => Some("\"\"".to_string()),
+            TypeRef::Primitive(p) => {
+                use alef_core::ir::PrimitiveType;
+                match p {
+                    PrimitiveType::Bool => Some("false".to_string()),
+                    PrimitiveType::F32 => Some("0.0f".to_string()),
+                    PrimitiveType::F64 => Some("0.0".to_string()),
+                    PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                        Some("0L".to_string())
+                    }
+                    _ => Some("0".to_string()),
+                }
+            }
             // For Named enum types, the source Rust enum's
             // `#[derive(Default)]` picks a `#[default]` variant; bubble it up
             // via the supplied lookup so e.g. `heading_style: HeadingStyle`
@@ -1223,9 +1269,10 @@ fn render_kotlin_default(
                         Some(format!("{name}.{}", to_screaming_snake(value)))
                     }
                 } else {
-                    // Non-enum Named type — don't call constructor; let
-                    // field-level logic handle it.
-                    None
+                    // Non-enum struct with DefaultValue::Empty — safe to call
+                    // the no-arg constructor because the Rust Default impl
+                    // guarantees all fields have defaults.
+                    Some(format!("{}()", name))
                 }
             }
             _ => None,
@@ -1807,26 +1854,27 @@ mod tests {
         let mut out = String::new();
         emit_enum(&en, &mut out, "");
 
-        // Each variant data class must carry bare @JsonDeserialize and @JsonSerialize
-        // annotations to reset the inherited custom (de)serializers from the parent
-        // OcrDocument sealed class.  Both annotations appear immediately before the
-        // `data class` keyword.
+        // Named-field struct variants must carry @JsonDeserialize(using = None) and
+        // @JsonSerialize(using = None) to reset the inherited custom (de)serializers.
+        // The parent tagged deserializer calls readTreeAsValue(payload, Variant::class.java)
+        // which would loop back into the parent deserializer without this reset.
         assert!(
-            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Url("),
-            "Url variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None::class)\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.JsonSerializer.None::class)\n    data class Url("),
+            "Url variant must have @JsonDeserialize(using=None) and @JsonSerialize(using=None) reset annotations; got:\n{out}",
         );
         assert!(
-            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Base64("),
-            "Base64 variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize(using = com.fasterxml.jackson.databind.JsonDeserializer.None::class)\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize(using = com.fasterxml.jackson.databind.JsonSerializer.None::class)\n    data class Base64("),
+            "Base64 variant must have @JsonDeserialize(using=None) and @JsonSerialize(using=None) reset annotations; got:\n{out}",
         );
     }
 
-    /// Regression (Bug G — untagged): same annotation inheritance issue applies to
-    /// untagged sealed classes.  Variant data classes must carry bare `@JsonDeserialize`
-    /// and `@JsonSerialize` annotations to prevent the parent's custom (de)serializer
-    /// from being invoked for variants.
+    /// Regression (Bug G — untagged): newtype variants of untagged sealed classes do NOT
+    /// need reset annotations because the parent serializer dispatches via the inner value
+    /// type (no recursion). However, the serializer for Vec<SealedClass> variants must use
+    /// provider.findValueSerializer so the sealed-class serializer (which adds "type") is
+    /// invoked per element, not the variant's reset-to-None subtype serializer.
     #[test]
-    fn untagged_sealed_class_variant_data_classes_get_json_reset_annotations() {
+    fn untagged_sealed_class_vec_variant_serializer_uses_declared_type_serializer() {
         let en = make_enum(
             "UserContent",
             None,
@@ -1847,15 +1895,20 @@ mod tests {
         let mut out = String::new();
         emit_enum(&en, &mut out, "");
 
-        // Both variants must carry @JsonDeserialize and @JsonSerialize to reset
-        // the inherited annotations from the parent sealed class.
+        // Newtype variants are NOT given reset annotations (no recursion risk).
         assert!(
-            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Text("),
-            "Text variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+            !out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Text("),
+            "Text newtype variant must NOT have reset annotations; got:\n{out}",
         );
+        // Parts serializer must use provider.findValueSerializer for element dispatch.
         assert!(
-            out.contains("    @com.fasterxml.jackson.databind.annotation.JsonDeserialize\n    @com.fasterxml.jackson.databind.annotation.JsonSerialize\n    data class Parts("),
-            "Parts variant must have both @JsonDeserialize and @JsonSerialize reset annotations; got:\n{out}",
+            out.contains("provider.findValueSerializer(ContentPart::class.java)"),
+            "Parts serializer must use provider.findValueSerializer(ContentPart::class.java); got:\n{out}",
+        );
+        // Text serializer uses direct mapper.writeValue (String is not a sealed class).
+        assert!(
+            out.contains("is UserContent.Text -> mapper.writeValue(gen, value.value)"),
+            "Text serializer must use mapper.writeValue; got:\n{out}",
         );
     }
 

@@ -30,8 +30,8 @@ impl E2eCodegen for CSharpCodegen {
         groups: &[FixtureGroup],
         e2e_config: &E2eConfig,
         config: &ResolvedCrateConfig,
-        _type_defs: &[alef_core::ir::TypeDef],
-        _enums: &[alef_core::ir::EnumDef],
+        type_defs: &[alef_core::ir::TypeDef],
+        enums: &[alef_core::ir::EnumDef],
     ) -> Result<Vec<GeneratedFile>> {
         let lang = self.language_name();
         let output_base = PathBuf::from(e2e_config.effective_output()).join(lang);
@@ -117,8 +117,28 @@ impl E2eCodegen for CSharpCodegen {
             generated_header: true,
         });
 
-        // Generate test files per category.
+        // Collect all distinct sealed-union type names declared in `assert_enum_fields`
+        // across all call configs for this language.  For each such type we emit a
+        // `{TypeName}Display.cs` helper that pattern-matches on variants from the IR;
+        // projects that declare no `assert_enum_fields` get no extra helper files.
+        let sealed_display_types: std::collections::BTreeSet<String> = std::iter::once(&e2e_config.call)
+            .chain(e2e_config.calls.values())
+            .filter_map(|c| c.overrides.get(lang))
+            .flat_map(|o| o.assert_enum_fields.values().cloned())
+            .collect();
+
         let tests_base = output_base.join("tests");
+        for type_name in &sealed_display_types {
+            if let Some(enum_def) = enums.iter().find(|e| &e.name == type_name) {
+                files.push(GeneratedFile {
+                    path: tests_base.join(format!("{type_name}Display.cs")),
+                    content: render_sealed_display(type_name, enum_def, type_defs, &namespace),
+                    generated_header: true,
+                });
+            }
+        }
+
+        // Generate test files per category.
         let field_resolver = FieldResolver::new(
             &e2e_config.fields,
             &e2e_config.fields_optional,
@@ -127,9 +147,14 @@ impl E2eCodegen for CSharpCodegen {
             &std::collections::HashSet::new(),
         );
 
-        // Resolve enum_fields and nested_types from C# override config.
+        // Resolve enum_fields, assert_enum_fields and nested_types from C# override config.
         static EMPTY_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> = std::sync::LazyLock::new(HashMap::new);
+        static EMPTY_ASSERT_ENUM_FIELDS: std::sync::LazyLock<HashMap<String, String>> =
+            std::sync::LazyLock::new(HashMap::new);
         let enum_fields = overrides.map(|o| &o.enum_fields).unwrap_or(&EMPTY_ENUM_FIELDS);
+        let assert_enum_fields = overrides
+            .map(|o| &o.assert_enum_fields)
+            .unwrap_or(&EMPTY_ASSERT_ENUM_FIELDS);
 
         // Build effective nested_types from configured overrides (empty by default).
         let mut effective_nested_types: HashMap<String, String> = HashMap::new();
@@ -165,6 +190,7 @@ impl E2eCodegen for CSharpCodegen {
                 is_async,
                 e2e_config,
                 enum_fields,
+                assert_enum_fields,
                 &effective_nested_types,
                 &config.adapters,
             );
@@ -405,6 +431,7 @@ fn render_test_file(
     is_async: bool,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
+    assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     adapters: &[alef_core::config::extras::AdapterConfig],
 ) -> String {
@@ -447,6 +474,7 @@ fn render_test_file(
             is_async,
             e2e_config,
             enum_fields,
+            assert_enum_fields,
             nested_types,
             adapters,
         );
@@ -752,6 +780,7 @@ fn render_test_method(
     _is_async: bool,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
+    assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     adapters: &[alef_core::config::extras::AdapterConfig],
 ) {
@@ -828,6 +857,7 @@ fn render_test_method(
             cs_overrides,
             e2e_config,
             enum_fields,
+            assert_enum_fields,
             nested_types,
             exception_class,
             adapters,
@@ -1091,6 +1121,15 @@ fn render_test_method(
         }
     }
 
+    // Merge per-call C# `assert_enum_fields` keys with the global file-level
+    // so call-specific sealed-union fields trigger display wrapper usage.
+    let mut effective_assert_enum_fields: std::collections::HashMap<String, String> = assert_enum_fields.clone();
+    if let Some(o) = cs_overrides {
+        for (k, v) in &o.assert_enum_fields {
+            effective_assert_enum_fields.insert(k.clone(), v.clone());
+        }
+    }
+
     // Build assertions body for non-error cases
     let mut assertions_body = String::new();
     if !expects_error && !returns_void {
@@ -1107,6 +1146,7 @@ fn render_test_method(
                 call_config.result_is_array,
                 effective_result_is_bytes,
                 &effective_enum_fields,
+                &effective_assert_enum_fields,
             );
         }
     }
@@ -1154,6 +1194,7 @@ fn render_chat_stream_test_method(
     cs_overrides: Option<&crate::config::CallOverride>,
     e2e_config: &E2eConfig,
     enum_fields: &HashMap<String, String>,
+    assert_enum_fields: &HashMap<String, String>,
     nested_types: &HashMap<String, String>,
     exception_class: &str,
     adapters: &[alef_core::config::extras::AdapterConfig],
@@ -1964,6 +2005,7 @@ fn render_assertion(
     result_is_array: bool,
     result_is_bytes: bool,
     fields_enum: &std::collections::HashSet<String>,
+    assert_enum_fields: &std::collections::HashMap<String, String>,
 ) {
     // Byte-buffer returns: emit length-based assertions instead of struct-field
     // accessors. The result is a `byte[]` and has no named fields like
@@ -2038,6 +2080,52 @@ fn render_assertion(
             "chunks_have_embeddings" => {
                 let synthetic_pred =
                     format!("({result_var}.Chunks ?? new()).All(c => c.Embedding != null && c.Embedding.Count > 0)");
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
+                    _ => {
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
+                    }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
+                return;
+            }
+            "chunks_have_heading_context" => {
+                let synthetic_pred = format!("({result_var}.Chunks ?? new()).All(c => c.HeadingContext != null)");
+                let synthetic_pred_type = match assertion.assertion_type.as_str() {
+                    "is_true" => "is_true",
+                    "is_false" => "is_false",
+                    _ => {
+                        out.push_str(&format!(
+                            "        // skipped: unsupported assertion type on synthetic field '{f}'\n"
+                        ));
+                        return;
+                    }
+                };
+                let rendered = crate::template_env::render(
+                    "csharp/assertion.jinja",
+                    minijinja::context! {
+                        assertion_type => "synthetic_assertion",
+                        synthetic_pred => synthetic_pred,
+                        synthetic_pred_type => synthetic_pred_type,
+                    },
+                );
+                out.push_str(&rendered);
+                return;
+            }
+            "first_chunk_starts_with_heading" => {
+                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.HeadingContext != null");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
@@ -2292,6 +2380,17 @@ fn render_assertion(
             Some(f) if !f.is_empty() => field_resolver.accessor(f, "csharp", &effective_result_var),
             _ => effective_result_var.clone(),
         }
+    };
+
+    // Fields declared in `assert_enum_fields` map to sealed/internally-tagged enum
+    // types. Wrap the accessor with a display helper (e.g., `FormatMetadataDisplay.ToDisplayString`)
+    // so the assertion sees a display string rather than the raw sealed-union object.
+    let field_expr = match &assertion.field {
+        Some(f) if assert_enum_fields.contains_key(f.as_str()) => {
+            let type_name = assert_enum_fields.get(f.as_str()).unwrap();
+            format!("{type_name}Display.ToDisplayString({field_expr})")
+        }
+        _ => field_expr,
     };
 
     // Determine if field_expr is a list or complex object that requires JSON serialization
@@ -2863,6 +2962,77 @@ fn sort_discriminator_first(value: serde_json::Value) -> serde_json::Value {
     }
 }
 
+/// Render a C# sealed-union display helper for assert_enum_fields.
+/// Pattern-matches on variants from the IR and returns a displayable string.
+fn render_sealed_display(
+    type_name: &str,
+    enum_def: &alef_core::ir::EnumDef,
+    type_defs: &[alef_core::ir::TypeDef],
+    namespace: &str,
+) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+    let mut out = header;
+    out.push_str(&format!("namespace {namespace}.E2e;\n\n"));
+    out.push_str(&format!(
+        "/// <summary>\n/// Helper class for extracting display strings from {type_name} sealed interface.\n /// </summary>\n"
+    ));
+    out.push_str(&format!("internal static class {type_name}Display\n"));
+    out.push_str("{\n");
+    out.push_str(&format!(
+        "    internal static string ToDisplayString({type_name}? value)\n"
+    ));
+    out.push_str("    {\n");
+    out.push_str("        if (value == null) return \"\";\n");
+    out.push_str("        return value switch\n");
+    out.push_str("        {\n");
+
+    for variant in &enum_def.variants {
+        let variant_name = &variant.name;
+        // Determine the display string for this variant's arm.
+        // Tuple variants with one field whose resolved struct type has a `format`
+        // field return the inner `.Value.Format` — this gives the actual format
+        // string (e.g. "PNG") rather than the generic variant label (e.g. "image").
+        let has_format_field = variant.is_tuple && variant.fields.len() == 1 && {
+            let field_type_name = match &variant.fields[0].ty {
+                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            };
+            field_type_name.is_some_and(|tn| {
+                type_defs
+                    .iter()
+                    .find(|td| td.name == tn)
+                    .is_some_and(|td| td.fields.iter().any(|f| f.name == "format"))
+            })
+        };
+
+        let display = if has_format_field {
+            "i.Value.Format".to_string()
+        } else {
+            // Use the serde rename when present; otherwise lowercase the variant name.
+            let serde_name = variant
+                .serde_rename
+                .as_deref()
+                .unwrap_or(variant_name.as_str())
+                .to_lowercase();
+            format!("\"{serde_name}\"")
+        };
+
+        let binding = if has_format_field {
+            format!("{type_name}.{variant_name} i")
+        } else {
+            format!("{type_name}.{variant_name}")
+        };
+
+        out.push_str(&format!("            {binding} => {display},\n"));
+    }
+
+    out.push_str("            _ => \"unknown\",\n");
+    out.push_str("        };\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+    out
+}
+
 /// Convert a `serde_json::Value` to a C# literal string.
 fn json_to_csharp(value: &serde_json::Value) -> String {
     match value {
@@ -2941,13 +3111,13 @@ fn csharp_object_initializer(
                 .get(key.as_str())
                 .or_else(|| nested_types.get(camel_key.as_str()))
             {
-                // Nested object: JSON deserialization (keys are typically single-word, matching JsonPropertyName)
+                // Nested object: use the binding-emitted FromJson factory if available,
+                // otherwise fall back to JsonSerializer.Deserialize
                 let normalized = normalize_csharp_enum_values(val, enum_fields);
                 let json_str = serde_json::to_string(&normalized).unwrap_or_default();
-                format!(
-                    "JsonSerializer.Deserialize<{nested_type}>(\"{}\", ConfigOptions)!",
-                    escape_csharp(&json_str)
-                )
+                let escaped = escape_csharp(&json_str);
+                // Use Type.FromJson(...) when the binding provides it (matches options_via = "from_json" pattern)
+                format!("{nested_type}.FromJson(\"{escaped}\")")
             } else if let Some(arr) = val.as_array() {
                 // Array: List<string>
                 let items: Vec<String> = arr.iter().map(json_to_csharp).collect();

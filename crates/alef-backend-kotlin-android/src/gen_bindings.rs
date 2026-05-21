@@ -94,7 +94,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     let enum_defaults: std::collections::HashMap<String, String> = api
         .enums
         .iter()
-        .filter(|en| en.serde_tag.is_none() && !en.serde_untagged)
+        .filter(|en| en.serde_tag.is_none() && !en.serde_untagged && en.variants.iter().all(|v| v.fields.is_empty()))
         .map(|en| {
             let default_variant = en
                 .variants

@@ -803,8 +803,7 @@ fn render_test_case(
         .and_then(|o| o.module.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.module.clone());
-    let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase())
-    {
+    let module_path = if raw_module.contains('.') || raw_module.chars().next().is_some_and(|c| c.is_uppercase()) {
         raw_module
     } else {
         elixir_module_name(&raw_module)
@@ -838,9 +837,7 @@ fn render_test_case(
     let resolved_options_default_fn = co
         .and_then(|o| o.options_via.clone())
         .or_else(|| options_default_fn.map(|s| s.to_string()));
-    let resolved_enum_fields_ref = co
-        .map(|o| &o.enum_fields)
-        .unwrap_or(&empty_enum_fields_local);
+    let resolved_enum_fields_ref = co.map(|o| &o.enum_fields).unwrap_or(&empty_enum_fields_local);
     let resolved_handle_struct_type = co
         .and_then(|o| o.handle_struct_type.clone())
         .or_else(|| handle_struct_type.map(|s| s.to_string()));
@@ -1461,9 +1458,7 @@ fn build_args_and_setup(
                     // crashes the facade with FunctionClauseError. Emit positional/keyword
                     // form per `use_keyword_form_for_optional_args` to mirror the threshold
                     // applied to JSON-string emission.
-                    if let (Some(opts_type), None, Some(obj)) =
-                        (options_type, options_default_fn, v.as_object())
-                    {
+                    if let (Some(opts_type), None, Some(obj)) = (options_type, options_default_fn, v.as_object()) {
                         let options_var = "options";
                         let mut field_strs = Vec::new();
                         for (k, vv) in obj.iter() {
@@ -1481,9 +1476,7 @@ fn build_args_and_setup(
                             field_strs.push(format!("{snake_key}: {elixir_val}"));
                         }
                         let fields = field_strs.join(", ");
-                        setup_lines.push(format!(
-                            "{options_var} = %{module_path}.{opts_type}{{{fields}}}"
-                        ));
+                        setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
                         if use_keyword_form_for_optional_args && arg.optional {
                             parts.push(format!("{}: {options_var}", arg.name));
                         } else {

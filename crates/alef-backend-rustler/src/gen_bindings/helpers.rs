@@ -359,7 +359,10 @@ pub(super) fn gen_native_ex(
     // These are internal test utilities — mark @doc false.
     let nif_wrapped_types = collect_types_for_nif_derives(api, exclude_types);
     for typ in api.types.iter().filter(|t| {
-        !t.is_trait && !t.is_opaque && !t.fields.is_empty() && t.has_serde
+        !t.is_trait
+            && !t.is_opaque
+            && !t.fields.is_empty()
+            && t.has_serde
             && !exclude_types.contains(t.name.as_str())
             && nif_wrapped_types.contains(&t.name)
     }) {
@@ -1782,7 +1785,9 @@ pub(super) fn collect_types_for_nif_derives(
     }
 
     // Remove excluded and opaque types
-    types.retain(|name| !exclude_types.contains(name.as_str()) && !api.types.iter().any(|t| t.name == *name && t.is_opaque));
+    types.retain(|name| {
+        !exclude_types.contains(name.as_str()) && !api.types.iter().any(|t| t.name == *name && t.is_opaque)
+    });
     types
 }
 

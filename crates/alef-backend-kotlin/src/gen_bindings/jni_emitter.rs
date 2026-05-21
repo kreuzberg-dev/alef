@@ -524,8 +524,15 @@ fn build_bridge_call(m: &alef_core::ir::MethodDef, bridge_name: &str, native_nam
     }
     // Build requestJson expression.
     let request_json_expr = if m.params.len() == 1 {
-        let param_name = to_lower_camel(&m.params[0].name);
-        format!("MAPPER.writeValueAsString({param_name})")
+        let p = &m.params[0];
+        let param_name = to_lower_camel(&p.name);
+        // For optional (nullable) complex params, use `?.let { ... } ?: ""` so the
+        // JNI shim receives the empty-string sentinel (not JSON `"null"`) for None.
+        if p.optional {
+            format!("{param_name}?.let {{ MAPPER.writeValueAsString(it) }} ?: \"\"")
+        } else {
+            format!("MAPPER.writeValueAsString({param_name})")
+        }
     } else {
         let map_entries: Vec<String> = m
             .params
