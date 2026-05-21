@@ -943,15 +943,13 @@ fn emit_python_batch_item(obj: &serde_json::Map<String, serde_json::Value>, elem
             }
         }
         _ => {
-            // Generic handling: snake_case field names
-            let kwargs: Vec<String> = obj
+            // Generic handling: emit dict literal for tagged enums (PageAction, etc.)
+            // The bindings expect {"type": "click", "selector": "#id"}, not PageAction(type="click", selector="#id")
+            let items: Vec<String> = obj
                 .iter()
-                .map(|(k, v)| {
-                    let snake_key = k.to_snake_case();
-                    format!("{snake_key}={}", json_to_python_literal(v))
-                })
+                .map(|(k, v)| format!("{}: {}", json_to_python_literal(&serde_json::Value::String(k.clone())), json_to_python_literal(v)))
                 .collect();
-            format!("{}({})", elem_type, kwargs.join(", "))
+            format!("{{{}}}", items.join(", "))
         }
     }
 }
