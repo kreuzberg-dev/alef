@@ -638,17 +638,29 @@ fn render_test_case(out: &mut String, fixture: &Fixture, e2e_config: &E2eConfig,
                 }
             }
             "string" => {
-                // FRB-generated Dart methods take named parameters across the board
-                // (e.g. `retrieveResponse({required String responseId})`), and even
-                // required parameters appear as named in the v2 ABI. Always emit the
-                // call site with `name: value` so generated tests compile against the
-                // FRB-emitted binding. Repos with hand-written positional wrappers
-                // should declare their alternative signature via a per-call override.
+                // Polyglot repos expose their Dart surface through a hand-written facade
+                // (e.g. `H2mBridge.convert(String html, {ConversionOptions? options})`,
+                // `TreeSitterLanguagePackBridge.process(String source, ProcessConfig config)`,
+                // `KreuzbergBridge.extractBytes(Uint8List content, String mimeType, [ExtractionConfig? config])`)
+                // that wraps the FRB-generated bridge methods. Those facades follow the
+                // Rust idiom: required args are positional, optional args are named with
+                // defaults. The "always emit named" heuristic targets the raw FRB bridge
+                // call site but breaks every hand-written facade.
+                //
+                // Mirror the policy used by the `json_object` handler below: required →
+                // positional, optional → named. Liter-llm's `chat`/`embed` calls are
+                // unaffected because they route through the `from_json` path (which
+                // always emits `req:` named) and the `client_factory` path (which
+                // hardcodes its own arg shape).
                 let dart_param_name = snake_to_camel(&arg_def.name);
                 match arg_value {
                     serde_json::Value::String(s) => {
                         let literal = format!("'{}'", escape_dart(s));
-                        args.push(format!("{dart_param_name}: {literal}"));
+                        if arg_def.optional {
+                            args.push(format!("{dart_param_name}: {literal}"));
+                        } else {
+                            args.push(literal);
+                        }
                     }
                     serde_json::Value::Null
                         if arg_def.optional
