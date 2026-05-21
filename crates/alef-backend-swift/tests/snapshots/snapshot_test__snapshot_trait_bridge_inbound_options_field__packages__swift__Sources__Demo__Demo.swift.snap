@@ -75,3 +75,10 @@ private final class _HtmlVisitorProtocolAdapter: _SwiftHtmlVisitorBoxDelegate {
 public func makeHtmlVisitorHandle(_ visitor: any HtmlVisitorProtocol) -> VisitorHandle {
     return RustBridge.makeHtmlVisitorHandle(SwiftHtmlVisitorBox(_HtmlVisitorProtocolAdapter(visitor)))
 }
+
+/// Decode `ConversionOptions` JSON and attach a `VisitorHandle` visitor handle.
+/// Forwards to the swift-bridge shim emitted in the `RustBridge` module —
+/// re-exposed here so callers do not need `import RustBridge`.
+public func conversionOptionsFromJsonWithVisitor(_ json: String, _ visitor: VisitorHandle?) throws -> ConversionOptions {
+    return try RustBridge.conversionOptionsFromJsonWithVisitor(json, visitor)
+}

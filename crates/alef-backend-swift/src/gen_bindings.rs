@@ -2983,18 +2983,35 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         }
 
         // --- 5. Factory function ---
+        let options_type = bridge_cfg.options_type.as_deref().unwrap_or("ConversionOptions");
+        let field = bridge_cfg.resolved_options_field().unwrap_or("visitor");
+        let opts_snake = options_type.to_snake_case();
+        let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case())
+            .to_lower_camel_case();
         out.push_str(&format!(
             "/// Wrap a `{protocol_name}` conformer in an opaque `{type_alias}` handle\n\
              /// that can be passed to `{options_fn}(...)` on the Rust side.\n\
              public func {factory_fn}(_ visitor: any {protocol_name}) -> {type_alias} {{\n\
              \x20   return RustBridge.make{trait_name}Handle({box_name}({adapter_name}(visitor)))\n\
              }}\n\n",
-            options_fn = {
-                let options_type = bridge_cfg.options_type.as_deref().unwrap_or("ConversionOptions");
-                let field = bridge_cfg.resolved_options_field().unwrap_or("visitor");
-                let opts_snake = options_type.to_snake_case();
-                format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case()
-            },
+        ));
+
+        // --- 6. Top-level forwarder for `{options_type}FromJsonWith{Field}` ---
+        // The Rust bridge emits this as a free function in the RustBridge module
+        // (see `gen_rust_crate::plugin_inbound` and the matching swift-bridge
+        // `swift_name = "{opts_camel}FromJsonWith{Field}"` attribute). Without a
+        // top-level forwarder in the user-facing module, e2e tests and end-users
+        // would have to call `RustBridge.{options_fn}(...)` directly, which (a)
+        // is unidiomatic and (b) drags in `import RustBridge` which collides
+        // with first-class Swift types (e.g. the `VisitResult` enum vs the
+        // opaque `RustBridge.VisitResult` class).
+        out.push_str(&format!(
+            "/// Decode `{options_type}` JSON and attach a `{type_alias}` visitor handle.\n\
+             /// Forwards to the swift-bridge shim emitted in the `RustBridge` module —\n\
+             /// re-exposed here so callers do not need `import RustBridge`.\n\
+             public func {options_fn}(_ json: String, _ {field}: {type_alias}?) throws -> {options_type} {{\n\
+             \x20   return try RustBridge.{options_fn}(json, {field})\n\
+             }}\n\n",
         ));
         let _ = api;
     }
