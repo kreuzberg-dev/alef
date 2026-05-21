@@ -396,7 +396,18 @@ impl Fixture {
                             .unwrap_or(false)
                     })
                     .unwrap_or(false);
-                location_redirect || refresh_redirect || meta_refresh
+                // Inline HTML anchor with host-absolute target (`<a href="/page1">`)
+                // — same trigger as the runtime mock-server `has_inline_host_link`
+                // detection.  Without this, language-specific e2e codegens for
+                // multi-page crawl fixtures emit the shared `/fixtures/<id>/` URL
+                // and the crawl engine then resolves linked `/page` paths against
+                // the host root, 404'ing against the namespaced shared listener.
+                let inline_host_link = entry
+                    .get("body_inline")
+                    .and_then(|v| v.as_str())
+                    .map(|body| body.contains("href=\"/") || body.contains("href='/"))
+                    .unwrap_or(false);
+                location_redirect || refresh_redirect || meta_refresh || inline_host_link
             });
         }
         false
