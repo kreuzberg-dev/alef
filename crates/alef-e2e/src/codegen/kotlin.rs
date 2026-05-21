@@ -1318,8 +1318,20 @@ fn render_test_method(
             "        val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
         );
         if expects_error {
+            // For streaming functions, the error fires during collection, not at call time.
+            // Append the collect suffix so assertFailsWith catches it.
+            let call_expr = if is_streaming {
+                let collect_suffix = if kotlin_android_style {
+                    ".toList()"
+                } else {
+                    ".asSequence().toList()"
+                };
+                format!("client.{function_name}({args_str}){collect_suffix}")
+            } else {
+                format!("client.{function_name}({args_str})")
+            };
             let _ = writeln!(out, "        assertFailsWith<Exception> {{");
-            let _ = writeln!(out, "            client.{function_name}({args_str})");
+            let _ = writeln!(out, "            {call_expr}");
             let _ = writeln!(out, "        }}");
             let _ = writeln!(out, "        client.close()");
             let _ = writeln!(out, "    }}");

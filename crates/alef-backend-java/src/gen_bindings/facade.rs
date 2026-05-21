@@ -184,12 +184,15 @@ pub(crate) fn gen_facade_class(
             request_param
         };
 
-        streaming_methods.push(minijinja::context! {
-            method_name => method_name,
-            item_type => item_type,
-            request_type => request_type,
-            request_param => request_param,
-        }.into());
+        streaming_methods.push(
+            minijinja::context! {
+                method_name => method_name,
+                item_type => item_type,
+                request_type => request_type,
+                request_param => request_param,
+            }
+            .into(),
+        );
     }
 
     let class_body = crate::template_env::render(

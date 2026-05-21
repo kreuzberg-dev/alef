@@ -460,9 +460,7 @@ fn render_sealed_display(
         "/**\n * Helper class for extracting display strings from {type_name} sealed interface.\n */\n"
     ));
     out.push_str(&format!("class {helper_class} {{\n"));
-    out.push_str(&format!(
-        "    static String toDisplayString({type_name} value) {{\n"
-    ));
+    out.push_str(&format!("    static String toDisplayString({type_name} value) {{\n"));
     out.push_str("        if (value == null) return \"\";\n");
     out.push_str("        return switch (value) {\n");
 
@@ -472,20 +470,18 @@ fn render_sealed_display(
         // Tuple variants with one field whose resolved struct type has a `format`
         // field return the inner `.value().format()` — this gives the actual format
         // string (e.g. "PNG") rather than the generic variant label (e.g. "image").
-        let has_format_field = variant.is_tuple
-            && variant.fields.len() == 1
-            && {
-                let field_type_name = match &variant.fields[0].ty {
-                    alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
-                    _ => None,
-                };
-                field_type_name.is_some_and(|tn| {
-                    type_defs
-                        .iter()
-                        .find(|td| td.name == tn)
-                        .is_some_and(|td| td.fields.iter().any(|f| f.name == "format"))
-                })
+        let has_format_field = variant.is_tuple && variant.fields.len() == 1 && {
+            let field_type_name = match &variant.fields[0].ty {
+                alef_core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
             };
+            field_type_name.is_some_and(|tn| {
+                type_defs
+                    .iter()
+                    .find(|td| td.name == tn)
+                    .is_some_and(|td| td.fields.iter().any(|f| f.name == "format"))
+            })
+        };
 
         let display = if has_format_field {
             format!("i.value().format()")

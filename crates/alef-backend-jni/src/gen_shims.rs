@@ -1436,11 +1436,16 @@ fn jni_primitive_type(p: &PrimitiveType) -> &'static str {
 fn primitive_zero_literal(p: &PrimitiveType) -> Option<&'static str> {
     match p {
         PrimitiveType::Bool => None,
-        PrimitiveType::I8 | PrimitiveType::U8
-        | PrimitiveType::I16 | PrimitiveType::U16
-        | PrimitiveType::I32 | PrimitiveType::U32
-        | PrimitiveType::I64 | PrimitiveType::U64
-        | PrimitiveType::Usize | PrimitiveType::Isize => Some("0"),
+        PrimitiveType::I8
+        | PrimitiveType::U8
+        | PrimitiveType::I16
+        | PrimitiveType::U16
+        | PrimitiveType::I32
+        | PrimitiveType::U32
+        | PrimitiveType::I64
+        | PrimitiveType::U64
+        | PrimitiveType::Usize
+        | PrimitiveType::Isize => Some("0"),
         PrimitiveType::F32 | PrimitiveType::F64 => Some("0.0"),
     }
 }

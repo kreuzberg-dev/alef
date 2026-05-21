@@ -6,6 +6,7 @@ use alef_codegen::naming::to_node_name;
 use alef_codegen::shared::function_params;
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{FunctionDef, ParamDef, TypeRef};
+use heck::ToPascalCase;
 
 use crate::type_map::NapiMapper;
 
@@ -899,8 +900,11 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, co
             // Streaming: replicate the instance method's channel/tokio spawn pattern.
             // The free function calls engine.inner.method(...).await to get the stream,
             // then wraps it in channels and spawns a background task.
+            // item_type drives the Js{Type}::from(c) event cast in the channel loop.
             let item_type_name = adapter.item_type.as_deref().unwrap_or("Item");
-            let return_iterator_type = format!("Js{item_type_name}Iterator");
+            // Iterator struct name matches alef_adapters::streaming::iterator_name:
+            // to_pascal_case(adapter_name) + "Iterator" (e.g. crawl_stream → CrawlStreamIterator).
+            let return_iterator_type = format!("{}Iterator", adapter_name.to_pascal_case());
 
             let _method_call = if core_params_list.is_empty() {
                 format!("engine.inner.{}()", adapter_name)

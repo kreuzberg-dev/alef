@@ -348,11 +348,7 @@ fn emit_trait_bridge_methods(bridge_cfg: &TraitBridgeConfig, out: &mut String) {
 }
 
 /// Emit streaming adapter methods (Stream<ItemType>) for adapters with owner_type set.
-fn emit_streaming_adapter_methods(
-    config: &ResolvedCrateConfig,
-    out: &mut String,
-    imports: &mut BTreeSet<String>,
-) {
+fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String, imports: &mut BTreeSet<String>) {
     use alef_core::config::AdapterPattern;
     use heck::ToLowerCamelCase;
 

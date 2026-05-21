@@ -1218,10 +1218,7 @@ fn emit_adapter_wrapper(
                 let field_name = &first_field.name;
                 let is_vec = matches!(&first_field.ty, alef_core::ir::TypeRef::Vec(_));
                 let python_type = if is_vec { "list[str]" } else { "str" };
-                let wrapper_params = vec![
-                    format!("engine: {owner_type}"),
-                    format!("{field_name}: {python_type}"),
-                ];
+                let wrapper_params = vec![format!("engine: {owner_type}"), format!("{field_name}: {python_type}")];
                 let construction = format!("    req = _rust.{short_name}({field_name}={field_name})\n");
                 (wrapper_params, Some(construction))
             } else {

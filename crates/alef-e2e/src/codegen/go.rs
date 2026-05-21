@@ -193,7 +193,14 @@ impl E2eCodegen for GoCodegen {
             }
 
             let filename = format!("{}_test.go", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &active, &module_path, &import_alias, e2e_config, &config.adapters);
+            let content = render_test_file(
+                &group.category,
+                &active,
+                &module_path,
+                &import_alias,
+                e2e_config,
+                &config.adapters,
+            );
             files.push(GeneratedFile {
                 path: output_base.join(filename),
                 content,
@@ -1213,9 +1220,9 @@ fn render_test_function(
             .find(|a| &a.name == base_function_name || &a.name == &function_name.to_lowercase())
             .and_then(|a| a.item_type.as_deref())
             .and_then(|t| t.rsplit("::").next())
-            .unwrap_or("Item")  // Fallback if no matching adapter is declared
+            .unwrap_or("Item") // Fallback if no matching adapter is declared
     } else {
-        "Item"  // Unused, but needed for type consistency
+        "Item" // Unused, but needed for type consistency
     };
 
     // Check if any assertion actually uses the result variable.

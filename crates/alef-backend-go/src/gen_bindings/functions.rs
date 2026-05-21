@@ -630,7 +630,6 @@ pub(super) fn gen_convert_with_visitor_wrapper(
 /// Emit a module-level wrapper function for a streaming adapter.
 /// This allows tests/consumers to call pkg.CrawlStream(engine, url) instead of engine.CrawlStream(url).
 pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _pkg_name: &str) -> String {
-
     let adapter_name = &adapter.name;
     let go_func_name = to_go_name(adapter_name);
     let owner_type = adapter.owner_type.as_deref().unwrap_or("EngineHandle");
@@ -675,8 +674,14 @@ pub(super) fn gen_adapter_wrapper(adapter: &alef_core::config::AdapterConfig, _p
 
     // Emit the wrapper function
     let mut out = String::new();
-    let _ = writeln!(out, "// {go_func_name} wraps the {owner_type}.{method_call_name} streaming adapter,");
-    let _ = writeln!(out, "// exposing it as a module-level function for test and consumer convenience.");
+    let _ = writeln!(
+        out,
+        "// {go_func_name} wraps the {owner_type}.{method_call_name} streaming adapter,"
+    );
+    let _ = writeln!(
+        out,
+        "// exposing it as a module-level function for test and consumer convenience."
+    );
     let _ = writeln!(out, "func {go_func_name}({}) ({}) {{", params.join(", "), return_type);
     let _ = writeln!(out, "\treturn {}", method_call);
     let _ = writeln!(out, "}}");
