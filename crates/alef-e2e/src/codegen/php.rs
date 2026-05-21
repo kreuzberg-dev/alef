@@ -1436,12 +1436,13 @@ fn build_args_and_setup(
 
         match val {
             None | Some(serde_json::Value::Null)
-                if arg.arg_type == "json_object" && arg.name == "config" && !arg.optional =>
+                if arg.arg_type == "json_object" && arg.name == "config" =>
             {
                 // Special case: ExtractionConfig and similar config objects with no fixture value
                 // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
                 // to satisfy required parameters. This check happens BEFORE the optional check
-                // so that required config args are always provided.
+                // so that config args are always provided, even if marked optional in alef.toml.
+                // PHP facades always type config as a required positional parameter.
                 // Use options_type if available; otherwise infer from arg name.
                 let type_name = if let Some(opt_type) = options_type {
                     opt_type.to_string()

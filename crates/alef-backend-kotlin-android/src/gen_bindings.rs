@@ -81,15 +81,20 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
     // non-nullable field has no default — every non-optional Named enum
     // field needs one to round-trip.
     //
+    // Only true Kotlin enums are included here. Tagged/untagged enums (with
+    // `serde_tag` or `serde_untagged` set) are emitted as sealed classes in
+    // Kotlin and are handled differently (variant names are PascalCase, not
+    // SCREAMING_SNAKE_CASE).
+    //
     // Enums without a declared `#[default]` variant map to an empty string;
     // the emitter treats this as "no synthesisable default" and falls
     // through to the type-based path (null for optional fields, no default
     // for required ones). The mere presence of the entry distinguishes
-    // enums from data-class struct types so the latter can fall back to a
-    // no-arg constructor invocation.
+    // true enums from data-class struct types and sealed classes.
     let enum_defaults: std::collections::HashMap<String, String> = api
         .enums
         .iter()
+        .filter(|en| en.serde_tag.is_none() && !en.serde_untagged)
         .map(|en| {
             let default_variant = en
                 .variants
