@@ -592,6 +592,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "ffi_param_free_string.jinja",
         include_str!("../templates/ffi_param_free_string.jinja"),
     ),
+    (
+        "dart_streaming_method.jinja",
+        include_str!("../templates/dart_streaming_method.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
