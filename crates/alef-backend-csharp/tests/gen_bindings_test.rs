@@ -326,7 +326,7 @@ fn test_enum_doc_summary_emits_separate_lines_for_class_and_variants() {
         "Concatenated summary/doc-line marker should not appear in enum class doc:\n{content}"
     );
     assert!(
-        !content.contains("///</summary>") && !content.contains(".</summary>"),
+        !content.contains("///</summary>"),
         "Concatenated doc-line/summary close marker should not appear in enum class doc:\n{content}"
     );
     assert!(

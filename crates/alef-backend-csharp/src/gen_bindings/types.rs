@@ -801,9 +801,11 @@ pub(super) fn gen_record_type(
 
             // For non-optional primitive fields in option-config types (typ.has_default),
             // emit as nullable with null default so WhenWritingNull strips unset fields
-            // and Rust applies its own defaults.
+            // and Rust applies its own defaults. Skip this when the field has an explicit
+            // typed_default — those should emit the concrete default value instead.
             if typ.has_default
                 && !field.optional
+                && field.typed_default.is_none()
                 && matches!(
                     &field.ty,
                     TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Path
