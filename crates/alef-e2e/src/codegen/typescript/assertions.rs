@@ -94,6 +94,9 @@ pub(super) fn render_assertion(
         }
     }
 
+    // Check if this is metadata.format field (FormatMetadata tagged enum)
+    let is_format_metadata = assertion.field.as_deref().is_some_and(|f| f == "metadata.format");
+
     // WASM: enum-typed result fields are exposed as numeric discriminants by
     // wasm-bindgen, not strings. Compare against `EnumClass.Variant` instead of
     // running `.trim()` on a number.
@@ -130,6 +133,7 @@ pub(super) fn render_assertion(
         field_resolver,
         field_is_array,
         is_enum_field,
+        is_format_metadata,
     );
 }
 
@@ -413,6 +417,7 @@ fn render_standard_assertion(
     field_resolver: &FieldResolver,
     field_is_array: bool,
     is_enum_field: bool,
+    is_format_metadata: bool,
 ) {
     let assertion_type = assertion.assertion_type.as_str();
     let resolved_field = assertion.field.as_deref().unwrap_or("");
@@ -432,6 +437,7 @@ fn render_standard_assertion(
                         field_is_optional => field_is_optional,
                         is_string_val => expected.is_string(),
                         is_enum_field => is_enum_field && expected.is_string(),
+                        is_format_metadata => is_format_metadata && expected.is_string(),
                         js_val => js_val,
                         has_js_val => true,
                     },
