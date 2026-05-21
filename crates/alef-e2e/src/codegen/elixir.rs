@@ -1263,6 +1263,24 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
 
+    // NOTE: Elixir requires all positional args before keyword args. To avoid syntax errors,
+    // count how many optional args will be rendered as keywords upfront, then decide
+    // whether json_object args should be positional or keyword. This aligns with the
+    // Rustler backend's keyword-opts threshold: use keyword form for 2+ trailing optional
+    // params, stay positional for 1 or 0.
+    let trailing_keyword_count = args
+        .iter()
+        .rev()
+        .take_while(|a| a.optional)
+        .filter(|a| {
+            // An arg will be rendered as keyword if it's optional AND has a provided value
+            // that's not null. We can't fully evaluate this without checking the input,
+            // but we can count optional params at the end — a conservative heuristic.
+            a.arg_type != "mock_url" && a.arg_type != "mock_url_list" && a.arg_type != "handle"
+        })
+        .count();
+    let use_keyword_form_for_optional_args = trailing_keyword_count >= 2;
+
     for arg in args {
         if arg.arg_type == "mock_url" {
             if fixture.has_host_root_route() {
@@ -1495,15 +1513,19 @@ fn build_args_and_setup(
                     // When there's no options_type+options_via, the Elixir NIF expects a JSON
                     // string (Option<String> decoded by serde_json) rather than an Elixir map.
                     // Serialize the JSON value to a string literal here.
-                    // Always emit as positional for compatibility with Rustler facades that use
-                    // positional-default style (e.g. extract_bytes_sync(content, mime, config \\ nil)).
-                    // Keyword-opts facades (e.g. extract_file_async(path, opts \\ [])) will be handled
-                    // by explicit overrides in alef.toml if needed.
+                    // Emit as positional or keyword based on trailing optional arg count.
+                    // If 2+ trailing optional args exist, use keyword form to avoid mixing
+                    // positional args after keyword args. Otherwise, stay positional for
+                    // compatibility with positional-default style facades.
                     if !v.is_null() {
                         let json_str = serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string());
                         let escaped = escape_elixir(&json_str);
                         let formatted = format!("\"{escaped}\"");
-                        parts.push(formatted);
+                        if use_keyword_form_for_optional_args && arg.optional {
+                            parts.push(format!("{}: {formatted}", arg.name));
+                        } else {
+                            parts.push(formatted);
+                        }
                         continue;
                     }
                 }
@@ -1519,34 +1541,23 @@ fn build_args_and_setup(
     }
 
     // Elixir requires all positional args before keyword args.
-    // Track the index of the first keyword arg to ensure no positional args come after it.
+    // Separate positional and keyword args, preserving order within each group.
+    // With the keyword-opts threshold applied above (use_keyword_form_for_optional_args),
+    // we should never encounter a positional arg after a keyword arg.
     let mut positional_args = Vec::new();
     let mut keyword_args = Vec::new();
-    let mut seen_keyword = false;
 
-    for (idx, part) in parts.into_iter().enumerate() {
+    for part in parts {
         let is_keyword = part.contains(": ") && !part.starts_with('"');
         if is_keyword {
-            seen_keyword = true;
-            keyword_args.push((idx, part));
-        } else if seen_keyword {
-            // We've already seen a keyword arg, so any positional arg from here on
-            // breaks Elixir's syntax rules. This shouldn't happen if the arg ordering
-            // respects the function signature, but we'll keep it as a positional
-            // and let Elixir fail with a syntax error (the real fix is in alef.toml config).
-            keyword_args.push((idx, part));
+            keyword_args.push(part);
         } else {
             positional_args.push(part);
         }
     }
 
-    // For Elixir e2e tests, json_object args (like config) should remain positional
-    // when they don't have an options_type+options_via pattern. This avoids syntax errors
-    // with positional-default-style facades like embed_texts(texts, config \\ nil).
-    // Only keyword args that came from the options_via or handle_struct patterns
-    // should stay as keyword form.
     let mut final_args = positional_args;
-    final_args.extend(keyword_args.into_iter().map(|(_, arg)| arg));
+    final_args.extend(keyword_args);
 
     (setup_lines, final_args.join(", "))
 }
