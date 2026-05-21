@@ -970,7 +970,9 @@ pub(super) fn gen_record_type(
     out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
     out.push_str("    };\n");
-    out.push_str("\n    /// <summary>Options for serializing config/input objects to FFI (no default-skipping).</summary>\n");
+    out.push_str(
+        "\n    /// <summary>Options for serializing config/input objects to FFI (no default-skipping).</summary>\n",
+    );
     out.push_str("    private static readonly JsonSerializerOptions JsonSerializationOptions = new()\n");
     out.push_str("    {\n");
     out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");

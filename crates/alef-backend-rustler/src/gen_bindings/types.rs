@@ -36,10 +36,7 @@ pub(super) fn gen_struct(
         // Config types use NifMap so partial maps can be passed —
         // unspecified keys use Rust Default values instead of Elixir zero values.
         // Binding types always derive Default, Serialize, and Deserialize.
-        // Add #[serde(rename_all = "snake_case")] because Elixir's Jason encodes map keys
-        // as camelCase, but the Rust core structs expect snake_case field names.
         out.push_str("#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifMap)]\n");
-        out.push_str("#[serde(rename_all = \"snake_case\")]\n");
     } else {
         // Binding types always derive Serialize and Deserialize for FFI/type conversion.
         out.push_str("#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, rustler::NifStruct)]\n");

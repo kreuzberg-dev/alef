@@ -200,13 +200,14 @@ pub(crate) fn gen_record_type(
     let mut record_block = String::new();
     emit_javadoc(&mut record_block, &typ.doc, "");
     // Suppress absent fields during serialization: null Java values and empty Optionals must
-    // not be sent to Rust as `null` JSON.  Rust's serde would reject null for non-optional
-    // fields, and `serde(skip)` fields (e.g. `cancel_token`) cause "unknown field" errors
-    // even when the value is null.  NON_ABSENT suppresses both `null` references AND
-    // `Optional.empty()` values, preventing either from appearing in the serialized JSON.
-    // Omitting the field lets Rust fall back to its `#[serde(default)]` value.
-    // This only affects serialization (Java → Rust). Deserialization (Rust → Java) is
-    // unaffected, so result types are safe to annotate with this too.
+    // not be sent to Rust as `null` JSON. Rust's serde would reject null for non-optional
+    // fields, and `serde(skip)` fields cause "unknown field" errors even when null.
+    // NON_ABSENT suppresses both `null` references AND `Optional.empty()` values,
+    // letting Rust fall back to its `#[serde(default)]` value. This only affects
+    // serialization (Java → Rust); deserialization is unaffected.
+    // NOTE: The ObjectMapper also has Include.ALWAYS set for compatibility with both
+    // options and response serialization, but this class-level annotation takes precedence
+    // for types with serde-aware fields, ensuring defaults are omitted as needed.
     if typ.has_serde {
         record_block.push_str("@JsonInclude(JsonInclude.Include.NON_ABSENT)\n");
     }
