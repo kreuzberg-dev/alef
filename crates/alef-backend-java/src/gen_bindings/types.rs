@@ -410,26 +410,27 @@ pub(crate) fn gen_record_type(
     let needs_json_serialize = fields_joined.contains("@JsonSerialize(");
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     // @Nullable may appear in record fields OR in builder method signatures.
-    let needs_nullable = fields_joined.contains("@Nullable") || (typ.has_default && record_block.contains("@Nullable"));
+    let will_emit_builder = should_emit_builder(typ, builder_mode);
+    let needs_nullable = fields_joined.contains("@Nullable") || (will_emit_builder && record_block.contains("@Nullable"));
     // Note: @Transient is not used in record classes — records have no bean-style getters,
     // and field-level @Transient is not valid on record components. Keeping the detection
     // for reference in case of future pattern changes.
     let _needs_transient = fields_joined.contains("@Transient");
     // Optional is needed if fields have Optional<T> in the record's field declarations OR
     // if the nested Builder class uses Optional (for optional fields stored as Optional<T>).
-    let needs_optional = fields_joined.contains("Optional<") || (typ.has_default && record_block.contains("Optional<"));
+    let needs_optional = fields_joined.contains("Optional<") || (will_emit_builder && record_block.contains("Optional<"));
     let mut imports: Vec<&str> = vec![];
-    if fields_joined.contains("List<") || (typ.has_default && record_block.contains("List<")) {
+    if fields_joined.contains("List<") || (will_emit_builder && record_block.contains("List<")) {
         imports.push("java.util.List");
     }
-    if fields_joined.contains("Map<") || (typ.has_default && record_block.contains("Map<")) {
+    if fields_joined.contains("Map<") || (will_emit_builder && record_block.contains("Map<")) {
         imports.push("java.util.Map");
     }
     if needs_optional {
         imports.push("java.util.Optional");
     }
     // @JsonProperty is needed if the record's fields use it OR the nested builder uses it.
-    if needs_json_property || (typ.has_default && record_block.contains("@JsonProperty(")) {
+    if needs_json_property || (will_emit_builder && record_block.contains("@JsonProperty(")) {
         imports.push("com.fasterxml.jackson.annotation.JsonProperty");
     }
     if fields_joined.contains("@JsonAlias(") {
@@ -1694,15 +1695,25 @@ fn is_complex_field_type(ty: &TypeRef) -> bool {
 
 /// Decide whether to emit a builder for this type based on its field count and configuration.
 fn should_emit_builder(typ: &TypeDef, builder_mode: JavaBuilderMode) -> bool {
-    // First, only emit if the type has defaults (canonical condition for builder emission).
-    if !typ.has_default {
-        return false;
-    }
-
     match builder_mode {
         JavaBuilderMode::Always => true,
         JavaBuilderMode::Never => false,
         JavaBuilderMode::Auto => {
+            // Serializable types that are used as nested fields in other types benefit from
+            // having a Builder so Jackson can properly deserialize them with correct defaults.
+            // Examples: PreprocessingOptions (used in ConversionOptions), metadata structures.
+            // Even if has_default is false (due to manual impl Default not being detected),
+            // we should still emit a Builder for has_serde types to ensure proper deserialization.
+            if typ.has_serde {
+                // Serializable types always get a builder in Auto mode for proper nested deserialization
+                return true;
+            }
+
+            // First, only emit if the type has defaults (canonical condition for builder emission).
+            if !typ.has_default {
+                return false;
+            }
+
             let visible_fields: Vec<_> = binding_fields(&typ.fields).collect();
             let field_count = visible_fields.len();
 
