@@ -2238,6 +2238,18 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("    try RustBridge.batchFileItemFromJson(json)\n");
     out.push_str("}\n\n");
 
+    // Property convenience accessors for ExtractionResult so e2e tests can use
+    // `.mimeType` and `.content` as properties instead of methods.
+    out.push_str("// MARK: - ExtractionResult Property Accessors\n");
+    out.push_str("extension ExtractionResultRef {\n");
+    out.push_str("    public var mimeType: RustString {\n");
+    out.push_str("        self.mimeType()\n");
+    out.push_str("    }\n");
+    out.push_str("    public var content: RustString {\n");
+    out.push_str("        self.content()\n");
+    out.push_str("    }\n");
+    out.push_str("}\n\n");
+
     // Helper: resolveFixturePath - resolves a fixture file path.
     // Uses FIXTURES_DIR env var (set by CI / task runner) when available; falls
     // back to the path as-is (interpreted relative to the process working directory).
