@@ -307,6 +307,19 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let version = &api.version;
     let crate_dir = config.core_crate_dir();
 
+    // npm publish-with-provenance verifies the repo URL on the package against
+    // the provenance attestation. An absent or empty `repository.url` makes the
+    // registry reject the upload with E422
+    // (`"repository.url" is "", expected to match "<provenance repo>"`). Emit a
+    // git+https form sourced from the same field the README generator uses
+    // (`[scaffold] repository` / `[e2e.registry] github_repo`).
+    let repository_url = config.github_repo();
+    let repository_git_url = if repository_url.starts_with("git+") {
+        repository_url.clone()
+    } else {
+        format!("git+{}.git", repository_url.trim_end_matches('/').trim_end_matches(".git"))
+    };
+
     // Crate-level package.json required by `napi build`
     let crate_pkg = format!(
         r#"{{
@@ -314,6 +327,10 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "version": "{version}",
   "description": "{description}",
   "license": "{license}",
+  "repository": {{
+    "type": "git",
+    "url": "{repository_git_url}"
+  }},
   "main": "index.js",
   "types": "index.d.ts",
   "files": ["index.js", "index.d.ts", "*.node"],
@@ -341,6 +358,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         version = version,
         description = meta.description,
         license = meta.license,
+        repository_git_url = repository_git_url,
         crate_dir = crate_dir,
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );

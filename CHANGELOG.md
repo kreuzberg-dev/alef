@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-backend-napi: emit `repository` field in generated `package.json`** so npm publish with provenance attestation succeeds. Previously omitted, causing E422 "repository.url is \"\"" failures.
+
 - **alef-backend-csharp: restore nullable config parameter handling to use default instance instead of throwing.** v0.17.13 changed optional `ExtractionConfig? config` codegen from `config ?? new ExtractionConfig()` to `config ?? throw new ArgumentNullException(nameof(config))`. However, nullable optional parameters should support null to mean "use the default". The fix removes the distinction between required and optional config params—all config params now default to `new T()` when null, allowing callers to pass `null` to use default configuration rather than throwing. (`crates/alef-backend-csharp/src/gen_bindings/mod.rs`)
 
 - **alef-e2e: `FieldResolver::rust_unwrap_binding` now strips the same virtual namespace prefix that `accessor()` strips.** The intermediate-binding emission used `render_accessor` directly on the raw `resolved` path, which kept the namespace prefix in the generated code: e.g. `let interaction_action_results_0_data = result.interaction.action_results[0].data…;`. The resulting code failed Rust compilation with `no field 'interaction' on type 'InteractionResult'`. Now mirrors the prefix-stripping branch from `accessor()` so the binding lands on the real struct path (`result.action_results[0].data…`). Surfaced on kreuzcrawl `interact_execute_js` and `interact_click_nonexistent_element`. (`crates/alef-e2e/src/field_access.rs`)
