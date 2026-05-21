@@ -79,7 +79,12 @@ fn fits_single_line(indent: &str, prefix: &str, field_strings: &[String], suffix
     total <= KTFMT_LINE_WIDTH
 }
 
-pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+pub(crate) fn emit_type_with_imports(
+    ty: &TypeDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    enum_defaults: &std::collections::HashMap<String, String>,
+) {
     emit_cleaned_kdoc(out, &ty.doc, "");
     if ty.fields.is_empty() {
         out.push_str(&crate::template_env::render(
@@ -107,7 +112,7 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
         // deserialization with `MissingKotlinParameterException` whenever the
         // wire JSON omits the key — even if the Rust source carries `Default`.
         let default_suffix =
-            kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref());
+            kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref(), enum_defaults);
         field_strings.push(format!("val {name}: {ty_str}{default_suffix}"));
     }
 
@@ -1041,9 +1046,10 @@ fn kotlin_field_default(
     ty: &TypeRef,
     optional: bool,
     typed_default: Option<&alef_core::ir::DefaultValue>,
+    enum_defaults: &std::collections::HashMap<String, String>,
 ) -> String {
     if let Some(default) = typed_default {
-        if let Some(literal) = render_kotlin_default(ty, default) {
+        if let Some(literal) = render_kotlin_default(ty, default, enum_defaults) {
             return format!(" = {literal}");
         }
     }
@@ -1061,7 +1067,11 @@ fn kotlin_field_default(
 /// Render a `DefaultValue` as a Kotlin expression. Returns `None` when no
 /// rendering is possible (e.g. `Empty` on a scalar type — no Kotlin literal
 /// for "default of T" beyond what `kotlin_field_default` can synthesise).
-fn render_kotlin_default(ty: &TypeRef, default: &alef_core::ir::DefaultValue) -> Option<String> {
+fn render_kotlin_default(
+    ty: &TypeRef,
+    default: &alef_core::ir::DefaultValue,
+    enum_defaults: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     use alef_core::ir::DefaultValue;
     match default {
         DefaultValue::BoolLiteral(b) => Some(b.to_string()),
@@ -1102,6 +1112,13 @@ fn render_kotlin_default(ty: &TypeRef, default: &alef_core::ir::DefaultValue) ->
             TypeRef::Vec(_) => Some("emptyList()".to_string()),
             TypeRef::Map(_, _) => Some("emptyMap()".to_string()),
             TypeRef::Optional(_) => Some("null".to_string()),
+            // For Named enum types, the source Rust enum's
+            // `#[derive(Default)]` picks a `#[default]` variant; bubble it up
+            // via the supplied lookup so e.g. `heading_style: HeadingStyle`
+            // emits ` = HeadingStyle.ATX`.
+            TypeRef::Named(name) => enum_defaults
+                .get(name.as_str())
+                .map(|variant| format!("{name}.{}", to_screaming_snake(variant))),
             _ => None,
         },
         DefaultValue::None => Some("null".to_string()),
