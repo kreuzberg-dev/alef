@@ -166,7 +166,13 @@ fn render_pubspec(
 
     let dep_block = match dep_mode {
         crate::config::DependencyMode::Registry => {
-            format!("  {pkg_name}: ^{pkg_version}")
+            // Only add ^ prefix if version doesn't already start with a constraint operator
+            let constraint = if pkg_version.starts_with('^') || pkg_version.starts_with('~') || pkg_version.starts_with('>') || pkg_version.starts_with('<') || pkg_version.starts_with('=') {
+                pkg_version.to_string()
+            } else {
+                format!("^{pkg_version}")
+            };
+            format!("  {pkg_name}: {constraint}")
         }
         crate::config::DependencyMode::Local => {
             format!("  {pkg_name}:\n    path: {pkg_path}")
