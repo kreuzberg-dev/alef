@@ -18,3 +18,6 @@ anyhow = { workspace = true }
 heck = { workspace = true }
 minijinja = { workspace = true }
 toml = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

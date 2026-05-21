@@ -106,6 +106,43 @@ fn test_scaffold_node() {
 }
 
 #[test]
+fn test_scaffold_node_package_json_includes_repository_url() {
+    // Regression: npm publish-with-provenance verifies the package's
+    // `repository.url` against the provenance attestation and rejects the
+    // upload with E422 if the field is missing or empty. The emitted
+    // package.json must therefore carry a non-empty `repository.url` sourced
+    // from the configured scaffold/registry repository URL.
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let pkg_json = files
+        .iter()
+        .find(|f| f.path == Path::new("crates/my-lib-node/package.json"))
+        .expect("crate package.json must be emitted");
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(&pkg_json.content).expect("emitted package.json must be valid JSON");
+    let repository = parsed
+        .get("repository")
+        .expect("package.json must contain a `repository` field");
+    let url = repository
+        .get("url")
+        .and_then(|v| v.as_str())
+        .expect("`repository.url` must be a string");
+    assert!(!url.is_empty(), "`repository.url` must not be empty, got: {url}");
+    assert!(
+        url.contains("github.com/test/my-lib"),
+        "`repository.url` must reflect the configured scaffold.repository (https://github.com/test/my-lib), got: {url}"
+    );
+    assert_eq!(
+        repository.get("type").and_then(|v| v.as_str()),
+        Some("git"),
+        "`repository.type` must be \"git\" for npm provenance verification"
+    );
+}
+
+#[test]
 fn test_scaffold_multiple() {
     let config = test_config();
     let api = test_api();
