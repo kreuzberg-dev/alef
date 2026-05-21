@@ -201,7 +201,7 @@ impl E2eCodegen for SwiftE2eCodegen {
 /// Directive telling Apple's `swift-format` to skip the file entirely.
 ///
 /// The e2e generator emits Swift source with 4-space indentation, fixed import
-/// order (`XCTest, Foundation, <Module>, RustBridge`) and unwrapped long lines
+/// order (`XCTest, Foundation, <Module>`) and unwrapped long lines
 /// — all of which violate `swift-format`'s defaults (2-space indent, sorted
 /// imports, 100-char line width). Reformatting after every regen would force
 /// every consumer repo to either bake `swift-format` into their pre-commit set
@@ -341,7 +341,15 @@ fn render_test_file(
     let _ = writeln!(out, "import XCTest");
     let _ = writeln!(out, "import Foundation");
     let _ = writeln!(out, "import {module_name}");
-    let _ = writeln!(out, "import RustBridge");
+    // Intentionally omit `import RustBridge`: every name a per-category test
+    // file references is part of the public `{module_name}` surface (first-class
+    // Swift enums, structs, and the trait-bridge `*FromJsonWith{Field}`
+    // forwarder emitted by the swift backend). Importing `RustBridge` here
+    // collides with first-class Swift types whose Rust counterparts are also
+    // declared as opaque `extern \"Rust\" { type X; }` shims in the bridge —
+    // most notably `VisitResult` (Codable enum in `{module_name}` vs opaque
+    // `public class VisitResult` in `RustBridge`), producing
+    // `'VisitResult' is ambiguous for type lookup` at every callback site.
     let _ = writeln!(out);
     let _ = writeln!(out, "/// E2e tests for category: {category}.");
     let _ = writeln!(out, "final class {class_name}: XCTestCase {{");
