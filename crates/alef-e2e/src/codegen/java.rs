@@ -440,6 +440,7 @@ fn render_format_metadata_display(java_group_id: &str) -> String {
     out.push_str("     * @return display string (image format or lowercase variant name)\n");
     out.push_str("     */\n");
     out.push_str("    static String toDisplayString(FormatMetadata meta) {\n");
+    out.push_str("        if (meta == null) return \"\";\n");
     out.push_str("        return switch (meta) {\n");
     out.push_str("            case FormatMetadata.Image i -> i.value().format();\n");
     out.push_str("            case FormatMetadata.Pdf _ -> \"pdf\";\n");
@@ -1982,8 +1983,17 @@ fn render_assertion(
                             // For equals on Optional fields, determine fallback based on whether value is numeric.
                             // If the fixture value is a number, coerce via Number::longValue so the
                             // comparison compiles for both Optional<Integer> and Optional<Long>.
+                            // FormatMetadata is handled specially: keep as Optional so the string_expr
+                            // path can apply FormatMetadataDisplay.toDisplayString().
                             "equals" => {
-                                if let Some(expected) = &assertion.value {
+                                if enum_fields
+                                    .get(f)
+                                    .or_else(|| enum_fields.get(field_resolver.resolve(f)))
+                                    .is_some_and(|t| t == "FormatMetadata")
+                                {
+                                    // FormatMetadata Optional: keep unwrapped, will be handled by string_expr path
+                                    optional_expr
+                                } else if let Some(expected) = &assertion.value {
                                     if expected.is_number() {
                                         format!("{optional_expr}.map(Number::longValue).orElse(0L)")
                                     } else {
@@ -2024,7 +2034,13 @@ fn render_assertion(
         // FormatMetadata is a sealed interface, not a Java enum. Convert to string via
         // a pattern-match helper that extracts the display string (image.format() for Image,
         // lowercase variant name for others).
-        format!("FormatMetadataDisplay.toDisplayString({field_expr})")
+        // For Optional<FormatMetadata>, unwrap with orElse(null) so the helper can handle null safely.
+        let format_meta_expr = if field_expr.contains("Optional.ofNullable") {
+            format!("{field_expr}.orElse(null)")
+        } else {
+            field_expr.clone()
+        };
+        format!("FormatMetadataDisplay.toDisplayString({format_meta_expr})")
     } else {
         field_expr.clone()
     };
