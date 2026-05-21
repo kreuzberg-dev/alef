@@ -22,6 +22,11 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let node_pkg = config.node_package_name();
     let base = node_pkg.strip_suffix("-node").unwrap_or(node_pkg.as_str());
     let wasm_pkg_name = format!("{base}-wasm");
+
+    // wasm-pack converts hyphens to underscores in the generated filenames
+    // (Rust convention), so `html-to-markdown` becomes `html_to_markdown`
+    let core_crate_file = core_crate_dir.replace('-', "_");
+
     let pkg_json = format!(
         r#"{{
   "name": "{wasm_pkg_name}",
@@ -41,9 +46,9 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "*.d.ts",
     "README.md"
   ],
-  "main": "pkg/nodejs/{core_crate_dir}_wasm.js",
-  "module": "pkg/web/{core_crate_dir}_wasm.js",
-  "types": "pkg/nodejs/{core_crate_dir}_wasm.d.ts",
+  "main": "pkg/nodejs/{core_crate_file}_wasm.js",
+  "module": "pkg/web/{core_crate_file}_wasm.js",
+  "types": "pkg/nodejs/{core_crate_file}_wasm.d.ts",
   "scripts": {{
     "build": "wasm-pack build --target nodejs --out-dir pkg/nodejs",
     "build:ci": "wasm-pack build --release --target nodejs --out-dir pkg/nodejs",
@@ -65,6 +70,7 @@ pub(crate) fn scaffold_wasm(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         license = meta.license,
         repository = meta.repository,
         core_crate_dir = core_crate_dir,
+        core_crate_file = core_crate_file,
     );
 
     files.push(GeneratedFile {
