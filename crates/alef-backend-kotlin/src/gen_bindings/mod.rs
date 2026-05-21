@@ -24,7 +24,23 @@ pub use shared::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming
 
 // Re-export emitters used by gen_mpp and alef-backend-kotlin-android.
 pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
-    object_wrapper::emit_type_with_imports(ty, out, imports)
+    object_wrapper::emit_type_with_imports(ty, out, imports, &std::collections::HashMap::new())
+}
+
+/// Like [`emit_type_pub`] but also threads an enum-name → default-variant map
+/// so that fields whose declared type is a Named enum (e.g. `HeadingStyle`)
+/// receive a constructor default like `= HeadingStyle.ATX`. The Jackson
+/// Kotlin module otherwise raises `MissingKotlinParameterException` when the
+/// wire JSON omits the key, which is the common case for partial-update
+/// payloads sent from test fixtures (`mapper.readValue("{\"x\":true}",
+/// ConversionOptions::class.java)`).
+pub fn emit_type_pub_with_enum_defaults(
+    ty: &TypeDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    enum_defaults: &std::collections::HashMap<String, String>,
+) {
+    object_wrapper::emit_type_with_imports(ty, out, imports, enum_defaults)
 }
 
 pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str) {

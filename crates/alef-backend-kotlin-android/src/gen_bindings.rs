@@ -17,8 +17,8 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use alef_backend_kotlin::{
-    emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub, emit_type_pub,
-    to_pascal_case,
+    emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub,
+    emit_type_pub_with_enum_defaults, to_pascal_case,
 };
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -72,6 +72,24 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             }
         }
     }
+
+    // Build an `enum_name → default_variant` map so the data-class emitter
+    // can synthesise constructor defaults for Named enum fields (e.g.
+    // `headingStyle: HeadingStyle = HeadingStyle.ATX`). The Jackson Kotlin
+    // module rejects deserialization of partial JSON (e.g. tests that pass
+    // `{"extract_metadata":true}` into `ConversionOptions`) when a
+    // non-nullable field has no default — every non-optional Named enum
+    // field needs one to round-trip.
+    let enum_defaults: std::collections::HashMap<String, String> = api
+        .enums
+        .iter()
+        .filter_map(|en| {
+            en.variants
+                .iter()
+                .find(|v| v.is_default)
+                .map(|v| (en.name.clone(), v.name.clone()))
+        })
+        .collect();
 
     // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
@@ -131,9 +149,9 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             filtered
                 .fields
                 .retain(|f| !effective_excluded_types.iter().any(|name| f.ty.references_named(name)));
-            emit_type_pub(&filtered, &mut body, &mut imports);
+            emit_type_pub_with_enum_defaults(&filtered, &mut body, &mut imports, &enum_defaults);
         } else {
-            emit_type_pub(ty, &mut body, &mut imports);
+            emit_type_pub_with_enum_defaults(ty, &mut body, &mut imports, &enum_defaults);
         }
         if body.trim().is_empty() {
             continue;
