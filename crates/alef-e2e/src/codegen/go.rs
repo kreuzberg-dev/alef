@@ -723,7 +723,7 @@ fn render_test_file(
                 .unwrap_or(true)
                 || (is_streaming_fixture && field_is_streaming_virtual);
             let synthetic_field_needs_assert = match a.field.as_deref() {
-                Some("chunks_have_content" | "chunks_have_embeddings") => {
+                Some("chunks_have_content" | "chunks_have_embeddings" | "chunks_have_heading_context" | "first_chunk_starts_with_heading") => {
                     matches!(a.assertion_type.as_str(), "is_true" | "is_false")
                 }
                 Some("embeddings") => {
@@ -782,7 +782,7 @@ fn render_test_file(
     if needs_json || needs_reflect {
         let _ = writeln!(out, "\t\"encoding/json\"");
     }
-    if needs_fmt {
+    if needs_fmt || needs_strings {
         let _ = writeln!(out, "\t\"fmt\"");
     }
     if needs_io {
@@ -2048,7 +2048,7 @@ fn render_assertion(
             match f.as_str() {
                 "chunks_have_content" => {
                     let pred = format!(
-                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range *chunks {{ if c.Content == \"\" {{ return false }} }}; return true }}()"
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range chunks {{ if c.Content == \"\" {{ return false }} }}; return true }}()"
                     );
                     match assertion.assertion_type.as_str() {
                         "is_true" => {
@@ -2065,7 +2065,41 @@ fn render_assertion(
                 }
                 "chunks_have_embeddings" => {
                     let pred = format!(
-                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range *chunks {{ if c.Embedding == nil || len(*c.Embedding) == 0 {{ return false }} }}; return true }}()"
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range chunks {{ if c.Embedding == nil || len(*c.Embedding) == 0 {{ return false }} }}; return true }}()"
+                    );
+                    match assertion.assertion_type.as_str() {
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {pred}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {pred}, \"expected false\")");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "\t// skipped: unsupported assertion type on synthetic field '{f}'");
+                        }
+                    }
+                    return;
+                }
+                "chunks_have_heading_context" => {
+                    let pred = format!(
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil {{ return false }}; for _, c := range chunks {{ if c.Metadata == nil || !c.Metadata.HeadingContext {{ return false }} }}; return true }}()"
+                    );
+                    match assertion.assertion_type.as_str() {
+                        "is_true" => {
+                            let _ = writeln!(out, "\tassert.True(t, {pred}, \"expected true\")");
+                        }
+                        "is_false" => {
+                            let _ = writeln!(out, "\tassert.False(t, {pred}, \"expected false\")");
+                        }
+                        _ => {
+                            let _ = writeln!(out, "\t// skipped: unsupported assertion type on synthetic field '{f}'");
+                        }
+                    }
+                    return;
+                }
+                "first_chunk_starts_with_heading" => {
+                    let pred = format!(
+                        "func() bool {{ chunks := {result_var}.Chunks; if chunks == nil || len(chunks) == 0 {{ return false }}; return chunks[0].Metadata != nil && chunks[0].Metadata.HeadingContext }}()"
                     );
                     match assertion.assertion_type.as_str() {
                         "is_true" => {
@@ -2418,7 +2452,21 @@ fn render_assertion(
                 if expected.is_string() {
                     // Wrap field expression with strings.TrimSpace() for string comparisons.
                     // Use string() cast to handle named string types (e.g. BatchStatus, FinishReason).
-                    let trimmed_field = if is_optional && !field_expr.starts_with("len(") {
+                    // For complex types like FormatMetadata, use fmt.Sprintf to convert.
+                    let resolved_name = assertion
+                        .field
+                        .as_ref()
+                        .map(|f| field_resolver.resolve(f))
+                        .unwrap_or_default();
+                    let is_struct = resolved_name.contains("FormatMetadata");
+                    let trimmed_field = if is_struct {
+                        // Use fmt.Sprintf for struct types instead of string cast
+                        if is_optional && !field_expr.starts_with("len(") {
+                            format!("strings.TrimSpace(fmt.Sprintf(\"%v\", *{field_expr}))")
+                        } else {
+                            format!("strings.TrimSpace(fmt.Sprintf(\"%v\", {field_expr}))")
+                        }
+                    } else if is_optional && !field_expr.starts_with("len(") {
                         format!("strings.TrimSpace(string(*{field_expr}))")
                     } else {
                         format!("strings.TrimSpace(string({field_expr}))")
@@ -2697,9 +2745,21 @@ fn render_assertion(
         "less_than_or_equal" => {
             if let Some(val) = &assertion.value {
                 let go_val = json_to_go(val);
-                let _ = writeln!(out_ref, "\tif {field_expr} > {go_val} {{");
-                let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected <= {go_val}, got %v\", {field_expr})");
-                let _ = writeln!(out_ref, "\t}}");
+                if is_optional && !field_expr.starts_with("len(") {
+                    // Optional pointer field: nil-guard and dereference before comparison.
+                    let _ = writeln!(out_ref, "\tif {field_expr} != nil {{");
+                    let _ = writeln!(out_ref, "\t\tif {deref_field_expr} > {go_val} {{");
+                    let _ = writeln!(
+                        out_ref,
+                        "\t\t\tt.Errorf(\"expected <= {go_val}, got %v\", {deref_field_expr})"
+                    );
+                    let _ = writeln!(out_ref, "\t\t}}");
+                    let _ = writeln!(out_ref, "\t}}");
+                } else {
+                    let _ = writeln!(out_ref, "\tif {field_expr} > {go_val} {{");
+                    let _ = writeln!(out_ref, "\t\tt.Errorf(\"expected <= {go_val}, got %v\", {field_expr})");
+                    let _ = writeln!(out_ref, "\t}}");
+                }
             }
         }
         "starts_with" => {

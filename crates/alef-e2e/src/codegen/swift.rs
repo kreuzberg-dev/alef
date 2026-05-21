@@ -2090,7 +2090,7 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
         // treat it as opaque and use method-call syntax.
         let is_first_class = current_type
             .as_ref()
-            .map_or(false, |t| field_resolver.swift_is_first_class(Some(t)));
+            .is_some_and(|t| field_resolver.swift_is_first_class(Some(t)));
         let property_syntax = !via_rust_vec && is_first_class;
         out.push('.');
         // Swift bindings (both first-class `public let` props and swift-bridge
