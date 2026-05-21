@@ -30,6 +30,7 @@ pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<Stri
         imports,
         &std::collections::HashMap::new(),
         &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
     )
 }
 
@@ -52,6 +53,7 @@ pub fn emit_type_pub_with_enum_defaults(
         imports,
         enum_defaults,
         &std::collections::HashSet::new(),
+        &std::collections::HashSet::new(),
     )
 }
 
@@ -69,7 +71,39 @@ pub fn emit_type_pub_with_enum_defaults_and_sealed_classes(
     enum_defaults: &std::collections::HashMap<String, String>,
     sealed_class_names: &std::collections::HashSet<String>,
 ) {
-    object_wrapper::emit_type_with_imports(ty, out, imports, enum_defaults, sealed_class_names)
+    object_wrapper::emit_type_with_imports(
+        ty,
+        out,
+        imports,
+        enum_defaults,
+        sealed_class_names,
+        &std::collections::HashSet::new(),
+    )
+}
+
+/// Like [`emit_type_pub_with_enum_defaults_and_sealed_classes`] but also threads
+/// the set of non-enum data class type names that have a Rust `Default` impl AND
+/// whose Kotlin emission gives every constructor parameter a default value.
+/// Fields whose declared type references such a name receive a constructor
+/// default like `= PreprocessingOptions()` — preventing Jackson's Kotlin module
+/// from raising `MissingKotlinParameterException` when the wire JSON omits the
+/// nested struct.
+pub fn emit_type_pub_with_defaults_sealed_and_constructible(
+    ty: &TypeDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    enum_defaults: &std::collections::HashMap<String, String>,
+    sealed_class_names: &std::collections::HashSet<String>,
+    default_constructible_types: &std::collections::HashSet<String>,
+) {
+    object_wrapper::emit_type_with_imports(
+        ty,
+        out,
+        imports,
+        enum_defaults,
+        sealed_class_names,
+        default_constructible_types,
+    )
 }
 
 pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str) {

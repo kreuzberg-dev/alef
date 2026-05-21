@@ -18,7 +18,7 @@ use std::path::Path;
 
 use alef_backend_kotlin::{
     emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub,
-    emit_type_pub_with_enum_defaults_and_sealed_classes, to_pascal_case,
+    emit_type_pub_with_defaults_sealed_and_constructible, to_pascal_case,
 };
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -120,6 +120,20 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         .map(|en| en.name.clone())
         .collect();
 
+    // Non-enum, non-trait, non-opaque data class types whose Rust source has a
+    // `Default` impl (has_default = true). For fields whose declared type
+    // references one of these names, the emitter can safely synthesize
+    // `= Name()` as the constructor default — preventing Jackson's Kotlin
+    // module from raising `MissingKotlinParameterException` when the wire
+    // JSON omits the nested struct (the common shape of partial-update
+    // payloads in test fixtures).
+    let default_constructible_types: std::collections::HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && t.has_default)
+        .map(|t| t.name.clone())
+        .collect();
+
     // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
     bridge_file.path = kotlin_source_dir.join(bridge_file.path.file_name().expect("bridge file must have a filename"));
@@ -178,20 +192,22 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             filtered
                 .fields
                 .retain(|f| !effective_excluded_types.iter().any(|name| f.ty.references_named(name)));
-            emit_type_pub_with_enum_defaults_and_sealed_classes(
+            emit_type_pub_with_defaults_sealed_and_constructible(
                 &filtered,
                 &mut body,
                 &mut imports,
                 &enum_defaults,
                 &sealed_class_names,
+                &default_constructible_types,
             );
         } else {
-            emit_type_pub_with_enum_defaults_and_sealed_classes(
+            emit_type_pub_with_defaults_sealed_and_constructible(
                 ty,
                 &mut body,
                 &mut imports,
                 &enum_defaults,
                 &sealed_class_names,
+                &default_constructible_types,
             );
         }
         if body.trim().is_empty() {

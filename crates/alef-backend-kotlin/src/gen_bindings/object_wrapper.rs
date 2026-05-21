@@ -85,6 +85,7 @@ pub(crate) fn emit_type_with_imports(
     imports: &mut BTreeSet<String>,
     enum_defaults: &std::collections::HashMap<String, String>,
     sealed_class_names: &std::collections::HashSet<String>,
+    default_constructible_types: &std::collections::HashSet<String>,
 ) {
     emit_cleaned_kdoc(out, &ty.doc, "");
     if ty.fields.is_empty() {
@@ -158,7 +159,7 @@ pub(crate) fn emit_type_with_imports(
         } else {
             (
                 ty_str,
-                kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref(), enum_defaults),
+                kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref(), enum_defaults, default_constructible_types),
             )
         };
         field_strings.push(format!("val {name}: {effective_ty_str}{default_suffix}"));
@@ -1270,6 +1271,7 @@ fn kotlin_field_default(
     optional: bool,
     typed_default: Option<&alef_core::ir::DefaultValue>,
     enum_defaults: &std::collections::HashMap<String, String>,
+    default_constructible_types: &std::collections::HashSet<String>,
 ) -> String {
     if let Some(default) = typed_default {
         // For optional fields with DefaultValue::Empty, the natural Kotlin default
@@ -1278,7 +1280,7 @@ fn kotlin_field_default(
         if optional && matches!(default, alef_core::ir::DefaultValue::Empty) {
             return " = null".to_string();
         }
-        if let Some(literal) = render_kotlin_default(ty, default, enum_defaults) {
+        if let Some(literal) = render_kotlin_default(ty, default, enum_defaults, default_constructible_types) {
             return format!(" = {literal}");
         }
     }
@@ -1300,6 +1302,7 @@ fn render_kotlin_default(
     ty: &TypeRef,
     default: &alef_core::ir::DefaultValue,
     enum_defaults: &std::collections::HashMap<String, String>,
+    default_constructible_types: &std::collections::HashSet<String>,
 ) -> Option<String> {
     use alef_core::ir::DefaultValue;
     match default {
@@ -1388,18 +1391,23 @@ fn render_kotlin_default(
                     } else {
                         Some(format!("{name}.{}", to_screaming_snake(value)))
                     }
+                } else if default_constructible_types.contains(name.as_str()) {
+                    // Non-enum data class whose Rust source has `Default` impl
+                    // (has_default = true) and all of whose Kotlin fields also
+                    // get constructor defaults. `Name()` invokes the no-arg
+                    // synthesized constructor — equivalent to the Rust
+                    // `Default::default()` semantics that the IR captures via
+                    // `DefaultValue::Empty` here. Without this, Jackson's
+                    // Kotlin module raises MissingKotlinParameterException
+                    // when the wire JSON omits a non-nullable struct field
+                    // (common for partial-update payloads in test fixtures).
+                    Some(format!("{name}()"))
                 } else {
-                    // Non-enum Named types — could be data-class structs OR
-                    // sealed classes from tagged/untagged Rust enums. We can't
-                    // distinguish here without an explicit sealed-class set,
-                    // and synthesising `{name}()` is broken for sealed classes
-                    // (protected constructor) and even risky for structs whose
-                    // fields don't all have defaults. Fall through to the
-                    // field-level logic: `null` for optional fields, no default
-                    // for required ones. Required Named fields will then need
-                    // an explicit value at construction sites, which is correct
-                    // for sealed classes (caller must pick a variant) and a
-                    // reasonable constraint for data classes.
+                    // Non-enum Named types we can't safely default-construct:
+                    // sealed classes from tagged/untagged Rust enums (protected
+                    // constructor) or data classes whose fields don't all have
+                    // defaults. Fall through to the field-level logic: `null`
+                    // for optional fields, no default for required ones.
                     None
                 }
             }
