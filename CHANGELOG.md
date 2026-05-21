@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **maintenance: record a clean full-project `prek run --all-files` verification.**
+
 ## [0.17.14] - 2026-05-21
 
 ### Fixed
