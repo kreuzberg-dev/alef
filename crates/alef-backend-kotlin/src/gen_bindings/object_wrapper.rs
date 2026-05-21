@@ -1105,7 +1105,16 @@ fn render_kotlin_default(
             Some(format!("\"{}\"", escape_kotlin_string(s)))
         }
         DefaultValue::EnumVariant(variant) => match ty {
-            TypeRef::Named(name) => Some(format!("{name}.{}", to_screaming_snake(variant))),
+            TypeRef::Named(name) => {
+                if enum_defaults.contains_key(name.as_str()) {
+                    // True enum — variant names are SCREAMING_SNAKE_CASE
+                    Some(format!("{name}.{}", to_screaming_snake(variant)))
+                } else {
+                    // Sealed class from a tagged/untagged Rust enum — variant
+                    // names are PascalCase as declared in Rust
+                    Some(format!("{name}.{}", variant))
+                }
+            }
             _ => None,
         },
         DefaultValue::Empty => match ty {
@@ -1117,13 +1126,12 @@ fn render_kotlin_default(
             // via the supplied lookup so e.g. `heading_style: HeadingStyle`
             // emits ` = HeadingStyle.ATX`.
             //
-            // For Named non-enum types (i.e. data class structs), fall back
-            // to invoking the no-arg primary constructor — every emitted
-            // Kotlin data class receives constructor defaults for every
-            // field, so `PreprocessingOptions()` is always callable. This is
-            // necessary because Rust serializers commonly skip `Default`
-            // sub-structures from the wire JSON, leaving the Jackson Kotlin
-            // module to error out unless the field has a host-side default.
+            // For Named non-enum types (i.e. data class structs): don't try to
+            // synthesize a constructor call because we don't know if all fields
+            // have defaults. Instead, fall through to the field-level logic in
+            // kotlin_field_default which will use `null` for optional fields or
+            // omit the default for required ones (allowing Jackson's Kotlin module
+            // to apply its own defaults via `#[serde(default)]` on the wire).
             TypeRef::Named(name) => {
                 if let Some(variant) = enum_defaults.get(name.as_str()) {
                     // Enum with a declared `#[default]` variant.
@@ -1139,10 +1147,9 @@ fn render_kotlin_default(
                         Some(format!("{name}.{}", to_screaming_snake(value)))
                     }
                 } else {
-                    // Non-enum Named type — call the no-arg constructor. All
-                    // emitted data classes have constructor defaults for
-                    // every field, so `PreprocessingOptions()` round-trips.
-                    Some(format!("{name}()"))
+                    // Non-enum Named type — don't call constructor; let
+                    // field-level logic handle it.
+                    None
                 }
             }
             _ => None,
