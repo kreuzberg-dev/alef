@@ -962,15 +962,17 @@ impl Backend for RustlerBackend {
                 let arity_params_slice = &all_params[..*arity];
                 let arity_types = &param_types[..*arity];
 
-                // For arity variants with positional defaults, append `\\ nil` to trailing
-                // optional params so fixtures can call with any intermediate arity.
+                // For arity variants with positional defaults, append `\\ nil` to params
+                // that have "| nil" in their typespec OR are trailing optional.
+                // This allows fixtures to call functions with any intermediate arity.
                 let required_count = all_params.len() - trailing_optional_count;
                 let arity_params: Vec<String> = arity_params_slice
                     .iter()
                     .enumerate()
                     .map(|(i, p)| {
-                        if i >= required_count && i < *arity {
-                            // Trailing optional param: add default
+                        let has_nil_option = param_types.get(i).map(|t| t.contains("| nil")).unwrap_or(false);
+                        if (i >= required_count && i < *arity) || has_nil_option {
+                            // Trailing optional param or param with | nil typespec: add default
                             format!("{p} \\\\ nil")
                         } else {
                             p.clone()
