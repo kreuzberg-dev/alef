@@ -2239,14 +2239,14 @@ fn emit_e2e_wrappers(out: &mut String) {
     out.push_str("}\n\n");
 
     // Property convenience accessors for ExtractionResult so e2e tests can use
-    // `.mimeType` and `.content` as properties instead of methods.
+    // `.mimeType` and `.content` as properties, and convert to String for method access.
     out.push_str("// MARK: - ExtractionResult Property Accessors\n");
     out.push_str("extension ExtractionResultRef {\n");
-    out.push_str("    public var mimeType: RustString {\n");
-    out.push_str("        self.mimeType()\n");
+    out.push_str("    public var mimeType: String {\n");
+    out.push_str("        self.mimeType().toString()\n");
     out.push_str("    }\n");
-    out.push_str("    public var content: RustString {\n");
-    out.push_str("        self.content()\n");
+    out.push_str("    public var content: String {\n");
+    out.push_str("        self.content().toString()\n");
     out.push_str("    }\n");
     out.push_str("}\n\n");
 
