@@ -26,6 +26,15 @@ fn return_type_sig(annotation: &str) -> String {
     }
 }
 
+/// For Bytes return types, ext-php-rs marshals Vec<u8> as a PHP array, not a string.
+/// We need to override the return type to String for PHP binary-safe string handling.
+/// Replaces "PhpResult<Vec<u8>>" with "PhpResult<String>" or "Vec<u8>" with "String".
+fn override_bytes_return_type(annotation: &str) -> String {
+    annotation
+        .replace("PhpResult<Vec<u8>>", "PhpResult<String>")
+        .replace("Vec<u8>", "String")
+}
+
 /// Build the set of parameter names that are trait bridge params.
 /// Bridge params are sanitized to a String/Option<String> in the IR but must be
 /// passed as `None` to the core function (the PHP backend has no bridge implementation).
@@ -650,7 +659,11 @@ pub(crate) fn gen_function_as_static_method(
         .collect();
     let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // For Bytes returns, convert Vec<u8> to String in the type annotation
+    if matches!(&func.return_type, TypeRef::Bytes) {
+        return_annotation = override_bytes_return_type(&return_annotation);
+    }
 
     let mut out = String::new();
     let exception_class = format!("{}Exception", core_import.to_pascal_case());
@@ -858,7 +871,11 @@ pub(crate) fn gen_async_function_as_static_method(
         .collect();
     let params = gen_php_function_params(&visible_params, mapper, opaque_types, &AHashSet::new());
     let return_type = mapper.map_type(&func.return_type);
-    let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    let mut return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
+    // For Bytes returns, convert Vec<u8> to String in the type annotation
+    if matches!(&func.return_type, TypeRef::Bytes) {
+        return_annotation = override_bytes_return_type(&return_annotation);
+    }
 
     let mut out = String::new();
     let exception_class = format!("{}Exception", core_import.to_pascal_case());

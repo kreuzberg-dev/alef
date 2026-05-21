@@ -517,12 +517,15 @@ pub(crate) fn php_wrap_return(
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
-            // Core returns Vec<u8> or Bytes; PHP binding expects Vec<u8>.
-            if returns_ref {
+            // Core returns Vec<u8> or Bytes; convert to String for PHP binary-safe string.
+            // ext-php-rs marshals &[u8] to PHP string, but Vec<u8> to PHP array.
+            // So we convert to String using lossy UTF-8 encoding (safe for binary PNG/PDF data).
+            let vec_expr = if returns_ref {
                 format!("{expr}.to_vec()")
             } else {
                 format!("Vec::<u8>::from({expr})")
-            }
+            };
+            format!("String::from_utf8_lossy(&{vec_expr}).into_owned()")
         }
         TypeRef::Primitive(p) if needs_i64_cast(p) => {
             format!("{expr} as i64")
