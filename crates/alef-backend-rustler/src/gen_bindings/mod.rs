@@ -1010,7 +1010,8 @@ impl Backend for RustlerBackend {
                             .enumerate()
                             .map(|(i, a)| {
                                 if i == opts_idx {
-                                    format!("if(map_size(clean_opts) == 0, do: nil, else: Jason.encode!(clean_opts))")
+                                    "if(map_size(clean_opts) == 0, do: nil, else: Jason.encode!(clean_opts))"
+                                        .to_string()
                                 } else {
                                     a.clone()
                                 }

@@ -1558,7 +1558,7 @@ fn render_assertion(
             // ---- ExtractionResult chunk-level computed predicates ----
             "chunks_have_content" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.content() != null && !c.content().isBlank())"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.content() != null && !c.content().isBlank())"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -1573,7 +1573,7 @@ fn render_assertion(
             }
             "chunks_have_heading_context" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext().isPresent())"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.metadata().headingContext().isPresent())"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -1588,7 +1588,7 @@ fn render_assertion(
             }
             "chunks_have_embeddings" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().allMatch(c -> c.embedding() != null && !c.embedding().isEmpty())"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().allMatch(c -> c.embedding() != null && !c.embedding().isEmpty())"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
@@ -1603,7 +1603,7 @@ fn render_assertion(
             }
             "first_chunk_starts_with_heading" => {
                 let pred = format!(
-                    "{result_var}.chunks().orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext().isPresent()).orElse(false)"
+                    "java.util.Optional.ofNullable({result_var}.chunks()).orElse(java.util.List.of()).stream().findFirst().map(c -> c.metadata().headingContext().isPresent()).orElse(false)"
                 );
                 out.push_str(&crate::template_env::render(
                     "java/synthetic_assertion.jinja",
