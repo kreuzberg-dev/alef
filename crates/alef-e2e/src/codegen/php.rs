@@ -1435,9 +1435,7 @@ fn build_args_and_setup(
         }
 
         match val {
-            None | Some(serde_json::Value::Null)
-                if arg.arg_type == "json_object" && arg.name == "config" =>
-            {
+            None | Some(serde_json::Value::Null) if arg.arg_type == "json_object" && arg.name == "config" => {
                 // Special case: ExtractionConfig and similar config objects with no fixture value
                 // should default to an empty instance (e.g., ExtractionConfig::from_json('{}'))
                 // to satisfy required parameters. This check happens BEFORE the optional check

@@ -920,11 +920,9 @@ fn render_test_method(
                 if parts.len() >= 2 {
                     let urls_var = parts[parts.len() - 1]; // Last arg is the URLs
                     let req_var = format!("{}Req", urls_var);
-                    setup_lines.push(format!(
-                        "var {req_var} = new {req_type} {{ Urls = {urls_var} }};"
-                    ));
+                    setup_lines.push(format!("var {req_var} = new {req_type} {{ Urls = {urls_var} }};"));
                     // Replace the urls arg with the wrapped request
-                    args_str = parts[..parts.len()-1].join(", ");
+                    args_str = parts[..parts.len() - 1].join(", ");
                     if !args_str.is_empty() {
                         args_str.push_str(", ");
                     }
@@ -1575,10 +1573,7 @@ fn build_args_and_setup(
             }
             if let Some(req_type) = adapter_request_type {
                 let req_var = format!("{}Req", arg.name);
-                setup_lines.push(format!(
-                    "var {req_var} = new {req_type} {{ Url = {} }};",
-                    arg.name
-                ));
+                setup_lines.push(format!("var {req_var} = new {req_type} {{ Url = {} }};", arg.name));
                 parts.push(req_var);
             } else {
                 parts.push(arg.name.clone());
@@ -2621,8 +2616,11 @@ fn render_assertion(
             // result type), use Assert.NotNull instead of Assert.True to avoid cast issues.
             // If it's clearly not a boolean type (contains null-checking operators or is a
             // complex object), treat it as a not-null check.
-            let is_complex_or_object = field_expr.contains("(object)") ||
-                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+            let is_complex_or_object = field_expr.contains("(object)")
+                || (field_expr.contains(".")
+                    && !result_is_simple
+                    && !field_expr.contains("?")
+                    && !field_expr.contains("=="));
 
             let rendered = if is_complex_or_object {
                 crate::template_env::render(
@@ -2645,8 +2643,11 @@ fn render_assertion(
             out.push_str(&rendered);
         }
         "is_false" => {
-            let is_complex_or_object = field_expr.contains("(object)") ||
-                (field_expr.contains(".") && !result_is_simple && !field_expr.contains("?") && !field_expr.contains("=="));
+            let is_complex_or_object = field_expr.contains("(object)")
+                || (field_expr.contains(".")
+                    && !result_is_simple
+                    && !field_expr.contains("?")
+                    && !field_expr.contains("=="));
 
             let rendered = if is_complex_or_object {
                 // For complex types, is_false means "is empty/null"
