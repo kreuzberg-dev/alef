@@ -6,7 +6,7 @@ use alef_codegen::generators::{self, RustBindingConfig};
 use alef_codegen::shared::{binding_fields, partition_methods};
 use alef_codegen::type_mapper::TypeMapper;
 use alef_core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
-use heck::ToLowerCamelCase;
+use heck::{ToLowerCamelCase, ToPascalCase};
 
 use super::functions::{
     gen_async_instance_method, gen_async_static_method, gen_instance_method, gen_instance_method_non_opaque,
@@ -61,6 +61,7 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
     adapter_bodies: &AdapterBodies,
     mutex_types: &AHashSet<String>,
     streaming_method_keys: &AHashSet<String>,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
     impl_builder.add_attr("php_impl");
@@ -149,6 +150,37 @@ pub(crate) fn gen_opaque_struct_methods_with_exclude(
                 core_import,
                 mutex_types,
             ));
+        }
+    }
+
+    // Emit from_php_object for trait bridge type aliases (e.g., VisitorHandle)
+    for bridge in trait_bridges {
+        if let Some(ref type_alias) = bridge.type_alias {
+            if type_alias == &typ.name {
+                // Generate the from_php_object static method that wraps a PHP object
+                // The bridge struct is named Php<TraitName>Bridge (e.g., PhpHtmlVisitorBridge)
+                let bridge_struct_name = format!("Php{}Bridge", bridge.trait_name.to_pascal_case().replace('-', ""));
+                // Use the full path to the trait from the core crate (e.g., html_to_markdown_rs::visitor::HtmlVisitor)
+                let trait_path = format!("{}::visitor::{}", core_import, bridge.trait_name
+                    .split("::")
+                    .last()
+                    .unwrap_or(&bridge.trait_name));
+                // The inner field wraps VisitorHandle (which is Arc<Mutex<dyn HtmlVisitor + Send>>)
+                // VisitorHandle is a type alias: Arc<Mutex<dyn HtmlVisitor + Send>>
+                // We need to create Arc<VisitorHandle>, so wrap Arc<Mutex<>> in Arc
+                let method_code = format!(
+                    "    #[php(name = \"from_php_object\")]\n    \
+                     pub fn from_php_object(obj: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<Self> {{\n    \
+                     use ext_php_rs::prelude::*;\n    \
+                     let bridge = {}::new(obj);\n    \
+                     let visitor_handle: {}::visitor::VisitorHandle = std::sync::Arc::new(std::sync::Mutex::new(bridge));\n    \
+                     Ok(Self {{ inner: std::sync::Arc::new(visitor_handle) }})\n    \
+                     }}\n",
+                    bridge_struct_name,
+                    core_import
+                );
+                impl_builder.add_method(&method_code);
+            }
         }
     }
 

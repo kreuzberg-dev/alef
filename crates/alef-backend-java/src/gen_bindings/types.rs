@@ -411,14 +411,16 @@ pub(crate) fn gen_record_type(
     let needs_json_ignore = fields_joined.contains("@JsonIgnore");
     // @Nullable may appear in record fields OR in builder method signatures.
     let will_emit_builder = should_emit_builder(typ, builder_mode);
-    let needs_nullable = fields_joined.contains("@Nullable") || (will_emit_builder && record_block.contains("@Nullable"));
+    let needs_nullable =
+        fields_joined.contains("@Nullable") || (will_emit_builder && record_block.contains("@Nullable"));
     // Note: @Transient is not used in record classes — records have no bean-style getters,
     // and field-level @Transient is not valid on record components. Keeping the detection
     // for reference in case of future pattern changes.
     let _needs_transient = fields_joined.contains("@Transient");
     // Optional is needed if fields have Optional<T> in the record's field declarations OR
     // if the nested Builder class uses Optional (for optional fields stored as Optional<T>).
-    let needs_optional = fields_joined.contains("Optional<") || (will_emit_builder && record_block.contains("Optional<"));
+    let needs_optional =
+        fields_joined.contains("Optional<") || (will_emit_builder && record_block.contains("Optional<"));
     let mut imports: Vec<&str> = vec![];
     if fields_joined.contains("List<") || (will_emit_builder && record_block.contains("List<")) {
         imports.push("java.util.List");

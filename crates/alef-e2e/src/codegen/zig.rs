@@ -1231,14 +1231,14 @@ fn emit_zig_chunks_predicate(
     require_non_empty_string: bool,
 ) {
     let _ = writeln!(out, "    {{");
-    let _ = writeln!(
-        out,
-        "        const _chunks_opt = {result_var}.object.get(\"chunks\");"
-    );
+    let _ = writeln!(out, "        const _chunks_opt = {result_var}.object.get(\"chunks\");");
     let _ = writeln!(out, "        var _all: bool = true;");
     let _ = writeln!(out, "        if (_chunks_opt) |_chunks_val| {{");
     let _ = writeln!(out, "            if (_chunks_val == .array) {{");
-    let _ = writeln!(out, "                if (_chunks_val.array.items.len == 0) _all = false;");
+    let _ = writeln!(
+        out,
+        "                if (_chunks_val.array.items.len == 0) _all = false;"
+    );
     let _ = writeln!(out, "                for (_chunks_val.array.items) |c| {{");
     let _ = writeln!(out, "                    if (c != .object) {{ _all = false; break; }}");
     let _ = writeln!(out, "                    const _v = {chunk_field_accessor};");

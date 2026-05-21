@@ -777,7 +777,13 @@ fn emit_json_object_arg(
                         .map(|obj| {
                             let dict_items: Vec<String> = obj
                                 .iter()
-                                .map(|(k, v)| format!("{}: {}", json_to_python_literal(&serde_json::Value::String(k.clone())), json_to_python_literal(v)))
+                                .map(|(k, v)| {
+                                    format!(
+                                        "{}: {}",
+                                        json_to_python_literal(&serde_json::Value::String(k.clone())),
+                                        json_to_python_literal(v)
+                                    )
+                                })
                                 .collect();
                             format!("{{{}}}", dict_items.join(", "))
                         })
@@ -945,7 +951,13 @@ fn emit_python_batch_item(obj: &serde_json::Map<String, serde_json::Value>, elem
             // The bindings expect {"type": "click", "selector": "#id"}, not PageAction(type="click", selector="#id")
             let items: Vec<String> = obj
                 .iter()
-                .map(|(k, v)| format!("{}: {}", json_to_python_literal(&serde_json::Value::String(k.clone())), json_to_python_literal(v)))
+                .map(|(k, v)| {
+                    format!(
+                        "{}: {}",
+                        json_to_python_literal(&serde_json::Value::String(k.clone())),
+                        json_to_python_literal(v)
+                    )
+                })
                 .collect();
             format!("{{{}}}", items.join(", "))
         }

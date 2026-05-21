@@ -799,6 +799,28 @@ pub(super) fn gen_record_type(
                 continue;
             }
 
+            // For non-optional primitive fields in option-config types (typ.has_default),
+            // emit as nullable with null default so WhenWritingNull strips unset fields
+            // and Rust applies its own defaults.
+            if typ.has_default && !field.optional
+                && matches!(
+                    &field.ty,
+                    TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char | TypeRef::Path
+                )
+            {
+                let nullable_type = if base_type.ends_with('?') {
+                    base_type
+                } else {
+                    format!("{}?", base_type)
+                };
+                out.push_str(&render(
+                    "property_with_default.jinja",
+                    minijinja::context! { field_type => nullable_type, cs_name, default_val => "null" },
+                ));
+                out.push('\n');
+                continue;
+            }
+
             let default_val = match &field.typed_default {
                 Some(DefaultValue::BoolLiteral(b)) => b.to_string(),
                 Some(DefaultValue::IntLiteral(n)) => n.to_string(),
