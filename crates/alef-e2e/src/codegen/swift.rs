@@ -808,6 +808,7 @@ fn render_test_method(
         handle_config_fn_owned.as_deref(),
         visitor_handle_expr.as_deref(),
         client_factory.is_some(),
+        module_name,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1008,6 +1009,7 @@ fn build_args_and_setup(
     handle_config_fn: Option<&str>,
     visitor_handle_expr: Option<&str>,
     is_method_call: bool,
+    module_name: &str,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1174,11 +1176,11 @@ fn build_args_and_setup(
                     let handle_var = format!("_visitorHandle_{}", var_name.trim_start_matches('_'));
                     setup_lines.push(format!("let {handle_var} = {handle_expr}"));
                     setup_lines.push(format!(
-                        "let {var_name} = try {with_visitor_fn}(\"{escaped}\", {handle_var})"
+                        "let {var_name} = try {module_name}.{with_visitor_fn}(\"{escaped}\", {handle_var})"
                     ));
                 } else {
                     let from_json_fn = format!("{}FromJson", type_name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = try {from_json_fn}(\"{escaped}\")"));
+                    setup_lines.push(format!("let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"));
                 }
                 parts.push((idx, var_name));
                 continue;
