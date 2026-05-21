@@ -532,6 +532,16 @@ pub struct CallConfig {
     /// When `true`, the function returns `Option<T>`.
     #[serde(default)]
     pub result_is_option: bool,
+    /// When `true` (combined with `result_is_simple` + `result_is_array`),
+    /// signals that the result is `Vec<String>` returned to the host as a
+    /// native string array (e.g., Swift `[String]`) rather than an opaque
+    /// `RustVec<RustString>` requiring `.asStr().toString()` per element.
+    ///
+    /// Generators that emit per-element coercion for opaque RustVec types
+    /// (currently Swift) drop the coercion and operate on the elements as
+    /// native strings when this flag is set.
+    #[serde(default)]
+    pub result_element_is_string: bool,
     /// Automatic fixture-routing condition.
     ///
     /// When set, a fixture whose `call` field is `None` is routed to this named call config
@@ -1105,6 +1115,28 @@ pub struct CallOverride {
     /// Defaults to `true` for backward compatibility with existing fixtures.
     #[serde(default = "default_true")]
     pub result_is_pointer: bool,
+    /// Per-language override mirroring `CallConfig.result_element_is_string`.
+    ///
+    /// Set this on a per-language override when only one host's binding exposes
+    /// the result as a native string array; otherwise prefer the call-level flag.
+    #[serde(default)]
+    pub result_element_is_string: bool,
+    /// Maps array-typed result fields to the method name on each element that
+    /// yields a string used in `contains` / `contains_all` assertions.
+    ///
+    /// Used when the array element is an opaque struct (e.g., a swift-bridge
+    /// `type X;` declaration) and the element's "name" accessor is not the
+    /// default `as_str` — for instance, `StructureItem` exposes `kind() -> String`
+    /// instead of `as_str()`. The codegen consults this map when emitting
+    /// `.map { $0.<accessor>().toString() }` so the closure compiles.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e.call.overrides.swift]
+    /// result_field_accessor = { "structure" = "kind" }
+    /// ```
+    #[serde(default)]
+    pub result_field_accessor: HashMap<String, String>,
 }
 
 fn default_true() -> bool {
