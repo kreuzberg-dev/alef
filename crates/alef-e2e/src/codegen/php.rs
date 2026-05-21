@@ -1489,7 +1489,10 @@ fn build_args_and_setup(
                             if let Some(arr) = v.as_array() {
                                 let items: Vec<String> = arr
                                     .iter()
-                                    .filter_map(|item| item.as_object().map(|obj| json_to_php(&serde_json::Value::Object(obj.clone()))))
+                                    .filter_map(|item| {
+                                        item.as_object()
+                                            .map(|obj| json_to_php(&serde_json::Value::Object(obj.clone())))
+                                    })
                                     .collect();
                                 parts.push(format!("[{}]", items.join(", ")));
                                 continue;

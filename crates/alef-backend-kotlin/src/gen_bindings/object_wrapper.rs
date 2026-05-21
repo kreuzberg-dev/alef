@@ -99,7 +99,16 @@ pub(crate) fn emit_type_with_imports(ty: &TypeDef, out: &mut String, imports: &m
     for (idx, field) in ty.fields.iter().enumerate() {
         let ty_str = kotlin_type_with_string_imports(&field.ty, field.optional, imports);
         let name = kotlin_field_name(&field.name, idx);
-        field_strings.push(format!("val {name}: {ty_str}"));
+        // Append a Kotlin default for fields whose underlying Rust type has a
+        // natural empty value. Rust serializers commonly skip Default-valued
+        // collections (`#[serde(skip_serializing_if = "...")]`) or skip a
+        // field entirely under a feature gate (`#[serde(skip)]`). Without a
+        // Kotlin-side default the Jackson Kotlin module fails the entire
+        // deserialization with `MissingKotlinParameterException` whenever the
+        // wire JSON omits the key — even if the Rust source carries `Default`.
+        let default_suffix =
+            kotlin_field_default(&field.ty, field.optional, field.typed_default.as_ref());
+        field_strings.push(format!("val {name}: {ty_str}{default_suffix}"));
     }
 
     let prefix = format!("data class {}", ty.name);
@@ -997,6 +1006,123 @@ fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<Stri
         }
         _ => mapper.map_type(ty),
     }
+}
+
+/// Return the Kotlin-side default suffix for a data-class constructor field.
+///
+/// Emits the field's typed default whenever the extractor was able to resolve
+/// one (`#[derive(Default)]` plus explicit `Default` impls), so each generated
+/// `data class` constructor parameter behaves like the Rust source. Falls back
+/// to type-driven defaults (` = null` for `Optional`, ` = emptyList()` for
+/// `Vec`, ` = emptyMap()` for `Map`) when the IR has no typed default — most
+/// commonly for fields gated under a feature flag the binding crate does not
+/// enable, where the wire JSON omits the key entirely.
+///
+/// This matters because the Jackson Kotlin module insists on supplying a
+/// value for every non-nullable constructor parameter when deserializing.
+/// Rust serializers commonly skip empty collections (`skip_serializing_if`),
+/// optional fields with default values, and feature-gated fields. Without a
+/// Kotlin-side default the deserialization fails with
+/// `MissingKotlinParameterException`.
+fn kotlin_field_default(
+    ty: &TypeRef,
+    optional: bool,
+    typed_default: Option<&alef_core::ir::DefaultValue>,
+) -> String {
+    if let Some(default) = typed_default {
+        if let Some(literal) = render_kotlin_default(ty, default) {
+            return format!(" = {literal}");
+        }
+    }
+    if optional {
+        return " = null".to_string();
+    }
+    match ty {
+        TypeRef::Optional(_) => " = null".to_string(),
+        TypeRef::Vec(_) => " = emptyList()".to_string(),
+        TypeRef::Map(_, _) => " = emptyMap()".to_string(),
+        _ => String::new(),
+    }
+}
+
+/// Render a `DefaultValue` as a Kotlin expression. Returns `None` when no
+/// rendering is possible (e.g. `Empty` on a scalar type — no Kotlin literal
+/// for "default of T" beyond what `kotlin_field_default` can synthesise).
+fn render_kotlin_default(ty: &TypeRef, default: &alef_core::ir::DefaultValue) -> Option<String> {
+    use alef_core::ir::DefaultValue;
+    match default {
+        DefaultValue::BoolLiteral(b) => Some(b.to_string()),
+        DefaultValue::IntLiteral(n) => {
+            use alef_core::ir::PrimitiveType;
+            // Long suffix when the Kotlin field type is Long; Byte/Short would
+            // need a cast but the IR rarely produces those for top-level fields.
+            if matches!(ty, TypeRef::Primitive(p) if matches!(p,
+                PrimitiveType::I64 | PrimitiveType::U64
+                | PrimitiveType::Usize | PrimitiveType::Isize))
+            {
+                Some(format!("{n}L"))
+            } else {
+                Some(n.to_string())
+            }
+        }
+        DefaultValue::FloatLiteral(f) => {
+            use alef_core::ir::PrimitiveType;
+            if matches!(ty, TypeRef::Primitive(PrimitiveType::F32)) {
+                Some(format!("{f}f"))
+            } else {
+                Some(f.to_string())
+            }
+        }
+        DefaultValue::StringLiteral(s) => {
+            // Char-typed Rust fields project to Kotlin `Char`; emit a single-quoted
+            // literal for the first scalar so `'*'` round-trips through the data
+            // class. Multi-char defaults on `String` fields use the regular
+            // double-quoted form.
+            if matches!(ty, TypeRef::Char) && s.chars().count() == 1 {
+                let c = s.chars().next().expect("len-1 string has a char");
+                Some(format!("'{}'", escape_kotlin_char(c)))
+            } else {
+                Some(format!("\"{}\"", escape_kotlin_string(s)))
+            }
+        }
+        DefaultValue::EnumVariant(variant) => match ty {
+            TypeRef::Named(name) => Some(format!("{name}.{}", to_screaming_snake(variant))),
+            _ => None,
+        },
+        DefaultValue::Empty => match ty {
+            TypeRef::Vec(_) => Some("emptyList()".to_string()),
+            TypeRef::Map(_, _) => Some("emptyMap()".to_string()),
+            TypeRef::Optional(_) => Some("null".to_string()),
+            _ => None,
+        },
+        DefaultValue::None => Some("null".to_string()),
+    }
+}
+
+fn escape_kotlin_char(c: char) -> String {
+    match c {
+        '\\' => "\\\\".to_string(),
+        '\'' => "\\'".to_string(),
+        '\n' => "\\n".to_string(),
+        '\r' => "\\r".to_string(),
+        '\t' => "\\t".to_string(),
+        _ => c.to_string(),
+    }
+}
+
+fn escape_kotlin_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
 }
 
 // ---------------------------------------------------------------------------

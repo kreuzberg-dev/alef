@@ -325,6 +325,7 @@ impl Backend for PhpBackend {
                     &adapter_bodies,
                     &mutex_types,
                     &streaming_method_keys,
+                    &config.trait_bridges,
                 ));
                 // Client constructor — emit a #[php_method] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
@@ -1256,7 +1257,7 @@ impl Backend for PhpBackend {
                 })
                 .collect();
             let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.clone()).collect();
-            let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters, &streaming_method_names);
+            let opaque_file = gen_php_opaque_class_file(typ, &namespace, &streaming_adapters, &streaming_method_names, &config.trait_bridges);
             files.push(GeneratedFile {
                 path: PathBuf::from(&output_dir).join(format!("{}.php", typ.name)),
                 content: opaque_file,
@@ -1689,6 +1690,7 @@ fn gen_php_opaque_class_file(
     namespace: &str,
     streaming_adapters: &[&alef_core::config::AdapterConfig],
     streaming_method_names: &AHashSet<String>,
+    trait_bridges: &[alef_core::config::TraitBridgeConfig],
 ) -> String {
     let mut content = String::new();
     content.push_str(&crate::template_env::render(
@@ -1813,6 +1815,22 @@ fn gen_php_opaque_class_file(
         let item_type = adapter.item_type.as_deref().unwrap_or("array");
         content.push_str(&gen_php_streaming_method_wrapper(adapter, item_type));
         content.push('\n');
+    }
+
+    // Check if this type is a trait bridge type alias (e.g., VisitorHandle)
+    for bridge in trait_bridges {
+        if let Some(ref type_alias) = bridge.type_alias {
+            if type_alias == &typ.name {
+                // Emit the from_php_object static method for trait bridge handles
+                content.push_str("    /**\n");
+                content.push_str("     * Wrap a PHP object implementing the visitor interface as a shareable handle.\n");
+                content.push_str("     */\n");
+                content.push_str("    public static function from_php_object(object $visitor): self\n");
+                content.push_str("    {\n");
+                content.push_str("        throw new \\RuntimeException('Not implemented — provided by the native extension.');\n");
+                content.push_str("    }\n");
+            }
+        }
     }
 
     content.push_str("}\n");

@@ -624,6 +624,7 @@ fn emit_module_kt(
     let mut imports: BTreeSet<String> = BTreeSet::new();
     if needs_jackson {
         imports.insert("import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper".to_string());
+        imports.insert("import com.fasterxml.jackson.databind.PropertyNamingStrategies".to_string());
         imports.insert("import kotlinx.coroutines.Dispatchers".to_string());
         imports.insert("import kotlinx.coroutines.withContext".to_string());
     }
@@ -640,7 +641,13 @@ fn emit_module_kt(
 
     body.push_str(&format!("object {module_name} {{\n"));
     if needs_jackson {
-        body.push_str("    private val mapper = jacksonObjectMapper()\n\n");
+        // Rust serde defaults to snake_case wire keys; Kotlin properties are
+        // camelCase. Configure the property naming strategy on the module
+        // facade's mapper so Jackson translates between them automatically,
+        // matching the streaming-method mapper above and the convention used
+        // across the JVM/Kotlin backends.
+        body.push_str("    private val mapper = jacksonObjectMapper()\n");
+        body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n\n");
     }
 
     for f in &visible_functions {

@@ -162,7 +162,11 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         let out = std::path::Path::new(elixir_out_str.trim_end_matches('/'));
         let pkg_depth = pkg.components().count();
         let out_path = out.display().to_string();
-        Some(format!("{}{}", "../".repeat(pkg_depth), out_path.trim_start_matches('/')))
+        Some(format!(
+            "{}{}",
+            "../".repeat(pkg_depth),
+            out_path.trim_start_matches('/')
+        ))
     });
 
     let elixirc_paths_line = match external_elixir_src.as_deref() {
@@ -175,7 +179,8 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // Hex publish refuses to package a non-existent directory, so include `lib`
     // in `files:` only when we actually write into it.
     let lib_populated = config.trait_bridges.iter().any(|b| {
-        !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler") && b.bind_via != BridgeBinding::OptionsField
+        !b.exclude_languages.iter().any(|l| l == "elixir" || l == "rustler")
+            && b.bind_via != BridgeBinding::OptionsField
     });
 
     // Always-present entries on disk after scaffolding: native crate dir,
@@ -183,8 +188,12 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // `lib` is conditional (see above); `checksum-*.exs` is intentionally omitted
     // because alef does not wire up the `mix rustler_precompiled.download` step
     // — consumers fall back to building from source via plain `rustler`.
-    let mut files_entries: Vec<String> =
-        vec![".formatter.exs".into(), "mix.exs".into(), "README*".into(), "native".into()];
+    let mut files_entries: Vec<String> = vec![
+        ".formatter.exs".into(),
+        "mix.exs".into(),
+        "README*".into(),
+        "native".into(),
+    ];
     if lib_populated {
         files_entries.insert(0, "lib".into());
     }
