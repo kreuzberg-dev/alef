@@ -58,10 +58,26 @@ pub(super) fn render_test_function(
     let python_override = call_config.overrides.get("python");
     let result_is_simple = python_override.is_some_and(|o| o.result_is_simple);
 
-    // Per-fixture call override takes precedence over the file-level value.
-    let effective_options_type = python_override.and_then(|o| o.options_type.as_deref()).or(options_type);
+    // options_type: prefer per-call override, fall back to file-level python override, then call parameter.
+    let top_level_options_type = e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.options_type.as_deref());
+    let effective_options_type = python_override
+        .and_then(|o| o.options_type.as_deref())
+        .or(top_level_options_type)
+        .or(options_type);
+
+    // options_via: prefer per-call override, fall back to file-level python override, then call parameter.
+    let top_level_options_via = e2e_config
+        .call
+        .overrides
+        .get("python")
+        .and_then(|o| o.options_via.as_deref());
     let effective_options_via = python_override
         .and_then(|o| o.options_via.as_deref())
+        .or(top_level_options_via)
         .unwrap_or(options_via);
 
     let desc_with_period = if description.ends_with('.') {

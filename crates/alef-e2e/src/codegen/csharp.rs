@@ -1934,13 +1934,20 @@ fn render_discriminated_union_assertion(
     variant_var: &str,
     inner_field: &str,
     _result_is_vec: bool,
+    assert_enum_fields: &std::collections::HashMap<String, String>,
 ) {
     if inner_field.is_empty() {
         return; // No field to assert on
     }
 
     let field_pascal = inner_field.to_upper_camel_case();
-    let field_expr = format!("{variant_var}.Value.{field_pascal}");
+    let mut field_expr = format!("{variant_var}.Value.{field_pascal}");
+
+    // Wrap enum fields with display helper
+    if assert_enum_fields.contains_key(&field_pascal) {
+        let type_name = assert_enum_fields.get(&field_pascal).unwrap();
+        field_expr = format!("{type_name}Display.ToDisplayString({field_expr})");
+    }
 
     match assertion.assertion_type.as_str() {
         "equals" => {
@@ -2118,7 +2125,7 @@ fn render_assertion(
                 return;
             }
             "chunks_have_heading_context" => {
-                let synthetic_pred = format!("({result_var}.Chunks ?? new()).All(c => c.HeadingContext != null)");
+                let synthetic_pred = format!("({result_var}.Chunks ?? new()).All(c => c.Metadata?.HeadingContext != null)");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
@@ -2141,7 +2148,7 @@ fn render_assertion(
                 return;
             }
             "first_chunk_starts_with_heading" => {
-                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.HeadingContext != null");
+                let synthetic_pred = format!("({result_var}.Chunks ?? new()).FirstOrDefault()?.Metadata?.Heading != null");
                 let synthetic_pred_type = match assertion.assertion_type.as_str() {
                     "is_true" => "is_true",
                     "is_false" => "is_false",
@@ -2375,7 +2382,7 @@ fn render_assertion(
                 variant_name, &variant_var
             );
             let _ = writeln!(out, "        {{");
-            render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field, result_is_vec);
+            render_discriminated_union_assertion(out, assertion, &variant_var, &inner_field, result_is_vec, assert_enum_fields);
             let _ = writeln!(out, "        }}");
             let _ = writeln!(out, "        else");
             let _ = writeln!(out, "        {{");
