@@ -1093,16 +1093,24 @@ fn render_test_case(
     // For streaming fixtures the stream is bound to `result_var` first, then drained into `chunks`.
     let chunks_var = "chunks";
 
+    // If the result variable is never referenced in assertions or streaming operations,
+    // prefix it with _ to avoid "unused variable" warnings in mix compile --warnings-as-errors.
+    let actual_result_var = if fixture.assertions.is_empty() && !is_streaming {
+        format!("_{result_var}")
+    } else {
+        result_var.to_string()
+    };
+
     if returns_result {
         let _ = writeln!(
             out,
-            "      {{:ok, {result_var}}} = {module_path}.{function_name}({effective_args})"
+            "      {{:ok, {actual_result_var}}} = {module_path}.{function_name}({effective_args})"
         );
     } else {
         // Non-Result function returns value directly (e.g., bool, String).
         let _ = writeln!(
             out,
-            "      {result_var} = {module_path}.{function_name}({effective_args})"
+            "      {actual_result_var} = {module_path}.{function_name}({effective_args})"
         );
     }
 
