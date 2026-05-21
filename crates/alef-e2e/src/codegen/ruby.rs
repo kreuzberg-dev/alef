@@ -1217,7 +1217,11 @@ fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str, module_n
                                 module_name, elem_type, path, config_arg
                             ))
                         }
-                        _ => None,
+                        _ => {
+                            // Generic handling: emit hash literal for tagged enums (PageAction, etc.)
+                            // The bindings expect { type: "click", selector: "#id" }, not PageAction.new(...)
+                            Some(json_to_ruby(&serde_json::Value::Object(obj.clone())))
+                        }
                     }
                 } else {
                     None

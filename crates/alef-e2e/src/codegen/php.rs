@@ -1242,7 +1242,11 @@ fn emit_php_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String
                             let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
                             Some(format!("new {}(path: \"{}\")", elem_type, path))
                         }
-                        _ => None,
+                        _ => {
+                            // Generic handling: emit assoc array literal for tagged enums (PageAction, etc.)
+                            // The bindings expect ["type" => "click", "selector" => "#id"], not new PageAction(...)
+                            Some(json_to_php(&serde_json::Value::Object(obj.clone())))
+                        }
                     }
                 } else {
                     None
