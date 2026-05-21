@@ -255,7 +255,17 @@ fn render_test_case(
         &std::collections::HashSet::new(),
     );
     let field_resolver = &call_field_resolver;
-    let function_name = &call_config.function;
+    // Resolve `function` via the R override when present. The default
+    // `call_config.function` can be empty (e.g. trait-bridge calls like
+    // `clear_document_extractors` set `function = ""` at the top level and
+    // expose the real binding name only through per-language overrides);
+    // emitting it verbatim produces invalid `result <- ()` calls.
+    let function_name = call_config
+        .overrides
+        .get("r")
+        .and_then(|o| o.function.as_ref())
+        .cloned()
+        .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
     // Per-fixture call configs (e.g. `list_document_extractors`) may set
     // `result_is_simple = true` even when the default `[e2e.call]` does not.
@@ -349,7 +359,14 @@ fn render_test_case(
     // already return scalar values and must be passed through verbatim.
     // `result_is_r_list` signals the binding returns a native R list (Robj),
     // not a JSON string — skip `jsonlite::fromJSON` but keep `$` accessors.
-    if result_is_simple || result_is_r_list {
+    // `returns_void` calls (trait-bridge `clear_*` wrappers that return `()`
+    // in Rust → `NULL` in R) must not bind a `result` variable: the previous
+    // emission of `result <- {function_name}(...)` was already correct when
+    // `function_name` resolved, but parsers flag a stray `result` for void
+    // calls. Use `invisible(...)` to make the void contract explicit.
+    if call_config.returns_void {
+        let _ = writeln!(out, "  invisible({function_name}({final_args}))");
+    } else if result_is_simple || result_is_r_list {
         let _ = writeln!(out, "  {result_var} <- {function_name}({final_args})");
     } else {
         let _ = writeln!(
