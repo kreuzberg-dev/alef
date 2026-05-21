@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-scaffold: convert hyphens to underscores in wasm package.json main/module/types filenames.** wasm-pack emits files with underscores in the name (e.g., `html_to_markdown_wasm.js`), matching Rust naming conventions. The package.json template was using `core_crate_dir` directly (e.g., `html-to-markdown`), causing `main`, `module`, and `types` fields to reference non-existent files. Added a `core_crate_file` variable that replaces hyphens with underscores before interpolating into the entry-point paths. (`crates/alef-scaffold/src/languages/wasm.rs`)
+
 ## [0.17.23] - 2026-05-21
 
 ### Fixed
