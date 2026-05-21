@@ -1464,30 +1464,11 @@ fn build_args_and_setup(
                         parts.push(format!("{}: {options_var}", arg.name));
                         continue;
                     }
-                    // When options_type is set but options_via is NOT, emit struct-literal form.
-                    if let (Some(opts_type), None, Some(obj)) = (options_type, options_default_fn, v.as_object()) {
-                        let options_var = "options";
-                        let mut field_strs = Vec::new();
-                        for (k, vv) in obj.iter() {
-                            let snake_key = k.to_snake_case();
-                            let elixir_val = if let Some(_enum_type) = enum_fields.get(k) {
-                                if let Some(s) = vv.as_str() {
-                                    let snake_val = s.to_snake_case();
-                                    format!(":{snake_val}")
-                                } else {
-                                    json_to_elixir(vv)
-                                }
-                            } else {
-                                json_to_elixir(vv)
-                            };
-                            field_strs.push(format!("{snake_key}: {elixir_val}"));
-                        }
-                        let fields = field_strs.join(", ");
-                        setup_lines.push(format!("{options_var} = %{module_path}.{opts_type}{{{fields}}}"));
-                        // Optional args always use keyword form so the facade can handle defaults.
-                        parts.push(format!("{}: {options_var}", arg.name));
-                        continue;
-                    }
+                    // When options_type is set but options_via is NOT, DON'T emit struct-literal form.
+                    // The Rustler NIF facade doesn't know how to handle struct literals — it passes them
+                    // directly to the NIF which expects JSON strings. Only use struct literals when there's
+                    // an options_via function to properly construct them. Fall through to JSON string encoding below.
+                    // (removed struct-literal branch)
                     // When element_type is set to a batch item type, wrap items with constructors.
                     if let Some(elem_type) = &arg.element_type {
                         if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
@@ -1514,15 +1495,15 @@ fn build_args_and_setup(
                     // When there's no options_type+options_via, the Elixir NIF expects a JSON
                     // string (Option<String> decoded by serde_json) rather than an Elixir map.
                     // Serialize the JSON value to a string literal here.
+                    // Always emit as positional for compatibility with Rustler facades that use
+                    // positional-default style (e.g. extract_bytes_sync(content, mime, config \\ nil)).
+                    // Keyword-opts facades (e.g. extract_file_async(path, opts \\ [])) will be handled
+                    // by explicit overrides in alef.toml if needed.
                     if !v.is_null() {
                         let json_str = serde_json::to_string(v).unwrap_or_else(|_| "{}".to_string());
                         let escaped = escape_elixir(&json_str);
                         let formatted = format!("\"{escaped}\"");
-                        if arg.optional {
-                            parts.push(format!("{}: {formatted}", arg.name));
-                        } else {
-                            parts.push(formatted);
-                        }
+                        parts.push(formatted);
                         continue;
                     }
                 }
@@ -1559,6 +1540,11 @@ fn build_args_and_setup(
         }
     }
 
+    // For Elixir e2e tests, json_object args (like config) should remain positional
+    // when they don't have an options_type+options_via pattern. This avoids syntax errors
+    // with positional-default-style facades like embed_texts(texts, config \\ nil).
+    // Only keyword args that came from the options_via or handle_struct patterns
+    // should stay as keyword form.
     let mut final_args = positional_args;
     final_args.extend(keyword_args.into_iter().map(|(_, arg)| arg));
 
