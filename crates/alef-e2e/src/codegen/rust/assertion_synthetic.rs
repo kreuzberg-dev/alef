@@ -170,6 +170,58 @@ pub(super) fn render_embedding_quality(out: &mut String, result_var: &str, field
     }
 }
 
+pub(super) fn render_chunks_have_heading_context(out: &mut String, result_var: &str, assertion_type: &str) {
+    match assertion_type {
+        "is_true" => {
+            // Check that chunks are present (prepend_heading_context adds heading text to chunks).
+            // The actual heading is prepended to chunk content, so verify chunks exist and have content.
+            let _ = writeln!(
+                out,
+                "    assert!({result_var}.chunks.as_ref().is_some_and(|chunks| !chunks.is_empty() && chunks.iter().all(|c| !c.content.is_empty())), \"expected chunks with heading context\");"
+            );
+        }
+        "is_false" => {
+            // Check that chunks are absent or empty (no heading context).
+            let _ = writeln!(
+                out,
+                "    assert!({result_var}.chunks.as_ref().is_none_or(|chunks| chunks.is_empty()), \"expected no heading context\");"
+            );
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "    // unsupported assertion type on synthetic field chunks_have_heading_context"
+            );
+        }
+    }
+}
+
+pub(super) fn render_first_chunk_starts_with_heading(out: &mut String, result_var: &str, assertion_type: &str) {
+    match assertion_type {
+        "is_true" => {
+            // Check that the first chunk's content starts with a heading indicator
+            // (i.e., starts with # or similar markdown heading syntax when prepend_heading_context is enabled).
+            let _ = writeln!(
+                out,
+                "    assert!({result_var}.chunks.as_ref().is_some_and(|chunks| chunks.first().map_or(false, |c| c.content.trim_start().starts_with('#'))), \"expected first chunk to start with heading\");"
+            );
+        }
+        "is_false" => {
+            // Check that the first chunk does NOT start with a heading.
+            let _ = writeln!(
+                out,
+                "    assert!({result_var}.chunks.as_ref().is_none_or(|chunks| chunks.first().map_or(true, |c| !c.content.trim_start().starts_with('#'))), \"expected first chunk to NOT start with heading\");"
+            );
+        }
+        _ => {
+            let _ = writeln!(
+                out,
+                "    // unsupported assertion type on synthetic field first_chunk_starts_with_heading"
+            );
+        }
+    }
+}
+
 pub(super) fn render_keywords_assertion(out: &mut String, result_var: &str, assertion: &Assertion) {
     let accessor = format!("{result_var}.extracted_keywords");
     match assertion.assertion_type.as_str() {
@@ -362,11 +414,14 @@ pub(super) fn is_tree_numeric_method(method_name: &str) -> bool {
 /// Numbers with a fractional component get the `_f64` suffix.
 pub fn numeric_literal(value: &serde_json::Value) -> String {
     if let Some(n) = value.as_f64() {
-        if n.fract() == 0.0 {
-            // Whole number — emit without a type suffix so Rust can infer the
-            // correct integer type from context (usize, u64, i64, …).
+        // Always use float type suffix for JSON floats to ensure type safety
+        // in comparisons against Option<f64> fields. For whole numbers like 0.0,
+        // this ensures "0.0_f64" instead of "0" which would be an integer.
+        if n.fract() == 0.0 && !value.to_string().contains('.') {
+            // Integer literal in JSON (no decimal point) — emit without suffix
             return format!("{}", n as i64);
         }
+        // Float literal in JSON (has decimal point) or fractional value
         return format!("{n}_f64");
     }
     // Fallback: use the raw JSON representation.
