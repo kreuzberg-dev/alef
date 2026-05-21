@@ -223,14 +223,20 @@ pub(crate) fn gen_php_struct(
         cfg.struct_attrs
     };
 
-    // Per-field attribute callback: add `php(prop)` for all fields so that
-    // ext-php-rs 0.15 exposes them as PHP properties automatically. All generated types
-    // implement FromZval/IntoZval, so ext-php-rs can serialize/deserialize any type.
+    // Per-field attribute callback: add `php(prop)` ONLY for fields whose Rust type
+    // implements ext-php-rs's `Prop<'_>` trait. The blanket `Prop` impls cover
+    // primitives, String, Option<scalar>, Vec<primitive|enum>, etc., but NOT
+    // Option<CustomStruct>, Vec<CustomStruct>, Map, Json, Bytes, or external types.
+    // Emitting `#[php(prop)]` on unsupported types fails to compile with E0277.
+    // Non-prop fields are accessed via `#[php(getter)]` methods generated separately
+    // in `gen_struct_methods`.
     let field_attrs_fn = |field: &FieldDef| -> Vec<String> {
-        let mut attrs = {
+        let mut attrs = if is_php_prop_scalar_with_enums(&field.ty, enum_names) {
             // Convert field names to lowerCamelCase for PHP (e.g., mime_type -> mimeType)
             let php_name = alef_codegen::naming::to_php_name(&field.name);
             vec![format!("php(prop, name = \"{}\")", php_name)]
+        } else {
+            vec![]
         };
         // Non-optional Duration fields are stored as Option<i64> when has_serde is enabled
         // (option_duration_on_defaults). When None, serde serializes them as JSON null, but
