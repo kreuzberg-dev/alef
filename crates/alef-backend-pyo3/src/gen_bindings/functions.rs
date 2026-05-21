@@ -1213,24 +1213,14 @@ fn emit_adapter_wrapper(
         match param_type.as_str() {
             "CrawlStreamRequest" => {
                 // url: str → CrawlStreamRequest { url }
-                let wrapper_params = vec![
-                    "engine: CrawlEngineHandle".to_string(),
-                    "url: str".to_string(),
-                ];
-                let construction = format!(
-                    "    req = CrawlStreamRequest(url=url)\n"
-                );
+                let wrapper_params = vec!["engine: CrawlEngineHandle".to_string(), "url: str".to_string()];
+                let construction = "    req = CrawlStreamRequest(url=url)\n".to_string();
                 (wrapper_params, Some(construction))
             }
             "BatchCrawlStreamRequest" => {
                 // urls: list[str] → BatchCrawlStreamRequest { urls }
-                let wrapper_params = vec![
-                    "engine: CrawlEngineHandle".to_string(),
-                    "urls: list[str]".to_string(),
-                ];
-                let construction = format!(
-                    "    req = BatchCrawlStreamRequest(urls=urls)\n"
-                );
+                let wrapper_params = vec!["engine: CrawlEngineHandle".to_string(), "urls: list[str]".to_string()];
+                let construction = "    req = BatchCrawlStreamRequest(urls=urls)\n".to_string();
                 (wrapper_params, Some(construction))
             }
             _ => {
