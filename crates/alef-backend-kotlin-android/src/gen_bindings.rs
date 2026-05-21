@@ -18,7 +18,7 @@ use std::path::Path;
 
 use alef_backend_kotlin::{
     emit_enum_pub, emit_error_type_pub, emit_jni_bridge_object, emit_jni_client_class, emit_kdoc_pub,
-    emit_type_pub_with_enum_defaults, to_pascal_case,
+    emit_type_pub_with_enum_defaults_and_sealed_classes, to_pascal_case,
 };
 use alef_core::backend::GeneratedFile;
 use alef_core::config::ResolvedCrateConfig;
@@ -106,6 +106,20 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
         })
         .collect();
 
+    // Build the set of Kotlin sealed-class names — Rust enums emitted as
+    // sealed classes because they are tagged (`#[serde(tag = "...")]`) or
+    // untagged (`#[serde(untagged)]`).  Data-class fields whose declared
+    // type references one of these names need a `@field:JsonSerialize(\`as\` = ...)`
+    // (or `contentAs` for collections) annotation so Jackson routes through
+    // the sealed class's custom serializer (which emits the discriminator)
+    // instead of the runtime variant's default POJO serializer.
+    let sealed_class_names: std::collections::HashSet<String> = api
+        .enums
+        .iter()
+        .filter(|en| en.serde_tag.is_some() || en.serde_untagged)
+        .map(|en| en.name.clone())
+        .collect();
+
     // Bridge object: external fun declarations + System.loadLibrary init block.
     let mut bridge_file = emit_jni_bridge_object(api, config);
     bridge_file.path = kotlin_source_dir.join(bridge_file.path.file_name().expect("bridge file must have a filename"));
@@ -164,9 +178,21 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig, kotlin_source_dir: &
             filtered
                 .fields
                 .retain(|f| !effective_excluded_types.iter().any(|name| f.ty.references_named(name)));
-            emit_type_pub_with_enum_defaults(&filtered, &mut body, &mut imports, &enum_defaults);
+            emit_type_pub_with_enum_defaults_and_sealed_classes(
+                &filtered,
+                &mut body,
+                &mut imports,
+                &enum_defaults,
+                &sealed_class_names,
+            );
         } else {
-            emit_type_pub_with_enum_defaults(ty, &mut body, &mut imports, &enum_defaults);
+            emit_type_pub_with_enum_defaults_and_sealed_classes(
+                ty,
+                &mut body,
+                &mut imports,
+                &enum_defaults,
+                &sealed_class_names,
+            );
         }
         if body.trim().is_empty() {
             continue;

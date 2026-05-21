@@ -1256,11 +1256,18 @@ fn render_test_method(
     }
     let _ = writeln!(out, "        // {description}");
 
-    // Emit ObjectMapper deserialization bindings for json_object args.
+    // Collect ObjectMapper deserialization bindings for json_object args.
     // Object args use the configured `options_type`. Array args carrying
     // `element_type = BatchBytesItem | BatchFileItem` are emitted as inline
     // List<T> constructors below (build_args_and_setup) — no deser binding is
     // needed because the array is materialised directly in source.
+    //
+    // For error tests we want these `val xxx = MAPPER.readValue(...)` lines
+    // INSIDE the assertFailsWith block, so that Jackson validation errors on
+    // the request literal (e.g. an unknown enum like `purpose: "invalid"`)
+    // are caught by the test instead of bubbling up as test failures. So
+    // collect into a Vec and let the caller decide where to emit them.
+    let mut deser_lines: Vec<String> = Vec::new();
     if needs_deser {
         for arg in args {
             if arg.arg_type != "json_object" {
@@ -1279,11 +1286,15 @@ fn render_test_method(
             let normalized = super::transform_json_keys_for_language(val, "snake_case");
             let json_str = serde_json::to_string(&normalized).unwrap_or_default();
             let var_name = &arg.name;
-            let _ = writeln!(
-                out,
-                "        val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
+            deser_lines.push(format!(
+                "val {var_name} = MAPPER.readValue(\"{}\", {opts_type}::class.java)",
                 escape_kotlin(&json_str)
-            );
+            ));
+        }
+    }
+    if !expects_error {
+        for line in &deser_lines {
+            let _ = writeln!(out, "        {line}");
         }
     }
 
@@ -1310,16 +1321,13 @@ fn render_test_method(
         let mock_url_expr = format!(
             "System.getProperty(\"mockServer.{fixture_id}\", System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") + \"/fixtures/{fixture_id}\")"
         );
-        for line in &setup_lines {
-            let _ = writeln!(out, "        {line}");
-        }
-        let _ = writeln!(
-            out,
-            "        val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
-        );
         if expects_error {
-            // For streaming functions, the error fires during collection, not at call time.
-            // Append the collect suffix so assertFailsWith catches it.
+            // Wrap setup + client construction + call in assertFailsWith so
+            // validation errors thrown during request construction
+            // (e.g. Jackson rejecting an unknown enum literal) are also caught.
+            // Mirrors the flat-function path's behaviour below.
+            // For streaming functions, the error fires during collection, not at
+            // call time — append the collect suffix so the flow is consumed.
             let call_expr = if is_streaming {
                 let collect_suffix = if kotlin_android_style {
                     ".toList()"
@@ -1331,12 +1339,35 @@ fn render_test_method(
                 format!("client.{function_name}({args_str})")
             };
             let _ = writeln!(out, "        assertFailsWith<Exception> {{");
+            for line in &deser_lines {
+                let _ = writeln!(out, "            {line}");
+            }
+            for line in &setup_lines {
+                let _ = writeln!(out, "            {line}");
+            }
+            let _ = writeln!(
+                out,
+                "            val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+            );
             let _ = writeln!(out, "            {call_expr}");
+            let _ = writeln!(out, "            client.close()");
             let _ = writeln!(out, "        }}");
-            let _ = writeln!(out, "        client.close()");
+            // Trailing `Unit` so the runBlocking { ... } lambda's final
+            // expression is Unit (not the Exception returned by assertFailsWith).
+            // The enclosing `fun ... = runBlocking { ... }` then infers Unit
+            // as the test function's return type — JUnit 5 silently skips
+            // any @Test method whose return type is not void/Unit.
+            let _ = writeln!(out, "        Unit");
             let _ = writeln!(out, "    }}");
             return;
         }
+        for line in &setup_lines {
+            let _ = writeln!(out, "        {line}");
+        }
+        let _ = writeln!(
+            out,
+            "        val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+        );
         let _ = writeln!(out, "        val {result_var} = client.{function_name}({args_str})");
         if !collect_snippet.is_empty() {
             let _ = writeln!(out, "        {collect_snippet}");
@@ -1366,11 +1397,16 @@ fn render_test_method(
         // Wrap setup + call in assertFailsWith so validation errors thrown
         // during engine creation are also caught (mirrors Java's assertThrows).
         let _ = writeln!(out, "        assertFailsWith<Exception> {{");
+        for line in &deser_lines {
+            let _ = writeln!(out, "            {line}");
+        }
         for line in &setup_lines {
             let _ = writeln!(out, "            {line}");
         }
         let _ = writeln!(out, "            {class_name}.{function_name}({args_str})");
         let _ = writeln!(out, "        }}");
+        // Trailing Unit — see comment in the client-factory branch above.
+        let _ = writeln!(out, "        Unit");
         let _ = writeln!(out, "    }}");
         return;
     }

@@ -24,7 +24,13 @@ pub use shared::{kotlin_field_name, to_lower_camel, to_pascal_case, to_screaming
 
 // Re-export emitters used by gen_mpp and alef-backend-kotlin-android.
 pub fn emit_type_pub(ty: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
-    object_wrapper::emit_type_with_imports(ty, out, imports, &std::collections::HashMap::new())
+    object_wrapper::emit_type_with_imports(
+        ty,
+        out,
+        imports,
+        &std::collections::HashMap::new(),
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// Like [`emit_type_pub`] but also threads an enum-name → default-variant map
@@ -40,7 +46,30 @@ pub fn emit_type_pub_with_enum_defaults(
     imports: &mut BTreeSet<String>,
     enum_defaults: &std::collections::HashMap<String, String>,
 ) {
-    object_wrapper::emit_type_with_imports(ty, out, imports, enum_defaults)
+    object_wrapper::emit_type_with_imports(
+        ty,
+        out,
+        imports,
+        enum_defaults,
+        &std::collections::HashSet::new(),
+    )
+}
+
+/// Like [`emit_type_pub_with_enum_defaults`] but also threads the set of
+/// sealed-class names (Rust enums with `serde_tag` or `serde_untagged`).
+/// Fields whose declared type references one of these names receive a
+/// `@field:JsonSerialize(\`as\` = …)` (or `contentAs` for collections)
+/// annotation so Jackson dispatches the parent's custom serializer instead
+/// of the variant's default POJO serializer.  See `emit_type_with_imports`
+/// for the full rationale.
+pub fn emit_type_pub_with_enum_defaults_and_sealed_classes(
+    ty: &TypeDef,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+    enum_defaults: &std::collections::HashMap<String, String>,
+    sealed_class_names: &std::collections::HashSet<String>,
+) {
+    object_wrapper::emit_type_with_imports(ty, out, imports, enum_defaults, sealed_class_names)
 }
 
 pub fn emit_enum_pub(en: &EnumDef, out: &mut String, package: &str) {
