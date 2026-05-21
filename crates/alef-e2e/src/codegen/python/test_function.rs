@@ -84,14 +84,18 @@ pub(super) fn render_test_function(
     // Streaming fixtures require async test functions so the async iterator
     // (ChatStreamIterator.__anext__) can be driven with `async for`.
     let is_streaming = crate::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
-    // Streaming error tests: a fixture that calls a streaming function (function name
-    // contains "stream") with an error assertion but no stream_chunks in the mock —
-    // the server rejects before streaming begins (e.g. 401, 400 content-policy).
-    // The Python binding returns the iterator synchronously; errors only surface when
-    // iterating via __anext__.  Make the test async and drain the iterator inside
+    // Streaming error tests: when a streaming call (declared via `streaming = true` or
+    // heuristically detected by function name containing "stream") expects an error,
+    // the Python binding returns the iterator synchronously; errors only surface when
+    // iterating via __anext__. Make the test async and drain the iterator inside
     // `pytest.raises` so the error propagates before the `with` block exits.
+    //
+    // Triggers in two cases:
+    // - Declared streaming call (`call_config.streaming = true`) + error fixture.
+    // - Heuristic name-based detection (function name contains "stream") for
+    //   fixtures that pre-date the explicit `streaming` flag.
     let is_streaming_error_call =
-        has_error_assertion && !is_streaming && function_name.to_lowercase().contains("stream");
+        has_error_assertion && (is_streaming || function_name.to_lowercase().contains("stream"));
     let is_async = is_streaming
         || is_streaming_error_call
         || python_override.and_then(|o| o.r#async).unwrap_or(call_config.r#async);

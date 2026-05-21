@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-e2e/python: detect streaming-error calls via declared streaming flag OR function name.** Python e2e tests for streaming calls with error fixtures (e.g., `stream_content_policy_error`, `stream_error_401`) were incorrectly skipping the stream-drain logic because the condition checked `!is_streaming && function_name.contains("stream")`. This was backward: when a call is declared as streaming (`call_config.streaming = Some(true)` in `alef.toml`), `is_streaming` evaluates to `true`, so the AND with `!is_streaming` killed the drain. The fixture has `"stream": true` in the input but no `stream_chunks` in the mock (it errors immediately before chunks arrive), causing the lazy async iterator to never be consumed and the error to never surface. Fixed by adopting the TypeScript logic: `is_streaming_error_call = expects_error && (is_streaming || function_name.contains("stream"))`. This correctly detects both declared streaming calls with errors and heuristic function-name detection, ensuring the drain loop is emitted inside `pytest.raises()` so the exception propagates. Fixes liter-llm python e2e: `test_stream_content_policy_error`, `test_stream_error_401`. (`crates/alef-e2e/src/codegen/python/test_function.rs`)
+
 ## [0.17.17] - 2026-05-21
 
 ### Fixed
