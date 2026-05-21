@@ -1004,14 +1004,13 @@ impl Backend for RustlerBackend {
                         content.push_str("    else\n");
                         // No visitor: call regular NIF with options as JSON.
                         // mix format indents else body to 6 spaces (same as if body).
+                        // Use clean_opts (visitor already popped) to avoid sending unknown fields to Rust.
                         let plain_args: Vec<String> = nif_call_args
                             .iter()
                             .enumerate()
                             .map(|(i, a)| {
                                 if i == opts_idx {
-                                    format!(
-                                        "if(map_size({opts_param}) == 0, do: nil, else: Jason.encode!({opts_param}))"
-                                    )
+                                    format!("if(map_size(clean_opts) == 0, do: nil, else: Jason.encode!(clean_opts))")
                                 } else {
                                     a.clone()
                                 }

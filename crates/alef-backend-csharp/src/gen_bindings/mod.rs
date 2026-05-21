@@ -3,7 +3,7 @@ use alef_codegen::shared::binding_fields;
 use alef_core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use alef_core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
 use alef_core::hash::{self, CommentStyle};
-use alef_core::ir::{ApiSurface, FieldDef, TypeRef};
+use alef_core::ir::{ApiSurface, FieldDef, TypeDef, TypeRef};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
@@ -861,6 +861,14 @@ pub(super) fn native_call_arg(
     }
 }
 
+/// Check if a type has any required fields (optional=false and no default value).
+fn type_has_required_fields(type_def: &TypeDef) -> bool {
+    type_def
+        .fields
+        .iter()
+        .any(|f| !f.optional && f.default.is_none() && f.typed_default.is_none())
+}
+
 /// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.
 ///
 /// For truly opaque types (is_opaque = true), the C# class already wraps the native handle, so
@@ -871,6 +879,7 @@ pub(super) fn emit_named_param_setup(
     indent: &str,
     true_opaque_types: &HashSet<String>,
     exception_name: &str,
+    types: &[TypeDef],
 ) {
     for param in params {
         let param_name = param.name.to_lower_camel_case();
@@ -891,10 +900,22 @@ pub(super) fn emit_named_param_setup(
                 // may declare `required` members, which makes `new T()` a CS9035 compile error).
                 let is_config_param = param.name == "config";
                 let type_pascal = csharp_type_name(type_name);
+
+                // Check if the config type has any required fields
+                let type_def = types.iter().find(|t| &t.name == type_name);
+                let has_required = type_def.map_or(false, type_has_required_fields);
+
                 let param_to_serialize = if is_config_param {
-                    // Config param (optional or required): always default null to new instance.
-                    // Callers should be able to pass null to use defaults.
-                    format!("({} ?? new {}())", param_name, type_pascal)
+                    if has_required {
+                        // Type has required members: reject null instead of using `new T()`
+                        format!(
+                            "({} ?? throw new ArgumentNullException(nameof({param_name}), \"{} has required members; null is not accepted.\"))",
+                            param_name, type_pascal
+                        )
+                    } else {
+                        // All fields optional/have defaults: safe to use `new T()`
+                        format!("({} ?? new {}())", param_name, type_pascal)
+                    }
                 } else {
                     param_name.to_string()
                 };

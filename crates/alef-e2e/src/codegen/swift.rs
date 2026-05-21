@@ -1180,7 +1180,9 @@ fn build_args_and_setup(
                     ));
                 } else {
                     let from_json_fn = format!("{}FromJson", type_name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"));
+                    setup_lines.push(format!(
+                        "let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                    ));
                 }
                 parts.push((idx, var_name));
                 continue;
@@ -1867,7 +1869,10 @@ fn render_assertion(
                     field_expr.clone()
                 };
                 let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
-                let _ = writeln!(out, "        XCTAssertGreaterThanOrEqual({compare_expr}, {cast_swift_val})");
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertGreaterThanOrEqual({compare_expr}, {cast_swift_val})"
+                );
             }
         }
         "less_than_or_equal" => {
@@ -1884,7 +1889,10 @@ fn render_assertion(
                     field_expr.clone()
                 };
                 let cast_swift_val = swift_numeric_literal_cast(&field_expr, &swift_val);
-                let _ = writeln!(out, "        XCTAssertLessThanOrEqual({compare_expr}, {cast_swift_val})");
+                let _ = writeln!(
+                    out,
+                    "        XCTAssertLessThanOrEqual({compare_expr}, {cast_swift_val})"
+                );
             }
         }
         "starts_with" => {
@@ -2080,9 +2088,9 @@ fn swift_build_accessor(field: &str, result_var: &str, field_resolver: &FieldRes
         // a RustVec, every subsequent segment is on an opaque element.
         // When current_type is None (opaque parent that doesn't appear in field_types),
         // treat it as opaque and use method-call syntax.
-        let is_first_class = current_type.as_ref().map_or(false, |t| {
-            field_resolver.swift_is_first_class(Some(t))
-        });
+        let is_first_class = current_type
+            .as_ref()
+            .map_or(false, |t| field_resolver.swift_is_first_class(Some(t)));
         let property_syntax = !via_rust_vec && is_first_class;
         out.push('.');
         // Swift bindings (both first-class `public let` props and swift-bridge
