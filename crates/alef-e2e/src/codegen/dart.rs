@@ -209,6 +209,7 @@ dev_dependencies:
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
@@ -496,9 +497,7 @@ fn render_test_case(
         &HashMap::new(),
         dart_first_class_map.clone(),
     )
-    .with_dart_root_type(
-        dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()),
-    );
+    .with_dart_root_type(dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()));
     let field_resolver = &call_field_resolver;
     let enum_fields_base = e2e_config.effective_fields_enum(call_config);
 

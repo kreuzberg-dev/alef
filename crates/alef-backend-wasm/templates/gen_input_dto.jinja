@@ -13,14 +13,14 @@ impl From<{{ input_name }}> for {{ core_path }} {
         let mut out = Self::default();
 {%- for field in fields %}
         if let Some(v) = val.{{ field.name }} {
-            out.{{ field.core_name }} = v.into();
+            out.{{ field.core_name }} = {{ field.conv }};
         }
 {%- endfor %}
         out
 {%- else %}
         Self {
 {%- for field in fields %}
-            {{ field.core_name }}: val.{{ field.name }}.map(Into::into).unwrap_or_default(),
+            {{ field.core_name }}: val.{{ field.name }}.map(|v| {{ field.conv }}).unwrap_or_default(),
 {%- endfor %}
         }
 {%- endif %}
