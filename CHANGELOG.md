@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.29] - 2026-05-22
+
 ### Fixed
 
 - **alef-backend-wasm: add `serde` to the generated crate's `cargo-machete` ignore list.** The WASM `Cargo.toml` declares `serde` unconditionally, but `serde` is only referenced when a config type gets an `Input` DTO (`#[derive(serde::Deserialize)]`). Consumers whose config types do not trigger an Input DTO (e.g. types not ending in `Config`) therefore failed `cargo machete` with `serde` flagged as unused. Added `serde` to the `[package.metadata.cargo-machete] ignored` array alongside the other conditionally-used dependencies (`futures`, `serde_json`, …). (`crates/alef-backend-wasm/src/gen_bindings/mod.rs`)
@@ -30,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not require network access to nuget.org vulnerability metadata. Setting `NuGetAudit=false` keeps
   the test stable in offline CI/local runs while preserving warnings-as-errors for generated code.
   (`crates/alef-backend-csharp/tests/gen_bindings_test.rs`)
+
+- **alef-backend-ffi: ignore the e2e `"skip"` sentinel in field-accessor C-type overrides.** The FFI field-accessor generator consults the e2e `fields_c_types` map for a C-type override. That map also carries a `"skip"` sentinel meaning "omit this field from generated C e2e assertions" — not a C type. The generator treated `"skip"` as an opaque-handle type name and emitted `-> *mut <crate>::skip` plus a bare `null` return, breaking compilation of every `*-ffi` crate whose e2e config skips any field. The sentinel is now filtered out before the override is applied, so the accessor falls through to normal IR-driven generation. (`crates/alef-backend-ffi/src/gen_bindings/types.rs`)
+
+- **alef-backend-java: declare streaming-adapter native methods on the generated FFI class.** The Java facade emitted `crawlStream(...)` / `batchCrawlStream(...)` calls against the `*Rs` native-method class, but the `*Rs` class only declared `native` methods for plain functions — streaming adapters were skipped — so the binding failed to compile with `cannot find symbol`. The FFI-class generator now iterates `config.adapters` and emits a matching `native` method declaration (request DTO in, streaming handle out) for every streaming adapter, with all type names derived from `adapter.request_type` / `item_type` / `owner_type` / `name`. (`crates/alef-backend-java/src/gen_bindings/ffi_class.rs`)
+
+- **alef-backend-kotlin: wrap integer defaults for `Duration`-typed fields.** A config field whose Rust core type is `std::time::Duration` is rendered as `kotlin.time.Duration`, but `render_kotlin_default` returned an `IntLiteral` default as a bare integer, producing `Initializer type mismatch: expected 'Duration', actual 'Int'`. The default for a `TypeRef::Duration` field is now wrapped with the `.milliseconds` extension so the value matches the declared type. (`crates/alef-backend-kotlin/src/gen_bindings/object_wrapper.rs`)
+
+- **alef-backend-swift: make generated opaque wrapper classes conform to `Sendable`.** Async free-function forwarders wrap blocking Rust calls in `Task.detached { … }.value`, which requires the returned type to be `Sendable`. Generated opaque wrapper classes (`public class T: TRefMut`) did not conform, so Swift 6 strict-concurrency rejected the binding with `type 'T' does not conform to the 'Sendable' protocol`. The backend now emits an `extension RustBridge.T: @unchecked Sendable {}` for every generated opaque type — sound because the type wraps a `Send + Sync` Rust pointer. (`crates/alef-backend-swift/src/gen_bindings.rs`)
+
+- **alef-backend-wasm: convert non-`Into`-bridged Input DTO fields with an explicit constructor.** The camelCase Input DTO's `From<Input>` body assigned every field with a blanket `v.into()`. That works for matching types and for `Option<T>: From<T>`, but not for core fields whose DTO spelling has no `From` impl — `Duration` (DTO `u64` milliseconds) and `PathBuf` (DTO `String`) failed with `the trait From<u64>/From<String> is not satisfied`. Each field's conversion expression is now derived from its IR type: `Duration` via `std::time::Duration::from_millis`, `Path` via `std::path::PathBuf::from`, both wrapped in `Into::into` so they remain valid whether the core field is `T` or `Option<T>`; all other types keep `v.into()`. (`crates/alef-backend-wasm/src/gen_bindings/functions.rs`, `crates/alef-backend-wasm/templates/gen_input_dto.jinja`)
+
+- **alef-e2e/dart: silence `clippy::too_many_arguments` on `render_test_file`.** The Dart e2e `render_test_file` helper grew to eight parameters, tripping the workspace `-D warnings` clippy gate. Annotated with `#[allow(clippy::too_many_arguments)]`, matching the convention used elsewhere in the codegen crates. (`crates/alef-e2e/src/codegen/dart.rs`)
 
 ## [0.17.28] - 2026-05-22
 

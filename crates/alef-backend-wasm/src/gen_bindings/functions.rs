@@ -48,9 +48,10 @@ pub(super) fn gen_input_dto_for_type(
     let core_path = format!("{}::{}", core_import, type_name);
 
     // Map fields from the real struct definition.
-    // All DTO fields are Option<T> so JS may omit them. The template uses
-    // `if let Some(v) = val.field { out.field = v.into(); }` to assign only
-    // when present, respecting core type's Default for omitted fields.
+    // All DTO fields are Option<T> so JS may omit them. The template assigns
+    // each present field into the core type via the per-field `conv` expression
+    // (in terms of the bound variable `v`), respecting the core type's Default
+    // for omitted fields.
     let fields: Vec<_> = type_def
         .fields
         .iter()
@@ -63,6 +64,7 @@ pub(super) fn gen_input_dto_for_type(
                 ty => &dto_ty,
                 core_name => &f.name,
                 serde_rename => &camel_case_name,
+                conv => dto_field_conversion(&f.ty),
             }
         })
         .collect::<Vec<_>>();
@@ -123,6 +125,26 @@ fn type_ref_to_dto_type(ty: &alef_core::ir::TypeRef, core_import: &str) -> Strin
         TypeRef::Duration => "u64".to_string(),
         TypeRef::Named(n) => format!("{core_import}::{n}"),
         TypeRef::Unit => "()".to_string(),
+    }
+}
+
+/// Build the conversion expression turning a present DTO field value (bound as
+/// the variable `v`) into the core struct field value.
+///
+/// Most field types convert with a plain `v.into()`: identity for matching
+/// types, and `Option<T>: From<T>` papers over a core field that is `Option<_>`
+/// while the DTO holds the bare `T`. Two core types have no such blanket `From`
+/// from their DTO spelling and need an explicit constructor first:
+/// `Duration` (DTO `u64` milliseconds) and `PathBuf` (DTO `String`). Wrapping
+/// the constructed value in `Into::into` keeps the same optional-field papering
+/// as the default branch, so the expression is valid whether the core field is
+/// `T` or `Option<T>`.
+fn dto_field_conversion(ty: &alef_core::ir::TypeRef) -> String {
+    use alef_core::ir::TypeRef;
+    match ty {
+        TypeRef::Duration => "Into::into(std::time::Duration::from_millis(v))".to_string(),
+        TypeRef::Path => "Into::into(std::path::PathBuf::from(v))".to_string(),
+        _ => "v.into()".to_string(),
     }
 }
 

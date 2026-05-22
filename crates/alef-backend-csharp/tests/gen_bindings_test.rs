@@ -3048,6 +3048,7 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
          <PropertyGroup>\n\
            <TargetFramework>net8.0</TargetFramework>\n\
            <OutputType>Library</OutputType>\n\
+           <NuGetAudit>false</NuGetAudit>\n\
          </PropertyGroup>\n\
          </Project>\n",
     )

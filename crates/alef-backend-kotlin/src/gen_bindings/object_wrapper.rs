@@ -1318,9 +1318,15 @@ fn render_kotlin_default(
         DefaultValue::BoolLiteral(b) => Some(b.to_string()),
         DefaultValue::IntLiteral(n) => {
             use alef_core::ir::PrimitiveType;
+            // Duration fields represent milliseconds in the IR and must be
+            // wrapped with the Kotlin `.milliseconds` extension to match
+            // the declared type `kotlin.time.Duration`.
+            if matches!(ty, TypeRef::Duration) {
+                Some(format!("{n}.milliseconds"))
+            }
             // Long suffix when the Kotlin field type is Long; Byte/Short would
             // need a cast but the IR rarely produces those for top-level fields.
-            if matches!(ty, TypeRef::Primitive(p) if matches!(p,
+            else if matches!(ty, TypeRef::Primitive(p) if matches!(p,
                 PrimitiveType::I64 | PrimitiveType::U64
                 | PrimitiveType::Usize | PrimitiveType::Isize))
             {

@@ -82,3 +82,6 @@ public func makeHtmlVisitorHandle(_ visitor: any HtmlVisitorProtocol) -> Visitor
 public func conversionOptionsFromJsonWithVisitor(_ json: String, _ visitor: VisitorHandle?) throws -> ConversionOptions {
     return try RustBridge.conversionOptionsFromJsonWithVisitor(json, visitor)
 }
+
+// swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
+extension RustBridge.VisitorHandle: @unchecked Sendable {}

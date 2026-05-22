@@ -157,32 +157,36 @@ pub(super) fn gen_field_accessor(
     };
 
     let lookup_key = format!("{}.{}", type_snake, field.name);
-    let (mut ret_type, override_is_opaque_handle, override_type_name) =
-        if let Some(override_type) = fields_c_types.get(&lookup_key) {
-            if !is_primitive_c_type_override(override_type) && override_type != "char*" {
-                (
-                    format!("*mut {core_import}::{override_type}"),
-                    true,
-                    Some(override_type.clone()),
-                )
-            } else {
-                (
-                    c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
-                    false,
-                    None,
-                )
-            }
+    // The e2e `fields_c_types` map carries a `"skip"` sentinel meaning "omit this
+    // field from generated C e2e assertions". It is not a C type spelling — the
+    // binding accessor is still generated normally from the IR field type, so the
+    // sentinel must be ignored here rather than treated as an opaque handle name.
+    let c_type_override = fields_c_types.get(&lookup_key).filter(|t| t.as_str() != "skip");
+    let (mut ret_type, override_is_opaque_handle, override_type_name) = if let Some(override_type) = c_type_override {
+        if !is_primitive_c_type_override(override_type) && override_type != "char*" {
+            (
+                format!("*mut {core_import}::{override_type}"),
+                true,
+                Some(override_type.clone()),
+            )
         } else {
-            // Use path_map for Named types — it knows where the type actually lives
-            // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
-            // For non-Named types path_map is irrelevant and the call falls through to
-            // the standard c_return_type behaviour.
             (
                 c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
                 false,
                 None,
             )
-        };
+        }
+    } else {
+        // Use path_map for Named types — it knows where the type actually lives
+        // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
+        // For non-Named types path_map is irrelevant and the call falls through to
+        // the standard c_return_type behaviour.
+        (
+            c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
+            false,
+            None,
+        )
+    };
     // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
@@ -224,6 +228,16 @@ pub(super) fn gen_field_accessor(
     )
 }
 
+/// Unwrap a field type to its underlying `Named` type name, peeling an outer
+/// `Optional`. Returns `None` for primitives, strings, collections, etc.
+fn underlying_named_type(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) => underlying_named_type(inner),
+        _ => None,
+    }
+}
+
 /// Generate the body of a field accessor that reads from `obj.{field_name}`.
 fn gen_field_access_body(
     field: &FieldDef,
@@ -236,14 +250,22 @@ fn gen_field_access_body(
     let field_name = &field.name;
     let mut out = String::with_capacity(2048);
 
-    // When field is overridden to return an opaque handle (e.g., bool → CitationResult*),
-    // the field itself is a primitive but alef codegen maps it to a struct type.
-    // Since we can't reliably convert a primitive to a struct, return null as a safe default.
-    // The binding surface should either (a) use a method call instead of a field accessor,
-    // or (b) be skipped in languages where it can't be meaningfully bound.
+    // An opaque-handle override is a *fallback* for the genuinely impossible case:
+    // a primitive field (e.g. `bool`) whose C type is overridden to a struct handle
+    // (e.g. `CitationResult*`) — there is no value to box, so return null.
+    //
+    // But when the field's own type is *already* the Named override type (e.g. a
+    // `status: BatchStatus` field overridden to `BatchStatus`), the override is
+    // redundant for codegen: the accessor can box-and-return the real field value.
+    // Fall through to normal codegen in that case rather than emitting a null stub.
     if override_is_opaque_handle && override_type_name.is_some() {
-        out.push_str("    std::ptr::null_mut()");
-        return out;
+        let field_is_override_type = underlying_named_type(&field.ty)
+            .zip(override_type_name)
+            .is_some_and(|(field_named, ovr)| field_named == ovr);
+        if !field_is_override_type {
+            out.push_str("    std::ptr::null_mut()");
+            return out;
+        }
     }
 
     if field.optional {
