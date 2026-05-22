@@ -468,9 +468,11 @@ fn test_scaffold_ruby_production_features() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Ruby]).unwrap();
     let files = language_files(&all_files);
-    // scaffold_ruby: gemspec, rubocop, Rakefile, lib/*.rb, extconf.rb, Gemfile, Steepfile = 7 files
+    // scaffold_ruby: gemspec, rubocop, Rakefile, extconf.rb, Gemfile, Steepfile = 6 files.
+    // The `lib/<gem>.rb` entry point is emitted by the magnus backend (gen_bindings),
+    // not the scaffold — it requires `<gem>/native` and `<gem>/version`.
     // scaffold_ruby_cargo: Cargo.toml = 1 file
-    assert_eq!(files.len(), 8);
+    assert_eq!(files.len(), 7);
     let content = &files[0].content;
     assert!(content.contains("spec.required_ruby_version"));
     assert!(content.contains("spec.extensions"));
@@ -483,28 +485,25 @@ fn test_scaffold_ruby_production_features() {
     assert_eq!(files[2].path, PathBuf::from("packages/ruby/Rakefile"));
     assert!(files[2].content.contains("Rake::ExtensionTask"));
     assert!(files[2].content.contains("my_lib_rb"));
-    // Check for lib entry point generation
-    assert_eq!(files[3].path, PathBuf::from("packages/ruby/lib/my_lib.rb"));
-    assert!(files[3].content.contains("require 'my_lib_rb'"));
     // Check for extconf.rb generation
-    assert_eq!(files[4].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
-    assert!(files[4].content.contains("create_rust_makefile"));
-    assert!(files[4].content.contains("rb_sys/mkmf"));
+    assert_eq!(files[3].path, PathBuf::from("packages/ruby/ext/my_lib_rb/extconf.rb"));
+    assert!(files[3].content.contains("create_rust_makefile"));
+    assert!(files[3].content.contains("rb_sys/mkmf"));
     assert!(
-        files[4].content.contains("config.ext_dir = 'native'"),
+        files[3].content.contains("config.ext_dir = 'native'"),
         "extconf.rb must set ext_dir = 'native' so rb_sys finds native/Cargo.toml"
     );
-    // files[5] is Gemfile; files[6] is Steepfile; files[7] is the Cargo.toml from scaffold_ruby_cargo
-    assert_eq!(files[5].path, PathBuf::from("packages/ruby/Gemfile"));
-    assert_eq!(files[6].path, PathBuf::from("packages/ruby/Steepfile"));
+    // files[4] is Gemfile; files[5] is Steepfile; files[6] is the Cargo.toml from scaffold_ruby_cargo
+    assert_eq!(files[4].path, PathBuf::from("packages/ruby/Gemfile"));
+    assert_eq!(files[5].path, PathBuf::from("packages/ruby/Steepfile"));
     // Check for Cargo.toml generation
     assert_eq!(
-        files[7].path,
+        files[6].path,
         PathBuf::from("packages/ruby/ext/my_lib_rb/native/Cargo.toml")
     );
-    assert!(files[7].content.contains("magnus"));
+    assert!(files[6].content.contains("magnus"));
     assert!(
-        files[7].content.contains("path = \"../src/lib.rs\""),
+        files[6].content.contains("path = \"../src/lib.rs\""),
         "Ruby Cargo.toml [lib] must set path to the binding source crate"
     );
 }
