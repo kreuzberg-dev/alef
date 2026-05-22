@@ -20,8 +20,8 @@ static TEMPLATES: &[(&str, &str)] = &[
 
   use RustlerPrecompiled,
     otp_app: :{{ app_name }},
-    crate: "{{ app_name }}_nif",{% if not skip_base_url %}
-    base_url: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",{% endif %}
+    crate: "{{ app_name }}_nif",
+    base_url: if(Mix.env() in [:test, :dev], do: nil, else: "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}"),
     version: Mix.Project.config()[:version],
     targets: ~w(aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu x86_64-pc-windows-gnu),
     nif_versions: ["2.16", "2.17"],
