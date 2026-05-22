@@ -257,14 +257,6 @@ task default: :spec
         ext_name = ext_name,
     );
 
-    let lib_content = format!(
-        r#"# frozen_string_literal: true
-
-require '{ext_name}'
-"#,
-        ext_name = ext_name,
-    );
-
     let extconf_content = format!(
         r#"# frozen_string_literal: true
 
@@ -295,11 +287,6 @@ end
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/Rakefile")),
             content: rakefile_content,
-            generated_header: true,
-        },
-        GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/lib/{}.rb", gem_name_snake)),
-            content: lib_content,
             generated_header: true,
         },
         GeneratedFile {
