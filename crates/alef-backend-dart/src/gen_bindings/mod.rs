@@ -367,6 +367,8 @@ fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String
 
         let method_name = adapter.name.to_lower_camel_case();
         let item_type = adapter.item_type.as_deref().unwrap_or("Object");
+        let owner_type = adapter.owner_type.as_deref().unwrap_or("");
+        let owner_param = owner_type.chars().next().unwrap_or('o').to_lowercase().to_string() + &owner_type[1..];
         let request_type_full = adapter.params[0].ty.as_str();
         let request_type = request_type_full.rsplit("::").next().unwrap_or(request_type_full);
         let request_param = adapter.params[0].name.to_lower_camel_case();
@@ -384,6 +386,8 @@ fn emit_streaming_adapter_methods(config: &ResolvedCrateConfig, out: &mut String
             minijinja::context! {
                 method_name => method_name,
                 item_type => item_type,
+                owner_type => owner_type,
+                owner_param => owner_param,
                 request_type => request_type,
                 request_param => request_param,
                 module_name => module_name.as_str(),
