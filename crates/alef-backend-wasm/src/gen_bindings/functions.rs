@@ -55,7 +55,7 @@ pub(super) fn gen_input_dto_for_type(
         .fields
         .iter()
         .map(|f| {
-            let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty));
+            let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
             let camel_case_name = to_camel_case(&f.name);
 
             minijinja::context! {
@@ -74,6 +74,7 @@ pub(super) fn gen_input_dto_for_type(
                 input_name => &input_name,
                 core_path => &core_path,
                 fields => &fields,
+                has_default => type_def.has_default,
             },
         )
     } else {
@@ -83,8 +84,13 @@ pub(super) fn gen_input_dto_for_type(
     (code, input_name)
 }
 
-/// Convert a TypeRef to a DTO type string (always camelCase-compatible, no Option wrappers here).
-fn type_ref_to_dto_type(ty: &alef_core::ir::TypeRef) -> String {
+/// Convert a TypeRef to a DTO field type string.
+///
+/// `Named` types are core-qualified (`{core_import}::{name}`) because the DTO is
+/// deserialized via serde and converted into the core type: the core type already
+/// derives `Deserialize`, and emitting the bare name would leave it unresolved in
+/// the binding crate (the wasm-mapped wrapper enum is not the DTO field type).
+fn type_ref_to_dto_type(ty: &alef_core::ir::TypeRef, core_import: &str) -> String {
     use alef_core::ir::TypeRef;
 
     match ty {
@@ -104,18 +110,18 @@ fn type_ref_to_dto_type(ty: &alef_core::ir::TypeRef) -> String {
             alef_core::ir::PrimitiveType::Usize => "usize".to_string(),
             alef_core::ir::PrimitiveType::Isize => "isize".to_string(),
         },
-        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_dto_type(inner)),
-        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_dto_type(inner)),
+        TypeRef::Vec(inner) => format!("Vec<{}>", type_ref_to_dto_type(inner, core_import)),
+        TypeRef::Optional(inner) => format!("Option<{}>", type_ref_to_dto_type(inner, core_import)),
         TypeRef::Map(k, v) => format!(
             "std::collections::HashMap<{}, {}>",
-            type_ref_to_dto_type(k),
-            type_ref_to_dto_type(v)
+            type_ref_to_dto_type(k, core_import),
+            type_ref_to_dto_type(v, core_import)
         ),
         TypeRef::Json => "serde_json::Value".to_string(),
         TypeRef::Bytes => "Vec<u8>".to_string(),
         TypeRef::Path => "String".to_string(),
         TypeRef::Duration => "u64".to_string(),
-        TypeRef::Named(n) => n.clone(),
+        TypeRef::Named(n) => format!("{core_import}::{n}"),
         TypeRef::Unit => "()".to_string(),
     }
 }

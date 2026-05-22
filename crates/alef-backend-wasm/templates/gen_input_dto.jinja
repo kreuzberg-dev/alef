@@ -9,6 +9,7 @@ pub struct {{ input_name }} {
 
 impl From<{{ input_name }}> for {{ core_path }} {
     fn from(val: {{ input_name }}) -> Self {
+{%- if has_default %}
         let mut out = Self::default();
 {%- for field in fields %}
         if let Some(v) = val.{{ field.name }} {
@@ -16,5 +17,12 @@ impl From<{{ input_name }}> for {{ core_path }} {
         }
 {%- endfor %}
         out
+{%- else %}
+        Self {
+{%- for field in fields %}
+            {{ field.core_name }}: val.{{ field.name }}.map(Into::into).unwrap_or_default(),
+{%- endfor %}
+        }
+{%- endif %}
     }
 }
