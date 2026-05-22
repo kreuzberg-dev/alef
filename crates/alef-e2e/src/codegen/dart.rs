@@ -667,6 +667,37 @@ fn render_test_case(
                 args.push(name);
                 continue;
             }
+            "mock_url_list" => {
+                // List<String> of URLs: each element is either a bare path (`/seed1`) — prefixed
+                // with the per-fixture mock-server URL at runtime — or an absolute URL kept as-is.
+                // Mirrors the `mock_url` resolution: `MOCK_SERVER_<FIXTURE_ID>` first, then
+                // `MOCK_SERVER_URL/fixtures/<id>`.
+                let env_key = format!("MOCK_SERVER_{}", fixture_id.to_uppercase());
+                let field = arg_def.field.strip_prefix("input.").unwrap_or(&arg_def.field);
+                let val = fixture.input.get(field).unwrap_or(&serde_json::Value::Null);
+
+                let paths: Vec<String> = if let Some(arr) = val.as_array() {
+                    arr.iter()
+                        .filter_map(|v| v.as_str())
+                        .map(|s| format!("'{}'", escape_dart(s)))
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let var_name = &arg_def.name;
+                let paths_literal = paths.join(", ");
+
+                setup_lines.push(format!(
+                    r#"final {var_name}Base = Platform.environment["{env_key}"] ?? (Platform.environment["MOCK_SERVER_URL"] ?? "http://localhost:8080") + "/fixtures/{fixture_id}";"#
+                ));
+                setup_lines.push(format!(
+                    r#"final {var_name} = <String>[{paths_literal}].map((p) => p.startsWith('http') ? p : {var_name}Base + p).toList();"#
+                ));
+
+                args.push(var_name.to_string());
+                continue;
+            }
             _ => {}
         }
 

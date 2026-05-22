@@ -1277,10 +1277,15 @@ fn render_test_method(
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
 
-    // When an adapter with owner_type is present, filter out handle-type args
+    // Determine if this is a streaming adapter.
+    let is_streaming_adapter = adapter
+        .is_some_and(|a| matches!(a.pattern, alef_core::config::extras::AdapterPattern::Streaming));
+
+    // When a non-streaming adapter with owner_type is present, filter out handle-type args
     // since the facade method doesn't take them separately (the handle is
-    // encapsulated in the adapter).
-    let filtered_args: Vec<_> = if adapter.is_some_and(|a| a.owner_type.is_some()) {
+    // encapsulated in the adapter). Streaming adapters keep the handle as the first
+    // positional parameter.
+    let filtered_args: Vec<_> = if adapter.is_some_and(|a| a.owner_type.is_some()) && !is_streaming_adapter {
         args.iter().filter(|arg| arg.arg_type != "handle").cloned().collect()
     } else {
         args.to_vec()
