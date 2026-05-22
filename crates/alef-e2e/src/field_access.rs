@@ -2040,27 +2040,32 @@ fn render_r(segments: &[PathSegment], result_var: &str) -> String {
 }
 
 fn render_c(segments: &[PathSegment], result_var: &str) -> String {
-    let mut parts = Vec::new();
-    let mut trailing_length = false;
+    let mut out = result_var.to_string();
     for seg in segments {
         match seg {
-            PathSegment::Field(f) => parts.push(f.to_snake_case()),
-            PathSegment::ArrayField { name, .. } => parts.push(name.to_snake_case()),
+            PathSegment::Field(f) => {
+                let snake = f.to_snake_case();
+                let current = std::mem::take(&mut out);
+                // Emit nested accessor calls with result_<field_name> pattern
+                out = format!("result_{snake}({current})");
+            }
+            PathSegment::ArrayField { name, index } => {
+                let snake = name.to_snake_case();
+                let current = std::mem::take(&mut out);
+                out = format!("result_{snake}({current})[{index}]");
+            }
             PathSegment::MapAccess { field, key } => {
-                parts.push(field.to_snake_case());
-                parts.push(key.clone());
+                let snake = field.to_snake_case();
+                let current = std::mem::take(&mut out);
+                out = format!("result_{snake}({current})[\"{key}\"]");
             }
             PathSegment::Length => {
-                trailing_length = true;
+                let current = std::mem::take(&mut out);
+                out = format!("result_{current}_count()");
             }
         }
     }
-    let suffix = parts.join("_");
-    if trailing_length {
-        format!("result_{suffix}_count({result_var})")
-    } else {
-        format!("result_{suffix}({result_var})")
-    }
+    out
 }
 
 /// Dart accessor using camelCase field names (FRB v2 convention).
