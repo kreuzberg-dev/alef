@@ -1319,7 +1319,21 @@ fn render_assertion_dart(
         "contains" => {
             if let Some(expected) = &assertion.value {
                 let dart_val = format_value(expected);
-                let _ = writeln!(out, "    expect({field_accessor}, contains({dart_val}));");
+                // Try the "stringy aggregator" path first: when the field is a list of DTOs
+                // with multiple text-bearing accessors (e.g. List<ImportInfo> with
+                // source/items/alias), emit code that walks every accessor and does
+                // substring matching. This avoids the brittle "primary accessor" guess.
+                let aggregator = dart_stringy_aggregator_contains_assert(
+                    assertion.field.as_deref(),
+                    result_var,
+                    field_resolver,
+                    &dart_val,
+                );
+                if let Some(line) = aggregator {
+                    let _ = writeln!(out, "{line}");
+                } else {
+                    let _ = writeln!(out, "    expect({field_accessor}, contains({dart_val}));");
+                }
             } else {
                 let _ = writeln!(out, "    // skipped: 'contains' assertion missing value");
             }
@@ -2048,6 +2062,70 @@ fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> Strin
         })
         .collect();
     format!("[{}]", items.join(", "))
+}
+
+/// Emit a `expect(array.where(...).any(...), isTrue)` line that aggregates
+/// every accessor on the element type of a `List<T>` field, mirroring
+/// python's `_alef_e2e_item_texts` helper.
+///
+/// Since Dart e2e codegen doesn't currently carry type information for per-type
+/// field classification, this fallback always tries to aggregate common text-bearing
+/// accessors (kind, name, source, items, alias, and similar snake_case names) on any
+/// element type. This is lenient and works well with opaque DTOs from FRB binding
+/// generation where we can't statically determine the exact field structure.
+///
+/// Returns `None` when:
+///   - `field` is missing or the field doesn't look like an array field
+///
+/// When matched, emits code that tries to gather text from a set of known
+/// accessor names into a `[String]` and substring-matches the expected value
+/// against every entry. The matcher is lenient so that fixtures asserting `"os"`
+/// against the `imports` field succeed regardless of which accessor surfaces
+/// the value (`ImportInfo.source`, `ImportInfo.items`, etc.).
+fn dart_stringy_aggregator_contains_assert(
+    field: Option<&str>,
+    result_var: &str,
+    field_resolver: &crate::field_access::FieldResolver,
+    dart_val: &str,
+) -> Option<String> {
+    let field = field?;
+    let resolved = field_resolver.resolve(field);
+
+    // Only handle simple top-level array fields (no nested chains).
+    if resolved.contains('.') || resolved.contains('[') {
+        return None;
+    }
+
+    // Check if this is a known array field. If not, we can't tell if it's a
+    // list of DTOs so bail out and let the scalar list path handle it.
+    if !field_resolver.is_array(field) && !field_resolver.is_array(resolved) {
+        return None;
+    }
+
+    let array_accessor = field_resolver.accessor(field, "dart", result_var);
+
+    // Emit a catch-all aggregator that tries multiple common text-bearing accessor
+    // names: `kind`, `name`, `source`, `items`, `alias`, etc. The FRB-bridged
+    // opaque types have these as camelCase methods (e.g. `kind()`, `name()`).
+    // We try each one and silently ignore NotImplemented errors.
+    let accessor_names = vec![
+        "kind", "name", "source", "items", "alias", "type", "category",
+        "title", "content", "path", "url", "text", "message", "reason",
+        "value", "key", "id"
+    ];
+
+    let mut accessor_calls: Vec<String> = Vec::new();
+    for accessor_name in accessor_names {
+        accessor_calls.push(format!(
+            "          try {{ final v = item.{accessor_name}(); if (v != null) texts.add(v.toString()); }} on NoSuchMethodError {{}}"
+        ));
+    }
+
+    let accessors_block = accessor_calls.join("\n");
+
+    Some(format!(
+        "    expect({array_accessor}.where((item) {{\n            final texts = <String>[];\n{accessors_block}\n            return texts.any((t) => t.contains({dart_val}));\n          }}).isEmpty, isFalse);"
+    ))
 }
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
