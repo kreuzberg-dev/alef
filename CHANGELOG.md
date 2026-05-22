@@ -7,11 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.17.29] - 2026-05-22
+## [0.17.30] - 2026-05-22
 
 ### Fixed
 
 - **alef-backend-java: stop emitting broken duplicate streaming methods on the FFI and facade classes.** A streaming adapter with an `owner_type` is bound as an instance method on the owner's opaque-handle class (`types.rs::gen_streaming_method`) — that is the only class with the `handle` field and the `STREAM_MAPPER` / `checkLastFfiError` helpers in scope. The FFI class also emitted the same `streaming_iterator_method.jinja` body (referencing the absent `this.handle` / `STREAM_MAPPER` / `checkLastFfiError`), and the facade emitted a `static` method that delegated to that instance method — both uncompilable. Removed the streaming emission from `ffi_class.rs` and `facade.rs`; the opaque-handle class is the sole owner-typed streaming surface. (`crates/alef-backend-java/src/gen_bindings/ffi_class.rs`, `crates/alef-backend-java/src/gen_bindings/facade.rs`, `crates/alef-backend-java/templates/facade_class.jinja`)
+
+## [0.17.29] - 2026-05-22
+
+### Fixed
 
 - **alef-backend-wasm: add `serde` to the generated crate's `cargo-machete` ignore list.** The WASM `Cargo.toml` declares `serde` unconditionally, but `serde` is only referenced when a config type gets an `Input` DTO (`#[derive(serde::Deserialize)]`). Consumers whose config types do not trigger an Input DTO (e.g. types not ending in `Config`) therefore failed `cargo machete` with `serde` flagged as unused. Added `serde` to the `[package.metadata.cargo-machete] ignored` array alongside the other conditionally-used dependencies (`futures`, `serde_json`, …). (`crates/alef-backend-wasm/src/gen_bindings/mod.rs`)
 
