@@ -839,7 +839,15 @@ fn render_test_case(
                     return true;
                 }
                 // For plain-result calls, accept assertions on synthetic fields that act on the result itself.
-                let is_synthetic_plain_result_field = matches!(f.as_str(), "embeddings" | "embedding_dimensions" | "embeddings_valid" | "embeddings_finite" | "embeddings_non_zero" | "embeddings_normalized");
+                let is_synthetic_plain_result_field = matches!(
+                    f.as_str(),
+                    "embeddings"
+                        | "embedding_dimensions"
+                        | "embeddings_valid"
+                        | "embeddings_finite"
+                        | "embeddings_non_zero"
+                        | "embeddings_normalized"
+                );
                 field_resolver.is_valid_for_result(f) || (result_is_simple && is_synthetic_plain_result_field)
             }
             _ => true,
@@ -868,9 +876,10 @@ fn render_test_case(
     });
 
     // Embedding calls require extended timeout due to model downloads
-    let timeout_ms = if fixture.tags.contains(&"embeddings".to_string()) ||
-                        fixture.call.as_deref().is_some_and(|c| c.contains("embed")) ||
-                        function_name.contains("embed") {
+    let timeout_ms = if fixture.tags.contains(&"embeddings".to_string())
+        || fixture.call.as_deref().is_some_and(|c| c.contains("embed"))
+        || function_name.contains("embed")
+    {
         "600000"
     } else {
         "30000"

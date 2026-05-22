@@ -4625,14 +4625,11 @@ fn test_serde_rename_in_constructor_and_properties() {
             name: "ChunkingConfig".to_string(),
             rust_path: "test_lib::ChunkingConfig".to_string(),
             original_rust_path: String::new(),
-            fields: vec![
-                field_with_rename,
-                {
-                    let mut f = make_field("overlap", TypeRef::Primitive(PrimitiveType::Usize), true);
-                    f.typed_default = Some(alef_core::ir::DefaultValue::IntLiteral(200));
-                    f
-                },
-            ],
+            fields: vec![field_with_rename, {
+                let mut f = make_field("overlap", TypeRef::Primitive(PrimitiveType::Usize), true);
+                f.typed_default = Some(alef_core::ir::DefaultValue::IntLiteral(200));
+                f
+            }],
             methods: vec![],
             is_opaque: false,
             is_clone: true,
@@ -4692,6 +4689,95 @@ fn test_serde_rename_in_constructor_and_properties() {
     assert!(
         lib_rs.content.contains("#[serde(rename = \"max_chars\")]"),
         "Field should have serde(rename = \"max_chars\"); content:\n{}",
+        lib_rs.content
+    );
+}
+
+#[test]
+fn test_cfg_gated_fields_excluded_from_constructor() {
+    let backend = Pyo3Backend;
+
+    // Create fields: one cfg-gated, one not
+    let mut cfg_field = make_field("pdf_options", TypeRef::String, true);
+    cfg_field.cfg = Some("feature = \"pdf\"".to_string());
+    cfg_field.typed_default = Some(alef_core::ir::DefaultValue::None);
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "test_lib::ExtractionConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                {
+                    let mut f = make_field("use_cache", TypeRef::Primitive(PrimitiveType::Bool), false);
+                    f.typed_default = Some(alef_core::ir::DefaultValue::BoolLiteral(true));
+                    f
+                },
+                cfg_field,
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: true,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: "Config with cfg-gated field".to_string(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+
+    // Find the generated lib.rs
+    let lib_rs = files
+        .iter()
+        .find(|f| f.path.ends_with("lib.rs"))
+        .expect("lib.rs not generated");
+
+    // The constructor should NOT have pdf_options as a parameter (it's cfg-gated)
+    assert!(
+        !lib_rs.content.contains("pub fn new(pdf_options:"),
+        "Constructor should NOT have cfg-gated parameter 'pdf_options'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The constructor should have use_cache as a parameter (not cfg-gated)
+    assert!(
+        lib_rs.content.contains("#[new]\n    pub fn new(use_cache:"),
+        "Constructor should have non-cfg parameter 'use_cache'; content:\n{}",
+        lib_rs.content
+    );
+
+    // The struct literal should only include use_cache, not pdf_options
+    // It should use bare shorthand for use_cache since there's no rename
+    assert!(
+        lib_rs.content.contains("Self { use_cache }"),
+        "Struct literal should use shorthand for non-cfg field; content:\n{}",
+        lib_rs.content
+    );
+
+    // The pdf_options field should still be in the struct definition
+    // (cfg attributes are typically not preserved by PyO3 codegen, but the field itself should be there)
+    assert!(
+        lib_rs.content.contains("pub pdf_options:"),
+        "Field should still exist in struct definition; content:\n{}",
         lib_rs.content
     );
 }
