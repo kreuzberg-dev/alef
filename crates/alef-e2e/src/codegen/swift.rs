@@ -1106,10 +1106,9 @@ fn build_args_and_setup(
             continue;
         }
 
-        // bytes args: fixture stores a fixture-relative path string. Generate
-        // setup that reads it into a Data and pushes each byte into a
-        // RustVec<UInt8>. Literal byte arrays inline the bytes; missing values
-        // produce an empty vec (or `nil` when optional).
+        // bytes args: emit Swift-native [UInt8] arrays. Fixture stores a relative path string
+        // (read at test time), inline byte arrays, or JSON strings. The Swift binding API
+        // accepts [UInt8] directly via the extractBytes(content: [UInt8], ...) overload.
         if arg.arg_type == "bytes" {
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let val = input.get(field);
@@ -1120,39 +1119,35 @@ fn build_args_and_setup(
                     }
                 }
                 None | Some(serde_json::Value::Null) => {
-                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
-                    parts.push((idx, var_name));
+                    // Empty byte array
+                    parts.push((idx, "[UInt8]()".to_string()));
                 }
                 Some(serde_json::Value::String(s)) => {
                     let escaped = escape_swift(s);
-                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
+                    let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
                     let data_var = format!("{}Data", arg.name.to_lower_camel_case());
                     setup_lines.push(format!(
                         "let {data_var} = try Data(contentsOf: URL(fileURLWithPath: \"{escaped}\"))"
                     ));
-                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
-                    setup_lines.push(format!("for _byte in {data_var} {{ {var_name}.push(value: _byte) }}"));
+                    // Convert Data to [UInt8] array
+                    setup_lines.push(format!("let {var_name} = Array({data_var})"));
                     parts.push((idx, var_name));
                 }
                 Some(serde_json::Value::Array(arr)) => {
-                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
-                    for v in arr {
-                        if let Some(n) = v.as_u64() {
-                            setup_lines.push(format!("{var_name}.push(value: UInt8({n}))"));
-                        }
-                    }
-                    parts.push((idx, var_name));
+                    // Inline byte array literal
+                    let bytes: Vec<String> = arr
+                        .iter()
+                        .filter_map(|v| v.as_u64().map(|n| n.to_string()))
+                        .collect();
+                    parts.push((idx, format!("[UInt8]({})", bytes.join(", "))));
                 }
                 Some(other) => {
                     // Fallback: encode the JSON serialisation as UTF-8 bytes.
                     let json_str = serde_json::to_string(other).unwrap_or_default();
                     let escaped = escape_swift(&json_str);
-                    let var_name = format!("{}Vec", arg.name.to_lower_camel_case());
-                    setup_lines.push(format!("let {var_name} = RustBridge.RustVec<UInt8>()"));
+                    let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
                     setup_lines.push(format!(
-                        "for _byte in Array(\"{escaped}\".utf8) {{ {var_name}.push(value: _byte) }}"
+                        "let {var_name} = Array(\"{escaped}\".utf8)"
                     ));
                     parts.push((idx, var_name));
                 }
