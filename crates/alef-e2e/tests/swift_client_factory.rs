@@ -149,8 +149,8 @@ options_via = "from_json"
     let rendered = smoke_test_content(&files);
 
     assert!(
-        rendered.contains("try await chat("),
-        "must call free function chat directly. Rendered:\n{rendered}"
+        rendered.contains("try await LiterLlm.chat("),
+        "must call module-qualified free function chat directly. Rendered:\n{rendered}"
     );
     assert!(
         !rendered.contains("DefaultClient("),

@@ -7,6 +7,25 @@ use minijinja::context;
 
 use super::helpers::{gen_value_to_c, null_return_value};
 
+fn is_primitive_c_type_override(c_type: &str) -> bool {
+    matches!(
+        c_type,
+        "i8" | "i16"
+            | "i32"
+            | "i64"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "usize"
+            | "f32"
+            | "f64"
+            | "int"
+            | "bool"
+    )
+}
+
 // ---------------------------------------------------------------------------
 // Type: from_json + free
 // ---------------------------------------------------------------------------
@@ -63,6 +82,7 @@ pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> S
 // Field accessors
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_field_accessor(
     typ: &TypeDef,
     field: &FieldDef,
@@ -117,15 +137,36 @@ pub(super) fn gen_field_accessor(
         core_import.to_string()
     };
 
-    // Use path_map for Named types — it knows where the type actually lives
-    // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
-    // For non-Named types path_map is irrelevant and the call falls through to
-    // the standard c_return_type behaviour.
-    let mut ret_type = c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned();
+    let lookup_key = format!("{}.{}", type_snake, field.name);
+    let (mut ret_type, override_is_opaque_handle) = if let Some(override_type) = fields_c_types.get(&lookup_key) {
+        if !is_primitive_c_type_override(override_type) && override_type != "char*" {
+            (format!("*mut {core_import}::{override_type}"), true)
+        } else {
+            (
+                c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
+                false,
+            )
+        }
+    } else {
+        // Use path_map for Named types — it knows where the type actually lives
+        // (e.g. mylib_http::ContactInfo) even when field.type_rust_path is None.
+        // For non-Named types path_map is irrelevant and the call falls through to
+        // the standard c_return_type behaviour.
+        (
+            c_return_type_with_paths(&effective_ty, &field_core_import, path_map).into_owned(),
+            false,
+        )
+    };
     // Replace "Self" with the actual qualified type name in FFI signatures
     if ret_type.contains("Self") {
         ret_type = ret_type.replace("Self", &qualified);
     }
+
+    let null_ret = if override_is_opaque_handle {
+        "null".to_string()
+    } else {
+        null_return_value(&effective_ty).to_string()
+    };
 
     // Determine if we need an extra out-param for byte-length
     let needs_len_out = matches!(field.ty, TypeRef::Bytes) && !field.optional;
@@ -143,7 +184,7 @@ pub(super) fn gen_field_accessor(
             qualified => qualified,
             ret_type => ret_type,
             needs_len_out => needs_len_out,
-            null_return_value => null_return_value(&effective_ty),
+            null_return_value => null_ret,
             body => body,
         },
     )

@@ -3516,4 +3516,104 @@ exclude_languages = ["r"]
             collected.iter().map(|t| &t.name).collect::<Vec<_>>()
         );
     }
+
+    #[test]
+    fn regression_namespace_exports_functions_types_enums() {
+        // Regression test: Verify that NAMESPACE exports ALL functions, types, and enums.
+        // A bug caused NAMESPACE to only contain `useDynLib(...)` with no exports.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let mut api = make_api_surface();
+        // Add more types and enums like html-to-markdown has
+        api.types.push(TypeDef {
+            name: "DocumentMetadata".to_string(),
+            rust_path: "test_lib::DocumentMetadata".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("title", TypeRef::String, true)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        // Add a flat data enum (has variant with data, single field)
+        api.enums.push(EnumDef {
+            name: "ConversionResult".to_string(),
+            rust_path: "test_lib::ConversionResult".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Ok".to_string(),
+                    fields: vec![make_field("content", TypeRef::String, false)],
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: true,
+                    doc: String::new(),
+                },
+                EnumVariant {
+                    name: "Err".to_string(),
+                    fields: vec![make_field("msg", TypeRef::String, false)],
+                    is_default: false,
+                    serde_rename: None,
+                    is_tuple: true,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let namespace = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+            .expect("NAMESPACE must be generated");
+        let content = &namespace.content;
+        // Check for the useDynLib line
+        assert!(
+            content.contains("useDynLib(testlib, .registration = TRUE)"),
+            "NAMESPACE must have useDynLib: {content}"
+        );
+        // Check for function exports
+        assert!(
+            content.contains("export(process)"),
+            "NAMESPACE must export free functions, got: {content}"
+        );
+        // Check for type exports
+        assert!(
+            content.contains("export(Config)"),
+            "NAMESPACE must export types like Config: {content}"
+        );
+        assert!(
+            content.contains("export(DocumentMetadata)"),
+            "NAMESPACE must export DocumentMetadata: {content}"
+        );
+        // Check for enum exports (flat data enums)
+        assert!(
+            content.contains("export(ConversionResult)"),
+            "NAMESPACE must export flat data enums: {content}"
+        );
+        // Make sure NAMESPACE is NOT just 2 lines (the bug symptom)
+        let line_count = content.lines().count();
+        assert!(
+            line_count > 10,
+            "NAMESPACE should have many more than 10 lines, got {line_count}: {content}"
+        );
+    }
 }

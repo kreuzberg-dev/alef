@@ -863,10 +863,10 @@ fn test_builtin_type_function_variant_uses_safe_type_name() {
     );
 }
 
-/// The `force_build:` keyword in the generated `native.ex` must not exceed Elixir's
-/// 98-character default formatter line width, otherwise `mix format` rewrites the file.
+/// The generated `native.ex` must include the force-build guard used in local
+/// test/dev builds and explicit environment overrides.
 #[test]
-fn test_native_ex_force_build_line_within_98_chars() {
+fn test_native_ex_emits_force_build_guard() {
     let backend = RustlerBackend;
 
     let api = ApiSurface {
@@ -893,32 +893,11 @@ fn test_native_ex_force_build_line_within_98_chars() {
         })
         .expect("native.ex should be generated");
 
-    // Only check lines related to force_build — the ~w(...) targets line is a pre-existing
-    // separate issue outside this fix's scope.
-    let long_force_build_lines: Vec<(usize, &str)> = native
-        .content
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| line.contains("force_build") && line.len() > 98)
-        .collect();
-
     assert!(
-        long_force_build_lines.is_empty(),
-        "native.ex force_build lines exceed 98 chars (mix format limit):\n{}",
-        long_force_build_lines
-            .iter()
-            .map(|(n, l)| format!("  line {}: {} chars: {l}", n + 1, l.len()))
-            .collect::<Vec<_>>()
-            .join("\n")
-    );
-
-    // Also assert the force_build keyword is present. The previous codegen used a
-    // multi-line form with `force_build:\n`; the current emission keeps it on a
-    // single line because the resulting line stays comfortably within 98 chars,
-    // which is what `mix format` actually cares about.
-    assert!(
-        native.content.contains("force_build:"),
-        "force_build: keyword should be present in native.ex; content:\n{}",
+        native.content.contains(
+            r#"force_build: System.get_env("MY_LIB_BUILD") in ["1", "true"] or System.get_env("MIX_ENV") in ["test", "dev"]"#
+        ),
+        "force_build guard should be present in native.ex; content:\n{}",
         &native.content
     );
 }

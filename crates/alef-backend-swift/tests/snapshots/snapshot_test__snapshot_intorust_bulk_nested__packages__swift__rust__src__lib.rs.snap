@@ -102,7 +102,7 @@ impl Diagnostic {
             // string-like enum fields don't end up empty for inputs that aren't
             // valid JSON tokens (e.g. `tts-1`).
             let __v = ::serde_json::from_str::<::serde_json::Value>(&message)
-                .unwrap_or_else(|_| ::serde_json::Value::String(message.clone()));
+                .unwrap_or(::serde_json::Value::String(message.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.message = t; }
         }
         __target.span = span.0;
@@ -126,7 +126,7 @@ impl ProcessResult {
             // string-like enum fields don't end up empty for inputs that aren't
             // valid JSON tokens (e.g. `tts-1`).
             let __v = ::serde_json::from_str::<::serde_json::Value>(&language)
-                .unwrap_or_else(|_| ::serde_json::Value::String(language.clone()));
+                .unwrap_or(::serde_json::Value::String(language.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
         }
         __target.diagnostics = diagnostics.into_iter().map(|w| w.0).collect();

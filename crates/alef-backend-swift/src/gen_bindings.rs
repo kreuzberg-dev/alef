@@ -3157,15 +3157,6 @@ fn emit_free_function_forwarders(
         if alef_codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
             continue;
         }
-        // Async free functions are not bridged into the `RustBridge` module
-        // with a usable Swift signature in the swift-bridge 0.1.x runtime
-        // (returns a serialised JSON string), so they require a hand-written
-        // adapter rather than a thin forwarder. Skip them here to avoid emitting
-        // misleading wrappers; explicit hooks emit their async-aware counterparts
-        // (e.g. the e2e `extractBytes(filePath:...)` async wrapper above).
-        if func.is_async {
-            continue;
-        }
         let swift_name = swift_ident(&func.name.to_lower_camel_case());
         if already.contains(&swift_name) {
             continue;
@@ -3181,7 +3172,7 @@ fn emit_free_function_forwarders(
             emitted_any = true;
         }
         if func.is_async {
-            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
+            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, out);
         } else {
             emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
         }
@@ -3331,7 +3322,6 @@ fn emit_async_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
     known_dto_names: &std::collections::HashSet<String>,
-    client_class_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
@@ -3386,40 +3376,14 @@ fn emit_async_free_function_forwarder(
     };
 
     // Call the synchronous bridge function in a Task.detached to avoid blocking the async context.
-    out.push_str("    let _result = try await Task.detached(priority: .userInitiated) {\n");
-    out.push_str(&format!("        try RustBridge.{swift_name}({args}).toString()\n"));
-    out.push_str("    }.value\n");
-
-    // Decode the JSON result into the expected Swift type.
-    if matches!(&func.return_type, TypeRef::Unit) {
-        // Unit return type — nothing to decode
-        out.push_str("}\n\n");
-    } else if matches!(&func.return_type, TypeRef::Named(n) if client_class_names.contains(n)) {
-        // Named return that is a Swift client class — convert RustString JSON to high-level type
-        let class_name = swift_type_name(&func.return_type);
-        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "    let _rb = try JSONDecoder().decode(RustBridge.{class_name}.self, from: _data)\n"
-        ));
-        out.push_str(&format!("    return {class_name}(_rb)\n"));
-        out.push_str("}\n\n");
-    } else if bare_named_dto_return(&func.return_type, known_dto_names) {
-        // Named DTO return — decode JSON and initialize wrapper
-        let dto_name = swift_type_name(&func.return_type);
-        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "    let _rb = try JSONDecoder().decode(RustBridge.{dto_name}.self, from: _data)\n"
-        ));
-        out.push_str(&format!("    return try {dto_name}(_rb)\n"));
-        out.push_str("}\n\n");
-    } else {
-        // Primitive or container return — decode directly
-        out.push_str("    let _data = _result.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "    return {effective_try}JSONDecoder().decode({return_ty}.self, from: _data)\n"
-        ));
-        out.push_str("}\n\n");
-    }
+    // swift-bridge 0.1.x cannot natively bridge async Rust functions, so async functions are
+    // declared in the extern block as blocking sync functions. We wrap the blocking call in
+    // Task.detached to prevent blocking the caller's async context.
+    out.push_str(&format!(
+        "    return {effective_try}await Task.detached(priority: .userInitiated) {{\n"
+    ));
+    out.push_str(&format!("        try RustBridge.{swift_name}({args})\n"));
+    out.push_str("    }.value\n}\n\n");
 }
 
 /// Returns `true` when `ty` is a bare `Named(name)` reference whose Swift mirror
