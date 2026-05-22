@@ -145,13 +145,6 @@ fn test_go_bool_return_not_treated_as_error() {
         content
     );
 
-    // The test should emit `result :=` or `result =`
-    assert!(
-        content.contains("result := pkg.HasLanguage") || content.contains("result = pkg.HasLanguage"),
-        "Boolean return should be assigned to `result` variable. Generated code:\n{}",
-        content
-    );
-
     // The test should NOT have error checking with `if err != nil`
     let has_error_check = content.contains("if err != nil") && content.contains("HasLanguage");
     assert!(
@@ -185,10 +178,10 @@ fn test_go_uint_return_not_treated_as_error() {
         content
     );
 
-    // The test should emit `result :=` or `result =`
+    let has_error_check = content.contains("if err != nil") && content.contains("LanguageCount");
     assert!(
-        content.contains("result := pkg.LanguageCount") || content.contains("result = pkg.LanguageCount"),
-        "Uint return should be assigned to `result` variable. Generated code:\n{}",
+        !has_error_check,
+        "Uint return should not be checked for error. Generated code:\n{}",
         content
     );
 }

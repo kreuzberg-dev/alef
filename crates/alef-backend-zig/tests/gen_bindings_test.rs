@@ -1302,12 +1302,13 @@ type = "CrawlStreamRequest"
     );
     // Each chunk must be appended into the JSON array buffer.
     assert!(
-        content.contains("_buf.appendSlice(_chunk_slice)"),
+        content.contains("try _buf.appendSlice(std.heap.c_allocator, _chunk_slice)"),
         "must append each chunk into the JSON buffer (not last-chunk-only): {content}"
     );
     // Buffer must start with `[` and end with `]` — a proper JSON array.
     assert!(
-        content.contains("_buf.append('[')") && content.contains("_buf.append(']')"),
+        content.contains("try _buf.append(std.heap.c_allocator, '[')")
+            && content.contains("try _buf.append(std.heap.c_allocator, ']')"),
         "must wrap chunks in a JSON array: {content}"
     );
     // Stream handle must be freed.

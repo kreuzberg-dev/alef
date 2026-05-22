@@ -1264,10 +1264,18 @@ mod tests {
             enums: vec![],
             errors: vec![],
             excluded_type_paths: HashMap::new(),
-            excluded_trait_names: AHashSet::new(),
+            excluded_trait_names: std::collections::HashSet::new(),
         };
 
-        let out = gen_function(&func, &mapper, "kreuzcrawl", &AHashSet::new(), "Wasm", &AHashSet::new(), &api);
+        let out = gen_function(
+            &func,
+            &mapper,
+            "kreuzcrawl",
+            &AHashSet::new(),
+            "Wasm",
+            &AHashSet::new(),
+            &api,
+        );
 
         assert!(out.contains("actions: Vec<WasmPageAction>"));
         assert!(

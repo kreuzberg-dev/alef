@@ -98,7 +98,7 @@ impl OcrConfig {
             // string-like enum fields don't end up empty for inputs that aren't
             // valid JSON tokens (e.g. `tts-1`).
             let __v = ::serde_json::from_str::<::serde_json::Value>(&language)
-                .unwrap_or_else(|_| ::serde_json::Value::String(language.clone()));
+                .unwrap_or(::serde_json::Value::String(language.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
         }
         OcrConfig(__target)
@@ -118,7 +118,7 @@ impl ExtractionResult {
             // string-like enum fields don't end up empty for inputs that aren't
             // valid JSON tokens (e.g. `tts-1`).
             let __v = ::serde_json::from_str::<::serde_json::Value>(&text)
-                .unwrap_or_else(|_| ::serde_json::Value::String(text.clone()));
+                .unwrap_or(::serde_json::Value::String(text.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.text = t; }
         }
         ExtractionResult(__target)

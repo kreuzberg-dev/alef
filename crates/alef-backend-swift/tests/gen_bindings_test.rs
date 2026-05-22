@@ -1399,8 +1399,8 @@ fn no_bytes_or_path_functions_emits_no_wrapper_section() {
 }
 
 #[test]
-fn async_bytes_function_is_not_a_candidate() {
-    // Async functions are not candidates — they cannot be wrapped with a simple sync call.
+fn async_bytes_function_emits_async_forwarder() {
+    // Async bytes functions are forwarded through a detached task with byte-vector conversion.
     let async_fn = FunctionDef {
         name: "fetch_bytes".to_string(),
         rust_path: "demo::fetch_bytes".to_string(),
@@ -1438,8 +1438,16 @@ fn async_bytes_function_is_not_a_candidate() {
     let content = &files[0].content;
 
     assert!(
-        !content.contains("public func fetchBytes"),
-        "async bytes function must not generate a convenience overload: {content}"
+        content.contains("public func fetchBytes(content: [UInt8], config: FetchConfig) -> FetchResult async"),
+        "async bytes function should generate an async forwarder: {content}"
+    );
+    assert!(
+        content.contains("let _rb_content: RustVec<UInt8>"),
+        "async bytes forwarder should convert byte parameters: {content}"
+    );
+    assert!(
+        content.contains("return await Task.detached(priority: .userInitiated)"),
+        "async bytes forwarder should call through a detached task: {content}"
     );
 }
 

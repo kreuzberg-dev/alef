@@ -2493,7 +2493,7 @@ mod tests {
         let r = make_resolver();
         assert_eq!(
             r.accessor("title", "c", "result"),
-            "result_metadata_document_title(result)"
+            "result_title(result_document(result_metadata(result)))"
         );
     }
 

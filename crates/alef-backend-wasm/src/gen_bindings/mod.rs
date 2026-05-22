@@ -829,8 +829,14 @@ fn gen_cargo_toml(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
         ("futures".to_string(), format!(r#""{}""#, tv::cargo::FUTURES)),
         ("futures-util".to_string(), format!(r#""{}""#, tv::cargo::FUTURES_UTIL)),
         ("js-sys".to_string(), format!(r#""{}""#, tv::cargo::JS_SYS)),
-        ("serde".to_string(), r#"{ version = "1", features = ["derive"] }"#.to_string()),
-        ("serde-wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::SERDE_WASM_BINDGEN)),
+        (
+            "serde".to_string(),
+            r#"{ version = "1", features = ["derive"] }"#.to_string(),
+        ),
+        (
+            "serde-wasm-bindgen".to_string(),
+            format!(r#""{}""#, tv::cargo::SERDE_WASM_BINDGEN),
+        ),
         ("serde_json".to_string(), r#""1""#.to_string()),
         ("wasm-bindgen".to_string(), format!(r#""{}""#, tv::cargo::WASM_BINDGEN)),
         (

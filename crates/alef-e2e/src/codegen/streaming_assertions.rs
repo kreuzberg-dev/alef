@@ -608,15 +608,29 @@ impl StreamingFieldResolver {
     /// Returns `None` when the language has no streaming collect support or
     /// when the collect snippet cannot be expressed generically.
     pub fn collect_snippet(lang: &str, stream_var: &str, chunks_var: &str) -> Option<String> {
+        Self::collect_snippet_typed(lang, stream_var, chunks_var, None)
+    }
+
+    /// Collect stream into a list, with optional item_type for languages that need the concrete type.
+    ///
+    /// When item_type is None, defaults to ChatCompletionChunk for backward compatibility with
+    /// liter-llm. For other projects like kreuzcrawl, item_type should be provided (e.g., "CrawlEvent").
+    pub fn collect_snippet_typed(
+        lang: &str,
+        stream_var: &str,
+        chunks_var: &str,
+        item_type: Option<&str>,
+    ) -> Option<String> {
+        let item_type = item_type.unwrap_or("ChatCompletionChunk");
         match lang {
             "rust" => Some(format!(
                 "let {chunks_var}: Vec<_> = tokio_stream::StreamExt::collect::<Vec<_>>({stream_var}).await\n        .into_iter()\n        .map(|r| r.expect(\"stream item failed\"))\n        .collect();"
             )),
             "go" => Some(format!(
-                "var {chunks_var} []pkg.ChatCompletionChunk\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
+                "var {chunks_var} []pkg.{item_type}\n\tfor chunk := range {stream_var} {{\n\t\t{chunks_var} = append({chunks_var}, chunk)\n\t}}"
             )),
             "java" => Some(format!(
-                "var {chunks_var} = new java.util.ArrayList<ChatCompletionChunk>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
+                "var {chunks_var} = new java.util.ArrayList<{item_type}>();\n        var _it = {stream_var}.iterator();\n        while (_it.hasNext()) {{ {chunks_var}.add(_it.next()); }}"
             )),
             // PHP binding's chat_stream returns Vec<String> (each element is a
             // JSON-serialized chunk) because ext-php-rs can't expose Rust
