@@ -85,7 +85,8 @@ fn replace_constructor_with_serde_rename(
         .iter()
         .map(|f| {
             // Use serde_rename if available, otherwise use config rename or bare field name
-            let param_name = f.serde_rename
+            let param_name = f
+                .serde_rename
                 .as_ref()
                 .or(config_renames.and_then(|r| r.get(&f.name)))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
@@ -105,7 +106,8 @@ fn replace_constructor_with_serde_rename(
     let defaults: Vec<String> = sorted_fields
         .iter()
         .map(|f| {
-            let param_name = f.serde_rename
+            let param_name = f
+                .serde_rename
                 .as_ref()
                 .or(config_renames.and_then(|r| r.get(&f.name)))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
@@ -118,30 +120,27 @@ fn replace_constructor_with_serde_rename(
         })
         .collect();
 
-    // Struct literal uses bare Rust field names (never renamed)
-    let assignments: Vec<String> = typ.fields
+    // Struct literal uses bare Rust field names (never renamed).
+    // CRITICAL: Skip cfg-gated fields (f.cfg.is_some()) because they have no constructor parameter.
+    let assignments: Vec<String> = typ
+        .fields
         .iter()
-        .filter(|f| !f.binding_excluded)
+        .filter(|f| !f.binding_excluded && f.cfg.is_none())
         .map(|f| {
-            // Apply config-based rename if present (keyword escaping)
-            let binding_name = config_renames
-                .and_then(|r| r.get(&f.name))
-                .map_or_else(|| f.name.as_str(), |s| s.as_str());
-
             // Get the parameter name (serde_rename or config rename or bare name)
-            let param_name = f.serde_rename
+            let param_name = f
+                .serde_rename
                 .as_ref()
                 .or(config_renames.and_then(|r| r.get(&f.name)))
                 .map_or_else(|| f.name.as_str(), |s| s.as_str());
 
-            if binding_name != param_name {
-                // Binding field was renamed (keyword escape), but param name is different
-                format!("{}: {}", binding_name, param_name)
-            } else if binding_name != f.name {
-                // Just a config-based rename
-                format!("{}: {}", binding_name, param_name)
+            // Use the bare Rust field name for struct literal (never renamed in Rust)
+            if param_name != f.name {
+                // Parameter name differs from Rust field name (serde_rename or config rename):
+                // use explicit form to match the parameter variable
+                format!("{}: {}", f.name, param_name)
             } else {
-                // No rename needed
+                // No rename: use shorthand
                 f.name.clone()
             }
         })

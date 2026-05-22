@@ -3069,3 +3069,107 @@ fn test_bool_param_record_method_compiles_with_dotnet() {
         String::from_utf8_lossy(&output.stderr),
     );
 }
+
+#[test]
+fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
+    let backend = CsharpBackend;
+    let mut config = minimal_csharp_config("test");
+
+    // Add trait bridges with clear_fn configured to test the method naming
+    config.trait_bridges = vec![
+        alef_core::config::TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: Some("register_ocr_backend".to_string()),
+            unregister_fn: Some("unregister_ocr_backend".to_string()),
+            clear_fn: Some("clear_ocr_backends".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: vec![],
+            ffi_skip_methods: vec![],
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+        },
+        alef_core::config::TraitBridgeConfig {
+            trait_name: "PostProcessor".to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: Some("register_post_processor".to_string()),
+            unregister_fn: Some("unregister_post_processor".to_string()),
+            clear_fn: Some("clear_post_processors".to_string()),
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: vec![],
+            ffi_skip_methods: vec![],
+            bind_via: alef_core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+        },
+    ];
+
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: std::collections::HashMap::new(),
+        excluded_trait_names: std::collections::HashSet::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+
+    // Find the wrapper class file (contains the Clear* facade methods)
+    let wrapper_file = files
+        .iter()
+        .find(|f| {
+            let path_str = f.path.to_string_lossy();
+            path_str.ends_with("KreuzbergLib.cs") || (path_str.ends_with(".cs") && f.content.contains("public static void Clear"))
+        })
+        .unwrap_or_else(|| {
+            panic!(
+                "No wrapper file with Clear* methods found. Generated files: {:?}",
+                files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect::<Vec<_>>()
+            )
+        });
+
+    let content = &wrapper_file.content;
+
+    // Verify that the method names are ClearOcrBackends and ClearPostProcessors (plural, from clear_fn)
+    // NOT ClearOcrBackend and ClearPostProcessor (singular, from trait name)
+    assert!(
+        content.contains("public static void ClearOcrBackends()"),
+        "Expected method ClearOcrBackends (from clear_ocr_backends), but not found.\n\
+         Check that method naming derives from clear_fn, not trait name.\nContent:\n{}",
+        content
+    );
+
+    assert!(
+        content.contains("public static void ClearPostProcessors()"),
+        "Expected method ClearPostProcessors (from clear_post_processors), but not found.\n\
+         Check that method naming derives from clear_fn, not trait name.\nContent:\n{}",
+        content
+    );
+
+    // Verify that singular names are NOT present (these would be the wrong names)
+    assert!(
+        !content.contains("public static void ClearOcrBackend()"),
+        "Found incorrect method ClearOcrBackend (singular). \
+         Method name must derive from clear_fn (clear_ocr_backends → ClearOcrBackends), not trait name."
+    );
+
+    assert!(
+        !content.contains("public static void ClearPostProcessor()"),
+        "Found incorrect method ClearPostProcessor (singular). \
+         Method name must derive from clear_fn (clear_post_processors → ClearPostProcessors), not trait name."
+    );
+}

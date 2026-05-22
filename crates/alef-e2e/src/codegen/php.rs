@@ -1019,6 +1019,7 @@ fn render_test_method(
         options_via,
         call_options_type,
         adapter_request_type.as_deref(),
+        namespace,
     );
 
     // Check for skip_languages early
@@ -1299,6 +1300,7 @@ fn build_args_and_setup(
     options_via: &str,
     options_type: Option<&str>,
     adapter_request_type: Option<&str>,
+    namespace: &str,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1492,7 +1494,8 @@ fn build_args_and_setup(
                 } else {
                     format!("{}Config", arg.name.to_upper_camel_case())
                 };
-                parts.push(format!("{type_name}::from_json('{{}}')"));
+                // Fully qualify the type name to the binding namespace to avoid ambiguity with test namespace
+                parts.push(format!("\\{namespace}\\{type_name}::from_json('{{}}')"));
                 continue;
             }
             None | Some(serde_json::Value::Null) if arg.optional => {

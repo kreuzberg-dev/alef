@@ -1585,12 +1585,17 @@ fn build_args_and_setup(
                     parts.push(val);
                     continue;
                 }
-                // file_path args must be wrapped in java.nio.file.Path.of(),
-                // since the Kotlin module re-exports the Java facade signatures
-                // which take Path rather than String for file-path parameters.
+                // file_path args: Kotlin module wraps the Java facade (which takes Path),
+                // but kotlin_android has a different signature that takes a plain String.
                 if arg.arg_type == "file_path" {
                     let val = json_to_kotlin(v);
-                    parts.push(format!("java.nio.file.Path.of({val})"));
+                    if kotlin_android_style {
+                        // kotlin_android binding takes a plain String path
+                        parts.push(val);
+                    } else {
+                        // Kotlin (JVM) binding re-exports Java facade which takes java.nio.file.Path
+                        parts.push(format!("java.nio.file.Path.of({val})"));
+                    }
                     continue;
                 }
                 parts.push(json_to_kotlin(v));

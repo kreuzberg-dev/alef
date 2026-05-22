@@ -350,7 +350,7 @@ pub(crate) fn gen_sync_function_method(
         out.push_str("                String msg = errPtr.equals(MemorySegment.NULL) ? \"clear failed (rc=\" + primitiveResult + \")\" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
         out.push_str("                throw new ");
         out.push_str(&exception_class_name);
-        out.push_str("(\"FFI call failed: \" + msg);\n");
+        out.push_str("(primitiveResult, msg);\n");
         out.push_str("            }\n");
         out.push_str("        } catch (Throwable e) {\n");
         out.push_str(&crate::template_env::render(
@@ -1274,6 +1274,40 @@ mod tests {
         assert!(
             out.contains("NativeLib.KRZ_LIST_OCR_BACKENDS"),
             "non-clear_fn body must derive the handle from func.name, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn clear_fn_error_throws_exception_with_code_and_message() {
+        // Regression: clear_fn error path must construct KreuzbergRsException
+        // with (int code, String message) constructor, not (String) constructor.
+        // The error throw must be `new TestClassException(primitiveResult, msg)`
+        // matching the KreuzbergRsException(int, String) constructor signature.
+        let func = create_test_function("clear_ocr_backends", TypeRef::Unit);
+
+        let mut clear_fn_handles = AHashMap::new();
+        clear_fn_handles.insert("clear_ocr_backends".to_string(), "KRZ_CLEAR_OCR_BACKEND".to_string());
+
+        let mut out = String::new();
+        let opaque_types = create_test_opaque_types();
+        let (bridge_param_names, bridge_type_aliases) = create_test_bridge_sets();
+
+        gen_sync_function_method(
+            &mut out,
+            &func,
+            "krz",
+            "TestClass",
+            &opaque_types,
+            &bridge_param_names,
+            &bridge_type_aliases,
+            false,
+            &clear_fn_handles,
+        );
+
+        // Must throw with (int code, String msg) two-argument constructor in the error path
+        assert!(
+            out.contains("throw new TestClassException(primitiveResult, msg)"),
+            "clear_fn error path must throw TestClassException(primitiveResult, msg), got:\n{out}"
         );
     }
 }
