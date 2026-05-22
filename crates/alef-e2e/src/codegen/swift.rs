@@ -1166,10 +1166,7 @@ fn build_args_and_setup(
                     }
                     Some(serde_json::Value::Array(arr)) => {
                         // Inline byte array literal
-                        let bytes: Vec<String> = arr
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n.to_string()))
-                            .collect();
+                        let bytes: Vec<String> = arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
                         parts.push((idx, format!("[UInt8]({})", bytes.join(", "))));
                     }
                     Some(other) => {
@@ -1177,9 +1174,7 @@ fn build_args_and_setup(
                         let json_str = serde_json::to_string(other).unwrap_or_default();
                         let escaped = escape_swift(&json_str);
                         let var_name = format!("{}Bytes", arg.name.to_lower_camel_case());
-                        setup_lines.push(format!(
-                            "let {var_name} = Array(\"{escaped}\".utf8)"
-                        ));
+                        setup_lines.push(format!("let {var_name} = Array(\"{escaped}\".utf8)"));
                         parts.push((idx, var_name));
                     }
                 }
