@@ -324,6 +324,17 @@ fn emit_lib_rs(
         })
         .collect();
 
+    // Collect result enum names from trait bridges — these should NOT be declared as
+    // opaque extern types because they're first-class Swift enums emitted separately
+    // and declaring them as extern types causes swift-bridge to generate a conflicting
+    // opaque `class` with the same name (e.g. `class VisitResult`), causing ambiguity.
+    let result_type_enums: HashSet<String> = active_bridges
+        .iter()
+        .filter_map(|(bridge_cfg, _)| {
+            bridge_cfg.result_type.as_deref().map(|s| s.to_string())
+        })
+        .collect();
+
     // Collect extern "Rust" blocks for the ffi module
     // Build a HashSet<String> from enum_names (&str) for the enum-aware bridge type helper.
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
@@ -358,7 +369,11 @@ fn emit_lib_rs(
         }
     }
     for en in &visible_enums {
-        extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
+        // Skip enums that are result types in trait bridges — they're emitted as
+        // first-class Swift enums and should not have opaque swift-bridge wrappers.
+        if !result_type_enums.contains(&en.name) {
+            extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
+        }
     }
     if !visible_functions.is_empty() {
         let visible: Vec<FunctionDef> = visible_functions.iter().map(|f| (*f).clone()).collect();

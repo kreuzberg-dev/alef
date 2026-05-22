@@ -2053,7 +2053,20 @@ fn r_field_one_liner(field_name: &str, doc: &str) -> String {
     if paragraph.is_empty() {
         field_name.to_string()
     } else {
-        paragraph.join(" ")
+        let mut result = paragraph.join(" ");
+        // Enforce 120-char line limit for roxygen2. The format is:
+        // #' @field <field_name> <description>
+        // which is 10 + len(field_name) + 1 + len(description) = 120 max
+        // So description can be at most 109 - len(field_name).
+        let max_desc_len = 109_usize.saturating_sub(field_name.len());
+        if result.len() > max_desc_len {
+            result.truncate(max_desc_len);
+            // Remove trailing partial words by finding the last space.
+            if let Some(last_space) = result.rfind(' ') {
+                result.truncate(last_space);
+            }
+        }
+        result
     }
 }
 
@@ -3615,5 +3628,75 @@ exclude_languages = ["r"]
             line_count > 10,
             "NAMESPACE should have many more than 10 lines, got {line_count}: {content}"
         );
+    }
+
+    #[test]
+    fn r_field_long_descriptions_are_truncated_to_fit_120_char_lines() {
+        // Ensure roxygen2 @field lines don't exceed 120 chars to satisfy lintr.
+        // Each @field line has format: "#' @field <name> <description>"
+        // which is 10 + len(name) + 1 + len(description) chars.
+        // So description must be truncated to fit within 120 total.
+        let backend = ExtendrBackend;
+        let config = make_config();
+        let long_doc = "Open Graph metadata (og:* properties) for social media Keys like \"title\", \"description\", \"image\", \"url\", etc.";
+        let api = ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![TypeDef {
+                name: "DocumentMetadata".to_string(),
+                rust_path: "test_lib::DocumentMetadata".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![FieldDef {
+                    doc: long_doc.to_string(),
+                    ..make_field("open_graph", TypeRef::String, true)
+                }],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: "Document metadata".to_string(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+        };
+        let files = backend.generate_public_api(&api, &config).unwrap();
+        let wrappers = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+            .expect("extendr-wrappers.R must be generated");
+        let content = &wrappers.content;
+
+        // Find the @field line and verify it's under 120 chars.
+        for line in content.lines() {
+            if line.contains("@field open_graph") {
+                assert!(
+                    line.len() <= 120,
+                    "@field line must be <= 120 chars, got {} chars: {}",
+                    line.len(),
+                    line
+                );
+                // Also verify it's not just truncated to empty — should have real description.
+                assert!(
+                    line.contains("Open Graph metadata"),
+                    "@field description was over-truncated: {}",
+                    line
+                );
+                return;
+            }
+        }
+        panic!("Could not find @field open_graph line in:\n{}", content);
     }
 }
