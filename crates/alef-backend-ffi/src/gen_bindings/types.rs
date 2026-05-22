@@ -23,6 +23,25 @@ fn is_primitive_c_type_override(c_type: &str) -> bool {
             | "f64"
             | "int"
             | "bool"
+            // C <stdint.h> / scalar spellings — a field override may name the C
+            // type directly (e.g. `uint64_t`); these are still primitives and
+            // must not be mistaken for opaque handle types.
+            | "int8_t"
+            | "int16_t"
+            | "int32_t"
+            | "int64_t"
+            | "uint8_t"
+            | "uint16_t"
+            | "uint32_t"
+            | "uint64_t"
+            | "size_t"
+            | "ssize_t"
+            | "intptr_t"
+            | "uintptr_t"
+            | "ptrdiff_t"
+            | "float"
+            | "double"
+            | "char"
     )
 }
 
@@ -170,7 +189,8 @@ pub(super) fn gen_field_accessor(
     }
 
     let null_ret = if override_is_opaque_handle {
-        "null".to_string()
+        // Opaque-handle overrides return `*mut T`; the null sentinel is a null pointer.
+        "std::ptr::null_mut()".to_string()
     } else {
         null_return_value(&effective_ty).to_string()
     };
