@@ -1283,12 +1283,26 @@ fn render_test_method(
 
     // When a non-streaming adapter with owner_type is present, filter out handle-type args
     // since the facade method doesn't take them separately (the handle is
-    // encapsulated in the adapter). Streaming adapters keep the handle as the first
-    // positional parameter.
+    // encapsulated in the adapter).
     let filtered_args: Vec<_> = if adapter.is_some_and(|a| a.owner_type.is_some()) && !is_streaming_adapter {
         args.iter().filter(|arg| arg.arg_type != "handle").cloned().collect()
     } else {
         args.to_vec()
+    };
+
+    // Streaming owner_type adapters are facade-exposed as INSTANCE methods on the
+    // owner handle (`engine.crawlStream(req)`), not as static facade methods — the
+    // Java facade deliberately emits no static streaming methods. Capture the owner
+    // handle variable so the call is rendered as an instance-method invocation.
+    let streaming_owner_handle: Option<String> = if is_streaming_adapter
+        && adapter.is_some_and(|a| a.owner_type.is_some())
+    {
+        filtered_args
+            .iter()
+            .find(|a| a.arg_type == "handle")
+            .map(|a| a.name.clone())
+    } else {
+        None
     };
 
     let (mut setup_lines, args_str) = build_args_and_setup(
@@ -1298,6 +1312,7 @@ fn render_test_method(
         effective_options_type,
         fixture,
         adapter_request_type.as_deref(),
+        streaming_owner_handle.is_some(),
     );
 
     // Per-language `extra_args` from call overrides — verbatim trailing
@@ -1460,7 +1475,12 @@ fn render_test_method(
     // Prepend client setup before any other setup_lines.
     let combined_setup: Vec<String> = client_setup_lines.into_iter().chain(setup_lines).collect();
 
-    let call_expr = format!("{call_target}.{function_name}({final_args})");
+    let call_expr = if let Some(ref handle_var) = streaming_owner_handle {
+        // Instance-method invocation on the owner handle.
+        format!("{handle_var}.{function_name}({final_args})")
+    } else {
+        format!("{call_target}.{function_name}({final_args})")
+    };
 
     // `is_streaming` was computed earlier (before the assertion render loop).
     let collect_snippet = if is_streaming && !expects_error {
@@ -1508,6 +1528,7 @@ fn build_args_and_setup(
     options_type: Option<&str>,
     fixture: &crate::fixture::Fixture,
     adapter_request_type: Option<&str>,
+    owner_handle_is_receiver: bool,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1596,6 +1617,12 @@ fn build_args_and_setup(
                     arg.name,
                     name = name,
                 ));
+            }
+            // For streaming owner_type adapters the handle is the instance-method
+            // receiver, not a positional argument — emit its construction but omit
+            // it from the call's argument list.
+            if owner_handle_is_receiver {
+                continue;
             }
             parts.push(arg.name.clone());
             continue;
