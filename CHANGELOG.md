@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.32] - 2026-05-22
+
 ### Added
 
 - **alef-core: `CallConfig.options_type`.** The binding-agnostic config parameter type for an e2e call can now be declared once at call level (`[e2e.calls.<name>].options_type`) instead of being duplicated across every per-language override. The field was already present in `kreuzberg`'s `alef.toml` but silently discarded because the model lacked it. (`crates/alef-core/src/config/e2e.rs`)
@@ -16,8 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef-e2e/java: keep engine handle in streaming adapter calls.** Streaming adapters expose free-function facades (`Kreuzcrawl.crawlStream(engine, req)`) that take the engine handle as the first positional parameter, not methods on the handle itself. The Java e2e generator was filtering out handle-type args whenever an adapter had an `owner_type`, but streaming adapters are special: they still need the handle. The filter now checks the adapter's `pattern` and only drops the handle for non-streaming adapters with `owner_type`. This fixes `cannot find symbol` errors for `crawl_stream` and `batch_crawl_stream` streaming calls. (`crates/alef-e2e/src/codegen/java.rs`)
 
 - **alef-e2e/dart: emit `mock_url_list` arguments for batch streaming calls.** The `batch_crawl_stream` call requires a `urls: List<String>` parameter, but the Dart e2e generator had no handler for the `mock_url_list` arg type — the argument list fell through without emitting the URLs. Added a `mock_url_list` case that builds a Dart list literal with the same mock-server base-URL resolution as `mock_url` (per-fixture env var, then global `MOCK_SERVER_URL`). This fixes `too few positional arguments` errors for batch streaming calls. (`crates/alef-e2e/src/codegen/dart.rs`)
-
-## [0.17.32] - 2026-05-22
 
 ### Fixed
 
