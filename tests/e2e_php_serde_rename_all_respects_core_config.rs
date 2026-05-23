@@ -1,14 +1,13 @@
-//! Regression test for BLK-7: PHP e2e codegen incorrectly camelCases fixture keys
-//! when the receiving Rust core struct does NOT have `#[serde(rename_all = "camelCase")]`.
+//! Regression test for the PHP e2e key-renaming pipeline.
 //!
-//! The bug was in `json_to_php_camel_keys()`, which blindly converted all keys to
-//! camelCase regardless of the core struct's actual serde config. This caused
-//! `PageConfig` (which lacks `rename_all = "camelCase"`) to receive keys like
-//! `extract_pages: true` transformed to `extractPages: true`, silently falling back
-//! to default values (`extract_pages: false`) at serde deserialization time.
-//!
-//! The fix checks the IR's `serde_rename_all` field for each type and only applies
-//! camelCase transformation when it equals `Some("camelCase")`.
+//! BLK-7 originally keyed off the core struct's `serde_rename_all` to decide whether
+//! to camelCase fixture keys, but that was incorrect: PHP `from_json` deserializes
+//! into the BINDING struct (`serde_json::from_str::<Self>`), and the PHP backend always
+//! emits binding structs with `#[serde(rename_all = "{php_lang_rename_all}")]` —
+//! camelCase by default, regardless of what the core struct carries. The fix in
+//! commit 9e8070a8 sources the rename strategy from the PHP language config rather
+//! than the core IR. These tests pin that contract: keys are camelCased per the
+//! binding's effective `lang_rename_all`, not the core type's `serde_rename_all`.
 
 use alef::core::config::NewAlefConfig;
 use alef::core::ir::TypeDef;
@@ -129,8 +128,12 @@ options_type = "ConfigWithCamel"
 }
 
 #[test]
-fn php_preserves_snake_case_when_serde_rename_all_absent() {
-    // Create a type WITHOUT `rename_all` setting (should use snake_case).
+fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
+    // The binding emits `#[serde(rename_all = "camelCase")]` on every struct by
+    // default (driven by the PHP backend's `lang_rename_all`), so fixture keys are
+    // camelCased regardless of whether the CORE type carries `rename_all`. This
+    // pins commit 9e8070a8's contract — the rename source of truth is the BINDING,
+    // not the core IR.
     let config_without_camel = TypeDef {
         name: "ConfigWithoutCamel".to_string(),
         rust_path: "test_crate::ConfigWithoutCamel".to_string(),
@@ -138,13 +141,13 @@ fn php_preserves_snake_case_when_serde_rename_all_absent() {
         is_opaque: false,
         is_clone: true,
         is_copy: false,
-        doc: "config without rename_all".to_string(),
+        doc: "config without rename_all on the core type".to_string(),
         cfg: None,
         is_trait: false,
         has_default: true,
         has_stripped_cfg_fields: false,
         is_return_type: false,
-        serde_rename_all: None, // Absent!
+        serde_rename_all: None, // Absent on the CORE type — but the PHP binding still uses camelCase.
         has_serde: true,
         super_traits: Vec::new(),
         binding_excluded: false,
@@ -183,22 +186,14 @@ options_type = "ConfigWithoutCamel"
 
     let output = render_with_type_defs(toml_src, vec![config_without_camel], fixture);
 
-    // When serde_rename_all is absent, keys should NOT be transformed (stay snake_case).
+    // camelCase is the PHP binding default — keys are renamed regardless of the
+    // core IR's `serde_rename_all`.
     assert!(
-        output.contains("extract_pages"),
-        "snake_case keys should be preserved when type lacks rename_all setting"
+        output.contains("extractPages"),
+        "camelCase keys should be emitted because the PHP binding default is camelCase\n{output}"
     );
     assert!(
-        output.contains("insert_page_markers"),
-        "snake_case keys should be preserved when type lacks rename_all setting"
-    );
-    // Ensure the camelCase versions are NOT present.
-    assert!(
-        !output.contains("extractPages"),
-        "camelCase keys should NOT be emitted when type lacks rename_all setting"
-    );
-    assert!(
-        !output.contains("insertPageMarkers"),
-        "camelCase keys should NOT be emitted when type lacks rename_all setting"
+        output.contains("insertPageMarkers"),
+        "camelCase keys should be emitted because the PHP binding default is camelCase\n{output}"
     );
 }

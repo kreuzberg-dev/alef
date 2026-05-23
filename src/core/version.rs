@@ -18,7 +18,7 @@
 /// # Examples
 ///
 /// ```
-/// use crate::core::version::to_r_version;
+/// use alef::core::version::to_r_version;
 /// assert_eq!(to_r_version("1.8.0"), "1.8.0");
 /// assert_eq!(to_r_version("4.10.0-rc.1"), "4.10.0.9001");
 /// assert_eq!(to_r_version("4.10.0-rc.15"), "4.10.0.9015");
@@ -52,7 +52,7 @@ pub fn to_r_version(version: &str) -> String {
 /// # Examples
 ///
 /// ```
-/// use crate::core::version::to_rubygems_prerelease;
+/// use alef::core::version::to_rubygems_prerelease;
 /// assert_eq!(to_rubygems_prerelease("1.8.0"), "1.8.0");
 /// assert_eq!(to_rubygems_prerelease("1.8.0-rc.2"), "1.8.0.pre.rc.2");
 /// assert_eq!(to_rubygems_prerelease("0.1.0-alpha.2"), "0.1.0.pre.alpha.2");
