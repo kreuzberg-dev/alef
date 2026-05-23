@@ -67,18 +67,28 @@ fixtures = "fixtures"
 output = "e2e"
 java_group_id = "dev.kreuzberg"
 
-[crates.e2e.calls.extract_file_sync]
+[crates.e2e.call]
 function = "extract_file_sync"
-module = "kreuzberg"
-async = false
-returns_result = true
-args = [
-  { name = "path", field = "input.path", type = "file_path" },
-  { name = "mime_type", field = "input.mime_type", type = "string", optional = true },
-  { name = "config", field = "input.config", type = "json_object", optional = true },
-]
+result_var = "result"
 
-[crates.e2e.calls.extract_file_sync.overrides.csharp]
+[[crates.e2e.call.args]]
+name = "path"
+field = "input.path"
+type = "file_path"
+
+[[crates.e2e.call.args]]
+name = "mime_type"
+field = "input.mime_type"
+type = "string"
+optional = true
+
+[[crates.e2e.call.args]]
+name = "config"
+field = "input.config"
+type = "json_object"
+optional = true
+
+[crates.e2e.call.overrides.csharp]
 options_type = "ExtractionConfig"
 options_via = "from_json"
 
