@@ -369,6 +369,20 @@ pub fn verify_versions(config: &ResolvedCrateConfig) -> anyhow::Result<Vec<Strin
         }
     }
 
+    // Zig build.zig.zon — `.version = "X.Y.Z"`. The `(?m)^\s*\.version\b`
+    // anchor is required so the `.minimum_zig_version = "..."` line on the
+    // same file is not picked up by the looser `.version` substring match.
+    if let Some(found) = extract_version(
+        "packages/zig/build.zig.zon",
+        r#"(?m)^\s*\.version\s*=\s*"([^"]*)""#,
+    ) {
+        if found != expected {
+            mismatches.push(format!(
+                "packages/zig/build.zig.zon: found {found}, expected {expected}"
+            ));
+        }
+    }
+
     Ok(mismatches)
 }
 
@@ -705,6 +719,22 @@ pub fn sync_versions(
         if new_content != content {
             std::fs::write("packages/dart/pubspec.yaml", &new_content)?;
             updated.push("packages/dart/pubspec.yaml".to_string());
+        }
+    }
+
+    // Zig: build.zig.zon — `.version = "X.Y.Z"`. The anchor `(?m)^(\s*)\.version`
+    // captures the leading indent so the rewrite preserves it, and prevents the
+    // `.minimum_zig_version = "..."` line on the same file from being touched
+    // (it starts with `.minimum_zig_version`, not `.version`).
+    if let Ok(content) = std::fs::read_to_string("packages/zig/build.zig.zon") {
+        static ZON_VERSION_RE: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r#"(?m)^(\s*)\.version\s*=\s*"[^"]*""#).expect("valid regex"));
+        let new_content = ZON_VERSION_RE
+            .replace(&content, format!(r#"$1.version = "{version}""#).as_str())
+            .into_owned();
+        if new_content != content {
+            std::fs::write("packages/zig/build.zig.zon", &new_content)?;
+            updated.push("packages/zig/build.zig.zon".to_string());
         }
     }
 
@@ -1437,6 +1467,24 @@ mod tests {
     #[test]
     fn to_pep440_strips_internal_dots() {
         assert_eq!(to_pep440("0.1.0-rc.1.2"), "0.1.0rc12");
+    }
+
+    #[test]
+    fn zon_version_regex_anchors_to_dot_version_only() {
+        // The regex used by validate_versions + sync_all_manifests to rewrite
+        // `.version = "X.Y.Z"` in build.zig.zon. Must NOT match
+        // `.minimum_zig_version = "..."` which sits on the same file.
+        let re = regex::Regex::new(r#"(?m)^\s*\.version\s*=\s*"([^"]*)""#).expect("valid regex");
+        let zon = r#".{
+    .name = .my_pkg,
+    .version = "1.9.0-rc.1",
+    .fingerprint = 0x6f52c41163f42c8c,
+    .minimum_zig_version = "0.16.0",
+}
+"#;
+        let captures: Vec<_> = re.captures_iter(zon).collect();
+        assert_eq!(captures.len(), 1, "regex must match exactly one line, not .minimum_zig_version");
+        assert_eq!(&captures[0][1], "1.9.0-rc.1");
     }
 
     #[test]
