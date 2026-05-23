@@ -8,7 +8,9 @@ use crate::backends::dart::template_env;
 /// Emit a Dart class for a struct-style type.
 ///
 /// For types with no fields (opaque handles), the class wraps an opaque
-/// `Pointer<Void>`. For value types with fields, fields are Dart-typed.
+/// `Pointer<Void>`. For value types with fields, fields are Dart-typed
+/// and the class is annotated with `@freezed` to enable copyWith, toJson,
+/// value equality, and hashCode generation via build_runner.
 pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
     if !ty.doc.is_empty() {
         let doc_lines: Vec<String> = ty.doc.lines().map(ToString::to_string).collect();
@@ -41,62 +43,56 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
         return;
     }
 
-    out.push_str(&template_env::render(
-        "class_open.jinja",
-        minijinja::context! {
-            name => ty.name.as_str(),
-        },
-    ));
     let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
-    for field in &visible_fields {
+
+    // Emit freezed product-type DTO with value equality, copyWith, and toJson
+    if visible_fields.len() == 1 {
+        let field = visible_fields[0];
         let ty_str = dart_type(&field.ty, field.optional);
         let name = field.name.to_lower_camel_case();
-        if !field.doc.is_empty() {
-            let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
-            out.push_str(&template_env::render(
-                "doc_comment.jinja",
-                minijinja::context! {
-                    indent => "  ",
-                    lines => doc_lines,
-                },
-            ));
-        }
         out.push_str(&template_env::render(
-            "final_field_decl.jinja",
-            minijinja::context! {
-                ty_str => ty_str,
-                name => name.as_str(),
-            },
-        ));
-    }
-    if visible_fields.len() == 1 {
-        let name = visible_fields[0].name.to_lower_camel_case();
-        out.push_str(&template_env::render(
-            "single_param_constructor.jinja",
+            "freezed_class_single_param.jinja",
             minijinja::context! {
                 name => ty.name.as_str(),
                 param_name => name.as_str(),
+                ty_str => ty_str,
             },
         ));
     } else {
         out.push_str(&template_env::render(
-            "multi_param_constructor_open.jinja",
+            "freezed_class_open.jinja",
             minijinja::context! {
                 name => ty.name.as_str(),
             },
         ));
         for field in &visible_fields {
+            let ty_str = dart_type(&field.ty, field.optional);
             let name = field.name.to_lower_camel_case();
+            if !field.doc.is_empty() {
+                let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
+                out.push_str(&template_env::render(
+                    "doc_comment.jinja",
+                    minijinja::context! {
+                        indent => "    ",
+                        lines => doc_lines,
+                    },
+                ));
+            }
             out.push_str(&template_env::render(
-                "constructor_required_param.jinja",
+                "freezed_required_param.jinja",
                 minijinja::context! {
+                    ty_str => ty_str,
                     name => name.as_str(),
                 },
             ));
         }
-        out.push_str(&template_env::render("constructor_close.jinja", minijinja::context! {}));
+        out.push_str(&template_env::render(
+            "freezed_constructor_close.jinja",
+            minijinja::context! {
+                name => ty.name.as_str(),
+            },
+        ));
     }
-    out.push_str(&template_env::render("class_close.jinja", minijinja::context! {}));
 }
 
 /// Emit a Dart enum (unit variants only in FFI mode).

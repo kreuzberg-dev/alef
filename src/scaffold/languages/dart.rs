@@ -36,6 +36,9 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         DartStyle::Ffi => format!(
             r#"  # Raw dart:ffi bindings use package:ffi for native memory helpers.
   ffi: '{ffi_package}'
+  # Product-type DTOs use @freezed annotation for code generation.
+  freezed_annotation: '{freezed_annotation}'
+  json_annotation: '{json_annotation}'
 "#
         ),
     };
@@ -47,7 +50,13 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   json_serializable: '{json_serializable}'
 "#
         ),
-        DartStyle::Ffi => String::new(),
+        DartStyle::Ffi => format!(
+            r#"  # Required for product-type DTO code generation (@freezed annotation).
+  freezed: '{freezed}'
+  build_runner: '{build_runner}'
+  json_serializable: '{json_serializable}'
+"#
+        ),
     };
 
     // Only emit `homepage:` when it is non-empty to keep pubspec.yaml clean.

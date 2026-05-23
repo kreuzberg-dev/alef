@@ -1,7 +1,7 @@
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{DartConfig, DartStyle, ResolvedCrateConfig, new_config::NewAlefConfig};
-use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FunctionDef, ParamDef, TypeRef};
+use alef::core::ir::{ApiSurface, CoreWrapper, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
 fn make_param(name: &str, ty: TypeRef) -> ParamDef {
     ParamDef {
@@ -49,6 +49,53 @@ fn make_empty_api() -> ApiSurface {
         functions: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
+    }
+}
+
+fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    }
+}
+
+fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("demo::{name}"),
+        original_rust_path: String::new(),
+        fields,
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -328,5 +375,171 @@ fn build_config_for_dispatches_on_dart_style() {
         bc_frb.build_dep,
         BuildDependency::None,
         "FRB style should use BuildDependency::None"
+    );
+}
+
+/// Product-type DTOs in FFI mode emit `@freezed` annotation with factory constructor
+/// and fromJson factory for code generation via build_runner.
+#[test]
+fn product_type_single_field_emits_freezed_with_factory() {
+    let api = ApiSurface {
+        types: vec![make_type(
+            "Point",
+            vec![make_field("x", TypeRef::Primitive(PrimitiveType::I32), false)],
+        )],
+        ..make_empty_api()
+    };
+    let config = make_config_ffi();
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
+
+    assert!(
+        ffi_file.content.contains("@freezed"),
+        "product-type DTO must have @freezed annotation"
+    );
+    assert!(
+        ffi_file.content.contains("class Point with _$Point"),
+        "product-type DTO must use with _$ClassName mixin"
+    );
+    assert!(
+        ffi_file.content.contains("factory Point({"),
+        "product-type DTO must have factory constructor"
+    );
+    assert!(
+        ffi_file.content.contains("= _Point"),
+        "product-type DTO must have = _ClassName assignment"
+    );
+    assert!(
+        ffi_file.content.contains("factory Point.fromJson"),
+        "product-type DTO must have fromJson factory"
+    );
+}
+
+/// Product-type DTOs with multiple fields emit `@freezed` with named required parameters.
+#[test]
+fn product_type_multi_field_emits_freezed_with_named_params() {
+    let api = ApiSurface {
+        types: vec![make_type(
+            "Config",
+            vec![
+                make_field("name", TypeRef::String, false),
+                make_field("count", TypeRef::Primitive(PrimitiveType::I32), false),
+            ],
+        )],
+        ..make_empty_api()
+    };
+    let config = make_config_ffi();
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
+
+    assert!(
+        ffi_file.content.contains("@freezed"),
+        "multi-field DTO must have @freezed annotation"
+    );
+    assert!(
+        ffi_file.content.contains("required String name"),
+        "multi-field DTO must have required name parameter"
+    );
+    assert!(
+        ffi_file.content.contains("required int count"),
+        "multi-field DTO must have required count parameter"
+    );
+    assert!(
+        ffi_file.content.contains("= _Config"),
+        "multi-field DTO must have = _ClassName assignment"
+    );
+}
+
+/// FFI generated files include part-of directives for freezed and json_serializable.
+#[test]
+fn ffi_file_includes_part_of_directives_for_freezed() {
+    let api = ApiSurface {
+        types: vec![make_type(
+            "Data",
+            vec![make_field("value", TypeRef::String, false)],
+        )],
+        ..make_empty_api()
+    };
+    let config = make_config_ffi();
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
+
+    assert!(
+        ffi_file.content.contains("part 'demo_crate_ffi.freezed.dart'"),
+        "FFI file must include part-of directive for freezed"
+    );
+    assert!(
+        ffi_file.content.contains("part 'demo_crate_ffi.g.dart'"),
+        "FFI file must include part-of directive for json_serializable"
+    );
+}
+
+/// FFI generated files import json_annotation for @freezed DTO support.
+#[test]
+fn ffi_file_imports_json_annotation() {
+    let api = make_empty_api();
+    let config = make_config_ffi();
+
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let ffi_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("_ffi.dart"))
+        .unwrap();
+
+    assert!(
+        ffi_file.content.contains("import 'package:json_annotation/json_annotation.dart'"),
+        "FFI file must import json_annotation for @freezed support"
+    );
+}
+
+/// Scaffold for FFI Dart style includes freezed dev-dependencies for code generation.
+#[test]
+fn ffi_dart_scaffold_includes_freezed_dev_dependencies() {
+    use alef::scaffold::scaffold;
+    use alef::core::config::Language;
+
+    let api = make_empty_api();
+    let config = make_config_ffi();
+
+    let files = scaffold(&api, &config, &[Language::Dart]).expect("scaffold must succeed");
+    let pubspec = files
+        .iter()
+        .find(|f| {
+            let fname = f.path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            fname == "pubspec.yaml"
+        })
+        .expect("pubspec.yaml must be generated");
+
+    assert!(
+        pubspec.content.contains("freezed:"),
+        "pubspec.yaml FFI style must include freezed dev-dependency"
+    );
+    assert!(
+        pubspec.content.contains("build_runner:"),
+        "pubspec.yaml FFI style must include build_runner dev-dependency"
+    );
+    assert!(
+        pubspec.content.contains("json_serializable:"),
+        "pubspec.yaml FFI style must include json_serializable dev-dependency"
+    );
+    assert!(
+        pubspec.content.contains("freezed_annotation:"),
+        "pubspec.yaml FFI style must include freezed_annotation dependency"
+    );
+    assert!(
+        pubspec.content.contains("json_annotation:"),
+        "pubspec.yaml FFI style must include json_annotation dependency"
     );
 }
