@@ -397,7 +397,10 @@ fn render_test_file(
         let _ = writeln!(out, "      _httpClient.close(force: true);");
         let _ = writeln!(out, "      _httpClient = HttpClient()..maxConnectionsPerHost = 1;");
         let _ = writeln!(out, "    }}");
-        let _ = writeln!(out, "    await Future<void>.delayed(Duration(milliseconds: 25 * (attempt + 1)));");
+        let _ = writeln!(
+            out,
+            "    await Future<void>.delayed(Duration(milliseconds: 25 * (attempt + 1)));"
+        );
         let _ = writeln!(out, "  }}");
         let _ = writeln!(out, "  return await fn();");
         let _ = writeln!(out, "}}");

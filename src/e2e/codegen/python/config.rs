@@ -10,31 +10,64 @@ use super::helpers::resolve_module;
 // pyproject.toml
 // ---------------------------------------------------------------------------
 
+/// Format a list of pre-quoted TOML entries as an inline array when there is at
+/// most one element, and as a multi-line array (2-space indent, trailing comma
+/// after the final element) when there is more than one. Matches the canonical
+/// `pyproject-fmt` output so the prek hook does not rewrite the e2e
+/// `pyproject.toml` on every regen.
+fn format_toml_array(entries: &[String]) -> String {
+    match entries.len() {
+        0 => "[]".to_string(),
+        1 => format!("[{}]", entries[0]),
+        _ => {
+            let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
+            format!("[\n{inner}\n]")
+        }
+    }
+}
+
 pub(super) fn render_pyproject(pkg_name: &str, pkg_path: &str, pkg_version: &str, dep_mode: DependencyMode) -> String {
     let (deps_line, uv_sources_block) = match dep_mode {
-        DependencyMode::Registry => (
-            format!(
-                "dependencies = [ \"{pkg_name}{pkg_version}\", \"pytest>=7.4\", \
-                 \"pytest-asyncio>=0.23\", \"pytest-timeout>=2.1\" ]"
-            ),
-            String::new(),
-        ),
-        DependencyMode::Local => (
-            format!(
-                "dependencies = [ \"{pkg_name}\", \"pytest>=7.4\", \"pytest-asyncio>=0.23\", \
-                 \"pytest-timeout>=2.1\" ]"
-            ),
-            format!(
-                "\n[tool.uv]\nsources.{pkg_name} = {{ path = \"{pkg_path}\" }}\n",
-                pkg_path = pkg_path
-            ),
-        ),
+        DependencyMode::Registry => {
+            let entries = vec![
+                format!("\"{pkg_name}{pkg_version}\""),
+                "\"pytest>=7.4\"".to_string(),
+                "\"pytest-asyncio>=0.23\"".to_string(),
+                "\"pytest-timeout>=2.1\"".to_string(),
+            ];
+            (format!("dependencies = {}", format_toml_array(&entries)), String::new())
+        }
+        DependencyMode::Local => {
+            let entries = vec![
+                format!("\"{pkg_name}\""),
+                "\"pytest>=7.4\"".to_string(),
+                "\"pytest-asyncio>=0.23\"".to_string(),
+                "\"pytest-timeout>=2.1\"".to_string(),
+            ];
+            (
+                format!("dependencies = {}", format_toml_array(&entries)),
+                format!(
+                    "\n[tool.uv]\nsources.{pkg_name} = {{ path = \"{pkg_path}\" }}\n",
+                    pkg_path = pkg_path
+                ),
+            )
+        }
     };
+
+    let requires_array = format_toml_array(&["\"setuptools>=68\"".to_string(), "\"wheel\"".to_string()]);
+    let ruff_ignore_array = format_toml_array(&["\"PLR2004\"".to_string()]);
+    let ruff_tests_array = format_toml_array(&[
+        "\"B017\"".to_string(),
+        "\"PT011\"".to_string(),
+        "\"S101\"".to_string(),
+        "\"S108\"".to_string(),
+    ]);
+    let pytest_testpaths_array = format_toml_array(&["\"tests\"".to_string()]);
 
     format!(
         r#"[build-system]
 build-backend = "setuptools.build_meta"
-requires = [ "setuptools>=68", "wheel" ]
+requires = {requires_array}
 
 [project]
 name = "{pkg_name}-e2e"
@@ -55,12 +88,12 @@ classifiers = [
 packages = []
 {uv_sources_block}
 [tool.ruff]
-lint.ignore = [ "PLR2004" ]
-lint.per-file-ignores."tests/**" = [ "B017", "PT011", "S101", "S108" ]
+lint.ignore = {ruff_ignore_array}
+lint.per-file-ignores."tests/**" = {ruff_tests_array}
 
 [tool.pytest]
 ini_options.asyncio_mode = "auto"
-ini_options.testpaths = [ "tests" ]
+ini_options.testpaths = {pytest_testpaths_array}
 ini_options.python_files = "test_*.py"
 ini_options.python_functions = "test_*"
 ini_options.addopts = "-v --strict-markers --tb=short"
@@ -271,7 +304,8 @@ mod tests {
     fn render_pyproject_canonical_format_local() {
         // Verify e2e pyproject.toml is emitted in pyproject-fmt canonical form:
         // - build-backend before requires in [build-system]
-        // - array spacing with spaces: [ ... ]
+        // - multi-item arrays are one-element-per-line with 2-space indent and a
+        //   trailing comma (matches the prek `pyproject-fmt` hook's output)
         // - dependencies in alphabetical order
         let out = render_pyproject("my-pkg", "../../packages/python", "==0.5.0", DependencyMode::Local);
 
@@ -284,23 +318,24 @@ mod tests {
             "build-backend should come before requires in [build-system]"
         );
 
-        // Check array spacing
+        // Multi-item arrays must use the multi-line, one-element-per-line shape
+        // with a trailing comma — verified on `requires` (2 elements).
         assert!(
-            out.contains("requires = [ "),
-            "requires should have spaces inside brackets"
+            out.contains("requires = [\n  \"setuptools>=68\",\n  \"wheel\",\n]"),
+            "requires should be emitted as a multi-line array. got: {out}"
         );
 
-        // Check dependencies are alphabetically sorted
-        // Order should be: my-pkg, pytest>=7.4, pytest-asyncio>=0.23, pytest-timeout>=2.1
-        let deps_line = out.lines().find(|l| l.contains("dependencies = ")).unwrap();
-        let pkg_idx = deps_line.find("my-pkg").unwrap();
-        let pytest_idx = deps_line.find("pytest>=7.4").unwrap();
-        let asyncio_idx = deps_line.find("pytest-asyncio").unwrap();
-        let timeout_idx = deps_line.find("pytest-timeout").unwrap();
+        // Check dependencies are alphabetically sorted within the multi-line
+        // dependencies = [ ... ] block.
+        let deps_start = out.find("dependencies = [").expect("dependencies array");
+        let deps_block = &out[deps_start..];
+        let pkg_idx = deps_block.find("\"my-pkg\"").unwrap();
+        let pytest_idx = deps_block.find("\"pytest>=7.4\"").unwrap();
+        let asyncio_idx = deps_block.find("\"pytest-asyncio>=0.23\"").unwrap();
+        let timeout_idx = deps_block.find("\"pytest-timeout>=2.1\"").unwrap();
         assert!(
             pkg_idx < pytest_idx && pytest_idx < asyncio_idx && asyncio_idx < timeout_idx,
-            "dependencies should be alphabetically sorted: my-pkg, pytest, pytest-asyncio, pytest-timeout. got: {}",
-            deps_line
+            "dependencies should be alphabetically sorted: my-pkg, pytest, pytest-asyncio, pytest-timeout. got: {deps_block}",
         );
     }
 
@@ -309,25 +344,38 @@ mod tests {
         // Similar test for registry mode (no uv sources)
         let out = render_pyproject("my-pkg", "../../packages/python", "==0.5.0", DependencyMode::Registry);
 
-        // Check array spacing
+        // Multi-item arrays must use the multi-line, one-element-per-line shape.
         assert!(
-            out.contains("requires = [ "),
-            "requires should have spaces inside brackets"
+            out.contains("requires = [\n  \"setuptools>=68\",\n  \"wheel\",\n]"),
+            "requires should be emitted as a multi-line array. got: {out}"
         );
 
-        // Check dependencies include package version specifier and are sorted
-        let deps_line = out.lines().find(|l| l.contains("dependencies = ")).unwrap();
+        // Dependencies include package version specifier and are sorted.
+        let deps_start = out.find("dependencies = [").expect("dependencies array");
+        let deps_block = &out[deps_start..];
         assert!(
-            deps_line.contains("my-pkg==0.5.0"),
-            "registry mode should include version specifier. got: {}",
-            deps_line
+            deps_block.contains("\"my-pkg==0.5.0\""),
+            "registry mode should include version specifier. got: {deps_block}",
         );
-        let pkg_idx = deps_line.find("my-pkg").unwrap();
-        let pytest_idx = deps_line.find("pytest>=7.4").unwrap();
+        let pkg_idx = deps_block.find("\"my-pkg==0.5.0\"").unwrap();
+        let pytest_idx = deps_block.find("\"pytest>=7.4\"").unwrap();
         assert!(
             pkg_idx < pytest_idx,
-            "my-pkg should come before pytest. got: {}",
-            deps_line
+            "my-pkg should come before pytest. got: {deps_block}",
+        );
+    }
+
+    #[test]
+    fn render_pyproject_single_element_arrays_stay_inline() {
+        // Single-element arrays must remain on one line (e.g. `lint.ignore = ["PLR2004"]`).
+        let out = render_pyproject("my-pkg", "../../packages/python", ">=0.1.0", DependencyMode::Local);
+        assert!(
+            out.contains("lint.ignore = [\"PLR2004\"]"),
+            "single-element arrays should stay inline. got: {out}"
+        );
+        assert!(
+            out.contains("ini_options.testpaths = [\"tests\"]"),
+            "single-element testpaths should stay inline. got: {out}"
         );
     }
 }

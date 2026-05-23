@@ -217,33 +217,18 @@ keywords = ["zebra", "apple", "banana"]
         "build-backend should come before requires in [build-system]"
     );
 
-    // Check array spacing: requires = [...] (no inner spaces, pyproject-fmt style)
+    // Single-element arrays stay inline (pyproject-fmt canonical for len == 1).
     assert!(
         content.contains("requires = [\"maturin"),
-        "requires should not have space after ["
+        "single-element requires array should stay inline"
     );
 
-    // Check keywords are sorted: apple, banana, zebra (not zebra, apple, banana)
-    let keywords_section = content
-        .split("[project.urls]")
-        .next()
-        .expect("should have [project.urls] section");
-    let keywords_idx = keywords_section.find("keywords = [").expect("should have keywords");
-    let apple_idx = keywords_section[keywords_idx..]
-        .find("\"apple\"")
-        .map(|i| keywords_idx + i)
-        .expect("should have apple");
-    let banana_idx = keywords_section[keywords_idx..]
-        .find("\"banana\"")
-        .map(|i| keywords_idx + i)
-        .expect("should have banana");
-    let zebra_idx = keywords_section[keywords_idx..]
-        .find("\"zebra\"")
-        .map(|i| keywords_idx + i)
-        .expect("should have zebra");
+    // Multi-item arrays emit one element per line with 2-space indent and a
+    // trailing comma to match pyproject-fmt's output (prek's hook otherwise
+    // rewrites the file on every regen).
     assert!(
-        apple_idx < banana_idx && banana_idx < zebra_idx,
-        "keywords should be sorted alphabetically: apple, banana, zebra"
+        content.contains("keywords = [\n  \"apple\",\n  \"banana\",\n  \"zebra\",\n]"),
+        "multi-item keywords array should be emitted one-element-per-line, alphabetised. got:\n{content}",
     );
 
     // Check dot-syntax for URLs: urls.repository instead of [project.urls]
@@ -536,9 +521,9 @@ fn test_scaffold_ruby_production_features() {
     let content = &files[0].content;
     assert!(content.contains("spec.required_ruby_version"));
     assert!(content.contains("spec.extensions"));
-    assert!(content.contains("spec.metadata['keywords']"));
+    assert!(content.contains("spec.metadata[\"keywords\"]"));
     assert!(content.contains("frozen_string_literal: true"));
-    assert!(content.contains("spec.metadata['rubygems_mfa_required'] = 'true'"));
+    assert!(content.contains("spec.metadata[\"rubygems_mfa_required\"] = \"true\""));
     // Check for .rubocop.yml generation
     assert_eq!(files[1].path, PathBuf::from("packages/ruby/.rubocop.yml"));
     // Check for Rakefile generation
@@ -550,8 +535,8 @@ fn test_scaffold_ruby_production_features() {
     assert!(files[3].content.contains("create_rust_makefile"));
     assert!(files[3].content.contains("rb_sys/mkmf"));
     assert!(
-        files[3].content.contains("config.ext_dir = 'native'"),
-        "extconf.rb must set ext_dir = 'native' so rb_sys finds native/Cargo.toml"
+        files[3].content.contains("config.ext_dir = \"native\""),
+        "extconf.rb must set ext_dir = \"native\" so rb_sys finds native/Cargo.toml"
     );
     // files[4] is Gemfile; files[5] is Steepfile; files[6] is the Cargo.toml from scaffold_ruby_cargo
     assert_eq!(files[4].path, PathBuf::from("packages/ruby/Gemfile"));
@@ -586,7 +571,7 @@ fn test_scaffold_ruby_gemspec_includes_sorbet_runtime_dependency() {
         "gemspec must add sorbet-runtime as a runtime dependency; got:\n{gemspec}"
     );
     assert!(
-        gemspec.contains("spec.add_dependency 'sorbet-runtime'"),
+        gemspec.contains("spec.add_dependency \"sorbet-runtime\""),
         "gemspec must use spec.add_dependency (not add_development_dependency) for sorbet-runtime; got:\n{gemspec}"
     );
     assert!(
