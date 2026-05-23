@@ -9,6 +9,22 @@ use crate::{
 };
 use std::path::PathBuf;
 
+/// Format a list of pre-quoted TOML entries as an inline array when there is at
+/// most one element, and as a multi-line array (2-space indent, trailing comma
+/// after the final element) when there is more than one. This matches
+/// `pyproject-fmt`'s canonical output so prek's `pyproject-fmt` hook does not
+/// rewrite the file on every regen.
+fn format_toml_array(entries: &[String]) -> String {
+    match entries.len() {
+        0 => "[]".to_string(),
+        1 => format!("[{}]", entries[0]),
+        _ => {
+            let inner = entries.iter().map(|e| format!("  {e},")).collect::<Vec<_>>().join("\n");
+            format!("[\n{inner}\n]")
+        }
+    }
+}
+
 pub(crate) fn scaffold_python_cargo(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -144,7 +160,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         String::new()
     } else {
         let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
-        format!("authors = [{}]\n", entries.join(", "))
+        format!("authors = {}\n", format_toml_array(&entries))
     };
 
     let keywords_toml = if meta.keywords.is_empty() {
@@ -153,7 +169,7 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         let mut sorted_keywords = meta.keywords.clone();
         sorted_keywords.sort();
         let entries: Vec<String> = sorted_keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("keywords = [{}]\n", entries.join(", "))
+        format!("keywords = {}\n", format_toml_array(&entries))
     };
 
     let homepage_toml = if meta.homepage.is_empty() {
@@ -165,12 +181,17 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let dependencies_toml = match config.python.as_ref().map(|p| &p.pip_dependencies) {
         Some(deps) if !deps.is_empty() => {
             let entries: Vec<String> = deps.iter().map(|d| format!("\"{}\"", d)).collect();
-            format!("dependencies = [{}]\n", entries.join(", "))
+            format!("dependencies = {}\n", format_toml_array(&entries))
         }
         _ => String::new(),
     };
 
     let urls_line = format!("urls.repository = \"{}\"\n", meta.repository);
+
+    let dev_group_array = format_toml_array(&[
+        format!("\"mypy{}\"", tv::pypi::MYPY),
+        format!("\"ruff{}\"", tv::pypi::RUFF),
+    ]);
 
     let content = format!(
         r#"[build-system]
@@ -193,7 +214,7 @@ classifiers = [
   "Programming Language :: Python :: 3.14",
 ]
 {urls_line}{homepage}{dependencies}[dependency-groups]
-dev = ["mypy{mypy}", "ruff{ruff}"]
+dev = {dev_group}
 
 [tool.maturin]
 module-name = "{python_package}.{module_name}"
@@ -262,8 +283,7 @@ disable_error_code = ["call-arg", "arg-type", "return-value", "attr-defined"]
         module_name = module_name,
         crate_dir = core_crate_dir,
         maturin_build_requires = tv::pypi::MATURIN_BUILD_REQUIRES,
-        ruff = tv::pypi::RUFF,
-        mypy = tv::pypi::MYPY,
+        dev_group = dev_group_array,
     );
 
     Ok(vec![

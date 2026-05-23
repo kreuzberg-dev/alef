@@ -2396,23 +2396,24 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
         .unwrap()
         .content;
 
-    // Discriminator access, `when` arms, and per-variant field reads use single quotes.
+    // Discriminator access, `when` arms, and per-variant field reads use double quotes
+    // to match rubocop's `Style/StringLiterals: double_quotes` default.
     assert!(
-        content.contains("hash[:role] || hash['role']"),
-        "discriminator read must use single quotes:\n{content}"
+        content.contains("hash[:role] || hash[\"role\"]"),
+        "discriminator read must use double quotes:\n{content}"
     );
     assert!(
-        content.contains("when 'system' then MessageSystem.from_hash(hash)"),
-        "dispatcher `when` arm must use single quotes:\n{content}"
+        content.contains("when \"system\" then MessageSystem.from_hash(hash)"),
+        "dispatcher `when` arm must use double quotes:\n{content}"
     );
     assert!(
-        content.contains("hash[:content] || hash['content']"),
-        "variant field read must use single quotes:\n{content}"
+        content.contains("hash[:content] || hash[\"content\"]"),
+        "variant field read must use double quotes:\n{content}"
     );
-    // No double-quoted non-interpolated string literals leak into the dispatcher.
+    // No single-quoted non-interpolated string literals leak into the dispatcher.
     assert!(
-        !content.contains("hash[\"role\"]") && !content.contains("when \"system\""),
-        "no double-quoted literals expected in dispatcher:\n{content}"
+        !content.contains("hash['role']") && !content.contains("when 'system'"),
+        "no single-quoted literals expected in dispatcher:\n{content}"
     );
     // The interpolated raise message stays double-quoted (single quotes don't interpolate).
     assert!(
