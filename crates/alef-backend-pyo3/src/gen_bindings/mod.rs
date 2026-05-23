@@ -203,8 +203,7 @@ fn replace_constructor_with_serde_rename(
     let bridge_param = trait_bridges
         .iter()
         .find(|b| {
-            b.bind_via == alef_core::config::BridgeBinding::OptionsField
-                && b.options_type.as_deref() == Some(&typ.name)
+            b.bind_via == alef_core::config::BridgeBinding::OptionsField && b.options_type.as_deref() == Some(&typ.name)
         })
         .and_then(|b| {
             let param_name = b.param_name.as_deref()?;
