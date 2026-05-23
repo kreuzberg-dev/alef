@@ -23,7 +23,6 @@ pub fn gen_stubs(
         "  type json_value = Hash[String, untyped] | Array[untyped] | String | Integer | Float | bool | nil"
             .to_string(),
     );
-    lines.push("  type JsonValue = json_value".to_string());
     lines.push("".to_string());
 
     // Generate type stubs
