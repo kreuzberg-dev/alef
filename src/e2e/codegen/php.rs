@@ -537,6 +537,13 @@ fn render_test_file(
     let has_http_tests = fixtures.iter().any(|f| f.is_http_test());
 
     // Collect options_type class names that need `use` imports (one import per unique name).
+    // Also collects:
+    //   - per-arg `element_type` for `Vec<T>` arguments (e.g. `PageAction`).
+    //   - streaming-adapter `request_type` for fixtures that invoke a streaming
+    //     adapter call (e.g. `CrawlStreamRequest`). Without this import the
+    //     generated `new CrawlStreamRequest($url)` resolves to
+    //     `Kreuzcrawl\E2e\CrawlStreamRequest` (the test namespace) and PHPUnit
+    //     errors with `Class "...\CrawlStreamRequest" not found`.
     let mut options_type_imports: Vec<String> = fixtures
         .iter()
         .flat_map(|f| {
@@ -564,7 +571,16 @@ fn render_test_file(
                 .filter_map(|a| a.element_type.as_ref().map(|t| t.to_string()))
                 .filter(|t| !is_php_reserved_type(t))
                 .collect();
-            opt_type.map(|t| t.to_string()).into_iter().chain(element_types)
+            let adapter_request_type: Option<String> = adapters
+                .iter()
+                .find(|a| a.name == call.function.as_str())
+                .and_then(|a| a.request_type.as_deref())
+                .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+            opt_type
+                .map(|t| t.to_string())
+                .into_iter()
+                .chain(element_types)
+                .chain(adapter_request_type)
         })
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
