@@ -79,6 +79,60 @@ pub(crate) fn gen_ffi_layout(ty: &TypeRef) -> String {
     }
 }
 
+/// Build the Jackson `writer` expression that preserves generic element-type
+/// info for a `Vec<T>` / `Map<K, V>` Java parameter. Without this, `MAPPER.
+/// writeValueAsString(list)` erases T at runtime, dropping `@JsonTypeInfo`
+/// discriminators on polymorphic element types like the tagged-enum DTO
+/// `PageAction`. The returned expression is a `ObjectWriter`.
+fn build_collection_writer_for(
+    inner: &TypeRef,
+    outer: &TypeRef,
+    _opaque_types: &AHashSet<String>,
+) -> String {
+    let elem_class = java_class_literal_for(inner);
+    match outer {
+        TypeRef::Vec(_) => format!(
+            "MAPPER.writerFor(MAPPER.getTypeFactory().constructCollectionType(java.util.List.class, {elem_class}))"
+        ),
+        TypeRef::Map(k, _) => {
+            let key_class = java_class_literal_for(k);
+            format!(
+                "MAPPER.writerFor(MAPPER.getTypeFactory().constructMapType(java.util.Map.class, {key_class}, {elem_class}))"
+            )
+        }
+        _ => "MAPPER.writer()".to_string(),
+    }
+}
+
+/// Render the Java `Class<?>` literal (e.g., `String.class`, `PageAction.class`,
+/// `Integer.class`) for a Rust IR type. Used to construct typed Jackson
+/// CollectionType / MapType so polymorphic element types serialize correctly.
+fn java_class_literal_for(ty: &TypeRef) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Char => "String.class".to_string(),
+        TypeRef::Bytes => "byte[].class".to_string(),
+        TypeRef::Path => "java.nio.file.Path.class".to_string(),
+        TypeRef::Json => "Object.class".to_string(),
+        TypeRef::Unit => "Void.class".to_string(),
+        TypeRef::Duration => "Long.class".to_string(),
+        TypeRef::Primitive(prim) => match prim {
+            PrimitiveType::Bool => "Boolean.class".to_string(),
+            PrimitiveType::U8 | PrimitiveType::I8 => "Byte.class".to_string(),
+            PrimitiveType::U16 | PrimitiveType::I16 => "Short.class".to_string(),
+            PrimitiveType::U32 | PrimitiveType::I32 => "Integer.class".to_string(),
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
+                "Long.class".to_string()
+            }
+            PrimitiveType::F32 => "Float.class".to_string(),
+            PrimitiveType::F64 => "Double.class".to_string(),
+        },
+        TypeRef::Named(name) => format!("{name}.class"),
+        TypeRef::Optional(inner) => java_class_literal_for(inner),
+        TypeRef::Vec(_) => "java.util.List.class".to_string(),
+        TypeRef::Map(_, _) => "java.util.Map.class".to_string(),
+    }
+}
+
 pub(crate) fn marshal_param_to_ffi(
     out: &mut String,
     name: &str,
@@ -242,13 +296,23 @@ pub(crate) fn marshal_param_to_ffi(
                 }
             }
         }
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+        TypeRef::Vec(inner) | TypeRef::Map(_, inner) => {
             let cname = "c".to_string() + name;
+            // Jackson loses generic element-type info on a bare List<T>/Map<K,V> serialization
+            // (java type erasure: at runtime the value is `ArrayList<Click>`, the declared
+            // T is unrecoverable). For polymorphic element types annotated with
+            // `@JsonTypeInfo` (tagged-enum DTOs like `PageAction`), this drops the
+            // discriminator (`{"selector":"#x"}` instead of `{"type":"click","selector":"#x"}`)
+            // and the Rust side fails to deserialize with `missing field "type"`.
+            // Use `writerFor(TypeFactory.constructCollectionType(...))` so Jackson sees
+            // the declared element type and re-applies polymorphic typing.
+            let java_writer = build_collection_writer_for(inner, ty, opaque_types);
             out.push_str(&crate::backends::java::template_env::render(
                 "marshal_vec_map.jinja",
                 minijinja::context! {
                     cname => &cname,
                     name => name,
+                    java_writer => &java_writer,
                 },
             ));
         }

@@ -1,2 +1,2 @@
-            var {{ cname }}Json = MAPPER.writeValueAsString({{ name }});
+            var {{ cname }}Json = {{ java_writer }}.writeValueAsString({{ name }});
             var {{ cname }} = arena.allocateFrom({{ cname }}Json);
