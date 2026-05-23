@@ -1208,6 +1208,47 @@ fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
 }
 
 #[test]
+fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
+    // Packagist indexes the repo-root composer.json and PIE reads its
+    // `extra.pie.binary.url-template` to download prebuilt extension binaries.
+    // The scaffold must emit a root composer.json that mirrors the package
+    // manifest byte-for-byte except that the PSR-4 autoload src path is
+    // repointed from `src/` to `packages/php/src/`, so the same classes
+    // resolve when consumers install the package via Composer/PIE from the
+    // repo root.
+    let config = test_config();
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
+    let files = language_files(&all_files);
+
+    let pkg_composer = files
+        .iter()
+        .find(|f| f.path.to_string_lossy() == "packages/php/composer.json")
+        .expect("packages/php/composer.json must be emitted");
+    let root_composer = files
+        .iter()
+        .find(|f| f.path.to_string_lossy() == "composer.json")
+        .expect("root composer.json must be emitted at repo root for Packagist/PIE");
+
+    let expected_root = pkg_composer.content.replace("\"src/\"", "\"packages/php/src/\"");
+    assert_eq!(
+        root_composer.content, expected_root,
+        "root composer.json must equal packages/php/composer.json with autoload src repointed to packages/php/src/",
+    );
+
+    assert!(
+        root_composer.content.contains("\"url-template\":"),
+        "root composer.json must carry the extra.pie.binary url-template — PIE reads it from the indexed manifest; content:\n{}",
+        root_composer.content,
+    );
+    assert!(
+        root_composer.content.contains("\"name\": \"test/my-lib\""),
+        "root composer.json must use <owner>/<repo> as the Packagist package name; content:\n{}",
+        root_composer.content,
+    );
+}
+
+#[test]
 fn test_scaffold_dart() {
     let config = test_config();
     let api = test_api();

@@ -173,8 +173,18 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         String::new()
     };
 
-    let content = format!(
-        r#"{{
+    // Composer manifests are emitted twice with one structural difference: the
+    // PSR-4 autoload src path. The package manifest at `{pkg_dir}/composer.json`
+    // is the dev manifest used by phpstan/phpunit/php-cs-fixer inside the
+    // package directory and points at `src/`. The root manifest at
+    // `composer.json` is the one Packagist indexes and PIE installs read — it
+    // must point at `{pkg_dir}/src/` so the same PSR-4 classes resolve from
+    // the repo root. Everything else (name, php-ext block, extra.pie binary
+    // url-template, require/require-dev, scripts) is byte-identical so the two
+    // manifests stay in sync without drift.
+    let render_composer = |autoload_src: &str| -> String {
+        format!(
+            r#"{{
   "name": "{vendor}/{package_name}",
   "description": "{description}",
   "license": "{license}",
@@ -189,7 +199,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }},
   "autoload": {{
     "psr-4": {{
-      "{php_namespace}\\": "src/"
+      "{php_namespace}\\": "{autoload_src}"
     }}
   }},
   "scripts": {{
@@ -208,18 +218,23 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   }}{keywords}{pie_binary_block}
 }}
 "#,
-        vendor = vendor,
-        package_name = package_name,
-        description = meta.description,
-        license = meta.license,
-        php_namespace = php_namespace,
-        ext_name = ext_name,
-        keywords = keywords_json,
-        pie_binary_block = pie_binary_block,
-        phpstan = tv::packagist::PHPSTAN,
-        php_cs_fixer = tv::packagist::PHP_CS_FIXER,
-        phpunit = tv::packagist::PHPUNIT,
-    );
+            vendor = vendor,
+            package_name = package_name,
+            description = meta.description,
+            license = meta.license,
+            php_namespace = php_namespace,
+            autoload_src = autoload_src,
+            ext_name = ext_name,
+            keywords = keywords_json,
+            pie_binary_block = pie_binary_block,
+            phpstan = tv::packagist::PHPSTAN,
+            php_cs_fixer = tv::packagist::PHP_CS_FIXER,
+            phpunit = tv::packagist::PHPUNIT,
+        )
+    };
+
+    let content = render_composer("src/");
+    let root_content = render_composer(&format!("{pkg_dir}/src/"));
 
     let stubs_file = format!("stubs/{ext_name}_extension.php");
 
@@ -244,6 +259,14 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/composer.json")),
             content,
+            generated_header: false,
+        },
+        // Root composer.json is the Packagist/PIE manifest — Packagist indexes
+        // it from the repo root and PIE reads `extra.pie.binary.url-template`
+        // from it to download prebuilt extension binaries from GitHub Releases.
+        GeneratedFile {
+            path: PathBuf::from("composer.json"),
+            content: root_content,
             generated_header: false,
         },
         GeneratedFile {
