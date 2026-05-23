@@ -1296,18 +1296,20 @@ type = "CrawlStreamRequest"
         "next() must call _next to fetch the next chunk: {content}"
     );
     // next() must distinguish clean EOS (null + errno==0) from mid-stream error (null + errno!=0).
+    // The emitter uses the canonical `c.{prefix}_last_error_code() != 0` form rather than an
+    // undefined `_has_error()` helper.
     assert!(
-        content.contains("if (_has_error()) return _first_error(DemoError);"),
-        "next() must check error state on null chunk: {content}"
+        content.contains("if (c.demo_last_error_code() != 0) return _first_error(DemoError);"),
+        "next() must check error state on null chunk via last_error_code: {content}"
     );
     assert!(
         content.contains("return null;"),
         "next() must return null on clean EOS: {content}"
     );
-    // next() must parse the chunk to the item type.
+    // next() must parse the chunk to the item type via `std.json.parseFromSliceLeaky`.
     assert!(
-        content.contains("return try parseCrawlEventFromJson("),
-        "next() must parse JSON to item type: {content}"
+        content.contains("std.json.parseFromSliceLeaky(CrawlEvent,"),
+        "next() must parse JSON to item type via parseFromSliceLeaky: {content}"
     );
     // Struct must have deinit() method to release the stream handle.
     assert!(

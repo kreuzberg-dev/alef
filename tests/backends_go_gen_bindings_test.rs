@@ -904,27 +904,7 @@ fn test_default_config() {
         excluded_trait_names: ::std::collections::HashSet::new(),
     };
 
-    // Explicitly opt `Config` into the functional-options pattern: as of STY-9 the
-    // Go backend emits plain struct literals by default and only emits the
-    // `With<Field>` / `New<Struct>` helpers for struct names listed in
-    // `[crates.go] functional_options`.
-    let config = resolved_one(
-        r#"
-[workspace]
-languages = ["ffi", "go"]
-
-[[crates]]
-name = "test-lib"
-sources = ["src/lib.rs"]
-
-[crates.ffi]
-prefix = "test"
-
-[crates.go]
-module = "github.com/test/test-lib"
-functional_options = ["Config"]
-"#,
-    );
+    let config = make_config();
 
     let result = backend.generate_bindings(&api, &config);
     assert!(result.is_ok(), "Generation should succeed");
@@ -932,44 +912,32 @@ functional_options = ["Config"]
     let files = result.unwrap();
     let content = &files[0].content;
 
-    // Verify ConfigOption type
+    // As of STY-9 the Go backend defaults to plain struct literals + a single
+    // `Ptr[T]` helper, and only emits `With<Field>` / `New<Struct>` for struct
+    // names listed in `[crates.go] functional_options`. With no allowlist the
+    // functional-options shape must be absent.
     assert!(
-        content.contains("type ConfigOption func(*Config)"),
-        "Should define ConfigOption functional option type"
+        !content.contains("type ConfigOption"),
+        "Should NOT emit functional-options type alias by default; got:\n{content}"
+    );
+    assert!(
+        !content.contains("func WithConfig"),
+        "Should NOT emit With<Field> functional-options helpers by default; got:\n{content}"
+    );
+    assert!(
+        !content.contains("func NewConfig("),
+        "Should NOT emit a New<Struct> functional-options constructor by default; got:\n{content}"
     );
 
-    // Verify With* constructors
+    // The plain struct shape and the shared `Ptr[T]` helper must be present so
+    // callers can construct `Config{Timeout: Ptr[uint32](30)}` directly.
     assert!(
-        content.contains("func WithConfigTimeout("),
-        "Should define WithConfigTimeout constructor"
+        content.contains("type Config struct"),
+        "Should emit the plain struct definition; got:\n{content}"
     );
     assert!(
-        content.contains("func WithConfigRetries("),
-        "Should define WithConfigRetries constructor"
-    );
-    assert!(
-        content.contains("func WithConfigName("),
-        "Should define WithConfigName constructor"
-    );
-
-    // Verify NewConfig constructor
-    assert!(
-        content.contains("func NewConfig(opts ...ConfigOption)"),
-        "Should define NewConfig constructor with variadic options"
-    );
-    assert!(
-        content.contains("return c"),
-        "NewConfig should return the configured instance"
-    );
-
-    // Verify default values are set
-    assert!(
-        content.contains("Timeout:") || content.contains("timeout"),
-        "NewConfig should initialize Timeout field with default"
-    );
-    assert!(
-        content.contains("Retries:") || content.contains("retries"),
-        "NewConfig should initialize Retries field with default"
+        content.contains("func Ptr[T any](v T) *T"),
+        "Should emit the shared generic Ptr[T] helper for the plain-DTO shape; got:\n{content}"
     );
 }
 

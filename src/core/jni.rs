@@ -12,8 +12,8 @@ use heck::ToUpperCamelCase;
 ///
 /// # Examples
 /// ```
-/// assert_eq!(crate::core::jni::bridge_class_name("demo"), "DemoBridge");
-/// assert_eq!(crate::core::jni::bridge_class_name("my-lib"), "MyLibBridge");
+/// assert_eq!(alef::core::jni::bridge_class_name("demo"), "DemoBridge");
+/// assert_eq!(alef::core::jni::bridge_class_name("my-lib"), "MyLibBridge");
 /// ```
 pub fn bridge_class_name(crate_name: &str) -> String {
     format!("{}Bridge", crate_name.to_upper_camel_case())
@@ -24,8 +24,8 @@ pub fn bridge_class_name(crate_name: &str) -> String {
 ///
 /// # Examples
 /// ```
-/// assert_eq!(crate::core::jni::bridge_method_name("DemoClient", "foo"), "nativeDemoClientFoo");
-/// assert_eq!(crate::core::jni::bridge_method_name("", "createClient"), "nativeCreateClient");
+/// assert_eq!(alef::core::jni::bridge_method_name("DemoClient", "foo"), "nativeDemoClientFoo");
+/// assert_eq!(alef::core::jni::bridge_method_name("", "createClient"), "nativeCreateClient");
 /// ```
 pub fn bridge_method_name(owner: &str, method: &str) -> String {
     let owner_pascal = owner.to_upper_camel_case();
@@ -42,7 +42,7 @@ pub fn bridge_method_name(owner: &str, method: &str) -> String {
 ///
 /// # Examples
 /// ```
-/// let (start, next, free) = crate::core::jni::streaming_method_names("DemoClient", "streamData");
+/// let (start, next, free) = alef::core::jni::streaming_method_names("DemoClient", "streamData");
 /// assert_eq!(start, "nativeDemoClientStreamDataStart");
 /// assert_eq!(next, "nativeDemoClientStreamDataNext");
 /// assert_eq!(free, "nativeDemoClientStreamDataFree");
@@ -61,7 +61,7 @@ pub fn streaming_method_names(owner: &str, method: &str) -> (String, String, Str
 ///
 /// # Examples
 /// ```
-/// assert_eq!(crate::core::jni::destructor_method_name("DemoClient"), "nativeFreeDemoClient");
+/// assert_eq!(alef::core::jni::destructor_method_name("DemoClient"), "nativeFreeDemoClient");
 /// ```
 pub fn destructor_method_name(owner: &str) -> String {
     let owner_pascal = owner.to_upper_camel_case();
@@ -76,7 +76,7 @@ pub fn destructor_method_name(owner: &str) -> String {
 ///
 /// # Examples
 /// ```
-/// let sym = crate::core::jni::jni_symbol("dev.kreuzberg.demo", "DemoBridge", "nativeFoo");
+/// let sym = alef::core::jni::jni_symbol("dev.kreuzberg.demo", "DemoBridge", "nativeFoo");
 /// assert_eq!(sym, "Java_dev_kreuzberg_demo_DemoBridge_nativeFoo");
 /// ```
 pub fn jni_symbol(package: &str, class: &str, method: &str) -> String {

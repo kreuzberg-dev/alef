@@ -46,6 +46,7 @@ module = "Kreuzcrawl"
 result_var = "result"
 async = true
 returns_result = true
+options_type = "CrawlConfig"
 args = [
   {{ name = "engine", field = "config", type = "handle" }},
   {{ name = "url", field = "url", type = "string" }},

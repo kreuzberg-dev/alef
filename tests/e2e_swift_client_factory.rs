@@ -121,9 +121,14 @@ options_via = "from_json"
         rendered.contains("DefaultClient(apiKey:"),
         "must instantiate DefaultClient with apiKey. Rendered:\n{rendered}"
     );
+    // The mock server URL is exposed via `AlefE2EMockServer.baseURL` — a
+    // process-lifetime accessor that lazily spawns the alef mock-server binary
+    // and falls back to `MOCK_SERVER_URL` when it is preset by CI. Prior versions
+    // read `ProcessInfo.processInfo.environment["MOCK_SERVER_URL"]!` directly,
+    // which only worked when the env var was already exported.
     assert!(
-        rendered.contains("MOCK_SERVER_URL"),
-        "must include MOCK_SERVER_URL for mock base url. Rendered:\n{rendered}"
+        rendered.contains("AlefE2EMockServer.baseURL"),
+        "must reference AlefE2EMockServer.baseURL for the mock base url. Rendered:\n{rendered}"
     );
     assert!(
         rendered.contains("_client.chat("),
