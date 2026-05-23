@@ -57,7 +57,15 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // so that None falls back to the core type's Default (giving the real field default,
     // e.g. Duration::from_millis(30000)) rather than Duration::ZERO).
 
-    if uses_builder_pattern {
+    // Determine if we're using the builder pattern
+    let has_optionalized_fields = config.option_duration_on_defaults
+        && typ.has_default
+        && typ
+            .fields
+            .iter()
+            .any(|f| !f.optional && matches!(f.ty, TypeRef::Duration));
+
+    if has_optionalized_fields {
         // Builder pattern: start from core default, override explicitly-set fields.
         let optionalized = config.optionalize_defaults && typ.has_default;
         let mut statements = Vec::new();

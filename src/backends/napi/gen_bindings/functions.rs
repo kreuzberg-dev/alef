@@ -930,8 +930,14 @@ pub(super) fn gen_adapter_wrapper(adapter: &crate::core::config::AdapterConfig, 
                 ];
 
                 let js_struct_name = format!("Js{param_ty_name}");
-                // Check if the field type is Optional and wrap accordingly
-                let wrapped_field_value = if matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_)) {
+                // Check if the field will become optional in the NAPI binding.
+                // Fields become optional when:
+                // 1. The field is already optional in the Rust IR, OR
+                // 2. The struct has Default derive (ty_def.has_default)
+                // This matches the logic in napi/gen_bindings/types.rs line 120:
+                // let field_type = if (field.optional || typ.has_default) && !already_optional
+                let is_field_optional_in_js = (first_field.optional || ty_def.has_default) && !matches!(&first_field.ty, crate::core::ir::TypeRef::Optional(_));
+                let wrapped_field_value = if is_field_optional_in_js {
                     format!("Some({})", field_name)
                 } else {
                     field_name.clone()
