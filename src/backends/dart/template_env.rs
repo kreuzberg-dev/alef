@@ -6,6 +6,20 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("class_empty.jinja", include_str!("templates/class_empty.jinja")),
     ("class_open.jinja", include_str!("templates/class_open.jinja")),
     ("class_close.jinja", include_str!("templates/class_close.jinja")),
+    // Freezed class headers
+    ("freezed_class_open.jinja", include_str!("templates/freezed_class_open.jinja")),
+    (
+        "freezed_class_single_param.jinja",
+        include_str!("templates/freezed_class_single_param.jinja"),
+    ),
+    (
+        "freezed_constructor_close.jinja",
+        include_str!("templates/freezed_constructor_close.jinja"),
+    ),
+    (
+        "freezed_required_param.jinja",
+        include_str!("templates/freezed_required_param.jinja"),
+    ),
     // Enum declarations
     ("enum_header.jinja", include_str!("templates/enum_header.jinja")),
     ("enum_close.jinja", include_str!("templates/enum_close.jinja")),

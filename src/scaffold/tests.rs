@@ -1464,17 +1464,20 @@ style = "ffi"
     let files = language_files(&all_files);
     let pubspec = &files[0];
     assert!(pubspec.content.contains("ffi: '^2.2.0'"), "got: {}", pubspec.content);
-    for frb_only_dep in [
-        "flutter_rust_bridge:",
-        "freezed_annotation:",
-        "json_annotation:",
-        "freezed:",
-        "build_runner:",
-        "json_serializable:",
-    ] {
+    for frb_only_dep in ["flutter_rust_bridge:"] {
         assert!(
             !pubspec.content.contains(frb_only_dep),
             "FFI Dart scaffold must not include FRB-only dependency {frb_only_dep}; got:\n{}",
+            pubspec.content
+        );
+    }
+    // freezed_annotation/json_annotation/freezed/build_runner/json_serializable are now
+    // emitted in both FFI and FRB scaffolds because product-type DTOs are generated via
+    // @freezed regardless of the bridge mode (STY-10).
+    for product_dto_dep in ["freezed_annotation:", "json_annotation:", "freezed:", "build_runner:", "json_serializable:"] {
+        assert!(
+            pubspec.content.contains(product_dto_dep),
+            "FFI Dart scaffold must include product-type DTO dependency {product_dto_dep} (STY-10); got:\n{}",
             pubspec.content
         );
     }

@@ -1,0 +1,8 @@
+@freezed
+class {{ name }} with _${{ name }} {
+  const factory {{ name }}({
+    required {{ ty_str }} {{ param_name }},
+  }) = _{{ name }};
+
+  factory {{ name }}.fromJson(Map<String, dynamic> json) => _${{ name }}FromJson(json);
+}
