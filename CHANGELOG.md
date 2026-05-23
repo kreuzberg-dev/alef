@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-05-23
+
 ### Fixed
 
 - **alef-backend-java: treat non-optional fields with `#[serde(default)]` as nullable in Builder classes, initializing them to `null` instead of type-driven defaults (e.g., `List.of()` for Vec).** When a Rust struct field has `#[serde(default)]` (e.g., `ngram_range: (usize, usize)` with default `(1, 3)`), the Java binding's Builder was initializing non-optional Vec fields to `List.of()` based on the type. On JSON round-trip through Jackson, an empty list cannot deserialize as a 2-tuple, so Rust's serde fails with a deserialization error, and the FFI call returns null. The fix changes non-optional, non-enum fields with `#[serde(default)]` to use boxed types in the Builder (e.g., `List<Long>` instead of primitive `long`) and initialize them to `null`. With `@JsonInclude(NON_ABSENT)` at the class level, null fields are omitted from JSON sent to Rust, allowing Rust's serde to apply its own defaults on deserialization. This prevents round-trip mismatches for tuple fields, collections, and other types where Rust's default is not a primitive zero or empty container. Regression test added: `test_java_serde_default_tuple_field_uses_nullable_type_and_null_default` in `tests/backends_java_serde_default_tuple_test.rs`. Fixes kreuzberg e2e `testConfigKeywords` FFI call failure `java.dev.kreuzberg.InvalidInputException: Null pointer passed for parameter 'config'`. (`src/backends/java/gen_bindings/types.rs`)
