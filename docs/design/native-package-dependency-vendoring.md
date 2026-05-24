@@ -19,7 +19,7 @@ its install location (a gem cache, an sdist build dir, a hex package), the
 `../../../crates/...` tree does not exist, so `cargo build` fails to resolve the
 dependency and the install aborts:
 
-```
+```text
 failed to load source for dependency `core-lib`
   unable to update /…/gems/…/crates/core-lib
   failed to read /…/crates/core-lib/Cargo.toml

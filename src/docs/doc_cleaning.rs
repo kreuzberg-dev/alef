@@ -166,8 +166,7 @@ fn is_list_item_start(line: &str) -> bool {
             while bytes.get(idx).is_some_and(|c| c.is_ascii_digit()) {
                 idx += 1;
             }
-            matches!(bytes.get(idx), Some(b'.') | Some(b')'))
-                && matches!(bytes.get(idx + 1), Some(b' ') | Some(b'\t'))
+            matches!(bytes.get(idx), Some(b'.') | Some(b')')) && matches!(bytes.get(idx + 1), Some(b' ') | Some(b'\t'))
         }
         _ => false,
     }
@@ -1006,8 +1005,7 @@ mod tests {
         let doc = "For a typical element like `<div>`:\n1. Open tag\n2. Close tag\n";
         let result = ensure_blank_before_lists(doc);
         assert_eq!(
-            result,
-            "For a typical element like `<div>`:\n\n1. Open tag\n2. Close tag\n",
+            result, "For a typical element like `<div>`:\n\n1. Open tag\n2. Close tag\n",
             "blank line must be inserted before the ordered list"
         );
     }
@@ -1037,10 +1035,7 @@ mod tests {
     fn test_ensure_blank_before_lists_ignores_lists_inside_fenced_code() {
         let doc = "Code:\n\n```\nintro\n- not a list\n```\n";
         let result = ensure_blank_before_lists(doc);
-        assert_eq!(
-            result, doc,
-            "content inside fenced code blocks must not be touched"
-        );
+        assert_eq!(result, doc, "content inside fenced code blocks must not be touched");
     }
 
     #[test]

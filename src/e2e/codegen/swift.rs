@@ -881,21 +881,19 @@ fn render_test_method(
     };
 
     // Detect whether this call has any json_object args that cannot be constructed
-    // in Swift — swift-bridge opaque types do not provide a fromJson initialiser.
-    // When such args exist and no `options_via` is configured for swift, emit a
-    // skip stub so the test compiles but is recorded as skipped rather than
-    // generating invalid code that passes `nil` or a string literal where a
-    // strongly-typed request object is required.
-    //
-    // Args with a scalar `element_type` (e.g. `"String"`, `"i32"`, `"f64"`,
-    // `"bool"`) describe a `Vec<T>` parameter on the Rust side, which the Swift
-    // binding exposes as a native `[T]` array. These map cleanly onto Swift
-    // array literals and do not require options_via configuration.
+    // in Swift. Most json_object args are now handled:
+    // - Scalar element types (Vec<String>, Vec<i32>, etc.) map to Swift arrays directly
+    // - Array element types (Vec<DataEnum>, Vec<Struct>, etc.) are serialized to JSON strings
+    // - config args are handled via options_via or default helpers
+    // The only unresolvable case is a json_object arg with NO array (not a Vec) and no
+    // options_via configured, which should not occur in practice. We skip in only that case.
     let has_unresolvable_json_object_arg = {
         let options_via = call_overrides.and_then(|o| o.options_via.as_deref());
         options_via.is_none()
             && args.iter().any(|a| {
-                a.arg_type == "json_object" && a.name != "config" && !is_scalar_element_type(a.element_type.as_deref())
+                // json_object args with an element_type (Vec<T>) are always resolvable.
+                // Skip only non-array json_object args without options_via.
+                a.arg_type == "json_object" && a.name != "config" && a.element_type.is_none() && options_via.is_none()
             })
     };
 
@@ -908,7 +906,7 @@ fn render_test_method(
         let _ = writeln!(out, "        // {description}");
         let _ = writeln!(
             out,
-            "        try XCTSkipIf(true, \"swift: json_object request construction requires options_via configuration (fixture: {})\");",
+            "        try XCTSkipIf(true, \"swift: json_object requires options_via configuration (fixture: {})\");",
             fixture.id
         );
         let _ = writeln!(out, "    }}");
@@ -1366,6 +1364,64 @@ fn build_args_and_setup(
                     "let {var_name} = try {module_name}.{from_json_fn}(\"{escaped}\")"
                 ));
                 parts.push((idx, var_name));
+            }
+            continue;
+        }
+
+        // json_object non-config args with array values: construct Swift data-enum objects
+        // from the JSON array using the {TypeName}FromJson helper. This handles cases like
+        // interact(actions: [PageAction]) where we deserialize JSON into enum instances.
+        if arg.arg_type == "json_object"
+            && arg.element_type.is_some()
+            && !is_scalar_element_type(arg.element_type.as_deref())
+        {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            let val = input.get(field);
+            let elem_type = arg.element_type.as_deref().unwrap_or("Unknown");
+            // Convert element type to camelCase for the from-json helper name
+            let from_json_fn = format!("{}FromJson", elem_type.to_lower_camel_case());
+
+            match val {
+                Some(serde_json::Value::Array(arr)) => {
+                    let var_name = format!("{}Array", arg.name.to_lower_camel_case());
+
+                    if arr.is_empty() {
+                        // Empty array literal
+                        parts.push((idx, "[]".to_string()));
+                    } else {
+                        // For each JSON item in the array, call the helper to deserialize it
+                        let json_strs: Vec<String> =
+                            arr.iter().filter_map(|item| serde_json::to_string(item).ok()).collect();
+
+                        let mut item_vars = Vec::new();
+                        for (i, json_str) in json_strs.iter().enumerate() {
+                            let escaped = escape_swift(json_str);
+                            let item_var = format!("_item_{var_name}_{i}");
+                            // Call the {Type}FromJson helper to deserialize
+                            setup_lines.push(format!(
+                                "let {item_var} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                            ));
+                            item_vars.push(item_var);
+                        }
+
+                        // Construct the final array from all item variables
+                        setup_lines.push(format!("let {var_name} = [{}]", item_vars.join(", ")));
+                        parts.push((idx, var_name));
+                    }
+                }
+                None | Some(serde_json::Value::Null) if arg.optional => {
+                    if later_emits[idx] {
+                        parts.push((idx, "nil".to_string()));
+                    }
+                }
+                None | Some(serde_json::Value::Null) => {
+                    // Required but missing — emit empty array
+                    parts.push((idx, "[]".to_string()));
+                }
+                Some(_other) => {
+                    // Non-array value — emit empty array (shouldn't happen)
+                    parts.push((idx, "[]".to_string()));
+                }
             }
             continue;
         }
