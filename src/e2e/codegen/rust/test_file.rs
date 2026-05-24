@@ -478,10 +478,22 @@ pub fn render_test_function(
                         .unwrap_or_default();
                     // Emit the test backend stub.
                     let emission = super::super::emit_test_backend("rust", trait_bridge, &methods, fixture);
-                    let bindings = vec![emission.setup_block];
                     let expr = emission.arg_expr;
-                    for binding in &bindings {
-                        let _ = writeln!(out, "    {binding}");
+                    // Emit `use module::Symbol;` imports inside the function body so that
+                    // the trait name and any named return/param types are in scope for the
+                    // `impl TraitName for Stub` block that follows.
+                    for symbol in &emission.type_imports {
+                        let _ = writeln!(out, "    #[allow(unused_imports)]");
+                        let _ = writeln!(out, "    use {module}::{symbol};");
+                    }
+                    // Emit the stub struct + impl block, indenting every line so that the
+                    // local struct definition sits inside the test function body.
+                    for line in emission.setup_block.lines() {
+                        if line.is_empty() {
+                            let _ = writeln!(out);
+                        } else {
+                            let _ = writeln!(out, "    {line}");
+                        }
                     }
                     arg_exprs.push(expr);
                     continue;
