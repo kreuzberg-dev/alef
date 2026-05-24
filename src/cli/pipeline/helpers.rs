@@ -746,6 +746,12 @@ mod tests {
         );
     }
 
+    // POSIX-only: spawns `sh -c` and asserts `:` PATH separator semantics.
+    // Windows has no `sh` on PATH by default and uses `;` plus `\` paths, so
+    // the test's hardcoded expected string never matches there. The shell-
+    // command generator itself is exercised on Windows via the other
+    // `inline_env_in_shell_cmd_*` tests which don't invoke a real shell.
+    #[cfg(unix)]
     #[test]
     fn inline_env_in_shell_cmd_prepend_guard_evaluates_correctly_in_shell() {
         // Verify the generated string behaves correctly when executed by sh:
@@ -767,6 +773,7 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
     #[test]
     fn inline_env_in_shell_cmd_prepend_guard_has_no_stray_colon_when_var_empty() {
         // When the variable is unset/empty, the ${VAR:+:$VAR} guard expands to

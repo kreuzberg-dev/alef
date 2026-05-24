@@ -2991,11 +2991,14 @@ fn test_scaffold_elixir_mix_exs_omits_ex_glob_for_rs_only_directory() {
     std::fs::write(rs_dir.join("Cargo.toml"), "[package]\n").expect("write Cargo.toml");
 
     // Build config pointing explicit_output.elixir at the .rs-only directory.
+    // Use a TOML literal string (single quotes) so Windows backslash paths like
+    // `C:\Users\RUNNER~1\…` aren't interpreted as `\U` unicode escapes by the
+    // TOML basic-string parser.
     let explicit_path = rs_dir.to_string_lossy().to_string();
     let config = test_config_from_toml(&format!(
         r#"
 [crates.output]
-elixir = "{explicit_path}"
+elixir = '{explicit_path}'
 "#
     ));
     let api = test_api();
@@ -3036,11 +3039,13 @@ fn test_scaffold_elixir_mix_exs_includes_ex_glob_for_elixir_sources() {
     std::fs::write(ex_dir.join("helper.exs"), "# helper\n").expect("write helper.exs");
 
     // Build config pointing explicit_output.elixir at the .ex-containing directory.
+    // Single-quoted TOML literal string keeps Windows `\U`/`\R`/`\T` path segments
+    // intact (basic strings would parse them as unicode escapes and panic).
     let explicit_path = ex_dir.to_string_lossy().to_string();
     let config = test_config_from_toml(&format!(
         r#"
 [crates.output]
-elixir = "{explicit_path}"
+elixir = '{explicit_path}'
 "#
     ));
     let api = test_api();
