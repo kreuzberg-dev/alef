@@ -341,6 +341,10 @@ impl StreamingFieldResolver {
                 "swift" => {
                     format!("!{chunks_var}.isEmpty && {chunks_var}.last!.choices.first?.finishReason != nil")
                 }
+                // Ruby: choices/finish_reason are Magnus method accessors; use safe navigation
+                "ruby" => {
+                    format!("!{chunks_var}.empty? && !{chunks_var}.last&.choices&.first&.finish_reason.nil?")
+                }
                 // node/wasm/typescript
                 _ => {
                     format!(
@@ -461,6 +465,13 @@ impl StreamingFieldResolver {
                         "{chunks_var}.flatMap {{ c -> [StreamToolCall] in guard let ch = c.choices.first, let tcs = ch.delta.toolCalls else {{ return [] }}; return tcs }}"
                     )
                 }
+                // Ruby: choices/delta/tool_calls are Magnus method accessors;
+                // delta.tool_calls returns nil when absent — default to empty array.
+                "ruby" => {
+                    format!(
+                        "{chunks_var}.flat_map {{ |c| c.choices&.first&.delta&.tool_calls || [] }}"
+                    )
+                }
                 _ => {
                     format!("{chunks_var}.flatMap((c: any) => c.choices?.[0]?.delta?.toolCalls ?? [])")
                 }
@@ -532,6 +543,13 @@ impl StreamingFieldResolver {
                 "swift" => {
                     format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.choices.first?.finishReason?.rawValue)")
                 }
+                // Ruby: FinishReason is a Magnus-wrapped enum. Call .to_s to get the
+                // wire string (e.g. "tool_calls") for cross-language fixture parity.
+                "ruby" => {
+                    format!(
+                        "({chunks_var}.empty? ? nil : {chunks_var}.last&.choices&.first&.finish_reason&.to_s)"
+                    )
+                }
                 _ => {
                     format!(
                         "{chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].choices?.[0]?.finishReason : undefined"
@@ -578,6 +596,10 @@ impl StreamingFieldResolver {
                 // (Codable struct property — no method call).
                 "swift" => {
                     format!("({chunks_var}.isEmpty ? nil : {chunks_var}.last!.usage)")
+                }
+                // Ruby: usage is a Magnus method accessor; returns nil when absent.
+                "ruby" => {
+                    format!("({chunks_var}.empty? ? nil : {chunks_var}.last&.usage)")
                 }
                 _ => {
                     format!("({chunks_var}.length > 0 ? {chunks_var}[{chunks_var}.length - 1].usage : undefined)")
@@ -1895,6 +1917,125 @@ mod tests {
         assert!(
             !expr.contains(".name()"),
             "kotlin_android deep tool_calls must NOT use .name() getter, got: {expr}"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Ruby-specific accessor tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn ruby_stream_content_uses_ruby_block_syntax() {
+        let expr = StreamingFieldResolver::accessor("stream_content", "ruby", "chunks").unwrap();
+        // Must use Ruby block syntax, not JS arrow function
+        assert!(
+            !expr.contains("=>"),
+            "ruby stream_content must not contain JS arrow `=>`, got: {expr}"
+        );
+        assert!(
+            expr.contains("{ |c|"),
+            "ruby stream_content must use Ruby block `{{ |c|`, got: {expr}"
+        );
+        assert!(
+            expr.contains(".join"),
+            "ruby stream_content must use .join, got: {expr}"
+        );
+        assert!(
+            expr.contains("c.choices"),
+            "ruby stream_content must access .choices, got: {expr}"
+        );
+        assert!(
+            expr.contains(".delta"),
+            "ruby stream_content must access .delta, got: {expr}"
+        );
+        assert!(
+            expr.contains(".content"),
+            "ruby stream_content must access .content, got: {expr}"
+        );
+        // Must not use TypeScript optional-chaining syntax
+        assert!(
+            !expr.contains("?.["),
+            "ruby stream_content must not use TS optional chaining `?.[`, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn ruby_stream_complete_uses_ruby_nil_predicate() {
+        let expr = StreamingFieldResolver::accessor("stream_complete", "ruby", "chunks").unwrap();
+        // Must use Ruby nil? not JS != null
+        assert!(
+            !expr.contains("!= null"),
+            "ruby stream_complete must not use JS `!= null`, got: {expr}"
+        );
+        assert!(
+            expr.contains(".nil?"),
+            "ruby stream_complete must use .nil?, got: {expr}"
+        );
+        assert!(
+            expr.contains(".empty?"),
+            "ruby stream_complete must use .empty?, got: {expr}"
+        );
+        assert!(
+            expr.contains("finish_reason"),
+            "ruby stream_complete must reference finish_reason, got: {expr}"
+        );
+        // Must not use TypeScript optional-chaining syntax
+        assert!(
+            !expr.contains("?.["),
+            "ruby stream_complete must not use TS optional chaining `?.[`, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn ruby_tool_calls_uses_ruby_flat_map_block() {
+        let expr = StreamingFieldResolver::accessor("tool_calls", "ruby", "chunks").unwrap();
+        // Must use Ruby flat_map with block syntax, not JS flatMap with arrow
+        assert!(
+            !expr.contains("=>"),
+            "ruby tool_calls must not contain JS arrow `=>`, got: {expr}"
+        );
+        assert!(
+            expr.contains("flat_map"),
+            "ruby tool_calls must use flat_map, got: {expr}"
+        );
+        assert!(
+            expr.contains("{ |c|"),
+            "ruby tool_calls must use Ruby block `{{ |c|`, got: {expr}"
+        );
+        assert!(
+            expr.contains("tool_calls"),
+            "ruby tool_calls must reference tool_calls, got: {expr}"
+        );
+        // Must not use TypeScript optional-chaining syntax
+        assert!(
+            !expr.contains("?.["),
+            "ruby tool_calls must not use TS optional chaining `?.[`, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn ruby_finish_reason_uses_to_s_not_get_value() {
+        let expr = StreamingFieldResolver::accessor("finish_reason", "ruby", "chunks").unwrap();
+        // Must use Ruby .to_s, not JS undefined or TS syntax
+        assert!(
+            !expr.contains("undefined"),
+            "ruby finish_reason must not use JS `undefined`, got: {expr}"
+        );
+        assert!(
+            !expr.contains(".length"),
+            "ruby finish_reason must not use JS .length, got: {expr}"
+        );
+        assert!(
+            expr.contains(".empty?"),
+            "ruby finish_reason must use .empty?, got: {expr}"
+        );
+        assert!(
+            expr.contains("finish_reason"),
+            "ruby finish_reason must reference finish_reason, got: {expr}"
+        );
+        assert!(
+            expr.contains(".to_s"),
+            "ruby finish_reason must call .to_s on the enum, got: {expr}"
         );
     }
 }
