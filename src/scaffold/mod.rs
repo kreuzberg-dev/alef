@@ -558,7 +558,8 @@ fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) 
             // resolve the actual output directory from the configured target here.
             Language::Kotlin => {
                 let dir = if let Some(k) = config.kotlin.as_ref() {
-                    if k.mode.as_deref() == Some("kmp") || k.target == crate::core::config::KotlinTarget::Multiplatform {
+                    if k.mode.as_deref() == Some("kmp") || k.target == crate::core::config::KotlinTarget::Multiplatform
+                    {
                         "packages/kotlin-mpp".to_string()
                     } else if k.target == crate::core::config::KotlinTarget::Native {
                         "packages/kotlin-native".to_string()
