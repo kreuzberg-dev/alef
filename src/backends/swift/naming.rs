@@ -3,6 +3,21 @@
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::template_versions;
 
+/// Return the canonical Swift protocol name for a trait bridge.
+///
+/// Both the production wrapper codegen (`gen_bindings/trait_bridge.rs`) and the
+/// e2e stub emitter (`e2e/codegen/swift.rs`) must call this function so that a
+/// rename in one place is automatically reflected in the other.
+///
+/// # Example
+/// ```
+/// use alef::backends::swift::naming::bridge_protocol_name;
+/// assert_eq!(bridge_protocol_name("OcrBackend"), "SwiftOcrBackendBridge");
+/// ```
+pub fn bridge_protocol_name(trait_name: &str) -> String {
+    format!("Swift{trait_name}Bridge")
+}
+
 /// Get the swift-bridge version to pin in the generated `Cargo.toml`.
 ///
 /// Returns the per-crate override from `[crates.swift] swift_bridge_version` when set;

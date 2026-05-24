@@ -54,9 +54,16 @@ pub fn language_defaults(language: &str) -> Box<dyn LanguageDefaults> {
 fn prim_default(p: &PrimitiveType) -> (&'static str, &'static str) {
     match p {
         PrimitiveType::Bool => ("false", "False"),
-        PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 |
-        PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 |
-        PrimitiveType::Isize | PrimitiveType::Usize => ("0", "0"),
+        PrimitiveType::I8
+        | PrimitiveType::I16
+        | PrimitiveType::I32
+        | PrimitiveType::I64
+        | PrimitiveType::U8
+        | PrimitiveType::U16
+        | PrimitiveType::U32
+        | PrimitiveType::U64
+        | PrimitiveType::Isize
+        | PrimitiveType::Usize => ("0", "0"),
         PrimitiveType::F32 | PrimitiveType::F64 => ("0.0", "0.0"),
     }
 }
@@ -88,7 +95,7 @@ impl LanguageDefaults for PythonDefaults {
             TypeRef::Primitive(p) => {
                 let (_, python_val) = prim_default(p);
                 python_val.to_string()
-            },
+            }
             TypeRef::String => "\"\"".to_string(),
             TypeRef::Bytes => "b\"\"".to_string(),
             TypeRef::Vec(_) => "[]".to_string(),

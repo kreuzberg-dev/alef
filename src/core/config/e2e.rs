@@ -739,7 +739,7 @@ pub struct ArgMapping {
     /// When `arg_type = "test_backend"`, this field specifies which trait's bridge
     /// codegen should be used to create the test stub instance. Only used when
     /// `arg_type = "test_backend"`.
-    #[serde(default)]
+    #[serde(default, alias = "trait")]
     pub trait_name: Option<String>,
 }
 

@@ -3605,9 +3605,7 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    use crate::backends::go::type_map::go_type;
     use crate::codegen::defaults::language_defaults;
-    use crate::core::ir::TypeRef;
     use crate::e2e::escape::sanitize_ident;
 
     let defaults = language_defaults("go");
@@ -3620,70 +3618,110 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "type {struct_name} struct{{}}");
     setup.push('\n');
 
-    // Plugin super-trait: Name() returns the fixture id; other lifecycle methods are no-ops.
-    if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "func ({struct_name}) Name() string {{ return \"{safe_id}\" }}");
-        let _ = writeln!(setup, "func ({struct_name}) Version() string {{ return \"0.0.1\" }}");
-        let _ = writeln!(setup, "func ({struct_name}) Initialize() error {{ return nil }}");
-        let _ = writeln!(setup, "func ({struct_name}) Shutdown() error {{ return nil }}");
-        setup.push('\n');
+    // Super-trait methods: filter by trait_source matching the configured super_trait.
+    // Driven from IR — no method names are hardcoded. The `name` method returns the
+    // fixture id; all other super-trait methods use the standard per-method logic.
+    if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
+        let super_methods: Vec<_> = methods
+            .iter()
+            .filter(|m| m.trait_source.as_deref() == Some(super_trait))
+            .collect();
+        for method in &super_methods {
+            let go_method = method_to_camel(&method.name);
+            if method.name == "name" {
+                let _ = writeln!(
+                    setup,
+                    "func ({struct_name}) {go_method}() string {{ return \"{safe_id}\" }}"
+                );
+            } else {
+                emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults);
+            }
+        }
+        if !super_methods.is_empty() {
+            setup.push('\n');
+        }
     }
 
-    // Emit method stubs for all required methods (skip those with default implementations).
+    // Emit method stubs for all required methods (skip default-impl and super-trait methods).
     for method in methods.iter().filter(|m| !m.has_default_impl) {
+        // Skip super-trait methods already emitted above.
+        if trait_bridge
+            .super_trait
+            .as_deref()
+            .is_some_and(|st| method.trait_source.as_deref() == Some(st))
+        {
+            continue;
+        }
         let go_method = method_to_camel(&method.name);
-
-        // Build parameter list: `name GoType` pairs.
-        let params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| {
-                let go_param = go_param_name(&p.name);
-                let type_str = go_type(&p.ty).into_owned();
-                format!("{go_param} {type_str}")
-            })
-            .collect();
-        let param_str = params.join(", ");
-
-        // Build return type.
-        let return_type_str = if method.error_type.is_some() {
-            match &method.return_type {
-                TypeRef::Unit => "error".to_string(),
-                _ => {
-                    let ret = go_type(&method.return_type).into_owned();
-                    format!("({ret}, error)")
-                }
-            }
-        } else {
-            go_type(&method.return_type).into_owned()
-        };
-
-        // Build return expression.
-        let return_expr = if method.error_type.is_some() {
-            match &method.return_type {
-                TypeRef::Unit => "return nil".to_string(),
-                _ => {
-                    let default_val = defaults.emit_default(&method.return_type);
-                    format!("return {default_val}, nil")
-                }
-            }
-        } else if matches!(method.return_type, TypeRef::Unit) {
-            String::new()
-        } else {
-            let default_val = defaults.emit_default(&method.return_type);
-            format!("return {default_val}")
-        };
-
-        let _ = writeln!(
-            setup,
-            "func ({struct_name}) {go_method}({param_str}) {return_type_str} {{ {return_expr} }}"
-        );
+        emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults);
     }
 
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{struct_name}{{}}"),
     }
+}
+
+/// Emit a single Go stub method receiver function into `out`.
+///
+/// Used by both the main method loop and the super-trait method section of
+/// `emit_test_backend` so both paths share the same formatting logic.
+/// `go_method` is the already-PascalCased method name (caller's responsibility).
+fn emit_go_stub_method_body(
+    out: &mut String,
+    struct_name: &str,
+    go_method: &str,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) {
+    use crate::backends::go::type_map::go_type;
+    use crate::core::ir::TypeRef;
+
+    // Build parameter list: `name GoType` pairs.
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let go_param = go_param_name(&p.name);
+            let type_str = go_type(&p.ty).into_owned();
+            format!("{go_param} {type_str}")
+        })
+        .collect();
+    let param_str = params.join(", ");
+
+    // Build return type.
+    let return_type_str = if method.error_type.is_some() {
+        match &method.return_type {
+            TypeRef::Unit => "error".to_string(),
+            _ => {
+                let ret = go_type(&method.return_type).into_owned();
+                format!("({ret}, error)")
+            }
+        }
+    } else {
+        go_type(&method.return_type).into_owned()
+    };
+
+    // Build return expression.
+    let return_expr = if method.error_type.is_some() {
+        match &method.return_type {
+            TypeRef::Unit => "return nil".to_string(),
+            _ => {
+                let default_val = defaults.emit_default(&method.return_type);
+                format!("return {default_val}, nil")
+            }
+        }
+    } else if matches!(method.return_type, TypeRef::Unit) {
+        String::new()
+    } else {
+        let default_val = defaults.emit_default(&method.return_type);
+        format!("return {default_val}")
+    };
+
+    let _ = writeln!(
+        out,
+        "func ({struct_name}) {go_method}({param_str}) {return_type_str} {{ {return_expr} }}"
+    );
 }
 
 #[cfg(test)]
@@ -3797,10 +3835,15 @@ mod trait_bridge_tests {
             "setup_block must contain struct declaration, got:\n{}",
             emission.setup_block
         );
-        // Must emit Name() when super_trait is set.
+        // With trait_source: None, super-trait methods are NOT emitted — no hardcoded lifecycle names.
         assert!(
-            emission.setup_block.contains("Name()"),
-            "setup_block must emit Name() for super_trait, got:\n{}",
+            !emission.setup_block.contains("Initialize"),
+            "setup_block must not contain hardcoded 'Initialize', got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("Shutdown"),
+            "setup_block must not contain hardcoded 'Shutdown', got:\n{}",
             emission.setup_block
         );
         // arg_expr is the struct literal.
@@ -3813,6 +3856,83 @@ mod trait_bridge_tests {
             emission.arg_expr.ends_with("{}"),
             "arg_expr must be a struct literal, got: {}",
             emission.arg_expr
+        );
+    }
+
+    /// Verify that super-trait methods with `trait_source` set are driven from
+    /// the IR slice rather than a hardcoded list of method names.
+    ///
+    /// A synthetic `Plugin` super-trait with methods `name`, `version`, `init`
+    /// (note: `init`, NOT `Initialize`) is passed via `trait_source`. The emitter
+    /// must emit `Init` (PascalCase of `init`), NOT the previously-hardcoded
+    /// `Initialize` string, proving the method names come from IR.
+    #[test]
+    fn test_go_super_trait_methods_driven_from_ir_not_hardcoded() {
+        let make_super_method = |name: &str, ret: TypeRef| -> MethodDef {
+            MethodDef {
+                name: name.to_string(),
+                params: vec![],
+                return_type: ret,
+                is_async: false,
+                is_static: false,
+                error_type: None,
+                doc: String::new(),
+                receiver: Some(crate::core::ir::ReceiverKind::Ref),
+                sanitized: false,
+                // trait_source matches the super_trait configured on the bridge.
+                trait_source: Some("Plugin".to_string()),
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }
+        };
+
+        let name_method = make_super_method("name", TypeRef::String);
+        let version_method = make_super_method("version", TypeRef::String);
+        let init_method = make_super_method("init", TypeRef::Unit);
+
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "TestPlugin".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_test_plugin".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let fixture = make_fixture("my_plugin_fixture");
+        let methods = vec![&name_method, &version_method, &init_method];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // Must emit `Init` (PascalCase of "init"), not the old hardcoded "Initialize".
+        assert!(
+            emission.setup_block.contains("Init("),
+            "setup_block must contain 'Init(' (from IR), got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            !emission.setup_block.contains("Initialize"),
+            "setup_block must NOT contain hardcoded 'Initialize', got:\n{}",
+            emission.setup_block
+        );
+        // `Version` comes from IR method name "version".
+        assert!(
+            emission.setup_block.contains("Version("),
+            "setup_block must contain 'Version(' (from IR), got:\n{}",
+            emission.setup_block
+        );
+        // Must not contain old hardcoded `Shutdown`.
+        assert!(
+            !emission.setup_block.contains("Shutdown"),
+            "setup_block must NOT contain hardcoded 'Shutdown', got:\n{}",
+            emission.setup_block
+        );
+        // `Name()` is emitted and returns the fixture id.
+        assert!(
+            emission.setup_block.contains("Name()"),
+            "setup_block must contain Name() from IR name method, got:\n{}",
+            emission.setup_block
         );
     }
 }

@@ -12,6 +12,7 @@
 //! 3. A `register<TraitName>(_ bridge: Swift<TraitName>Bridge)` function that
 //!    constructs the adapter, boxes it, and calls into Rust to register it.
 
+use crate::backends::swift::naming::bridge_protocol_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
@@ -34,7 +35,10 @@ pub fn gen_trait_bridge_files(bridges: &[(String, &TraitBridgeConfig, &TypeDef)]
         }
 
         let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def);
-        let filename = format!("Swift{}Bridge.swift", trait_name);
+        // Use the canonical protocol name as the filename base so the filename
+        // stays in sync with the protocol declaration.
+        let protocol = bridge_protocol_name(trait_name);
+        let filename = format!("{protocol}.swift");
         files.push((filename, content));
     }
 
@@ -53,11 +57,12 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
     out.push_str("import RustBridge\n\n");
 
     // MARK: Protocol Declaration
+    let protocol = bridge_protocol_name(trait_name);
     out.push_str(&format!(
         "/// Protocol for outbound `{trait_name}` implementations.\n\
          /// Conform your Swift class or struct to this protocol to implement\n\
          /// a Rust trait from the host side.\n\
-         public protocol Swift{trait_name}Bridge: AnyObject {{\n"
+         public protocol {protocol}: AnyObject {{\n"
     ));
 
     for method in &trait_def.methods {
@@ -80,15 +85,15 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
 
     // MARK: Adapter Class
     out.push_str(&format!(
-        "/// Internal adapter wrapping a `Swift{trait_name}Bridge` conformer.\n\
+        "/// Internal adapter wrapping a `{protocol}` conformer.\n\
          /// Exposes C function pointers that call the bridge implementation.\n\
          final class Swift{trait_name}Adapter {{\n\
-         \x20   private let bridge: any Swift{trait_name}Bridge\n\n"
+         \x20   private let bridge: any {protocol}\n\n"
     ));
 
     // Constructor
     out.push_str(&format!(
-        "    init(bridge: any Swift{trait_name}Bridge) {{\n\
+        "    init(bridge: any {protocol}) {{\n\
          \x20\x20\x20\x20self.bridge = bridge\n\
          \x20   }}\n\n"
     ));
@@ -118,8 +123,8 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
         let camel = register_fn.to_lower_camel_case();
         out.push_str(&format!(
             "/// Register an outbound `{trait_name}` plugin.\n\
-             /// Pass an instance conforming to `Swift{trait_name}Bridge`.\n\
-             public func {camel}(_ bridge: any Swift{trait_name}Bridge) throws {{\n\
+             /// Pass an instance conforming to `{protocol}`.\n\
+             public func {camel}(_ bridge: any {protocol}) throws {{\n\
              \x20   let adapter = Swift{trait_name}Adapter(bridge: bridge)\n\
              \x20   // Call into Rust to register the adapter\n\
              \x20   try RustBridge.{camel}(adapter)\n\

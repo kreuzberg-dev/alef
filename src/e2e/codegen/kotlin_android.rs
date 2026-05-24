@@ -595,9 +595,10 @@ pub fn emit_test_backend(
 
     let pascal_id = fixture.id.to_upper_camel_case();
     let class_name = format!("TestStub{pascal_id}");
-    // Kotlin Android uses I{TraitName} as the interface and {TraitName}Bridge as the bridge object.
+    // Kotlin Android uses I{TraitName} as the interface.
     let interface_name = format!("I{}", trait_bridge.trait_name);
-    let bridge_object = format!("{}Bridge", trait_bridge.trait_name);
+    // Use the canonical naming helper so both production and e2e emit the same bridge object name.
+    let bridge_object = crate::backends::kotlin_android::naming::bridge_object_name(&trait_bridge.trait_name);
 
     let plugin_name = fixture
         .input
