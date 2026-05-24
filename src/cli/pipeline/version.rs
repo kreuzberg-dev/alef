@@ -528,12 +528,47 @@ pub fn sync_versions(
 
     // Python: pyproject.toml — convert semver pre-release to PEP 440 format
     // e.g., "0.1.0-rc.1" → "0.1.0rc1", "0.1.0-alpha.2" → "0.1.0a2", "0.1.0-beta.3" → "0.1.0b3"
+    //
+    // Three candidate paths are checked, deduplicated by canonicalized path:
+    //   1. "packages/python/pyproject.toml" — legacy default kept for back-compat.
+    //   2. "{config.package_dir(Language::Python)}/pyproject.toml" — configurable
+    //      distribution manifest (e.g. when [crates.output] python = "packages/mypkg/").
+    //   3. "{config.output_for("python")}/pyproject.toml" — the maturin-build
+    //      pyproject that lives alongside the PyO3 source crate (e.g.
+    //      "crates/{lib}-py/src/pyproject.toml").  This was the missed case that
+    //      caused version drift in kreuzcrawl rc.24 (job 77612730306).
     let python_version = to_pep440(&version);
-    if let Ok(content) = std::fs::read_to_string("packages/python/pyproject.toml") {
-        if let Some(new_content) = replace_version_pattern(&content, r#"version = "[^"]*""#, &python_version) {
-            std::fs::write("packages/python/pyproject.toml", &new_content)
-                .context("failed to write packages/python/pyproject.toml")?;
-            updated.push("packages/python/pyproject.toml".to_string());
+    {
+        let pkg_dir = config.package_dir(Language::Python);
+        let mut python_paths: Vec<String> = vec![
+            "packages/python/pyproject.toml".to_string(),
+            std::path::Path::new(&pkg_dir)
+                .join("pyproject.toml")
+                .to_string_lossy()
+                .into_owned(),
+        ];
+        if let Some(output_dir) = config.output_for("python") {
+            python_paths.push(output_dir.join("pyproject.toml").to_string_lossy().into_owned());
+        }
+        // Dedup by canonicalized path so we don't write the same file twice when
+        // multiple candidates resolve to the same location on disk.
+        let mut seen_canonical: std::collections::HashSet<std::path::PathBuf> = std::collections::HashSet::new();
+        for python_path in python_paths {
+            // Soft-skip missing files — not every repo uses every layout.
+            let canonical = match std::fs::canonicalize(&python_path) {
+                Ok(p) => p,
+                Err(_) => continue,
+            };
+            if !seen_canonical.insert(canonical) {
+                continue;
+            }
+            if let Ok(content) = std::fs::read_to_string(&python_path) {
+                if let Some(new_content) = replace_version_pattern(&content, r#"version = "[^"]*""#, &python_version) {
+                    std::fs::write(&python_path, &new_content)
+                        .with_context(|| format!("failed to write {python_path}"))?;
+                    updated.push(python_path);
+                }
+            }
         }
     }
 
