@@ -3531,11 +3531,15 @@ fn emit_async_free_function_forwarder(
     let (bridge_call, return_stmt) = match &func.return_type {
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
-            (format!("try RustBridge.{swift_name}({args})"),
-             format!("        return try {struct_name}(_rb_obj)"))
+            (
+                format!("try RustBridge.{swift_name}({args})"),
+                format!("        return try {struct_name}(_rb_obj)"),
+            )
         }
-        _ => (format!("try RustBridge.{swift_name}({args})"),
-              "        return result".to_string()),
+        _ => (
+            format!("try RustBridge.{swift_name}({args})"),
+            "        return result".to_string(),
+        ),
     };
 
     out.push_str(&format!(

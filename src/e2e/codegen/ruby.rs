@@ -866,54 +866,9 @@ fn render_chat_stream_example(
 
     // Build aggregators inside a block so the iterator drives the stream synchronously.
     out.push_str("    chunks = []\n");
-    out.push_str("    stream_content = ''.dup\n");
     out.push_str("    stream_complete = false\n");
-    if needs_finish_reason {
-        out.push_str("    last_finish_reason = nil\n");
-    }
-    if needs_tool_calls_json {
-        out.push_str("    tool_calls_json = nil\n");
-    }
-    if needs_tool_calls_0_function_name {
-        out.push_str("    tool_calls_0_function_name = nil\n");
-    }
-    if needs_total_tokens {
-        out.push_str("    total_tokens = nil\n");
-    }
     out.push_str(&format!("    {call_expr} do |chunk|\n"));
     out.push_str("      chunks << chunk\n");
-    out.push_str("      choice = chunk.choices && chunk.choices[0]\n");
-    out.push_str("      if choice\n");
-    out.push_str("        delta = choice.delta\n");
-    out.push_str("        if delta && delta.content\n");
-    out.push_str("          stream_content << delta.content\n");
-    out.push_str("        end\n");
-    if needs_finish_reason {
-        out.push_str("        if choice.finish_reason\n");
-        out.push_str("          last_finish_reason = choice.finish_reason.to_s\n");
-        out.push_str("        end\n");
-    }
-    if needs_tool_calls_json || needs_tool_calls_0_function_name {
-        out.push_str("        tcs = delta && delta.tool_calls\n");
-        out.push_str("        if tcs && !tcs.empty?\n");
-        if needs_tool_calls_json {
-            out.push_str(
-                "          tool_calls_json ||= tcs.map { |tc| { 'function' => { 'name' => (tc.function && tc.function.name rescue nil) } } }.to_json\n",
-            );
-        }
-        if needs_tool_calls_0_function_name {
-            out.push_str(
-                "          tool_calls_0_function_name ||= (tcs[0].function && tcs[0].function.name rescue nil)\n",
-            );
-        }
-        out.push_str("        end\n");
-    }
-    out.push_str("      end\n");
-    if needs_total_tokens {
-        out.push_str("      if chunk.usage && chunk.usage.total_tokens\n");
-        out.push_str("        total_tokens = chunk.usage.total_tokens\n");
-        out.push_str("      end\n");
-    }
     out.push_str("    end\n");
     out.push_str("    stream_complete = true\n");
 
@@ -956,16 +911,22 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_conf
         Unsupported,
     }
 
-    let (expr, kind) = match field {
-        "chunks" => ("chunks", Kind::Chunks),
-        "stream_content" => ("stream_content", Kind::Str),
-        "stream_complete" => ("stream_complete", Kind::Bool),
-        "no_chunks_after_done" => ("stream_complete", Kind::Bool),
-        "finish_reason" => ("last_finish_reason", Kind::Str),
-        "tool_calls" => ("tool_calls_json", Kind::Json),
-        "tool_calls[0].function.name" => ("tool_calls_0_function_name", Kind::Str),
-        "usage.total_tokens" => ("total_tokens", Kind::IntTokens),
-        _ => ("", Kind::Unsupported),
+    // Use StreamingFieldResolver to compute field expressions from chunks.
+    let expr_opt = crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
+        field, "ruby", "chunks", None, None,
+    );
+
+    let (expr, kind) = match (field, expr_opt) {
+        ("chunks", Some(expr)) => (expr, Kind::Chunks),
+        ("chunks.length", Some(expr)) => (expr, Kind::Chunks),
+        ("stream_content", Some(expr)) => (expr, Kind::Str),
+        ("finish_reason", Some(expr)) => (expr, Kind::Str),
+        ("tool_calls", Some(expr)) => (expr, Kind::Json),
+        ("tool_calls[0].function.name", Some(expr)) => (expr, Kind::Str),
+        ("usage.total_tokens", Some(expr)) => (expr, Kind::IntTokens),
+        ("stream_complete", None) => ("stream_complete".to_string(), Kind::Bool),
+        ("no_chunks_after_done", None) => ("stream_complete".to_string(), Kind::Bool),
+        _ => ("".to_string(), Kind::Unsupported),
     };
 
     if matches!(kind, Kind::Unsupported) {
