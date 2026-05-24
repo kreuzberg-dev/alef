@@ -6,7 +6,7 @@ use crate::core::template_versions as tv;
 /// Render a `Cargo.toml` for the Rust e2e test crate.
 ///
 /// Generates all dependency lines based on which test features are needed
-/// (mock server, HTTP tests, tokio, etc.).
+/// (mock server, HTTP tests, tokio, trait-bridge stubs, etc.).
 #[allow(clippy::too_many_arguments)]
 pub fn render_cargo_toml(
     crate_name: &str,
@@ -17,6 +17,7 @@ pub fn render_cargo_toml(
     needs_http_tests: bool,
     needs_tokio: bool,
     needs_tower_http: bool,
+    needs_anyhow: bool,
     dep_mode: crate::e2e::config::DependencyMode,
     version: Option<&str>,
     features: &[String],
@@ -116,6 +117,12 @@ pub fn render_cargo_toml(
         machete_ignored.push("\"tower-http\"");
         machete_ignored.push("\"tempfile\"");
     }
+    // anyhow and async-trait are deps used by trait-bridge stubs; machete would
+    // flag them as unused since they're only referenced in generated impl code.
+    if needs_anyhow {
+        machete_ignored.push("\"anyhow\"");
+        machete_ignored.push("\"async-trait\"");
+    }
     let machete_section = if machete_ignored.is_empty() {
         String::new()
     } else {
@@ -128,6 +135,17 @@ pub fn render_cargo_toml(
         "\ntokio = { version = \"1\", features = [\"full\"] }"
     } else {
         ""
+    };
+    // Trait-bridge stubs use `#[async_trait]` on impl blocks (required when the
+    // trait itself is `#[async_trait]`-decorated).  `anyhow` is kept as a direct
+    // dep for any crates that still reference `anyhow::Error` in fixture code.
+    let anyhow_line = if needs_anyhow {
+        format!(
+            "\nanyhow = \"1\"\nasync-trait = \"{async_trait}\"",
+            async_trait = tv::cargo::ASYNC_TRAIT,
+        )
+    } else {
+        String::new()
     };
     let bin_section = if needs_mock_server || needs_http_tests {
         "\n[[bin]]\nname = \"mock-server\"\npath = \"src/main.rs\"\n"
@@ -151,7 +169,7 @@ license = "MIT"
 publish = false
 {bin_section}
 [dependencies]
-{dep_spec}{serde_line}{mock_lines}{tokio_line}
+{dep_spec}{serde_line}{anyhow_line}{mock_lines}{tokio_line}
 {machete_section}"#
     )
 }
@@ -169,6 +187,7 @@ mod tests {
             "my-crate",
             "my_crate",
             "../../crates/my-crate",
+            false,
             false,
             false,
             false,
@@ -192,6 +211,7 @@ mod tests {
             "my_crate",
             "my_crate",
             "../../crates/my_crate",
+            false,
             false,
             false,
             false,

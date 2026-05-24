@@ -83,6 +83,21 @@ impl E2eCodegen for RustE2eCodegen {
             .any(|c| c.r#async);
         let needs_tokio = needs_mock_server || needs_http_tests || any_async_call;
 
+        // anyhow is needed when any fixture uses a `test_backend` arg: the generated
+        // Rust trait-bridge stubs reference `anyhow::Error` in their method signatures
+        // because kreuzberg plugin traits declare `-> Result<T, anyhow::Error>`.
+        // Without this direct dependency the stubs fail to compile with E0433.
+        let all_call_args_for_anyhow = std::iter::once(&e2e_config.call)
+            .chain(e2e_config.calls.values())
+            .flat_map(|c| c.args.iter())
+            .any(|a| a.arg_type == "test_backend");
+        let any_fixture_test_backend = groups
+            .iter()
+            .flat_map(|g| g.fixtures.iter())
+            .filter(|f| !is_skipped(f, "rust"))
+            .any(|f| f.args.iter().any(|a| a.arg_type == "test_backend"));
+        let needs_anyhow = all_call_args_for_anyhow || any_fixture_test_backend;
+
         let crate_version = resolve_crate_version(e2e_config).or_else(|| config.resolved_version());
         files.push(GeneratedFile {
             path: output_base.join("Cargo.toml"),
@@ -95,6 +110,7 @@ impl E2eCodegen for RustE2eCodegen {
                 needs_http_tests,
                 needs_tokio,
                 needs_tower_http,
+                needs_anyhow,
                 e2e_config.dep_mode,
                 crate_version.as_deref(),
                 &config.features,
@@ -192,6 +208,10 @@ fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
 ///
 /// The returned `arg_expr` wraps the stub in `std::sync::Arc::new(...)`, which
 /// is the form expected by the generated `register_<trait>` function.
+///
+/// The `type_imports` field on the returned emission lists short symbol names
+/// (trait name plus any named types referenced in method signatures) that the
+/// caller must import from the crate under test so the stub compiles.
 pub fn emit_test_backend(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -206,82 +226,285 @@ pub fn emit_test_backend(
     let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let defaults = language_defaults("rust");
 
+    // Collect named types that must be imported (trait name + return/param types).
+    let mut type_imports: Vec<String> = Vec::new();
+    // The trait itself must be in scope for `impl TraitName for ...` to resolve.
+    type_imports.push(trait_name.clone());
+
     let mut setup = String::new();
+
+    // Derive the crate module name from the super_trait path (e.g. "kreuzberg::plugins::Plugin"
+    // → "kreuzberg"). Used to qualify single-arg `Result<T>` return types so that stub method
+    // signatures match the trait declaration (which uses a crate-level `Result` alias).
+    let crate_module: Option<&str> = trait_bridge
+        .super_trait
+        .as_deref()
+        .and_then(|s| s.split("::").next())
+        .filter(|s| !s.is_empty());
 
     // Struct definition with a cached name field.
     let _ = writeln!(setup, "struct {stub_name} {{ _name: &'static str }}");
 
-    // Impl block.
-    let _ = writeln!(setup, "impl {trait_name} for {stub_name} {{");
-
-    // name() from Plugin super-trait, if configured.
-    if trait_bridge.super_trait.is_some() {
+    // When the trait has a super-trait (e.g. Plugin), emit a separate impl block
+    // for it first.  Putting super-trait methods inside `impl TraitName for ...`
+    // is a compile error (E0407).
+    if let Some(super_trait) = &trait_bridge.super_trait {
+        // Derive a short import alias: take the last path segment.
+        let super_short = super_trait.split("::").last().unwrap_or(super_trait.as_str());
+        // Use the fully-qualified path in the impl header so it resolves without
+        // an extra `use` import.
+        let _ = writeln!(setup, "impl {super_trait} for {stub_name} {{");
         let _ = writeln!(setup, "    fn name(&self) -> &str {{ self._name }}");
+        let _ = writeln!(setup, "}}");
+        // Track the short name for import, but only if it's not already qualified.
+        if !super_short.is_empty() && !super_trait.contains("::") {
+            type_imports.push(super_short.to_string());
+        }
     }
+
+    // Determine if any required method is async so we know whether to add #[async_trait].
+    let has_async_methods = methods.iter().any(|m| {
+        !m.has_default_impl
+            && !(trait_bridge.super_trait.is_some() && m.name == "name")
+            && m.is_async
+    });
+
+    // When the trait has async methods (decorated with #[async_trait] in Rust), the
+    // impl block must also carry `#[async_trait]`.  Without it the async fn signatures
+    // won't match the trait's `BoxFuture`-transformed signatures and the compiler
+    // emits E0195 (lifetime bounds mismatch).
+    if has_async_methods {
+        let _ = writeln!(setup, "#[async_trait::async_trait]");
+    }
+
+    // Impl block for the main trait.
+    let _ = writeln!(setup, "impl {trait_name} for {stub_name} {{");
 
     // Required methods only (skip those with a default implementation).
     for method in methods {
         if method.has_default_impl {
             continue;
         }
-        // Skip the Plugin::name method if we already emitted it above.
+        // Skip Plugin supertrait methods — already emitted in the Plugin impl block above.
         if trait_bridge.super_trait.is_some() && method.name == "name" {
             continue;
         }
-        emit_rust_stub_method(&mut setup, method, &*defaults);
+        emit_rust_stub_method(&mut setup, method, &*defaults, &mut type_imports, crate_module);
     }
 
     let _ = writeln!(setup, "}}");
 
+    // Deduplicate imports (stable order for deterministic output).
+    type_imports.sort();
+    type_imports.dedup();
+
     // arg_expr: wrapped in Arc for the register call.
     let arg_expr = format!("std::sync::Arc::new({stub_name} {{ _name: \"{backend_name}\" }})");
+
+    // Filter type_imports: skip Rust primitives and std types that are always in scope.
+    let type_imports = type_imports
+        .into_iter()
+        .filter(|s| {
+            !matches!(
+                s.as_str(),
+                "bool"
+                    | "u8"
+                    | "u16"
+                    | "u32"
+                    | "u64"
+                    | "i8"
+                    | "i16"
+                    | "i32"
+                    | "i64"
+                    | "f32"
+                    | "f64"
+                    | "usize"
+                    | "isize"
+                    | "String"
+                    | "str"
+                    | "Vec"
+                    | "Option"
+                    | "Result"
+                    | "()"
+            )
+        })
+        .collect();
 
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
+        type_imports,
     }
 }
 
-/// Format a single Rust stub method.
+/// Collect all `Named` type identifiers referenced anywhere in `ty` into `out`.
 ///
-/// Emits a method body using `LanguageDefaults` for the return value. The method
-/// signature omits parameter names (uses `_` wildcards) since the stub never uses
-/// them. For fallible methods the default is wrapped in `Ok(...)`.
+/// Only the short identifier is collected (not the fully qualified path),
+/// since stub method signatures use short names and callers emit the `use` import.
+fn collect_named_types(ty: &crate::core::ir::TypeRef, out: &mut Vec<String>) {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(name) => out.push(name.clone()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types(k, out);
+            collect_named_types(v, out);
+        }
+        _ => {}
+    }
+}
+
+/// Emit the Rust type name for a `TypeRef` using the standard identity mapping.
 ///
-/// The Rust compiler infers the concrete return type from the trait definition, so
-/// `Default::default()` resolves correctly for value types. For reference-returning
-/// methods (e.g. `-> &[&str]`), the emitted default may not be type-compatible —
-/// in that case the body falls back to `unimplemented!()` which satisfies any return
-/// type via the never type `!`. Phase 3 fixtures can provide richer stub bodies when
-/// they actually call these methods.
+/// Produces valid Rust type syntax: `String`, `Vec<u8>`, `Option<T>`,
+/// `HashMap<K, V>`, etc.  Named types pass through as-is — they must be in
+/// scope at the call site (usually via a `use` import).
+fn rust_type_name(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::codegen::type_mapper::{IdentityMapper, TypeMapper};
+    IdentityMapper.map_type(ty)
+}
+
+/// Format a single Rust stub method with a correctly typed signature.
+///
+/// Emits `fn name(&self, _p0: T0, _p1: T1, ...) -> ReturnType { body }`.
+/// Parameters use `_p{i}` names (underscore-prefixed to silence unused-variable
+/// warnings) with explicit types so the impl block compiles.  The return type
+/// arrow is emitted for every non-unit return type.  For `Result`-returning
+/// methods (`error_type` is `Some`), the return type is `Result<T, error_type>`
+/// and the body is `Ok(default_for_T)`.
+///
+/// For reference-returning methods (`returns_ref = true`), the IR collapses
+/// `&[T]` into `Vec<T>` + flag.  A `Default::default()` value cannot be returned
+/// as a reference without a named binding, so those methods fall back to
+/// `unimplemented!()` which satisfies any return type via the never type `!`.
+/// Emit a single method body inside a `impl Trait for Stub` block.
+///
+/// `crate_module`: when `Some`, used to qualify single-arg `Result<T>` return types
+/// as `{crate_module}::Result<T>`.  Pass the crate root name (e.g. `"kreuzberg"`) when
+/// the trait's return type uses a crate-level `Result` type alias rather than the
+/// stdlib two-arg `Result<T, E>`.
 fn emit_rust_stub_method(
     out: &mut String,
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+    type_imports: &mut Vec<String>,
+    crate_module: Option<&str>,
 ) {
     use crate::core::ir::TypeRef;
     use std::fmt::Write as FmtWrite;
 
-    // Elide all parameters with `_` wildcards so the stub compiles regardless
-    // of whether the parameter types implement Default/Clone.
-    let param_wildcards: Vec<&str> = method.params.iter().map(|_| "_").collect();
-    let params_str = if param_wildcards.is_empty() {
+    // Build the parameter list: `_p0: TypeName, _p1: TypeName, ...`
+    // Underscore-prefix silences unused-variable warnings; explicit types are
+    // required by the Rust compiler in trait impl method signatures.
+    let params_typed: Vec<String> = method
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, param)| {
+            // Collect named types referenced in this parameter for import tracking.
+            collect_named_types(&param.ty, type_imports);
+            // Emit `&T` for reference params (is_ref = true) to match the trait signature.
+            // The IR stores the inner type without the `&`; we re-add it here.
+            // Use idiomatic Rust slice/str types for common reference forms:
+            //   &Vec<u8>       → &[u8]      (byte slices)
+            //   &String        → &str       (string slices)
+            //   &mut Vec<u8>   → &mut [u8]
+            //   &mut String    → &mut str
+            //   &T / &mut T    → &T / &mut T
+            if param.is_ref {
+                use crate::core::ir::TypeRef;
+                let mut_kw = if param.is_mut { "mut " } else { "" };
+                let ref_str = match &param.ty {
+                    TypeRef::Bytes => format!("&{mut_kw}[u8]"),
+                    TypeRef::String => format!("&{mut_kw}str"),
+                    other => format!("&{}{}", mut_kw, rust_type_name(other)),
+                };
+                format!("_p{i}: {ref_str}")
+            } else {
+                let ty_str = rust_type_name(&param.ty);
+                format!("_p{i}: {ty_str}")
+            }
+        })
+        .collect();
+    let params_str = if params_typed.is_empty() {
         String::new()
     } else {
-        format!(", {}", param_wildcards.join(", "))
+        format!(", {}", params_typed.join(", "))
     };
 
-    // For reference-returning methods (`returns_ref = true`), the IR collapses
-    // `&[T]` into `Vec<T>` + flag. A `Default::default()` value can't be returned
-    // as a reference without a named binding that outlives the method body, so we
-    // emit `unimplemented!()` for those. All other return types get the LanguageDefaults
-    // value (wrapped in Ok(...) for fallible methods).
-    let body = if method.returns_ref {
-        "unimplemented!()".to_string()
+    // Build the return type annotation.  Unit returns need no arrow; all others
+    // get `-> ReturnType` or `-> Result<ReturnType, ErrorType>`.
+    let return_type_str = if method.returns_ref {
+        // Reference-returning methods: derive the reference return type from the IR.
+        // The IR stores the owned form; map common owned types to their reference forms.
+        //   Vec<u8>      → &[u8]
+        //   Vec<String>  → &[&str]
+        //   String       → &str
+        //   Vec<T>       → &[T]
+        //   T            → &T
+        // Emit with `unimplemented!()` body since returning a reference from a Default
+        // value requires a named binding; the never type `!` satisfies any return type.
+        use crate::core::ir::TypeRef;
+        let ref_type = match &method.return_type {
+            TypeRef::String => "&str".to_string(),
+            TypeRef::Bytes => "&[u8]".to_string(),
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::String => "&[&str]".to_string(),
+                TypeRef::Bytes => "&[u8]".to_string(),
+                other => format!("&[{}]", rust_type_name(other)),
+            },
+            other => format!("&{}", rust_type_name(other)),
+        };
+        Some(ref_type)
     } else {
-        // For Unit / async with Unit, the Rust default "()" works.
-        // For Named types, "TypeName::default()" works when Default is derived.
-        // For primitives/String/Vec/etc., the defaults are concrete Rust expressions.
+        match &method.return_type {
+            TypeRef::Unit if method.error_type.is_none() => None,
+            _ => {
+                let base = rust_type_name(&method.return_type);
+                collect_named_types(&method.return_type, type_imports);
+                let full = if let Some(err) = &method.error_type {
+                    // When `error_type` is `"anyhow::Error"` it signals the IR fallback
+                    // for a single-arg `Result<T>` alias (like `kreuzberg::Result<T>`),
+                    // not a literal `anyhow::Error` in the trait signature.
+                    // Use `{crate}::Result<T>` so the stub method type matches the trait.
+                    if err == "anyhow::Error" {
+                        if let Some(module) = crate_module {
+                            format!("{module}::Result<{base}>")
+                        } else {
+                            // No module context — keep the fallback form.
+                            format!("Result<{base}, {err}>")
+                        }
+                    } else {
+                        // Collect the error type name for import tracking only when it is a
+                        // simple identifier (no path separators).  Fully-qualified names like
+                        // `anyhow::Error` are already usable as-is in the signature without
+                        // a `use` import; only bare names like `KreuzbergError` need one.
+                        if !err.contains("::") {
+                            type_imports.push(err.clone());
+                        }
+                        format!("Result<{base}, {err}>")
+                    }
+                } else {
+                    base
+                };
+                Some(full)
+            }
+        }
+    };
+
+    // Build the method body.
+    let body = if method.returns_ref {
+        // Reference-returning methods: return the cheapest valid reference that
+        // satisfies the return type without requiring a named binding.
+        //   &str, &[u8], &[&str], &[T]  → use an empty literal (&[], "")
+        //   &T (other)                   → fall back to unimplemented!()
+        use crate::core::ir::TypeRef;
+        match &method.return_type {
+            TypeRef::String => "\"\"".to_string(),
+            TypeRef::Bytes | TypeRef::Vec(_) => "&[]".to_string(),
+            _ => "unimplemented!()".to_string(),
+        }
+    } else {
         let raw = match &method.return_type {
             TypeRef::Unit => "()".to_string(),
             _ => defaults.emit_default(&method.return_type),
@@ -294,9 +517,13 @@ fn emit_rust_stub_method(
     };
 
     let async_kw = if method.is_async { "async " } else { "" };
+    let return_annotation = match &return_type_str {
+        Some(rt) => format!(" -> {rt}"),
+        None => String::new(),
+    };
     let _ = writeln!(
         out,
-        "    {async_kw}fn {name}(&self{params_str}) {{ {body} }}",
+        "    {async_kw}fn {name}(&self{params_str}){return_annotation} {{ {body} }}",
         name = method.name
     );
 }
