@@ -96,6 +96,10 @@ pub(crate) fn gen_record_type(
         // Resolve field type, replacing unknown types with Json (→ JsonNode in Java)
         let resolved_ty = resolve_field_type(&f.ty, visible_type_names);
 
+        // When IR marks the field optional but the TypeRef is not Optional (extractor
+        // stored 'ty: T, optional: true'), still emit boxed T so null is representable.
+        // Otherwise primitive types like `long` cannot hold null and auto-unbox NPEs.
+        let f_optional_no_wrapper = f.optional && !matches!(resolved_ty, TypeRef::Optional(_));
         let ftype = if is_visitor_field {
             "Visitor".to_string()
         } else if is_flattened_json {
@@ -104,6 +108,9 @@ pub(crate) fn gen_record_type(
             "Object".to_string()
         } else if matches!(resolved_ty, TypeRef::Optional(_)) {
             // Java best practice: use @Nullable fields, never Optional in records.
+            java_boxed_type(&resolved_ty).to_string()
+        } else if f_optional_no_wrapper {
+            // Optional IR field whose TypeRef was not Optional — boxed so null is valid.
             java_boxed_type(&resolved_ty).to_string()
         } else if has_serde_default || matches!(resolved_ty, TypeRef::Duration) {
             // Non-optional fields with #[serde(default)] or Duration use boxed types
