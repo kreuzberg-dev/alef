@@ -172,7 +172,10 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         String::new()
     } else {
         let entries: Vec<String> = meta.authors.iter().map(|a| format!("{{ name = \"{}\" }}", a)).collect();
-        format!("authors = {}\n", format_toml_array_with_prefix(&entries, "authors = ".len()))
+        format!(
+            "authors = {}\n",
+            format_toml_array_with_prefix(&entries, "authors = ".len())
+        )
     };
 
     let keywords_toml = if meta.keywords.is_empty() {
@@ -181,7 +184,10 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         let mut sorted_keywords = meta.keywords.clone();
         sorted_keywords.sort();
         let entries: Vec<String> = sorted_keywords.iter().map(|k| format!("\"{}\"", k)).collect();
-        format!("keywords = {}\n", format_toml_array_with_prefix(&entries, "keywords = ".len()))
+        format!(
+            "keywords = {}\n",
+            format_toml_array_with_prefix(&entries, "keywords = ".len())
+        )
     };
 
     let homepage_toml = if meta.homepage.is_empty() {

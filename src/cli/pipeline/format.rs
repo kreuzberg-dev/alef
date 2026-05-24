@@ -266,7 +266,10 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
         Language::KotlinAndroid => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "ktfmt".to_owned(),
-                args: vec!["--kotlinlang-style".to_owned(), "packages/kotlin-android/src".to_owned()],
+                args: vec![
+                    "--kotlinlang-style".to_owned(),
+                    "packages/kotlin-android/src".to_owned(),
+                ],
             }],
             work_dir: String::new(),
         }),
@@ -767,9 +770,13 @@ wasm = "crates/ts-pack-core-wasm/src/"
     #[test]
     fn test_kotlin_android_formatter_uses_ktfmt() {
         let config = make_config("html-to-markdown");
-        let spec = get_default_formatter(&config, Language::KotlinAndroid)
-            .expect("KotlinAndroid should have formatter");
-        assert_eq!(spec.commands.len(), 1, "KotlinAndroid must have exactly one formatter command");
+        let spec =
+            get_default_formatter(&config, Language::KotlinAndroid).expect("KotlinAndroid should have formatter");
+        assert_eq!(
+            spec.commands.len(),
+            1,
+            "KotlinAndroid must have exactly one formatter command"
+        );
         let cmd = &spec.commands[0];
         assert_eq!(
             cmd.command, "ktfmt",
@@ -777,7 +784,10 @@ wasm = "crates/ts-pack-core-wasm/src/"
         );
         assert_eq!(
             cmd.args,
-            vec!["--kotlinlang-style".to_owned(), "packages/kotlin-android/src".to_owned()],
+            vec![
+                "--kotlinlang-style".to_owned(),
+                "packages/kotlin-android/src".to_owned()
+            ],
             "KotlinAndroid must include --kotlinlang-style flag and target src directory"
         );
         assert!(

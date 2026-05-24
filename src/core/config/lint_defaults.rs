@@ -56,9 +56,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
         Language::Wasm => LintConfig {
             precondition: Some(require_tool("cargo")),
             before: None,
-            format: Some(StringOrVec::Single(
-                "cargo fmt --all".to_string(),
-            )),
+            format: Some(StringOrVec::Single("cargo fmt --all".to_string())),
             check: Some(StringOrVec::Single(
                 "cargo clippy --fix --allow-dirty --allow-staged -- -D warnings".to_string(),
             )),
@@ -433,8 +431,14 @@ mod tests {
         let wasm = cfg(Language::Wasm, "packages/wasm");
         let fmt = wasm.format.unwrap().commands().join(" ");
         let check = wasm.check.unwrap().commands().join(" ");
-        assert!(fmt.contains("cargo fmt"), "Wasm format should use cargo fmt, got: {fmt}");
-        assert!(check.contains("cargo clippy"), "Wasm check should use cargo clippy, got: {check}");
+        assert!(
+            fmt.contains("cargo fmt"),
+            "Wasm format should use cargo fmt, got: {fmt}"
+        );
+        assert!(
+            check.contains("cargo clippy"),
+            "Wasm check should use cargo clippy, got: {check}"
+        );
         assert_eq!(wasm.precondition.as_deref(), Some("command -v cargo >/dev/null 2>&1"));
     }
 
