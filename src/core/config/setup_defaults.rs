@@ -100,7 +100,13 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
         Language::Ruby => SetupConfig {
             precondition: Some(require_tool("bundle")),
             before: None,
-            install: Some(StringOrVec::Single(format!("cd {output_dir} && bundle install"))),
+            // `--add-checksums` populates the CHECKSUMS section with a sha256 for every
+            // gem in the resolved set. Without it, gems already cached on the host can
+            // land in Gemfile.lock with an empty checksum, which bundler 4.x rejects in
+            // CI's frozen mode with exit 16.
+            install: Some(StringOrVec::Single(format!(
+                "cd {output_dir} && bundle install --add-checksums"
+            ))),
             timeout_seconds: 600,
             workdir: default_setup_workdir(lang),
         },
