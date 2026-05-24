@@ -2350,6 +2350,7 @@ mod trait_bridge_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 

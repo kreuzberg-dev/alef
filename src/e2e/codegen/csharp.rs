@@ -915,7 +915,7 @@ fn render_test_method(
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
     let is_async = effective_is_async;
-    let args = call_config.args.as_slice();
+    let args = fixture.resolved_args(call_config);
 
     // Per-call overrides: result shape, void returns, extra trailing args.
     // Pull `result_is_simple` from the per-call config first (call-level value
@@ -1264,7 +1264,7 @@ fn render_chat_stream_test_method(
         name
     };
     let function_name = effective_function_name.as_str();
-    let args = call_config.args.as_slice();
+    let args = fixture.resolved_args(call_config);
 
     let top_level_options_type = e2e_config
         .call
@@ -3755,6 +3755,7 @@ mod tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 
@@ -3870,6 +3871,7 @@ mod tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         };
 
         let methods = vec![&method];

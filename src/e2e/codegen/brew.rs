@@ -379,7 +379,7 @@ fn render_test_function(
         &subcommand,
         static_cli_args,
         cli_flags,
-        &call_config.args,
+        fixture.resolved_args(call_config),
     );
 
     if expects_error {

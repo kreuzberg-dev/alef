@@ -285,7 +285,7 @@ pub fn render_test_file(
                 &fixture.tags,
                 &fixture.input,
             );
-            for arg in &call_config.args {
+            for arg in fixture.resolved_args(call_config) {
                 if arg.arg_type == "json_object" {
                     if let Some(ref elem_type) = arg.element_type {
                         element_types.insert(elem_type.clone());
@@ -461,7 +461,7 @@ pub fn render_test_function(
     // When has_error_assertion is true and a handle arg is present, track its name so we
     // can wrap the main call in a match that propagates engine-creation failures as Err.
     let mut error_context_handle_name: Option<String> = None;
-    for arg in &call_config.args {
+    for arg in fixture.resolved_args(call_config) {
         let value = crate::e2e::codegen::resolve_field(&fixture.input, &arg.field);
         let var_name = &arg.name;
 
@@ -997,6 +997,7 @@ mod tests {
             input: serde_json::Value::Null,
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![Assertion {
                 assertion_type: "count_min".to_string(),
                 field: Some("chunks".to_string()),
@@ -1072,6 +1073,7 @@ mod tests {
             input: serde_json::Value::Null,
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![
                 Assertion {
                     assertion_type: "not_error".to_string(),

@@ -602,7 +602,7 @@ fn build_args_and_setup(
     let mut arg_bindings = Vec::new();
     let mut kwarg_exprs = Vec::new();
 
-    for arg in &call_config.args {
+    for arg in fixture.resolved_args(call_config) {
         let var_name = &arg.name;
 
         if arg.arg_type == "handle" {
@@ -1062,6 +1062,7 @@ mod tests {
             skip: None,
             env: None,
             visitor: None,
+            args: vec![],
             mock_response: None,
             source: String::new(),
             category: None,
@@ -1139,6 +1140,7 @@ mod tests {
             }),
             env: None,
             visitor: None,
+            args: vec![],
             mock_response: None,
             source: String::new(),
             category: None,

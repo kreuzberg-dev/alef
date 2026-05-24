@@ -714,6 +714,7 @@ mod test_backend_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 

@@ -365,13 +365,13 @@ fn render_test_file(
             e2e_config.effective_fields_method_calls(call_config),
         );
         let field_resolver = &call_field_resolver;
-        let has_bytes_arg = call_config.args.iter().any(|a| a.arg_type == "bytes");
+        let has_bytes_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "bytes");
         // Optional string args emit option.Some(...)/option.None — need option import.
-        let has_optional_string_arg = call_config.args.iter().any(|a| a.arg_type == "string" && a.optional);
+        let has_optional_string_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "string" && a.optional);
         // json_object args emit option.None in ExtractionConfig and BatchItem constructors.
-        let has_json_object_arg = call_config.args.iter().any(|a| a.arg_type == "json_object");
+        let has_json_object_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "json_object");
         // handle args emit create_engine(option.None) — needs option import.
-        let has_handle_arg = call_config.args.iter().any(|a| a.arg_type == "handle");
+        let has_handle_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "handle");
         // client_factory always emits option.None / option.Some(base_url) — need option import.
         let has_client_factory = call_config
             .overrides
@@ -818,7 +818,7 @@ fn render_test_case(
     // query params like `list_files(client, query)` where query isn't in fixtures).
     let extra_args: Vec<String> = call_overrides.map(|o| o.extra_args.clone()).unwrap_or_default();
     let result_var = &call_config.result_var;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
 
     // Gleam identifiers must start with a lowercase letter, not `_` or a digit.
     // Strip any leading underscores or digits that result from numeric-prefixed fixture IDs

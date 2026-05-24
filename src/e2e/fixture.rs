@@ -1,6 +1,7 @@
 //! Fixture loading, validation, and grouping for e2e test generation.
 
 use anyhow::{Context, Result, bail};
+use crate::core::config::e2e::ArgMapping;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -116,6 +117,10 @@ pub struct Fixture {
     /// Optional visitor specification for visitor pattern tests.
     #[serde(default)]
     pub visitor: Option<VisitorSpec>,
+    /// Fixture-level argument mappings. When non-empty, overrides call_config.args
+    /// for this specific fixture (used for trait-bridge stubs and other per-fixture args).
+    #[serde(default)]
+    pub args: Vec<ArgMapping>,
     /// List of assertions to check.
     #[serde(default)]
     pub assertions: Vec<Assertion>,
@@ -280,6 +285,19 @@ fn is_host_root_path(path: &str) -> bool {
 }
 
 impl Fixture {
+    /// Resolve the effective args for this fixture, preferring fixture-level args when present.
+    ///
+    /// When `self.args` is non-empty, returns a reference to it. Otherwise, returns
+    /// a reference to `call_config.args`. This allows fixtures to override the call's
+    /// default args (e.g., for trait-bridge stubs that need per-fixture test backend setup).
+    pub fn resolved_args<'a>(&'a self, call_config: &'a crate::core::config::e2e::CallConfig) -> &'a [ArgMapping] {
+        if !self.args.is_empty() {
+            &self.args
+        } else {
+            &call_config.args
+        }
+    }
+
     /// Returns true if this is an HTTP server test fixture.
     pub fn is_http_test(&self) -> bool {
         self.http.is_some()

@@ -785,7 +785,7 @@ fn render_test_method(
         .and_then(|o| o.client_factory.as_deref())
         .or(global_client_factory);
     let result_var = &call_config.result_var;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
     // Per-call flags: base call flag OR per-language override OR global flag.
     // Also treat the call as simple when *any* language override marks it as bytes.
     // Calls like `speech()` have `result_is_bytes = true` on C/C#/Java overrides but
@@ -3375,6 +3375,7 @@ mod test_backend_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 
