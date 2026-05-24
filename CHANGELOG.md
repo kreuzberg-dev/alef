@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.4] - 2026-05-24
+
 ### Fixed
 
 - **alef-e2e-codegen-dart: fix emit_test_backend to emit module-level typed stubs matching trait-bridge signatures — Dart does not allow class definitions inside functions, so test stub classes are now collected in a first pass and emitted before `void main()` at the module level. Each method now uses concrete Dart types (Uint8List, String, List<T>, etc.) via `DartMapper` instead of `dynamic`; async methods are typed with `Future<T>`; the fixture's input `"name"` field is preferred as the plugin name over the fixture id; classes extend their corresponding trait abstract classes (DocumentExtractor, OcrBackend, etc.) with proper `@override` signatures. Added fixture name extraction from the fixture input object (e.g., in `register_document_extractor_trait_bridge.json` with `{ "extractor": { "name": "test-extractor" } }`, the generated class correctly names itself "test-extractor"). Fixed indentation handling for multi-line setup blocks emitted inside tests by splitting each embedded newline and applying the test-body indent independently.** (`src/backends/dart/mod.rs`, `src/e2e/codegen/dart.rs`)
