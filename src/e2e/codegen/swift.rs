@@ -178,6 +178,8 @@ impl E2eCodegen for SwiftE2eCodegen {
                 result_is_simple,
                 client_factory,
                 &swift_first_class_map_ref,
+                config,
+                type_defs,
             );
             files.push(GeneratedFile {
                 path: tests_base
@@ -421,6 +423,8 @@ fn render_test_file(
     result_is_simple: bool,
     client_factory: Option<&str>,
     swift_first_class_map: &SwiftFirstClassMap,
+    config: &ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
     // Detect whether any fixture in this group uses a file_path or bytes arg — if so
     // the test class chdir's to <repo>/test_documents at setUp time so the
@@ -500,6 +504,8 @@ fn render_test_file(
                 client_factory,
                 swift_first_class_map,
                 module_name,
+                config,
+                type_defs,
             );
         }
         let _ = writeln!(out);
@@ -745,6 +751,8 @@ fn render_test_method(
     global_client_factory: Option<&str>,
     swift_first_class_map: &SwiftFirstClassMap,
     module_name: &str,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
 ) {
     // Resolve per-fixture call config.
     let call_config = e2e_config.resolve_call_for_fixture(
@@ -970,6 +978,9 @@ fn render_test_method(
         client_factory.is_some(),
         module_name,
         unnamed_arg_indices,
+        config,
+        type_defs,
+        fixture,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1171,6 +1182,9 @@ fn build_args_and_setup(
     is_method_call: bool,
     module_name: &str,
     unnamed_arg_indices: &[usize],
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
+    fixture: &Fixture,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1324,6 +1338,26 @@ fn build_args_and_setup(
                     }
                 }
             }
+            continue;
+        }
+
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    let emission = crate::e2e::codegen::emit_test_backend("swift", trait_bridge, &methods, fixture);
+                    setup_lines.push(emission.setup_block);
+                    parts.push((idx, emission.arg_expr));
+                    continue;
+                }
+            }
+            let emission = crate::e2e::codegen::TestBackendEmission::unimplemented("swift");
+            setup_lines.push(format!("// {}", emission.arg_expr));
+            parts.push((idx, "nil".to_string()));
             continue;
         }
 
