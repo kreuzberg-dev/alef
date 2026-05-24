@@ -24,16 +24,18 @@ pub fn gen_trait_bridge_object(
     trait_name: &str,
     bridge_cfg: &TraitBridgeConfig,
     _trait_def: &TypeDef,
+    bridge_class_name: &str,
 ) -> Option<(String, String)> {
-    let bridge_class_name = format!("{}Bridge", trait_name);
     let interface_name = format!("I{trait_name}");
 
     let _imports = BTreeSet::new();
     let mut body = String::new();
 
     // Bridge object declaration
-    body.push_str(&format!("object {bridge_class_name} {{\n"));
-    body.push_str(&format!("    private val registered = mutableMapOf<String, {interface_name}>()\n\n"));
+    body.push_str(&format!("object {}Bridge {{\n", trait_name));
+    body.push_str(&format!(
+        "    private val registered = mutableMapOf<String, {interface_name}>()\n\n"
+    ));
 
     // register() method
     let has_super_trait = bridge_cfg.super_trait.is_some();
@@ -41,13 +43,19 @@ pub fn gen_trait_bridge_object(
         body.push_str(&format!("    fun register(impl: {interface_name}): Unit {{\n"));
         body.push_str("        val name = impl.name()\n");
     } else {
-        body.push_str(&format!("    fun register(impl: {interface_name}, name: String): Unit {{\n"));
+        body.push_str(&format!(
+            "    fun register(impl: {interface_name}, name: String): Unit {{\n"
+        ));
     }
     body.push_str("        registered[name] = impl\n");
 
     // Call native method
     let native_fn = format!("nativeRegister{}", trait_name.to_upper_camel_case());
-    body.push_str(&format!("        KreuzbergBridge.{native_fn}(impl)\n"));
+    if has_super_trait {
+        body.push_str(&format!("        {bridge_class_name}.{native_fn}(impl)\n"));
+    } else {
+        body.push_str(&format!("        {bridge_class_name}.{native_fn}(impl, name)\n"));
+    }
     body.push_str("    }\n\n");
 
     // unregister() method if configured
@@ -55,7 +63,7 @@ pub fn gen_trait_bridge_object(
         body.push_str("    fun unregister(name: String): Unit {\n");
         body.push_str("        registered.remove(name)\n");
         let native_fn = format!("nativeUnregister{}", trait_name.to_upper_camel_case());
-        body.push_str(&format!("        KreuzbergBridge.{native_fn}(name)\n"));
+        body.push_str(&format!("        {bridge_class_name}.{native_fn}(name)\n"));
         body.push_str("    }\n\n");
     }
 
@@ -64,12 +72,14 @@ pub fn gen_trait_bridge_object(
         body.push_str("    fun clearAll(): Unit {\n");
         body.push_str("        registered.clear()\n");
         let native_fn = format!("nativeClear{}s", trait_name.to_upper_camel_case());
-        body.push_str(&format!("        KreuzbergBridge.{native_fn}()\n"));
+        body.push_str(&format!("        {bridge_class_name}.{native_fn}()\n"));
         body.push_str("    }\n\n");
     }
 
     // getAll() helper for inspection
-    body.push_str(&format!("    fun getAll(): Map<String, {interface_name}> = registered.toMap()\n"));
+    body.push_str(&format!(
+        "    fun getAll(): Map<String, {interface_name}> = registered.toMap()\n"
+    ));
 
     body.push_str("}\n");
 
@@ -127,7 +137,7 @@ mod tests {
     fn make_trait_def(name: &str) -> TypeDef {
         TypeDef {
             name: name.to_string(),
-            rust_path: format!("kreuzberg::{}", name),
+            rust_path: format!("testcrate::{}", name),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],
@@ -152,12 +162,14 @@ mod tests {
     fn test_bridge_object_with_super_trait() {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(content.contains("object OcrBackendBridge"));
         assert!(content.contains("fun register(impl: IOcrBackend): Unit"));
         assert!(content.contains("val name = impl.name()"));
+        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(impl)"));
         assert!(content.contains("nativeRegisterOcrBackend"));
     }
 
@@ -166,22 +178,26 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", None);
         bridge_cfg.super_trait = None;
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(content.contains("object OcrBackendBridge"));
         assert!(content.contains("fun register(impl: IOcrBackend, name: String): Unit"));
         assert!(!content.contains("val name = impl.name()"));
+        assert!(content.contains("TestBridge.nativeRegisterOcrBackend(impl, name)"));
     }
 
     #[test]
     fn test_bridge_object_with_unregister() {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(content.contains("fun unregister(name: String): Unit"));
+        assert!(content.contains("TestBridge.nativeUnregisterOcrBackend(name)"));
         assert!(content.contains("nativeUnregisterOcrBackend"));
     }
 
@@ -189,10 +205,12 @@ mod tests {
     fn test_bridge_object_with_clear() {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(content.contains("fun clearAll(): Unit"));
+        assert!(content.contains("TestBridge.nativeClearOcrBackends()"));
         assert!(content.contains("nativeClearOcrBackends"));
     }
 
@@ -201,8 +219,9 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         bridge_cfg.unregister_fn = None;
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(!content.contains("fun unregister"));
     }
@@ -212,8 +231,9 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let mut bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
         bridge_cfg.clear_fn = None;
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(!content.contains("fun clearAll"));
     }
@@ -222,8 +242,9 @@ mod tests {
     fn test_bridge_object_includes_getall() {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
-        let (_filename, content) = gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def)
-            .expect("should generate bridge");
+        let (_filename, content) =
+            gen_trait_bridge_object("dev.kreuzberg", "OcrBackend", &bridge_cfg, &trait_def, "TestBridge")
+                .expect("should generate bridge");
 
         assert!(content.contains("fun getAll(): Map<String, IOcrBackend>"));
     }
