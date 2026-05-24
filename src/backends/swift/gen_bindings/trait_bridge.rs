@@ -192,7 +192,7 @@ mod tests {
     fn make_trait_def(name: &str) -> TypeDef {
         TypeDef {
             name: name.to_string(),
-            rust_path: format!("kreuzberg::{}", name),
+            rust_path: format!("testcrate::{}", name),
             original_rust_path: String::new(),
             fields: vec![],
             methods: vec![],

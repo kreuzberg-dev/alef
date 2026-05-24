@@ -279,12 +279,13 @@ fn emit_trait_bridge_shims(
         if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
             let native_name = format!("nativeRegister{trait_pascal}");
             let symbol = jni_symbol(package, bridge, &native_name);
+            let has_super_trait = bridge_cfg.super_trait.is_some();
             // trait_def is currently unused by emit_trait_register_shim (uses the host's
             // register_fn signature directly); pass None-friendly placeholder to keep the
             // shim emission unconditional. When method-list-aware codegen lands, gate on
             // trait_def.is_some() and emit a degraded shim when the trait isn't in the
             // API surface (e.g. fixture-driven tests with synthetic bridge configs).
-            emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def);
+            emit_trait_register_shim(out, &symbol, &trait_pascal, register_fn, trait_def, has_super_trait);
         }
         if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
             let native_name = format!("nativeUnregister{trait_pascal}");
@@ -299,26 +300,51 @@ fn emit_trait_bridge_shims(
     }
 }
 
-/// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` shim that creates a global JNI
-/// reference, calls the host crate's configured `register_fn`, and manages bridge lifetime.
+/// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` or
+/// `Java_*_nativeRegister<Trait>(impl: I<Trait>, name: JString)` shim that creates a
+/// global JNI reference, calls the host crate's configured `register_fn`, and manages
+/// bridge lifetime.
+///
+/// When `has_super_trait` is true, the impl object's `name()` method is called.
+/// When false, the name is passed as an explicit JString parameter (matching the Kotlin
+/// no-super-trait register(impl, name) signature).
 fn emit_trait_register_shim(
     out: &mut String,
     symbol: &str,
     _trait_pascal: &str,
     register_fn: &str,
     _trait_def: Option<&TypeDef>,
+    has_super_trait: bool,
 ) {
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
-    ));
+    if has_super_trait {
+        // Signature: nativeRegister<Trait>(impl: I<Trait>)
+        out.push_str(&format!(
+            "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    impl_obj: JObject,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+        ));
 
-    // Extract the name from the impl object by calling its name() method
-    out.push_str("    let name = match jni_call_string_method(env, impl_obj, \"name\", \"()Ljava/lang/String;\") {\n");
-    out.push_str("        Ok(n) => n,\n");
-    out.push_str(
-        "        Err(e) => { throw_jni_error(env, &format!(\"Failed to get implementation name: {e}\")); return; }\n",
-    );
-    out.push_str("    };\n\n");
+        // Extract the name from the impl object by calling its name() method
+        out.push_str(
+            "    let name = match jni_call_string_method(env, impl_obj, \"name\", \"()Ljava/lang/String;\") {\n",
+        );
+        out.push_str("        Ok(n) => n,\n");
+        out.push_str(
+            "        Err(e) => { throw_jni_error(env, &format!(\"Failed to get implementation name: {e}\")); return; }\n",
+        );
+        out.push_str("    };\n\n");
+    } else {
+        // Signature: nativeRegister<Trait>(impl: I<Trait>, name: JString)
+        out.push_str(&format!(
+            "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    impl_obj: JObject,\n    name: JString,\n) {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+        ));
+
+        // Decode the JString name parameter
+        out.push_str("    let name = match jstring_to_string(env, name) {\n");
+        out.push_str("        Ok(s) => s,\n");
+        out.push_str(
+            "        Err(e) => { throw_jni_error(env, &format!(\"Failed to decode name parameter: {e}\")); return; }\n",
+        );
+        out.push_str("    };\n\n");
+    }
 
     // Create a global reference to keep the Kotlin impl alive
     out.push_str("    let global_impl = match env.new_global_ref(impl_obj) {\n");
