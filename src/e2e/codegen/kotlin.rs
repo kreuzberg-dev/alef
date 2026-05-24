@@ -1136,10 +1136,9 @@ fn render_test_method(
         .cloned()
         .unwrap_or_else(|| call_config.function.to_lower_camel_case());
     let effective_result_var = &call_config.result_var;
-    let effective_args = &call_config.args;
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
-    let args: &[crate::e2e::config::ArgMapping] = effective_args.as_slice();
+    let args: &[crate::e2e::config::ArgMapping] = fixture.resolved_args(call_config);
     // Resolve per-fixture options_type: prefer the kotlin call override, fall back
     // to class-level, then to any other language's options_type for the same call.
     // The Kotlin module re-exports Java facade types unchanged, so a type name declared
@@ -2628,6 +2627,7 @@ mod tests {
                 headers: BTreeMap::new(),
             }),
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: String::new(),
             http: None,
@@ -2705,6 +2705,7 @@ mod tests {
             input: serde_json::json!({}),
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: String::new(),
             http: Some(HttpFixture {

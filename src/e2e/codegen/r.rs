@@ -366,7 +366,7 @@ fn render_test_case(
     });
     let args_str = build_args_string(
         &fixture.input,
-        &call_config.args,
+        fixture.resolved_args(call_config),
         arg_name_map,
         options_type,
         fixture,
@@ -1532,6 +1532,7 @@ mod tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         };
 
         let methods = vec![&method];

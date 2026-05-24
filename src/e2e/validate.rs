@@ -284,6 +284,7 @@ mod tests {
             input: serde_json::json!({"path": "test.pdf"}),
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: source.to_string(),
             http: None,
@@ -369,6 +370,7 @@ mod tests {
             input: serde_json::json!({"data": "abc"}), // missing "mime_type"
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: "test.json".to_string(),
             http: None,
@@ -435,6 +437,7 @@ mod tests {
             input: serde_json::json!({"model": "gpt-4", "messages": []}),
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: "smoke/basic_chat.json".to_string(),
             http: None,
@@ -486,6 +489,7 @@ mod tests {
             input: serde_json::json!({"model": "gpt-4", "messages": []}),
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             // resolved_category() derives "budget" from this path
             source: "budget/budget_enforced.json".to_string(),

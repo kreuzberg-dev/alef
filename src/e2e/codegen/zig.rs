@@ -716,7 +716,7 @@ fn render_test_fn(
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
     let result_var = &call_config.result_var;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
     // Client factory: when set, the test instantiates a client object via
     // `module.factory_fn(...)` and calls methods on the instance rather than
     // calling top-level package functions directly.
@@ -2438,6 +2438,7 @@ mod tests_trait_bridge {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         };
 
         let methods = vec![&method];

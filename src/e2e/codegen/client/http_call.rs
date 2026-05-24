@@ -165,6 +165,7 @@ mod tests {
             input: serde_json::Value::Null,
             mock_response: None,
             visitor: None,
+            args: vec![],
             assertions: vec![],
             source: String::new(),
             http: Some(HttpFixture {

@@ -999,7 +999,7 @@ fn render_test_method(
         function_name = function_name.to_lower_camel_case();
     }
     let result_var = &call_config.result_var;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
 
     let method_name = sanitize_filename(&fixture.id);
     let description = &fixture.description;
@@ -2493,6 +2493,7 @@ mod trait_bridge_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 

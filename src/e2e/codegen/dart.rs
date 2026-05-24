@@ -240,7 +240,7 @@ fn render_test_file(
     let has_batch_byte_items = fixtures.iter().any(|f| {
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        call_config.args.iter().any(|a| {
+        f.resolved_args(call_config).iter().any(|a| {
             a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array()
         })
     });
@@ -254,8 +254,7 @@ fn render_test_file(
         }
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        call_config
-            .args
+        f.resolved_args(call_config)
             .iter()
             .any(|a| a.arg_type == "file_path" || a.arg_type == "bytes")
     });
@@ -285,7 +284,7 @@ fn render_test_file(
         }
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        call_config.args.iter().any(|a| {
+        f.resolved_args(call_config).iter().any(|a| {
             a.element_type.as_deref() == Some("PageAction") && super::resolve_field(&f.input, &a.field).is_array()
         })
     });
@@ -662,15 +661,14 @@ fn render_test_case(
         .and_then(|o| o.options_via.as_deref())
         .unwrap_or("kwargs");
 
-    // Build argument list from fixture.input and call_config.args.
+    // Build argument list from fixture.input and resolved args (fixture.args or call_config.args).
     // Use `resolve_field` (respects the `field` path like "input.data") rather than
     // looking up by `arg_def.name` directly — the name and the field key may differ.
     //
     // For `extract_file_sync` / `extract_file` fixtures that omit `mime_type`,
     // derive the MIME from the path extension so `extractBytesSync`/`extractBytes`
     // can be called (both require an explicit MIME type).
-    let file_path_for_mime: Option<&str> = call_config
-        .args
+    let file_path_for_mime: Option<&str> = fixture.resolved_args(call_config)
         .iter()
         .find(|a| a.arg_type == "file_path")
         .and_then(|a| resolve_field(&fixture.input, &a.field).as_str());
@@ -681,7 +679,7 @@ fn render_test_case(
     // function override has already been applied), remap the function name:
     //   extractFile      → extractBytes
     //   extractFileSync  → extractBytesSync
-    let has_file_path_arg = call_config.args.iter().any(|a| a.arg_type == "file_path");
+    let has_file_path_arg = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "file_path");
     // Apply the remap only when no per-fixture dart override has already specified the
     // function — if the fixture author set a dart-specific function name we trust it.
     let caller_supplied_override = call_overrides.and_then(|o| o.function.as_ref()).is_some();
@@ -719,7 +717,7 @@ fn render_test_case(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut args = Vec::new();
 
-    for arg_def in &call_config.args {
+    for arg_def in fixture.resolved_args(call_config) {
         match arg_def.arg_type.as_str() {
             "mock_url" => {
                 let name = arg_def.name.clone();
@@ -1220,7 +1218,7 @@ fn render_test_case(
     // The mock URL derivation follows the same has_host_root_route / plain-fixture split
     // used by the mock_url arg handler above.
     let (receiver, extra_setup): (String, Option<String>) = if let Some(factory) = &client_factory_camel {
-        let has_mock_url = call_config.args.iter().any(|a| a.arg_type == "mock_url");
+        let has_mock_url = fixture.resolved_args(call_config).iter().any(|a| a.arg_type == "mock_url");
         let mock_url_setup = if !has_mock_url {
             // No explicit mock_url arg — derive the URL inline.
             if fixture.has_host_root_route() {
@@ -2754,6 +2752,7 @@ mod test_backend_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 

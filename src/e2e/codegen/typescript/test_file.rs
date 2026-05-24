@@ -617,7 +617,7 @@ fn render_test_case(
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
     let call_is_async = call_config.r#async;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
     let result_is_simple =
         call_config.result_is_simple || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
 

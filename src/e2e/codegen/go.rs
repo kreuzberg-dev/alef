@@ -477,7 +477,7 @@ fn render_test_file(
         if go_override.and_then(|o| o.client_factory.as_deref()).is_some() {
             return true;
         }
-        let call_args = &call_config.args;
+        let call_args = f.resolved_args(call_config);
         // Need "os" for mock_url / mock_url_list args, or for bytes args with a string
         // fixture value (fixture-relative path loaded via os.ReadFile at test-run time).
         if call_args
@@ -924,7 +924,7 @@ fn render_test_function(
         .unwrap_or(&call_config.function);
     let function_name = to_go_name(base_function_name);
     let result_var = &call_config.result_var;
-    let args = &call_config.args;
+    let args = fixture.resolved_args(call_config);
 
     // Whether the function returns (value, error) or just (error) or just (value).
     // Check Go override first, fall back to call-level returns_result.
@@ -3790,6 +3790,7 @@ mod trait_bridge_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 
@@ -4005,6 +4006,7 @@ mod tests {
                 ..Default::default()
             }],
             visitor: None,
+            args: vec![],
         }
     }
 
@@ -4227,6 +4229,7 @@ mod tests {
                 },
             ],
             visitor: None,
+            args: vec![],
         };
 
         let mut out = String::new();
@@ -4310,6 +4313,7 @@ mod tests {
                 ..Default::default()
             }],
             visitor: None,
+            args: vec![],
         };
 
         let config = crate::core::config::ResolvedCrateConfig::default();

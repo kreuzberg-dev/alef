@@ -841,7 +841,7 @@ fn render_test_case(
     // Use the call config's args, not the fallback global args.
     // This ensures that functions like list_document_extractors with args=[] stay empty,
     // instead of falling back to the global [crates.e2e.call] args which are meant for extract_file.
-    let resolved_args = call_config.args.as_slice();
+    let resolved_args = fixture.resolved_args(call_config);
     let resolved_options_type = co
         .and_then(|o| o.options_type.clone())
         .or_else(|| options_type.map(|s| s.to_string()));
@@ -2644,6 +2644,7 @@ mod test_backend_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 

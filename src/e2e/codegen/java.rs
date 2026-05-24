@@ -1170,10 +1170,9 @@ fn render_test_method(
         .cloned()
         .unwrap_or_else(|| call_config.function.to_lower_camel_case());
     let effective_result_var = &call_config.result_var;
-    let effective_args = &call_config.args;
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
-    let args: &[crate::e2e::config::ArgMapping] = effective_args.as_slice();
+    let args: &[crate::e2e::config::ArgMapping] = fixture.resolved_args(call_config);
 
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -2894,6 +2893,7 @@ mod test_backend_tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 
@@ -2958,6 +2958,7 @@ mod tests {
             http: None,
             assertions: vec![],
             visitor: None,
+            args: vec![],
         }
     }
 
