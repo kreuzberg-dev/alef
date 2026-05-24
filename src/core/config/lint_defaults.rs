@@ -30,7 +30,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
                 typecheck: Some(StringOrVec::Single(typecheck_cmd)),
             }
         }
-        Language::Node | Language::Wasm => {
+        Language::Node => {
             let pm = ctx.tools.node_pm();
             let runner: &str = match pm {
                 "pnpm" => "pnpm exec",
@@ -53,6 +53,17 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
                 typecheck: None,
             }
         }
+        Language::Wasm => LintConfig {
+            precondition: Some(require_tool("cargo")),
+            before: None,
+            format: Some(StringOrVec::Single(
+                "cargo fmt --all".to_string(),
+            )),
+            check: Some(StringOrVec::Single(
+                "cargo clippy --fix --allow-dirty --allow-staged -- -D warnings".to_string(),
+            )),
+            typecheck: None,
+        },
         Language::Ruby => {
             let format_cmd = wrap(
                 append_paths(
@@ -418,13 +429,13 @@ mod tests {
     }
 
     #[test]
-    fn wasm_defaults_match_node() {
-        let node = cfg(Language::Node, "packages/node");
+    fn wasm_defaults_use_cargo_fmt() {
         let wasm = cfg(Language::Wasm, "packages/wasm");
-        let node_fmt = node.format.unwrap().commands().join(" ");
-        let wasm_fmt = wasm.format.unwrap().commands().join(" ");
-        assert!(node_fmt.contains("oxfmt"));
-        assert!(wasm_fmt.contains("oxfmt"));
+        let fmt = wasm.format.unwrap().commands().join(" ");
+        let check = wasm.check.unwrap().commands().join(" ");
+        assert!(fmt.contains("cargo fmt"), "Wasm format should use cargo fmt, got: {fmt}");
+        assert!(check.contains("cargo clippy"), "Wasm check should use cargo clippy, got: {check}");
+        assert_eq!(wasm.precondition.as_deref(), Some("command -v cargo >/dev/null 2>&1"));
     }
 
     #[test]
