@@ -1413,10 +1413,7 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "  )");
 
     // Registration expression.
-    let register_fn = trait_bridge
-        .register_fn
-        .as_deref()
-        .unwrap_or("register_backend");
+    let register_fn = trait_bridge.register_fn.as_deref().unwrap_or("register_backend");
 
     let arg_expr = format!("{register_fn}({var_name})");
 
@@ -1513,7 +1510,13 @@ mod tests {
         );
 
         // Must not contain any hardcoded domain-specific names.
-        for name in &["OcrBackend", "DocumentExtractor", "process_image", "extract_bytes", "kreuzberg"] {
+        for name in &[
+            "OcrBackend",
+            "DocumentExtractor",
+            "process_image",
+            "extract_bytes",
+            "kreuzberg",
+        ] {
             assert!(
                 !emission.setup_block.contains(name),
                 "setup_block must not contain domain name '{name}', got:\n{}",

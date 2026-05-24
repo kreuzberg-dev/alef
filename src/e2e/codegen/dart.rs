@@ -2663,10 +2663,7 @@ pub fn emit_test_backend(
             );
         } else {
             let _ = writeln!(setup, "  @override");
-            let _ = writeln!(
-                setup,
-                "  dynamic {method_name}({params_str}) => {default_val};"
-            );
+            let _ = writeln!(setup, "  dynamic {method_name}({params_str}) => {default_val};");
         }
     }
 

@@ -115,6 +115,21 @@ pub fn abis(config: &ResolvedCrateConfig) -> Vec<String> {
         .unwrap_or_else(|| vec!["arm64-v8a".to_string(), "x86_64".to_string()])
 }
 
+/// Return the canonical Kotlin Android bridge object name for a trait.
+///
+/// Both the production wrapper codegen (`trait_bridge.rs`) and the e2e stub
+/// emitter (`e2e/codegen/kotlin_android.rs`) must call this function so that a
+/// rename in one place is automatically reflected in the other.
+///
+/// # Example
+/// ```
+/// use alef::backends::kotlin_android::naming::bridge_object_name;
+/// assert_eq!(bridge_object_name("OcrBackend"), "OcrBackendBridge");
+/// ```
+pub fn bridge_object_name(trait_name: &str) -> String {
+    format!("{trait_name}Bridge")
+}
+
 fn sanitize_package(name: &str) -> String {
     name.replace('-', "_")
         .chars()

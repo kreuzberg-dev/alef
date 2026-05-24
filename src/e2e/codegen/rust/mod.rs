@@ -135,7 +135,15 @@ impl E2eCodegen for RustE2eCodegen {
             }
 
             let filename = format!("{}_test.rs", sanitize_filename(&group.category));
-            let content = render_test_file(&group.category, &fixtures, e2e_config, &dep_name, needs_mock_server);
+            let content = render_test_file(
+                &group.category,
+                &fixtures,
+                e2e_config,
+                config,
+                _type_defs,
+                &dep_name,
+                needs_mock_server,
+            );
 
             files.push(GeneratedFile {
                 path: output_base.join("tests").join(filename),
@@ -228,7 +236,10 @@ pub fn emit_test_backend(
     // arg_expr: wrapped in Arc for the register call.
     let arg_expr = format!("std::sync::Arc::new({stub_name} {{ _name: \"{backend_name}\" }})");
 
-    super::TestBackendEmission { setup_block: setup, arg_expr }
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
 }
 
 /// Format a single Rust stub method.
@@ -407,13 +418,15 @@ result_var = "result"
         };
 
         let m1 = test_method("do_work", TypeRef::String, false, None);
-        let m2 = test_method("process_async", TypeRef::Named("WorkResult".to_string()), true, Some("WorkError"));
+        let m2 = test_method(
+            "process_async",
+            TypeRef::Named("WorkResult".to_string()),
+            true,
+            Some("WorkError"),
+        );
         let methods = [&m1, &m2];
 
-        let fixture = make_fixture(
-            "my_test_fixture",
-            serde_json::json!({ "name": "my-test-backend" }),
-        );
+        let fixture = make_fixture("my_test_fixture", serde_json::json!({ "name": "my-test-backend" }));
 
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
@@ -429,7 +442,10 @@ result_var = "result"
             emission.setup_block
         );
         // Must NOT hardcode any kreuzberg-domain trait name.
-        assert!(!emission.setup_block.contains("OcrBackend"), "setup_block must not hardcode OcrBackend");
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode OcrBackend"
+        );
         assert!(
             !emission.setup_block.contains("DocumentExtractor"),
             "setup_block must not hardcode DocumentExtractor"
@@ -452,7 +468,11 @@ result_var = "result"
         );
 
         // arg_expr wraps in Arc::new.
-        assert!(emission.arg_expr.contains("Arc::new"), "arg_expr should use Arc::new, got: {}", emission.arg_expr);
+        assert!(
+            emission.arg_expr.contains("Arc::new"),
+            "arg_expr should use Arc::new, got: {}",
+            emission.arg_expr
+        );
         assert!(
             emission.arg_expr.contains("_TestStub_my_test_fixture"),
             "arg_expr should reference stub struct, got: {}",
@@ -478,8 +498,14 @@ result_var = "result"
         let fixture = make_fixture("skip_defaults_fixture", serde_json::json!({}));
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-        assert!(emission.setup_block.contains("fn required_method("), "required method should be emitted");
-        assert!(!emission.setup_block.contains("fn optional_method("), "method with default impl should be skipped");
+        assert!(
+            emission.setup_block.contains("fn required_method("),
+            "required method should be emitted"
+        );
+        assert!(
+            !emission.setup_block.contains("fn optional_method("),
+            "method with default impl should be skipped"
+        );
     }
 
     #[test]

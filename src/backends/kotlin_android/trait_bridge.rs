@@ -7,6 +7,7 @@
 //!    - Calls native JNI methods for registration/unregistration
 //!    - Throws KreuzbergException on failure
 
+use crate::backends::kotlin_android::naming::bridge_object_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::TypeDef;
 use heck::ToUpperCamelCase;
@@ -27,12 +28,14 @@ pub fn gen_trait_bridge_object(
     bridge_class_name: &str,
 ) -> Option<(String, String)> {
     let interface_name = format!("I{trait_name}");
+    // Use the canonical naming helper so both production and e2e emit the same name.
+    let bridge_obj = bridge_object_name(trait_name);
 
     let _imports = BTreeSet::new();
     let mut body = String::new();
 
     // Bridge object declaration
-    body.push_str(&format!("object {}Bridge {{\n", trait_name));
+    body.push_str(&format!("object {bridge_obj} {{\n"));
     body.push_str(&format!(
         "    private val registered = mutableMapOf<String, {interface_name}>()\n\n"
     ));

@@ -187,7 +187,10 @@ pub fn emit_test_backend(
 
     let arg_expr = format!("{stub_name}()");
 
-    super::TestBackendEmission { setup_block: setup, arg_expr }
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
 }
 
 /// Format a single Python stub method returning the language default for its return type.
@@ -338,37 +341,51 @@ result_var = "result"
         let m2 = test_method("async_op", TypeRef::Named("WorkResult".to_string()), true, false);
         let methods = [&m1, &m2];
 
-        let fixture = make_fixture(
-            "py_test_fixture",
-            serde_json::json!({ "name": "my-python-backend" }),
-        );
+        let fixture = make_fixture("py_test_fixture", serde_json::json!({ "name": "my-python-backend" }));
 
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         // setup_block must define a Python class.
-        assert!(emission.setup_block.contains("class _TestStub_py_test_fixture"),
-            "setup_block should define the stub class, got: {}", emission.setup_block);
+        assert!(
+            emission.setup_block.contains("class _TestStub_py_test_fixture"),
+            "setup_block should define the stub class, got: {}",
+            emission.setup_block
+        );
         // Must NOT hardcode kreuzberg-domain trait names.
-        assert!(!emission.setup_block.contains("OcrBackend"),
-            "setup_block must not hardcode OcrBackend");
-        assert!(!emission.setup_block.contains("DocumentExtractor"),
-            "setup_block must not hardcode DocumentExtractor");
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode OcrBackend"
+        );
+        assert!(
+            !emission.setup_block.contains("DocumentExtractor"),
+            "setup_block must not hardcode DocumentExtractor"
+        );
 
         // name() emitted because super_trait is set.
-        assert!(emission.setup_block.contains("def name("),
-            "setup_block should emit name() when super_trait is set");
-        assert!(emission.setup_block.contains("my-python-backend"),
-            "name() should return the backend name from input");
+        assert!(
+            emission.setup_block.contains("def name("),
+            "setup_block should emit name() when super_trait is set"
+        );
+        assert!(
+            emission.setup_block.contains("my-python-backend"),
+            "name() should return the backend name from input"
+        );
 
         // Required methods emitted.
-        assert!(emission.setup_block.contains("def do_work("),
-            "required method do_work should be emitted");
-        assert!(emission.setup_block.contains("async def async_op("),
-            "required async method should be emitted");
+        assert!(
+            emission.setup_block.contains("def do_work("),
+            "required method do_work should be emitted"
+        );
+        assert!(
+            emission.setup_block.contains("async def async_op("),
+            "required async method should be emitted"
+        );
 
         // arg_expr is a plain instantiation.
-        assert_eq!(emission.arg_expr, "_TestStub_py_test_fixture()",
-            "arg_expr should be a plain constructor call");
+        assert_eq!(
+            emission.arg_expr, "_TestStub_py_test_fixture()",
+            "arg_expr should be a plain constructor call"
+        );
     }
 
     #[test]
@@ -388,9 +405,13 @@ result_var = "result"
         let fixture = make_fixture("py_skip_defaults", serde_json::json!({}));
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-        assert!(emission.setup_block.contains("def must_implement("),
-            "required method should be emitted");
-        assert!(!emission.setup_block.contains("def may_implement("),
-            "optional method should be skipped");
+        assert!(
+            emission.setup_block.contains("def must_implement("),
+            "required method should be emitted"
+        );
+        assert!(
+            !emission.setup_block.contains("def may_implement("),
+            "optional method should be skipped"
+        );
     }
 }

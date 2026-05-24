@@ -3228,8 +3228,9 @@ pub fn emit_test_backend(
 
     let pascal_id = fixture.id.to_upper_camel_case();
     let class_name = format!("TestStub{pascal_id}");
-    // The Swift bridge protocol/class name follows the pattern `Swift{TraitName}Bridge`.
-    let protocol_name = format!("Swift{}Bridge", trait_bridge.trait_name);
+    // Use the canonical naming helper so this stays in sync with the production
+    // codegen in `src/backends/swift/gen_bindings/trait_bridge.rs`.
+    let protocol_name = crate::backends::swift::naming::bridge_protocol_name(&trait_bridge.trait_name);
 
     let plugin_name = fixture
         .input
@@ -3276,10 +3277,7 @@ pub fn emit_test_backend(
                 "    func {method_name}({params_str}) async -> Any {{ {default_val} }}"
             );
         } else {
-            let _ = writeln!(
-                setup,
-                "    func {method_name}({params_str}) -> Any {{ {default_val} }}"
-            );
+            let _ = writeln!(setup, "    func {method_name}({params_str}) -> Any {{ {default_val} }}");
         }
     }
 

@@ -168,7 +168,11 @@ pub fn validate_fixtures_semantic(
                 // Collect all skip reasons from fixtures to see if they're uniform
                 let all_have_skip = group.fixtures.iter().all(|f| f.skip.is_some());
                 let skip_reasons: Vec<&Option<String>> = if all_have_skip {
-                    group.fixtures.iter().map(|f| &f.skip.as_ref().unwrap().reason).collect()
+                    group
+                        .fixtures
+                        .iter()
+                        .map(|f| &f.skip.as_ref().unwrap().reason)
+                        .collect()
                 } else {
                     vec![]
                 };

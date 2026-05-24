@@ -2267,11 +2267,7 @@ pub fn emit_test_backend(
     for method in methods.iter().filter(|m| !m.has_default_impl) {
         let ruby_name = method.name.to_snake_case();
         // Build a parameter list: positional param names only (Ruby is duck-typed).
-        let params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| sanitize_ident(&p.name))
-            .collect();
+        let params: Vec<String> = method.params.iter().map(|p| sanitize_ident(&p.name)).collect();
         let param_str = params.join(", ");
         let default_val = defaults.emit_default(&method.return_type);
         if param_str.is_empty() {

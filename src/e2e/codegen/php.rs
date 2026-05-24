@@ -2410,7 +2410,10 @@ pub fn emit_test_backend(
     // Plugin super-trait: emit `name()` returning the fixture id as a string.
     if trait_bridge.super_trait.is_some() {
         let escaped_id = escape_php(&fixture.id);
-        let _ = writeln!(setup, "            public function name(): string {{ return '{escaped_id}'; }}");
+        let _ = writeln!(
+            setup,
+            "            public function name(): string {{ return '{escaped_id}'; }}"
+        );
     }
 
     // Emit stubs for all required methods (skip those with default implementations).
@@ -2441,7 +2444,6 @@ pub fn emit_test_backend(
         arg_expr: "$stub".to_string(),
     }
 }
-
 
 #[cfg(test)]
 mod trait_bridge_tests {
@@ -2550,6 +2552,10 @@ mod trait_bridge_tests {
             emission.setup_block
         );
         // arg_expr is the anonymous class variable.
-        assert_eq!(emission.arg_expr, "$stub", "arg_expr must be '$stub', got: {}", emission.arg_expr);
+        assert_eq!(
+            emission.arg_expr, "$stub",
+            "arg_expr must be '$stub', got: {}",
+            emission.arg_expr
+        );
     }
 }

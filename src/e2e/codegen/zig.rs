@@ -2275,10 +2275,7 @@ pub fn emit_test_backend(
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "        pub fn name() ?[*:0]const u8 {{ return \"test\"; }}");
         let _ = writeln!(setup, "        pub fn version() ?[*:0]const u8 {{ return \"0.0.1\"; }}");
-        let _ = writeln!(
-            setup,
-            "        pub fn initialize(_: *{struct_name}) !void {{}}"
-        );
+        let _ = writeln!(setup, "        pub fn initialize(_: *{struct_name}) !void {{}}");
         let _ = writeln!(setup, "        pub fn shutdown(_: *{struct_name}) !void {{}}");
     }
 
@@ -2310,10 +2307,7 @@ pub fn emit_test_backend(
         };
 
         if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(
-                setup,
-                "        pub fn {method_snake}({param_list}) {ret_sig} {{}}"
-            );
+            let _ = writeln!(setup, "        pub fn {method_snake}({param_list}) {ret_sig} {{}}");
         } else {
             let _ = writeln!(
                 setup,
@@ -2330,17 +2324,12 @@ pub fn emit_test_backend(
     );
 
     // Registration: register_fn snake_case, else default pattern.
-    let register_fn = trait_bridge
-        .register_fn
-        .as_deref()
-        .unwrap_or("register_backend");
+    let register_fn = trait_bridge.register_fn.as_deref().unwrap_or("register_backend");
 
     let out_err_var = format!("out_err_{id_snake}");
     let _ = writeln!(setup, "    var {out_err_var}: ?[*:0]u8 = null;");
 
-    let arg_expr = format!(
-        "_ = lib.{register_fn}(\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var}))"
-    );
+    let arg_expr = format!("_ = lib.{register_fn}(\"test\", {vtable_var}, &{var_name}, @ptrCast(&{out_err_var}))");
 
     super::TestBackendEmission {
         setup_block: setup,
@@ -2435,7 +2424,13 @@ mod tests_trait_bridge {
         );
 
         // Must not contain any hardcoded domain-specific names.
-        for name in &["OcrBackend", "DocumentExtractor", "processImage", "process_image_fn", "kreuzberg"] {
+        for name in &[
+            "OcrBackend",
+            "DocumentExtractor",
+            "processImage",
+            "process_image_fn",
+            "kreuzberg",
+        ] {
             assert!(
                 !emission.setup_block.contains(name),
                 "setup_block must not contain domain name '{name}', got:\n{}",

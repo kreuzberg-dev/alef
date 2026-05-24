@@ -245,7 +245,10 @@ pub fn emit_test_backend(
 
     let arg_expr = format!("new {stub_name}()");
 
-    super::TestBackendEmission { setup_block: setup, arg_expr }
+    super::TestBackendEmission {
+        setup_block: setup,
+        arg_expr,
+    }
 }
 
 /// Format a single TypeScript stub method.
@@ -261,7 +264,12 @@ fn emit_ts_stub_method(
     use std::fmt::Write as FmtWrite;
 
     // Build parameter list: `_p0?: any, _p1?: any, ...`
-    let params: Vec<String> = method.params.iter().enumerate().map(|(i, _)| format!("_p{i}?: any")).collect();
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .enumerate()
+        .map(|(i, _)| format!("_p{i}?: any"))
+        .collect();
     let params_str = params.join(", ");
 
     let default_val = defaults.emit_default(&method.return_type);
@@ -396,37 +404,51 @@ result_var = "result"
         let m2 = test_method("asyncOp", TypeRef::Named("WorkResult".to_string()), true, false);
         let methods = [&m1, &m2];
 
-        let fixture = make_fixture(
-            "ts_test_fixture",
-            serde_json::json!({ "name": "my-ts-backend" }),
-        );
+        let fixture = make_fixture("ts_test_fixture", serde_json::json!({ "name": "my-ts-backend" }));
 
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         // setup_block must define a TS class.
-        assert!(emission.setup_block.contains("class _TestStub_ts_test_fixture"),
-            "setup_block should define the stub class, got: {}", emission.setup_block);
+        assert!(
+            emission.setup_block.contains("class _TestStub_ts_test_fixture"),
+            "setup_block should define the stub class, got: {}",
+            emission.setup_block
+        );
         // Must NOT hardcode kreuzberg-domain trait names.
-        assert!(!emission.setup_block.contains("OcrBackend"),
-            "setup_block must not hardcode OcrBackend");
-        assert!(!emission.setup_block.contains("DocumentExtractor"),
-            "setup_block must not hardcode DocumentExtractor");
+        assert!(
+            !emission.setup_block.contains("OcrBackend"),
+            "setup_block must not hardcode OcrBackend"
+        );
+        assert!(
+            !emission.setup_block.contains("DocumentExtractor"),
+            "setup_block must not hardcode DocumentExtractor"
+        );
 
         // name() emitted because super_trait is set.
-        assert!(emission.setup_block.contains("name()"),
-            "setup_block should emit name() method");
-        assert!(emission.setup_block.contains("my-ts-backend"),
-            "name() should return the backend name");
+        assert!(
+            emission.setup_block.contains("name()"),
+            "setup_block should emit name() method"
+        );
+        assert!(
+            emission.setup_block.contains("my-ts-backend"),
+            "name() should return the backend name"
+        );
 
         // Required methods emitted.
-        assert!(emission.setup_block.contains("syncOp("),
-            "required sync method should be emitted");
-        assert!(emission.setup_block.contains("async asyncOp("),
-            "required async method should be emitted with async keyword");
+        assert!(
+            emission.setup_block.contains("syncOp("),
+            "required sync method should be emitted"
+        );
+        assert!(
+            emission.setup_block.contains("async asyncOp("),
+            "required async method should be emitted with async keyword"
+        );
 
         // arg_expr uses new keyword.
-        assert_eq!(emission.arg_expr, "new _TestStub_ts_test_fixture()",
-            "arg_expr should use new constructor");
+        assert_eq!(
+            emission.arg_expr, "new _TestStub_ts_test_fixture()",
+            "arg_expr should use new constructor"
+        );
     }
 
     #[test]
@@ -446,9 +468,13 @@ result_var = "result"
         let fixture = make_fixture("ts_skip_defaults", serde_json::json!({}));
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-        assert!(emission.setup_block.contains("mustImplement("),
-            "required method should be emitted");
-        assert!(!emission.setup_block.contains("mayImplement("),
-            "optional method should be skipped");
+        assert!(
+            emission.setup_block.contains("mustImplement("),
+            "required method should be emitted"
+        );
+        assert!(
+            !emission.setup_block.contains("mayImplement("),
+            "optional method should be skipped"
+        );
     }
 }

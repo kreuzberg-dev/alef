@@ -68,6 +68,8 @@ pub fn render_test_file(
     category: &str,
     fixtures: &[&Fixture],
     e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
     dep_name: &str,
     needs_mock_server: bool,
 ) -> String {
@@ -160,7 +162,15 @@ pub fn render_test_file(
     // imports trips `-D unused_imports` in the consumer crate.
     let mut body_buf = String::new();
     for fixture in fixtures {
-        render_test_function(&mut body_buf, fixture, e2e_config, dep_name, client_factory);
+        render_test_function(
+            &mut body_buf,
+            fixture,
+            e2e_config,
+            config,
+            type_defs,
+            dep_name,
+            client_factory,
+        );
         let _ = writeln!(body_buf);
     }
 
@@ -328,6 +338,8 @@ pub fn render_test_function(
     out: &mut String,
     fixture: &Fixture,
     e2e_config: &E2eConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
+    type_defs: &[crate::core::ir::TypeDef],
     dep_name: &str,
     client_factory: Option<&str>,
 ) {
@@ -452,6 +464,34 @@ pub fn render_test_function(
     for arg in &call_config.args {
         let value = crate::e2e::codegen::resolve_field(&fixture.input, &arg.field);
         let var_name = &arg.name;
+
+        // Handle test_backend args: generate trait stub struct and instance.
+        if arg.arg_type == "test_backend" {
+            if let Some(trait_name) = &arg.trait_name {
+                // Find the matching trait bridge config.
+                if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                    // Resolve methods for this trait bridge by looking up the trait in type_defs.
+                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                        .iter()
+                        .find(|t| t.name == *trait_name)
+                        .map(|t| t.methods.iter().collect())
+                        .unwrap_or_default();
+                    // Emit the test backend stub.
+                    let emission = super::super::emit_test_backend("rust", trait_bridge, &methods, fixture);
+                    let bindings = vec![emission.setup_block];
+                    let expr = emission.arg_expr;
+                    for binding in &bindings {
+                        let _ = writeln!(out, "    {binding}");
+                    }
+                    arg_exprs.push(expr);
+                    continue;
+                } else {
+                    tracing::warn!("trait_bridge not found for trait: {}", trait_name);
+                    // Fall through to emit empty args if no trait bridge found.
+                }
+            }
+        }
+
         let (mut bindings, expr) = render_rust_arg(
             var_name,
             value,
@@ -973,7 +1013,12 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, &e2e_config, "my_crate", None);
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            "[workspace]\nlanguages = [\"rust\"]\n[[crates]]\nname = \"my_crate\"\nsources = [\"src/lib.rs\"]\n",
+        )
+        .unwrap();
+        let test_config = cfg.resolve().unwrap().remove(0);
+        render_test_function(&mut out, &fixture, &e2e_config, &test_config, &[], "my_crate", None);
 
         assert!(
             out.contains("let chunks = &result.chunks"),
@@ -1055,7 +1100,12 @@ mod tests {
         };
 
         let mut out = String::new();
-        render_test_function(&mut out, &fixture, &e2e_config, "my_crate", None);
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            "[workspace]\nlanguages = [\"rust\"]\n[[crates]]\nname = \"my_crate\"\nsources = [\"src/lib.rs\"]\n",
+        )
+        .unwrap();
+        let test_config = cfg.resolve().unwrap().remove(0);
+        render_test_function(&mut out, &fixture, &e2e_config, &test_config, &[], "my_crate", None);
 
         assert!(
             out.contains("let result = embed_texts"),

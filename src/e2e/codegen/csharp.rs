@@ -3545,6 +3545,58 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
     }
 }
 
+/// Emit a single C# stub method body into `out`.
+///
+/// Used by both the main method loop and the super-trait method section of
+/// `emit_test_backend` so both paths share the same formatting logic.
+/// `method_cs` is the already-PascalCased method name (caller's responsibility).
+fn emit_csharp_stub_method(
+    out: &mut String,
+    method_cs: &str,
+    method: &crate::core::ir::MethodDef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) {
+    use crate::core::ir::TypeRef;
+
+    let ret_ty = csharp_type_for_stub(&method.return_type);
+    let default_val = defaults.emit_default(&method.return_type);
+
+    // Build parameter list.
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| format!("{} {}", csharp_type_for_stub(&p.ty), p.name.to_lower_camel_case()))
+        .collect();
+    let param_list = params.join(", ");
+
+    if method.is_async {
+        // async Task<RetType> or async Task for Unit.
+        if matches!(method.return_type, TypeRef::Unit) {
+            let _ = writeln!(
+                out,
+                "            public async System.Threading.Tasks.Task {method_cs}({param_list})"
+            );
+            let _ = writeln!(out, "            {{");
+            let _ = writeln!(out, "                await System.Threading.Tasks.Task.CompletedTask;");
+            let _ = writeln!(out, "            }}");
+        } else {
+            let _ = writeln!(
+                out,
+                "            public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
+            );
+            let _ = writeln!(out, "            {{");
+            let _ = writeln!(out, "                await System.Threading.Tasks.Task.CompletedTask;");
+            let _ = writeln!(out, "                return {default_val};");
+            let _ = writeln!(out, "            }}");
+        }
+    } else if matches!(method.return_type, TypeRef::Unit) {
+        let _ = writeln!(out, "            public void {method_cs}({param_list}) {{ }}");
+    } else {
+        let _ = writeln!(out, "            public {ret_ty} {method_cs}({param_list})");
+        let _ = writeln!(out, "                => {default_val};");
+    }
+}
+
 /// Emit a C# test backend stub.
 ///
 /// Generates a nested private class implementing the bridge interface
@@ -3555,8 +3607,10 @@ fn csharp_type_for_stub(ty: &crate::core::ir::TypeRef) -> String {
 /// Rules:
 /// - The stub class name is `TestStub_{sanitized_fixture_id}` where the id
 ///   has been converted to PascalCase (safe C# identifier).
-/// - The Plugin super-trait `Name` property is emitted as a `string` getter
-///   returning `"test"` when `trait_bridge.super_trait.is_some()`.
+/// - Super-trait methods (those whose `trait_source` matches the configured
+///   `super_trait`) are emitted first, driven from the `methods` IR slice —
+///   no method names are hardcoded. The `name` method gets the fixture id as
+///   its return value; all other super-trait methods use language defaults.
 /// - Required methods (those without `has_default_impl`) are emitted with
 ///   return-type defaults produced by `CSharpDefaults`.
 /// - Async methods return `Task<T>` and are `async`; sync methods are plain.
@@ -3568,7 +3622,6 @@ pub fn emit_test_backend(
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
-    use crate::core::ir::TypeRef;
 
     let defaults = language_defaults("csharp");
 
@@ -3579,64 +3632,60 @@ pub fn emit_test_backend(
     let trait_pascal = trait_bridge.trait_name.to_upper_camel_case();
     let iface_name = format!("I{trait_pascal}");
 
+    let plugin_name = fixture
+        .input
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or(&fixture.id)
+        .to_string();
+
     let mut setup = String::new();
 
     // Emit the stub class inline inside the test method body.
     let _ = writeln!(setup, "        private class {stub_class} : {iface_name}");
     let _ = writeln!(setup, "        {{");
 
-    // Plugin super-trait: Name property (read-only string).
-    if trait_bridge.super_trait.is_some() {
-        let _ = writeln!(setup, "            public string Name => \"test\";");
-        let _ = writeln!(setup, "            public string Version => \"0.0.1\";");
-        let _ = writeln!(setup, "            public void Initialize() {{ }}");
-        let _ = writeln!(setup, "            public void Shutdown() {{ }}");
+    // Super-trait methods: filter by trait_source matching the configured super_trait.
+    // Driven from IR — no method names are hardcoded. The `name` method returns the
+    // fixture's plugin name; all other super-trait methods use the standard emission logic.
+    if let Some(super_trait) = trait_bridge.super_trait.as_deref() {
+        for method in methods
+            .iter()
+            .filter(|m| m.trait_source.as_deref() == Some(super_trait))
+        {
+            let method_cs = method.name.to_upper_camel_case();
+            if method.name == "name" {
+                let _ = writeln!(setup, "            public string {method_cs} => \"{plugin_name}\";");
+            } else {
+                emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
+            }
+        }
     }
 
-    // Required methods only (skip those with default implementations).
+    // Required methods only (skip those with default implementations and super-trait methods).
     for method in methods.iter().filter(|m| !m.has_default_impl) {
-        let method_cs = method.name.to_upper_camel_case();
-        let ret_ty = csharp_type_for_stub(&method.return_type);
-        let default_val = defaults.emit_default(&method.return_type);
-
-        // Build parameter list.
-        let params: Vec<String> = method
-            .params
-            .iter()
-            .map(|p| format!("{} {}", csharp_type_for_stub(&p.ty), p.name.to_lower_camel_case()))
-            .collect();
-        let param_list = params.join(", ");
-
-        if method.is_async {
-            // async Task<RetType> or async Task for Unit.
-            if matches!(method.return_type, TypeRef::Unit) {
-                let _ = writeln!(setup, "            public async System.Threading.Tasks.Task {method_cs}({param_list})");
-                let _ = writeln!(setup, "            {{");
-                let _ = writeln!(setup, "                await System.Threading.Tasks.Task.CompletedTask;");
-                let _ = writeln!(setup, "            }}");
-            } else {
-                let _ = writeln!(
-                    setup,
-                    "            public async System.Threading.Tasks.Task<{ret_ty}> {method_cs}({param_list})"
-                );
-                let _ = writeln!(setup, "            {{");
-                let _ = writeln!(setup, "                await System.Threading.Tasks.Task.CompletedTask;");
-                let _ = writeln!(setup, "                return {default_val};");
-                let _ = writeln!(setup, "            }}");
-            }
-        } else if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(setup, "            public void {method_cs}({param_list}) {{ }}");
-        } else {
-            let _ = writeln!(setup, "            public {ret_ty} {method_cs}({param_list})");
-            let _ = writeln!(setup, "                => {default_val};");
+        // Skip super-trait methods already emitted above.
+        if trait_bridge
+            .super_trait
+            .as_deref()
+            .is_some_and(|st| method.trait_source.as_deref() == Some(st))
+        {
+            continue;
         }
+        let method_cs = method.name.to_upper_camel_case();
+        emit_csharp_stub_method(&mut setup, &method_cs, method, &*defaults);
     }
 
     let _ = writeln!(setup, "        }}");
 
     // Registration expression.
     let arg_expr = if let Some(reg_fn) = trait_bridge.register_fn.as_deref() {
-        format!("{}Bridge.{}(new {}())", trait_pascal, reg_fn.to_upper_camel_case(), stub_class)
+        format!(
+            "{}Bridge.{}(new {}())",
+            trait_pascal,
+            reg_fn.to_upper_camel_case(),
+            stub_class
+        )
     } else {
         format!("{}Bridge.Register(new {}())", trait_pascal, stub_class)
     };
@@ -3801,7 +3850,13 @@ mod tests {
         );
 
         // Must not contain any hardcoded domain-specific names.
-        for name in &["OcrBackend", "DocumentExtractor", "ProcessImage", "ExtractBytes", "kreuzberg"] {
+        for name in &[
+            "OcrBackend",
+            "DocumentExtractor",
+            "ProcessImage",
+            "ExtractBytes",
+            "kreuzberg",
+        ] {
             assert!(
                 !emission.setup_block.contains(name),
                 "setup_block must not contain domain name '{name}', got:\n{}",
