@@ -558,6 +558,34 @@ pub fn field_conversion_from_core_cfg(
                     return format!("{name}: serde_wasm_bindgen::to_value(&val.{name}).unwrap_or(JsValue::NULL)");
                 }
             }
+            // Vec<Vec<String>> sanitized from Vec<(String, String)> → JsValue (nested vec maps to JsValue in WASM)
+            // Destructure tuples to 2-element Vecs and serialize to JsValue via serde_wasm_bindgen.
+            if let TypeRef::Vec(outer_inner) = ty {
+                if let TypeRef::Vec(inner) = outer_inner.as_ref() {
+                    if matches!(inner.as_ref(), TypeRef::String) {
+                        if optional {
+                            return format!(
+                                "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(&v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()).ok())"
+                            );
+                        }
+                        return format!(
+                            "{name}: serde_wasm_bindgen::to_value(&val.{name}.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()).unwrap_or(JsValue::NULL)"
+                        );
+                    }
+                }
+            }
+            // Optional<Vec<Vec<String>>> sanitized from Option<Vec<(String, String)>> → Option<JsValue>
+            if let TypeRef::Optional(opt_inner) = ty {
+                if let TypeRef::Vec(outer_inner) = opt_inner.as_ref() {
+                    if let TypeRef::Vec(inner) = outer_inner.as_ref() {
+                        if matches!(inner.as_ref(), TypeRef::String) {
+                            return format!(
+                                "{name}: val.{name}.as_ref().and_then(|v| serde_wasm_bindgen::to_value(&v.iter().map(|(a, b)| vec![a.to_string(), b.to_string()]).collect::<Vec<Vec<String>>>()).ok())"
+                            );
+                        }
+                    }
+                }
+            }
         }
         return field_conversion_from_core(name, ty, optional, sanitized, opaque_types);
     }
