@@ -2457,15 +2457,17 @@ pub fn emit_test_backend(
     let defaults = language_defaults("php");
     let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
 
+    // Build setup_block lines without leading indentation: the Jinja template
+    // prefixes each line with 8 spaces (two method-body indent levels in PHPUnit).
     let mut setup = String::new();
-    let _ = writeln!(setup, "        $stub = new class {{");
+    let _ = writeln!(setup, "$stub = new class {{");
 
     // Plugin super-trait: emit `name()` returning the backend name string.
     if trait_bridge.super_trait.is_some() {
         let escaped_name = escape_php(&backend_name);
         let _ = writeln!(
             setup,
-            "            public function name(): string {{ return '{escaped_name}'; }}"
+            "    public function name(): string {{ return '{escaped_name}'; }}"
         );
     }
 
@@ -2476,8 +2478,7 @@ pub fn emit_test_backend(
         // deserialises the return value via json_decode, so return a JSON-safe
         // empty-object string instead of attempting a constructor call.
         let default_val = match &method.return_type {
-            TypeRef::Named(_) => "'{}'"
-                .to_string(),
+            TypeRef::Named(_) => "'{}'".to_string(),
             other => defaults.emit_default(other),
         };
         // Parameter list: positional only (PHP is duck-typed; we omit type hints for simplicity).
@@ -2488,16 +2489,16 @@ pub fn emit_test_backend(
             .collect();
         let param_str = params.join(", ");
         if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(setup, "            public function {php_name}({param_str}): void {{}}");
+            let _ = writeln!(setup, "    public function {php_name}({param_str}): void {{}}");
         } else {
             let _ = writeln!(
                 setup,
-                "            public function {php_name}({param_str}): mixed {{ return {default_val}; }}"
+                "    public function {php_name}({param_str}): mixed {{ return {default_val}; }}"
             );
         }
     }
 
-    let _ = writeln!(setup, "        }};");
+    let _ = writeln!(setup, "}};");
 
     super::TestBackendEmission {
         setup_block: setup,
@@ -2725,10 +2726,10 @@ mod trait_bridge_tests {
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
         let expected_setup = concat!(
-            "        $stub = new class {\n",
-            "            public function name(): string { return 'test-extractor'; }\n",
-            "            public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
-            "        };\n",
+            "$stub = new class {\n",
+            "    public function name(): string { return 'test-extractor'; }\n",
+            "    public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
+            "};\n",
         );
         assert_eq!(
             emission.setup_block, expected_setup,
