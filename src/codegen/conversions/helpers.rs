@@ -644,6 +644,26 @@ pub fn resolve_named_path(name: &str, core_import: &str, path_map: &AHashMap<Str
     }
 }
 
+/// Inverse of the sanitization in [`core_to_binding`] for `Vec<_>` fields:
+/// given a sanitized binding-side type, emit the expression that rebuilds the
+/// core-side value. The default fallback assumes the sanitized form is
+/// `Vec<String>` of JSON-serialized elements (the `Vec<Json>` shape); the
+/// `Vec<Vec<String>>` special case rebuilds `Vec<(String, String)>` from
+/// 2-element inner Vecs (the `parse_homogeneous_tuple` shape — see
+/// `core_to_binding::field_conversion_to_binding_cfg`).
+fn sanitized_vec_field_to_core_expr(name: &str, ty: &TypeRef) -> String {
+    if let TypeRef::Vec(outer_inner) = ty {
+        if let TypeRef::Vec(inner) = outer_inner.as_ref() {
+            if matches!(inner.as_ref(), TypeRef::String) {
+                return format!(
+                    "{name}.iter().filter_map(|inner| {{ let mut it = inner.iter().cloned(); Some((it.next()?, it.next()?)) }}).collect()"
+                );
+            }
+        }
+    }
+    format!("{name}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()")
+}
+
 /// Generate a match arm for binding -> core direction.
 /// Binding enums are always unit-variant-only. Core enums may have data variants.
 /// For data variants: `BindingEnum::Variant => CoreEnum::Variant(Default::default(), ...)`
@@ -697,9 +717,7 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 // Sanitized fields: binding uses String, use serde_json to deserialize back.
                 if f.sanitized {
                     let expr = if let TypeRef::Vec(_) = &f.ty {
-                        // Vec<String> sanitized: each element is a debug-formatted value,
-                        // parse each one individually.
-                        format!("{name}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()")
+                        sanitized_vec_field_to_core_expr(name, &f.ty)
                     } else {
                         format!("serde_json::from_str(&{name}).unwrap_or_default()")
                     };
@@ -740,14 +758,9 @@ pub fn binding_to_core_match_arm_ext_cfg(
                 // Sanitized fields: the binding stores a simplified type (String for any complex type
                 // like Vec<(String,String)>, Vec<Named>, etc.). Use serde_json to deserialize back.
                 if f.sanitized {
-                    // For Vec<String> sanitized (representing Vec<Tuple> like Vec<(String, String)>),
-                    // each element is a debug-formatted string. Cannot safely use serde_json::from_str
-                    // on Vec<String>. Default to empty collection.
                     if let TypeRef::Vec(_) = &f.ty {
-                        return format!(
-                            "{}: {}.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()",
-                            f.name, f.name
-                        );
+                        let expr = sanitized_vec_field_to_core_expr(&f.name, &f.ty);
+                        return format!("{}: {expr}", f.name);
                     }
                     return format!("{}: serde_json::from_str(&{}).unwrap_or_default()", f.name, f.name);
                 }
