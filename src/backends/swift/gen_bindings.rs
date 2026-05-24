@@ -1141,6 +1141,164 @@ fn vec_elem_convert_expr(
     }
 }
 
+/// Emits a custom Codable conformance for a serde-internally-tagged enum.
+/// Handles variant-tag decoding/encoding and respects field renames.
+fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
+    let tag_key = en.serde_tag.as_deref().unwrap_or("type");
+
+    // Emit CodingKeys enum
+    out.push_str("    private enum CodingKeys: String, CodingKey {\n");
+    out.push_str(&format!("        case {}\n", tag_key));
+
+    // Collect all unique field names across all variants
+    let mut field_keys = std::collections::BTreeSet::new();
+    for variant in &en.variants {
+        for field in &variant.fields {
+            let swift_name = swift_case_ident(&field.name.to_lower_camel_case());
+            let rust_name = field.serde_rename.as_deref().unwrap_or(&field.name);
+            field_keys.insert((swift_name, rust_name.to_string()));
+        }
+    }
+
+    for (swift_name, rust_name) in field_keys {
+        if swift_name == rust_name {
+            out.push_str(&format!("        case {}\n", swift_name));
+        } else {
+            out.push_str(&format!("        case {} = \"{}\"\n", swift_name, rust_name));
+        }
+    }
+
+    out.push_str("    }\n\n");
+
+    // Emit init(from:)
+    out.push_str("    public init(from decoder: Decoder) throws {\n");
+    out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
+    out.push_str(&format!(
+        "        let type = try container.decode(String.self, forKey: .{})\n",
+        tag_key
+    ));
+    out.push_str("        switch type {\n");
+
+    for variant in &en.variants {
+        // Compute the variant tag value based on serde_rename_all and serde_rename
+        let variant_tag = if let Some(rename) = &variant.serde_rename {
+            rename.clone()
+        } else {
+            match en.serde_rename_all.as_deref() {
+                Some("camelCase") => variant.name.to_lower_camel_case(),
+                Some("snake_case") => variant.name.to_snake_case(),
+                Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
+                _ => variant.name.clone(),
+            }
+        };
+
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+        out.push_str(&format!("        case \"{}\":\n", variant_tag));
+
+        if variant.fields.is_empty() {
+            out.push_str(&format!("            self = .{}\n", case_name));
+        } else {
+            out.push_str(&format!("            self = .{}(", case_name));
+            for (i, field) in variant.fields.iter().enumerate() {
+                let label = swift_associated_label(&field.name, i);
+                let already_optional = matches!(&field.ty, TypeRef::Optional(_));
+                let is_optional = field.optional || already_optional;
+                let ty = mapper.map_type(&field.ty);
+
+                if is_optional {
+                    // For Optional types, use decodeIfPresent with the type as-is
+                    out.push_str(&format!(
+                        "{}: try container.decodeIfPresent({}.self, forKey: .{})",
+                        label, ty, label
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "{}: try container.decode({}.self, forKey: .{})",
+                        label, ty, label
+                    ));
+                }
+                if i < variant.fields.len() - 1 {
+                    out.push_str(", ");
+                }
+            }
+            out.push_str(")\n");
+        }
+    }
+
+    out.push_str("        default:\n");
+    out.push_str("            throw DecodingError.dataCorruptedError(\n");
+    out.push_str(&format!("                forKey: .{},\n", tag_key));
+    out.push_str("                in: container,\n");
+    out.push_str(&format!(
+        "                debugDescription: \"Unknown {} type: \\(type)\"\n",
+        en.name
+    ));
+    out.push_str("            )\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n\n");
+
+    // Emit encode(to:)
+    out.push_str("    public func encode(to encoder: Encoder) throws {\n");
+    out.push_str("        var container = encoder.container(keyedBy: CodingKeys.self)\n");
+    out.push_str("        switch self {\n");
+
+    for variant in &en.variants {
+        // Compute the variant tag value
+        let variant_tag = if let Some(rename) = &variant.serde_rename {
+            rename.clone()
+        } else {
+            match en.serde_rename_all.as_deref() {
+                Some("camelCase") => variant.name.to_lower_camel_case(),
+                Some("snake_case") => variant.name.to_snake_case(),
+                Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
+                _ => variant.name.clone(),
+            }
+        };
+
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+
+        if variant.fields.is_empty() {
+            out.push_str(&format!("        case .{}:\n", case_name));
+            out.push_str(&format!(
+                "            try container.encode(\"{}\", forKey: .{})\n",
+                variant_tag, tag_key
+            ));
+        } else {
+            let mut bindings = Vec::new();
+            for (i, field) in variant.fields.iter().enumerate() {
+                let label = swift_associated_label(&field.name, i);
+                bindings.push(format!("let {}", label));
+            }
+            out.push_str(&format!("        case .{}({}):\n", case_name, bindings.join(", ")));
+            out.push_str(&format!(
+                "            try container.encode(\"{}\", forKey: .{})\n",
+                variant_tag, tag_key
+            ));
+
+            for (i, field) in variant.fields.iter().enumerate() {
+                let label = swift_associated_label(&field.name, i);
+                let already_optional = matches!(&field.ty, TypeRef::Optional(_));
+                let is_optional = field.optional || already_optional;
+
+                if is_optional {
+                    out.push_str(&format!(
+                        "            try container.encodeIfPresent({}, forKey: .{})\n",
+                        label, label
+                    ));
+                } else {
+                    out.push_str(&format!(
+                        "            try container.encode({}, forKey: .{})\n",
+                        label, label
+                    ));
+                }
+            }
+        }
+    }
+
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+}
+
 /// Emits a Swift enum or typealias for the given `EnumDef`.
 /// Non-Codable enums (`has_serde: false`) become typealiases to RustBridge.X.
 /// Codable enums (`has_serde: true`) are emitted as native Swift enums.
@@ -1204,18 +1362,14 @@ fn emit_enum(
     }
     // Data-variant enum (has_serde + not all_unit): emit as native Swift enum with associated values.
     //
-    // The template adds `: Codable, Sendable, Hashable` so the userland `*FromJson`
-    // forwarder can call `JSONDecoder().decode(EnumName.self, ...)`. Swift can only
-    // auto-synthesise those conformances when every associated value type itself
-    // conforms — i.e. is a primitive, String, or a known first-class Codable struct
-    // (entries in `known_dto_names`, which already includes unit serde enums).
+    // If the enum has serde_tag (internally-tagged), emit custom Codable conformance
+    // to handle the {"type": "variant", ...} wire format instead of Swift's default
+    // {"variant": {...}} externally-tagged form.
     //
-    // When any associated value references a type that is *not* in `known_dto_names`
-    // (e.g. an opaque DTO typealiased to `RustBridge.X`, or a non-serde enum), Swift
-    // refuses to synthesise the protocol conformances and the whole enum fails to
-    // compile. In that case we fall back to a typealias to the opaque RustBridge
-    // wrapper — users lose Swift-side pattern matching for that enum but everything
-    // else stays usable.
+    // Otherwise, rely on Swift's auto-synthesized Codable when all associated value
+    // types are Codable-safe (primitives, String, or known first-class structs).
+    // When any associated value is not Codable-safe, fall back to a typealias to
+    // RustBridge.X — users lose Swift-side pattern matching but everything else works.
     if !all_variants_codable_safe(en, known_dto_names) {
         out.push_str(&crate::backends::swift::template_env::render(
             "typealias.jinja",
@@ -1225,16 +1379,33 @@ fn emit_enum(
         ));
         return;
     }
-    out.push_str(&crate::backends::swift::template_env::render(
-        "swift_enum_header.jinja",
-        minijinja::context! {
-            name => &en.name,
-        },
-    ));
-    for variant in &en.variants {
-        emit_variant_with_data(variant, out, mapper);
+
+    // Check if this enum uses serde tagging (internally-tagged)
+    let has_serde_tag = en.serde_tag.is_some() && !en.serde_untagged;
+
+    if has_serde_tag {
+        // Emit as enum with custom Codable for internally-tagged format
+        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
+        for variant in &en.variants {
+            emit_variant_with_data(variant, out, mapper);
+        }
+        out.push('\n');
+        emit_serde_tagged_codable(en, out, mapper);
+        out.push_str("}\n");
+    } else {
+        // Emit as enum with auto-synthesized Codable (externally-tagged)
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_header.jinja",
+            minijinja::context! {
+                name => &en.name,
+            },
+        ));
+        for variant in &en.variants {
+            emit_variant_with_data(variant, out, mapper);
+        }
+        out.push_str("}\n");
     }
-    out.push_str("}\n");
+
     emit_enum_into_rust_extension(&en.name, out);
 }
 
