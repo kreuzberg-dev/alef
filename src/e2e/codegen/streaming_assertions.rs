@@ -871,11 +871,13 @@ fn has_event_variant_accessor(
         // C#: abstract record {item_type} with nested sealed records.
         // The qualifier is the project's C# namespace (e.g. `Kreuzcrawl`).
         "csharp" => module_qualifier.map(|ns| format!("{chunks_var}.Any(e => e is global::{ns}.{item_type}.{camel})")),
-        // Swift: enum {item_type} with associated values.  `if case .<tag> = e`
-        // is a statement, not an expression — wrap in a `contains(where:)` call
-        // with a switch-returning-bool closure.
+        // Swift: CrawlEvent is an opaque swift-bridge reference type exposing only
+        // `to_string()` for the Debug representation. Check if the variant name
+        // appears in the stringified version (e.g., "Page(...)", "Error(...)", "Complete(...)").
+        // The variant name derives from `camel` (Pascal-case). `to_string()` returns
+        // `RustString`, so convert to `String` via `.toString()` before calling `.contains()`.
         "swift" => Some(format!(
-            "{chunks_var}.contains(where: {{ e in if case .{tag} = e {{ return true }} else {{ return false }} }})"
+            "{chunks_var}.contains(where: {{ e in e.to_string().toString().contains(\"{camel}\") }})"
         )),
         // Elixir: each event is a map with a `:type` key whose value is a string (from JSON).
         "elixir" => Some(format!(

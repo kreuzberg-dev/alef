@@ -1207,7 +1207,27 @@ fn build_args_and_setup(
                 format!("AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\"")
             };
             setup_lines.push(format!("let {} = {url_expr}", arg.name));
-            parts.push((idx, arg.name.clone()));
+
+            // For Swift streaming functions (crawlStream, batchCrawlStream), wrap the URL
+            // in a CrawlStreamRequest or BatchCrawlStreamRequest object instead of passing
+            // it directly. These functions take a *Request type as the second parameter.
+            let is_streaming_fn = function_name.contains("crawlStream") || function_name.contains("CrawlStream");
+            if is_streaming_fn && idx > 0 {
+                // Determine the request type name from the function name.
+                let request_type = if function_name.contains("batch") || function_name.contains("Batch") {
+                    "BatchCrawlStreamRequest"
+                } else {
+                    "CrawlStreamRequest"
+                };
+                let request_var = format!("{}Request", arg.name.to_lower_camel_case());
+                setup_lines.push(format!(
+                    "let {request_var} = {request_type}(url: {})",
+                    arg.name
+                ));
+                parts.push((idx, request_var));
+            } else {
+                parts.push((idx, arg.name.clone()));
+            }
             continue;
         }
 
