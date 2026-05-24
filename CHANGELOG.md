@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-backend-swift: honour the full set of `serde_rename_all` strategies (`lowercase`, `UPPERCASE`, `PascalCase`, `kebab-case`) in the unit-enum raw-value emitter and the tagged-Codable variant-tag emitter so generated Swift round-trips match serde's wire format.** Both `unit_enum_raw_value` (`src/backends/swift/gen_bindings/mod.rs`) and the two `serde_rename_all` `match` arms inside `emit_serde_tagged_codable` only handled `snake_case`, `camelCase`, and `SCREAMING_SNAKE_CASE`. Hitting `#[serde(rename_all = "lowercase")]` (e.g. `EmbeddingFormat::{Float,Base64}`) fell through to `_ => variant.name.clone()` and emitted `case float = "Float"` — Swift then refused to decode `"float"` from the JSON wire (`Cannot initialize EmbeddingFormat from invalid String value 'float'`). Added explicit arms for `lowercase` (`variant.name.to_lowercase()`), `UPPERCASE` (`to_uppercase()`), and `PascalCase`/`kebab-case` (which were missing from the tagged-Codable emitter even though `unit_enum_raw_value` already handled them). Imported `heck::ToKebabCase` at module level so both call sites can reach it. Surfaced as `testEmbedEncodingFormat` failure on liter-llm swift e2e run 26363741106. (`src/backends/swift/gen_bindings/mod.rs`)
+
 ### Added
 
 - **alef-backend-{swift,kotlin-android}: extract canonical bridge-name helpers (`swift::naming::bridge_protocol_name`, `kotlin_android::naming::bridge_object_name`) so production wrapper codegen and e2e stub emitter share one source of truth.** Both `format!("Swift{trait}Bridge", ...)` (swift) and `format!("{trait}Bridge", ...)` (kotlin) were duplicated at the production site and the e2e emitter site, risking silent drift if either ever renames. Both sites now call the new helpers. (`src/backends/swift/naming.rs`, `src/backends/kotlin_android/naming.rs`, `src/backends/swift/gen_bindings/trait_bridge.rs`, `src/e2e/codegen/swift.rs`, `src/e2e/codegen/kotlin_android.rs`)
