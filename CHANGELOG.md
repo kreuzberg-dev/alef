@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-codegen-conversions: fix `binding -> core` reconstruction for sanitized `Vec<Vec<String>>` fields in enum variants (representing core `Vec<(String, String)>`, e.g. `NodeContent::MetadataBlock { entries }` in html-to-markdown).** The shared helpers used by every backend's enum-variant match-arm codegen emitted `entries.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()` for sanitized `Vec<_>` fields. That works when the sanitized form is `Vec<String>` (each element is a JSON-serialized payload, the `Vec<Json>` shape), but `parse_homogeneous_tuple` lifts `Vec<(String, String)>` into the IR as `Vec<Vec<String>>` — each inner Vec holds the two tuple components as separate strings, not a JSON encoding. `serde_json::from_str(&Vec<String>)` doesn't compile (`error[E0308]: expected '&str', found '&Vec<String>'`), breaking magnus regen for html-to-markdown's Ruby binding (`packages/ruby/ext/html_to_markdown_rb/src/lib.rs:6196` on every macOS/Ubuntu/Windows × Ruby 3.2/3.3 build). Introduce `sanitized_vec_field_to_core_expr` in `src/codegen/conversions/helpers.rs` that detects `Vec<Vec<String>>` and reconstructs the 2-tuples via `.iter().filter_map(|inner| { let mut it = inner.iter().cloned(); Some((it.next()?, it.next()?)) }).collect()`; falls back to the prior `serde_json::from_str` path for the `Vec<Json>` shape. Applied to both `is_tuple_variant` and the struct-variant codegen branches in `binding_to_core_match_arm_ext_cfg`. (`src/codegen/conversions/helpers.rs`)
+
 ## [0.19.1] - 2026-05-24
 
 ### Fixed
