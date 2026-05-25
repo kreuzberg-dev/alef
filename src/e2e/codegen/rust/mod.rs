@@ -200,8 +200,8 @@ fn resolve_crate_version(e2e_config: &E2eConfig) -> Option<String> {
 
 /// Emit a Rust test backend stub for a trait-bridge fixture.
 ///
-/// Generates a minimal `struct _TestStub_<fixture_id>` with a `_name` field and
-/// a concrete `impl <trait_name> for _TestStub_<fixture_id>` block where every
+/// Generates a minimal `struct TestStub<fixture_id_pascalcase>` with a `_name` field and
+/// a concrete `impl <trait_name> for TestStub<fixture_id_pascalcase>` block where every
 /// required method returns a language-default value. When the bridge config
 /// declares a `super_trait`, a `name()` method is also emitted returning the
 /// fixture's name string extracted from `fixture.input`.
@@ -218,10 +218,9 @@ pub fn emit_test_backend(
     fixture: &Fixture,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
-    use crate::e2e::escape::sanitize_ident;
     use std::fmt::Write as FmtWrite;
 
-    let stub_name = format!("_TestStub_{}", sanitize_ident(&fixture.id));
+    let stub_name = format!("TestStub{}", fixture_id_to_pascal_case(&fixture.id));
     let trait_name = &trait_bridge.trait_name;
     let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let defaults = language_defaults("rust");
@@ -526,6 +525,21 @@ fn emit_rust_stub_method(
     );
 }
 
+/// Convert a fixture ID (snake_case) to PascalCase for use in Rust struct names.
+///
+/// Transforms `register_embedding_backend_trait_bridge` → `RegisterEmbeddingBackendTraitBridge`.
+fn fixture_id_to_pascal_case(id: &str) -> String {
+    id.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().to_string() + chars.as_str(),
+            }
+        })
+        .collect()
+}
+
 /// Extract a backend name string from the fixture input JSON.
 ///
 /// Searches the top-level input object for the first string value at any depth
@@ -657,7 +671,7 @@ result_var = "result"
 
         // setup_block must contain the stub struct and impl.
         assert!(
-            emission.setup_block.contains("_TestStub_my_test_fixture"),
+            emission.setup_block.contains("TestStubMyTestFixture"),
             "setup_block should contain stub name, got: {}",
             emission.setup_block
         );
@@ -699,7 +713,7 @@ result_var = "result"
             emission.arg_expr
         );
         assert!(
-            emission.arg_expr.contains("_TestStub_my_test_fixture"),
+            emission.arg_expr.contains("TestStubMyTestFixture"),
             "arg_expr should reference stub struct, got: {}",
             emission.arg_expr
         );

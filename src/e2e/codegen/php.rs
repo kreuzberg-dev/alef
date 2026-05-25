@@ -2464,7 +2464,9 @@ pub fn emit_test_backend(
     // Build setup_block lines without leading indentation: the Jinja template
     // prefixes each line with 8 spaces (two method-body indent levels in PHPUnit).
     let mut setup = String::new();
-    let _ = writeln!(setup, "$stub = new class {{");
+    // PHP anonymous class must implement the interface explicitly.
+    let interface_name = trait_bridge.trait_name.to_upper_camel_case();
+    let _ = writeln!(setup, "$stub = new class implements {interface_name} {{");
 
     // Plugin super-trait: emit `name()` returning the backend name string.
     if trait_bridge.super_trait.is_some() {
@@ -2731,7 +2733,7 @@ mod trait_bridge_tests {
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
         let expected_setup = concat!(
-            "$stub = new class {\n",
+            "$stub = new class implements DocumentExtractor {\n",
             "    public function name(): string { return 'test-extractor'; }\n",
             "    public function extractBytes($content, $mime_type, $config): mixed { return '{}'; }\n",
             "};\n",
