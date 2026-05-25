@@ -3675,6 +3675,16 @@ fn method_to_camel(snake: &str) -> String {
 /// Go is interface-based: define a package-level struct type + methods that satisfy
 /// the trait's Go interface. The Plugin super-trait `Name()` method returns the fixture id.
 ///
+/// Check if a type uses json.RawMessage (either Named or Optional<Named>).
+fn uses_json_type(ty: &crate::core::ir::TypeRef) -> bool {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(_) | TypeRef::Json => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
+        _ => false,
+    }
+}
+
 /// Because Go does not allow method declarations inside function bodies, the `setup_block`
 /// contains package-level type and method declarations. The `arg_expr` is the struct
 /// literal `testStub_<id>{}` that callers pass to `Register<Trait>`.
@@ -3734,10 +3744,20 @@ pub fn emit_test_backend(
         emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults);
     }
 
+    // Determine if encoding/json is needed by checking if any method uses json.RawMessage.
+    let needs_json = methods
+        .iter()
+        .any(|m| uses_json_type(&m.return_type) || m.params.iter().any(|p| uses_json_type(&p.ty)));
+
+    let mut type_imports = Vec::new();
+    if needs_json {
+        type_imports.push("encoding/json".to_string());
+    }
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr: format!("{struct_name}{{}}"),
-        type_imports: Vec::new(),
+        type_imports,
     }
 }
 

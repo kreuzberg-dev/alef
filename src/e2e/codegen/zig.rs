@@ -63,11 +63,34 @@ impl E2eCodegen for ZigE2eCodegen {
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| config.name.to_snake_case());
+        let pkg_version = zig_pkg
+            .as_ref()
+            .and_then(|p| p.version.as_ref())
+            .cloned()
+            .or_else(|| config.resolved_version())
+            .unwrap_or_else(|| "0.1.0".to_string());
+        let pkg_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
+        // Use the crate name for constructing the release URL (hyphenated form).
+        let crate_name = &config.name;
+        let github_repo = e2e_config
+            .registry
+            .github_repo
+            .as_deref()
+            .unwrap_or("https://github.com/kreuzberg-dev");
+        let github_repo = github_repo.trim_end_matches('/');
 
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {
             path: output_base.join("build.zig.zon"),
-            content: render_build_zig_zon(&pkg_name, &pkg_path, e2e_config.dep_mode),
+            content: render_build_zig_zon(
+                &pkg_name,
+                &pkg_path,
+                e2e_config.dep_mode,
+                &pkg_version,
+                pkg_hash.as_deref(),
+                crate_name,
+                github_repo,
+            ),
             generated_header: false,
         });
 
@@ -252,12 +275,43 @@ impl E2eCodegen for ZigE2eCodegen {
 // Rendering
 // ---------------------------------------------------------------------------
 
-fn render_build_zig_zon(pkg_name: &str, pkg_path: &str, dep_mode: crate::e2e::config::DependencyMode) -> String {
+fn render_build_zig_zon(
+    pkg_name: &str,
+    pkg_path: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
+    version: &str,
+    hash: Option<&str>,
+    crate_name: &str,
+    github_repo: &str,
+) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Zig has no official package registry like PyPI/npm/Maven.
-            // Even in registry mode, use local path dependencies for Zig test apps.
-            format!(r#".{{ .path = "{pkg_path}" }}"#)
+            // Zig has no official package registry; registry mode downloads a
+            // source tarball from the GitHub Release for the published version.
+            let url =
+                format!("{github_repo}/{crate_name}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
+            match hash {
+                Some(h) => {
+                    format!(
+                        r#".{{
+            .url = "{url}",
+            .hash = "{h}",
+        }}"#
+                    )
+                }
+                None => {
+                    // No hash pinned yet. Emit a placeholder URL and a comment
+                    // telling the developer how to obtain and commit the hash.
+                    format!(
+                        r#".{{
+            .url = "{url}",
+            // alef: hash not pinned — run `zig fetch --save {url}` once to populate,
+            //       then set `hash` under [crates.e2e.registry.packages.zig] in alef.toml.
+            .hash = "TODO",
+        }}"#
+                    )
+                }
+            }
         }
         crate::e2e::config::DependencyMode::Local => {
             format!(r#".{{ .path = "{pkg_path}" }}"#)
@@ -2502,7 +2556,8 @@ pub fn emit_test_backend(
                 );
             } else {
                 // Initialize/shutdown and other super-trait methods: emit a void stub.
-                let _ = writeln!(setup, "    pub fn {method_snake}(_: *{struct_name}) !void {{}}");
+                // Use @This() instead of struct_name to avoid self-reference inside struct definition.
+                let _ = writeln!(setup, "    pub fn {method_snake}(_: *@This()) !void {{}}");
             }
         }
     }
@@ -2521,8 +2576,9 @@ pub fn emit_test_backend(
         let ret_ty = zig_type_for_stub(&method.return_type);
         let default_val = defaults.emit_default(&method.return_type);
 
-        // Build Zig parameter list (self first, then method params).
-        let mut params = vec![format!("_: *{struct_name}")];
+        // Build Zig parameter list (self first using @This(), then method params).
+        // Zig does not allow using a type name inside its own definition, so use @This().
+        let mut params = vec!["_: *@This()".to_string()];
         for p in &method.params {
             let p_ty = zig_type_for_stub(&p.ty);
             params.push(format!("{}: {}", p.name, p_ty));

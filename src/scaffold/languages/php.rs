@@ -65,9 +65,9 @@ pub(crate) fn scaffold_php_cargo(api: &ApiSurface, config: &ResolvedCrateConfig)
     // are appended only when the scaffold actually adds them to
     // `[dependencies]`, so cargo-machete doesn't flap on umbrellas whose
     // API surface doesn't exercise the trait-bridge / streaming codepath.
-    let mut machete_ignored: Vec<&str> = vec!["serde_json", "tokio"];
-    if has_trait_bridges {
-        machete_ignored.push("async-trait");
+    let mut machete_ignored: Vec<&str> = vec![];
+    if !needs_ahash {
+        machete_ignored.push("ahash");
     }
     if has_streaming {
         machete_ignored.push("futures-util");
@@ -90,12 +90,9 @@ serde = {{ version = "1", features = ["derive"] }}
 serde_json = "1"
 tokio = {{ version = "1", features = ["full"] }}{extra_deps_section}
 
-# `serde_json` and `tokio` are emitted unconditionally above so the manifest
-# is stable across regens, but for umbrella crates with no async fns and no
-# JSON-marshalled return types they are genuinely unused. The conditional
-# `async-trait` / `futures-util` deps are similarly flagged when the
-# umbrella has trait-bridge / streaming adapters configured but no actual
-# async-trait callsite in the generated PHP shim.
+# `ahash` is conditionally referenced: only when the umbrella crate exposes
+# `AHashMap<Cow<str>, _>` parameters (the conditional `__*_ahash` shim rebuilds).
+# `futures-util` is similarly conditional on streaming adapters being declared.
 [package.metadata.cargo-machete]
 ignored = [{machete_ignored_str}]
 
