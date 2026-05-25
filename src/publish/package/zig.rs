@@ -24,6 +24,7 @@ pub fn package_zig(
 ) -> Result<PackageArtifact> {
     let lib_name = config.ffi_lib_name();
     let header_name = config.ffi_header_name();
+    let module_name = config.zig_module_name();
     let crate_name = &config.name;
     let pkg_dir = config.package_dir(crate::core::config::extras::Language::Zig);
 
@@ -66,6 +67,26 @@ pub fn package_zig(
     }
     fs::copy(&header_src, include_dir.join(&header_name)).context("copying FFI header into Zig package")?;
 
+    // Zig's `.paths` is an allowlist: only listed entries belong to the package
+    // and are materialized for consumers. The scaffolded `build.zig.zon` lists
+    // only `build.zig`/`build.zig.zon`/`src` (the bundled `lib/`+`include/` do not
+    // exist in-tree), so without this step a `zig fetch` consumer would not see
+    // the prebuilt library and `b.path("lib")` in the package's `build.zig` would
+    // resolve to nothing. Add the bundled directories to the staged manifest.
+    add_bundled_paths_to_manifest(&staging.join("build.zig.zon"))?;
+
+    // Rewrite build.zig for distribution. The in-tree `packages/zig/build.zig`
+    // resolves the FFI library from the Cargo workspace target dir
+    // (`../../target/release`), which does not exist for a `zig fetch` consumer.
+    // The distributed package links the prebuilt library bundled above in `lib/`
+    // and `include/`, exposing the `{module}` module so a consumer can wire it
+    // with a single `b.dependency(...).module("{module}")`.
+    fs::write(
+        staging.join("build.zig"),
+        render_distributable_build_zig(&module_name, &lib_name),
+    )
+    .context("writing distributable build.zig into Zig package")?;
+
     // Create tarball.
     let archive_name = format!("{pkg_name}.tar.gz");
     let archive_path = output_dir.join(&archive_name);
@@ -79,4 +100,119 @@ pub fn package_zig(
         name: archive_name,
         checksum: None,
     })
+}
+
+/// Render the `build.zig` shipped inside the distributed Zig tarball.
+///
+/// Unlike the in-tree `packages/zig/build.zig` (which links the FFI library from
+/// the Cargo workspace `target/` dir for local development), this build script
+/// links the prebuilt shared library and C header bundled in the package's own
+/// `lib/` and `include/` directories — resolved package-relative via `b.path`,
+/// so they work from the global Zig cache when consumed via `zig fetch`. It
+/// exports the `{module_name}` module; a consumer links it with
+/// `b.dependency("<pkg>", .{ ... }).module("{module_name}")`.
+fn render_distributable_build_zig(module_name: &str, ffi_lib_name: &str) -> String {
+    format!(
+        r#"const std = @import("std");
+
+// alef-generated for distribution. The prebuilt FFI library (lib/) and C header
+// (include/) ship inside this package; link them package-relative so consumers
+// resolve the native library from the fetched package itself.
+pub fn build(b: *std.Build) void {{
+    const target = b.standardTargetOptions(.{{}});
+    const optimize = b.standardOptimizeOption(.{{}});
+
+    const module = b.addModule("{module_name}", .{{
+        .root_source_file = b.path("src/{module_name}.zig"),
+        .target = target,
+        .optimize = optimize,
+        .link_libc = true,
+    }});
+    module.addLibraryPath(b.path("lib"));
+    module.addIncludePath(b.path("include"));
+    module.linkSystemLibrary("{ffi_lib_name}", .{{}});
+}}
+"#
+    )
+}
+
+/// Insert the bundled `lib` and `include` directories into a `build.zig.zon`
+/// `.paths` allowlist so a fetched consumer can resolve the prebuilt FFI library
+/// and header via `b.path("lib")` / `b.path("include")`.
+///
+/// Idempotent for a freshly staged manifest: the scaffolded source never lists
+/// these directories, so the entries are added exactly once per package run.
+fn add_bundled_paths_to_manifest(manifest: &Path) -> Result<()> {
+    let zon = fs::read_to_string(manifest).context("reading staged build.zig.zon")?;
+    const MARKER: &str = ".paths = .{";
+    let Some(pos) = zon.find(MARKER) else {
+        anyhow::bail!("build.zig.zon is missing a `.paths` block: {}", manifest.display());
+    };
+    if zon.contains("\"lib\"") && zon.contains("\"include\"") {
+        return Ok(());
+    }
+    let insert_at = pos + MARKER.len();
+    let mut patched = String::with_capacity(zon.len() + 32);
+    patched.push_str(&zon[..insert_at]);
+    patched.push_str("\n        \"lib\",\n        \"include\",");
+    patched.push_str(&zon[insert_at..]);
+    fs::write(manifest, patched).context("writing patched build.zig.zon")?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn distributable_build_zig_links_bundled_lib() {
+        let s = render_distributable_build_zig("spikard", "spikard_ffi");
+        assert!(s.contains("b.addModule(\"spikard\""), "must export the module:\n{s}");
+        assert!(
+            s.contains("module.addLibraryPath(b.path(\"lib\"))"),
+            "must link bundled lib/:\n{s}"
+        );
+        assert!(
+            s.contains("module.addIncludePath(b.path(\"include\"))"),
+            "must add bundled include/:\n{s}"
+        );
+        assert!(
+            s.contains("module.linkSystemLibrary(\"spikard_ffi\""),
+            "must link the FFI lib:\n{s}"
+        );
+        assert!(
+            s.contains(".link_libc = true"),
+            "must link libc for FFI header symbols:\n{s}"
+        );
+        // The distributable build script must never reference the in-tree workspace layout.
+        assert!(!s.contains("cwd_relative"), "must not use cwd_relative paths:\n{s}");
+        assert!(
+            !s.contains("../../target/release"),
+            "must not reference the workspace target dir:\n{s}"
+        );
+    }
+
+    #[test]
+    fn bundled_paths_added_to_manifest_idempotently() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let manifest = dir.path().join("build.zig.zon");
+        fs::write(
+            &manifest,
+            ".{\n    .name = .spikard,\n    .paths = .{\n        \"build.zig\",\n        \"src\",\n    },\n}\n",
+        )
+        .expect("write manifest");
+
+        add_bundled_paths_to_manifest(&manifest).expect("first patch");
+        let once = fs::read_to_string(&manifest).expect("read");
+        assert!(once.contains("\"lib\""), "lib added:\n{once}");
+        assert!(once.contains("\"include\""), "include added:\n{once}");
+
+        add_bundled_paths_to_manifest(&manifest).expect("second patch");
+        let twice = fs::read_to_string(&manifest).expect("read");
+        assert_eq!(
+            once.matches("\"lib\"").count(),
+            twice.matches("\"lib\"").count(),
+            "second call must be a no-op"
+        );
+    }
 }
