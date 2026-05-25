@@ -1111,6 +1111,24 @@ pub fn sync_versions(
     let _ = std::fs::create_dir_all(".alef");
     let _ = std::fs::write(&last_path, &version);
 
+    // Sync [crates.e2e.registry.packages.*].version fields in alef.toml so that
+    // registry-mode e2e test apps always reference the current workspace version.
+    // This runs unconditionally (even when no consumer manifest changed) because
+    // the registry entries in alef.toml may be stale independently of the
+    // language binding manifests.
+    match sync_registry_package_versions(config_path, &version) {
+        Ok(true) => {
+            info!("Updated registry package versions in {}", config_path.display());
+        }
+        Ok(false) => {}
+        Err(e) => {
+            warn!(
+                "Could not sync registry package versions in {}: {e}",
+                config_path.display()
+            );
+        }
+    }
+
     // If no manifest actually changed, nothing else needs refreshing — the
     // generated README/docs/binding hashes still match. This is the warm-path
     // fast exit: hundreds of files were already on disk with the right
@@ -1146,21 +1164,6 @@ pub fn sync_versions(
         }
         Err(e) => {
             warn!("Could not regenerate READMEs: {e}");
-        }
-    }
-
-    // Sync [crates.e2e.registry.packages.*].version fields in alef.toml so that
-    // registry-mode e2e test apps always reference the current workspace version.
-    match sync_registry_package_versions(config_path, &version) {
-        Ok(true) => {
-            info!("Updated registry package versions in {}", config_path.display());
-        }
-        Ok(false) => {}
-        Err(e) => {
-            warn!(
-                "Could not sync registry package versions in {}: {e}",
-                config_path.display()
-            );
         }
     }
 
