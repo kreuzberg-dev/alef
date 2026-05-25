@@ -172,13 +172,6 @@ sourceSets {{
       // the Maven `src/main/java/` convention.
       srcDir("../java")
     }}
-    kotlin {{
-      // The alef Kotlin backend emits binding sources at the project root
-      // (`packages/kotlin/`) rather than the Maven
-      // `src/main/kotlin/` convention. Pull them in explicitly so they end up
-      // in the compiled jar alongside any standard-layout sources.
-      srcDir(".")
-    }}
   }}
 }}
 
