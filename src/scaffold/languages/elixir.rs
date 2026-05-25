@@ -110,6 +110,37 @@ pub(crate) fn scaffold_elixir_cargo(
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
+    // Build the cargo-machete ignored list. When `tokio` is included in
+    // dependencies (for async, trait bridges, or streaming), mark it as ignored
+    // since the NIF wrapper may not directly reference it. Same for `async-trait`
+    // (included for trait bridges) and `futures-util` (included for streaming).
+    // `ahash` is added when any function parameter uses AHashMap<Cow, _>, but the
+    // NIF never directly uses ahash—it's used only in the Rust core for type
+    // field marshalling.
+    let mut machete_ignored: Vec<&str> = Vec::new();
+    if has_async || has_trait_bridges || has_streaming {
+        machete_ignored.push("tokio");
+    }
+    if has_trait_bridges {
+        machete_ignored.push("async-trait");
+    }
+    if has_streaming {
+        machete_ignored.push("futures-util");
+    }
+    if needs_ahash {
+        machete_ignored.push("ahash");
+    }
+    let (machete_ignored_str, machete_section) = if machete_ignored.is_empty() {
+        (String::new(), String::new())
+    } else {
+        let ignored_list = machete_ignored
+            .iter()
+            .map(|d| format!("\"{d}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        (ignored_list.clone(), format!("\n[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n"))
+    };
+
     let content = format!(
         r#"{pkg_header}
 
@@ -121,12 +152,12 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{deps_section}
-"#,
+{deps_section}{machete_section}"#,
         pkg_header = pkg_header,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
         deps_section = deps_section,
+        machete_section = machete_section,
     );
 
     Ok(vec![GeneratedFile {

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **scaffold (elixir/dart): add `ahash` to cargo-machete ignored list.** `ahash` is conditionally included in Elixir and Dart bindings when any function parameter uses `AHashMap<Cow, _>`, but the generated binding wrappers never directly reference it—it's used only in the Rust core for type field marshalling. Elixir now emits a `[package.metadata.cargo-machete]` section when dependencies require ignoring; Dart extends its existing ignore list to include `ahash`. This fixes CI lint errors flagging `ahash` as unused. (`src/scaffold/languages/elixir.rs`, `src/backends/dart/gen_rust_crate/cargo.rs`)
+
 ## [0.19.11] - 2026-05-25
 
 ### Fixed
