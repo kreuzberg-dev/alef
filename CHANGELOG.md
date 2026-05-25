@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef `test-apps run` (Kotlin Android): correct run command working directory to `test_apps/kotlin_android`.** The default test-app run config emitted `cd test_apps/kotlin` for both `Language::Kotlin` and `Language::KotlinAndroid`, but the code generator writes the Android variant under `kotlin_android/`. This caused `alef test-apps run --lang kotlin_android` to fail with `cd: no such file or directory: test_apps/kotlin`. Split the match arms to use `kotlin/` for `Language::Kotlin` and `kotlin_android/` for `Language::KotlinAndroid`. (`src/core/config/test_apps_run_defaults.rs`)
+
 - `dart` backend: run `dart format` after `patch_published_loader` so FRB regeneration during `cargo check` no longer leaves the file in a state that `dart format` would rewrite (was causing prek-hook churn in consumers).
 
 - **alef `test-apps run`: mock-server build now skips gracefully when no [[bin]] target exists.** For crates with zero HTTP fixtures, alef generates `e2e/rust/Cargo.toml` with no `[[bin]]` section — `test-apps run` used to unconditionally try `cargo build --bin mock-server` and fail with `error: no bin target named 'mock-server'`. The fix adds a `has_mock_server_bin()` check before attempting the build; when the target doesn't exist, the run proceeds without `MOCK_SERVER_URL` env vars. (`src/cli/pipeline/commands.rs`)
