@@ -229,6 +229,11 @@ enum Commands {
         #[command(subcommand)]
         action: E2eAction,
     },
+    /// Generate standalone registry-mode test apps (test_apps/).
+    TestApps {
+        #[command(subcommand)]
+        action: TestAppsAction,
+    },
     /// Prepare, build, and package artifacts for publishing.
     Publish {
         #[command(subcommand)]
@@ -418,6 +423,22 @@ enum E2eAction {
     List,
     /// Validate fixture files against the JSON schema.
     Validate,
+}
+
+#[derive(Subcommand)]
+enum TestAppsAction {
+    /// Generate registry-mode test apps from fixtures into test_apps/.
+    Generate {
+        /// Comma-separated list of languages to generate (default: all).
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+        /// Delete the test_apps/<lang>/ directory before regenerating.
+        #[arg(long)]
+        clean: bool,
+        /// Maximum parallel jobs (0 = all cores, 1 = sequential).
+        #[arg(short, long, default_value = "0")]
+        jobs: usize,
+    },
 }
 
 #[derive(Subcommand)]
@@ -706,6 +727,10 @@ fn main() -> Result<()> {
                 if let Err(e) = version_pin::write_alef_toml_version(config_path) {
                     tracing::warn!("could not update alef.toml version pin: {e}");
                 }
+                // Keep the .pre-commit-config.yaml alef hook rev in lockstep.
+                if let Err(e) = version_pin::sync_precommit_alef_rev(&base_dir) {
+                    tracing::warn!("could not update .pre-commit-config.yaml alef hook rev: {e}");
+                }
 
                 // Warn if [e2e] is configured but not regenerated
                 if resolved_cfg.e2e.is_some() {
@@ -791,7 +816,8 @@ fn main() -> Result<()> {
             Ok(())
         }
         Commands::Scaffold { lang } => {
-            let (_workspace, resolved) = load_config(config_path)?;
+            let (workspace, resolved) = load_config(config_path)?;
+            version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
             let multi = dispatch::is_multi_crate(&crates_to_process);
             let base_dir = std::env::current_dir()?;
@@ -828,6 +854,13 @@ fn main() -> Result<()> {
                 cache::write_stage_hash(&resolved_cfg.name, "scaffold", &stage_hash, &output_paths)?;
                 grand_total += count;
             } // end for resolved_cfg in crates_to_process
+            // Stamp alef.toml + the pre-commit alef hook rev with the CLI version.
+            if let Err(e) = version_pin::write_alef_toml_version(config_path) {
+                tracing::warn!("could not update alef.toml version pin: {e}");
+            }
+            if let Err(e) = version_pin::sync_precommit_alef_rev(&base_dir) {
+                tracing::warn!("could not update .pre-commit-config.yaml alef hook rev: {e}");
+            }
             println!("Generated {grand_total} scaffold files");
             Ok(())
         }
@@ -1381,11 +1414,48 @@ fn main() -> Result<()> {
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
 
-                        // Sweep orphan alef-generated e2e files from the output directory.
+                        // Sweep orphan alef-generated e2e files from e2e/ only —
+                        // never touches test_apps/ (owned by the test-apps stage below).
                         let e2e_output_root = base_dir.join(&e2e_config.output);
                         pipeline::sweep_orphans(&[e2e_output_root], &path_set)?;
 
                         cache::write_stage_hash(&resolved_cfg.name, "e2e", &e2e_stage_hash, &output_paths)?;
+
+                        for path in output_paths {
+                            current_gen_paths.insert(path);
+                        }
+                    }
+
+                    // Test-apps stage: regenerate registry-mode test apps in test_apps/.
+                    // Runs as a distinct pipeline stage so its stale-file sweep is scoped
+                    // to test_apps/ and cannot delete e2e/ files (and vice versa).
+                    let test_apps_stage_hash =
+                        cache::compute_stage_hash(&ir_json, "test-apps", &config_toml, &fixture_hash);
+                    if !clean && cache::is_stage_cached(&resolved_cfg.name, "test-apps", &test_apps_stage_hash) {
+                        eprintln!("  [test-apps] up to date (skipping)");
+                        for path in cache::read_stage_paths(&resolved_cfg.name, "test-apps") {
+                            current_gen_paths.insert(path);
+                        }
+                    } else {
+                        eprintln!("Generating registry-mode test apps...");
+                        let mut registry_e2e_config = e2e_config.clone();
+                        registry_e2e_config.dep_mode = alef::core::config::e2e::DependencyMode::Registry;
+                        let registry_e2e_ref = &registry_e2e_config;
+
+                        let files =
+                            alef::e2e::generate_e2e(resolved_cfg, registry_e2e_ref, None, &api.types, &api.enums)?;
+                        let test_apps_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+                        e2e_count += test_apps_count;
+                        alef::e2e::format::run_formatters(&files, registry_e2e_ref);
+
+                        let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+                        let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+
+                        // Sweep orphans scoped to test_apps/ only — never touches e2e/.
+                        let test_apps_root = base_dir.join(registry_e2e_ref.effective_output());
+                        pipeline::sweep_orphans(&[test_apps_root], &path_set)?;
+
+                        cache::write_stage_hash(&resolved_cfg.name, "test-apps", &test_apps_stage_hash, &output_paths)?;
 
                         for path in output_paths {
                             current_gen_paths.insert(path);
@@ -1458,26 +1528,6 @@ fn main() -> Result<()> {
                 eprintln!("Finalising hashes...");
                 pipeline::finalize_hashes(&current_gen_paths, &sources_hash)?;
 
-                // Re-stamp registry-mode e2e files (`test_apps/`) with the
-                // current sources hash. These files are generated by
-                // `alef e2e generate --registry`, not by `alef all`, so they
-                // are never in `current_gen_paths`. When the Rust sources
-                // change the sources hash changes, making every previously
-                // finalised `alef:hash:` line stale — including those in
-                // `test_apps/`. Re-running `finalize_hashes` on the registry
-                // output re-stamps each file's hash from the current on-disk
-                // byte content, keeping `alef verify --exit-code` green without
-                // regenerating the files or changing their test logic.
-                if let Some(e2e_config) = &resolved_cfg.e2e {
-                    let registry_root = base_dir.join(&e2e_config.registry.output);
-                    if registry_root.exists() {
-                        let registry_paths = pipeline::collect_alef_headered_paths(&registry_root);
-                        if !registry_paths.is_empty() {
-                            pipeline::finalize_hashes(&registry_paths, &sources_hash)?;
-                        }
-                    }
-                }
-
                 grand_binding_count += binding_count;
                 grand_stub_count += stub_count;
                 grand_api_count += api_count;
@@ -1490,6 +1540,10 @@ fn main() -> Result<()> {
             // Stamp alef.toml with the CLI version that produced this run.
             if let Err(e) = version_pin::write_alef_toml_version(config_path) {
                 tracing::warn!("could not update alef.toml version pin: {e}");
+            }
+            // Keep the .pre-commit-config.yaml alef hook rev in lockstep.
+            if let Err(e) = version_pin::sync_precommit_alef_rev(&base_dir) {
+                tracing::warn!("could not update .pre-commit-config.yaml alef hook rev: {e}");
             }
 
             println!(
@@ -1574,6 +1628,13 @@ fn main() -> Result<()> {
             let e2e_config = resolved_cfg.e2e.as_ref().context("no [e2e] section in alef.toml")?;
             match action {
                 E2eAction::Generate { lang, registry } => {
+                    if registry {
+                        eprintln!(
+                            "warning: `alef e2e generate --registry` is deprecated. \
+                             Use `alef test-apps generate` instead. \
+                             `alef e2e generate` is local-mode only."
+                        );
+                    }
                     let config_toml = std::fs::read_to_string(config_path)?;
                     let base_dir = std::env::current_dir()?;
                     let mut grand_count: usize = 0;
@@ -1591,9 +1652,8 @@ fn main() -> Result<()> {
                             println!("E2E tests up to date (cached)");
                             continue;
                         }
-                        // When --registry is set, clone the e2e config and switch to
-                        // registry dependency mode so generators emit version-based
-                        // dependencies instead of local paths.
+                        // When --registry is set (deprecated path), clone the e2e config
+                        // and switch to registry dependency mode.
                         let effective_e2e_config;
                         let e2e_ref = if registry {
                             let mut cloned = this_e2e_config.clone();
@@ -1617,16 +1677,10 @@ fn main() -> Result<()> {
                         let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
                         pipeline::finalize_hashes(&path_set, &sources_hash)?;
 
-                        // Sweep orphan alef-generated files.  When a --lang filter is
-                        // active, scope the sweep to only the per-language subdirectories
-                        // that were regenerated — sweeping the full e2e root would delete
-                        // other languages' files that were intentionally left on disk.
-                        // Without a filter, sweep the entire e2e output root as before.
-                        let e2e_output_root = if registry {
-                            base_dir.join(&e2e_ref.registry.output)
-                        } else {
-                            base_dir.join(&e2e_ref.output)
-                        };
+                        // Sweep orphan alef-generated files scoped to effective_output() of
+                        // the current mode — local mode sweeps e2e/, registry mode sweeps
+                        // test_apps/. This prevents each mode from deleting the other's files.
+                        let e2e_output_root = base_dir.join(e2e_ref.effective_output());
                         let sweep_roots: Vec<PathBuf> = if lang.is_some() {
                             // Derive sweep roots from the top-level subdirectories of the
                             // e2e output root that appear in the generated file set.  Each
@@ -1716,6 +1770,94 @@ fn main() -> Result<()> {
                         }
                         Ok(())
                     }
+                }
+            }
+        }
+        Commands::TestApps { action } => {
+            let (_workspace, resolved) = load_config(config_path)?;
+            let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
+            let _resolved_cfg = crates_to_process
+                .iter()
+                .find(|c| c.e2e.is_some())
+                .copied()
+                .unwrap_or_else(|| crates_to_process[0]);
+            // Validate that at least one crate has an [e2e] section.
+            let _ = _resolved_cfg.e2e.as_ref().context("no [e2e] section in alef.toml")?;
+            match action {
+                TestAppsAction::Generate { lang, clean, jobs: _ } => {
+                    let config_toml = std::fs::read_to_string(config_path)?;
+                    let base_dir = std::env::current_dir()?;
+                    let mut grand_count: usize = 0;
+                    for e2e_crate in &crates_to_process {
+                        let Some(this_e2e_config) = e2e_crate.e2e.as_ref() else {
+                            continue;
+                        };
+
+                        // Build a registry-mode clone of the e2e config.
+                        let mut registry_config = this_e2e_config.clone();
+                        registry_config.dep_mode = alef::core::config::e2e::DependencyMode::Registry;
+                        let e2e_ref = &registry_config;
+                        let output_root = base_dir.join(e2e_ref.effective_output());
+
+                        // --clean: delete the per-language directories before regen.
+                        if clean {
+                            let langs_to_clean: Vec<String> = lang
+                                .as_deref()
+                                .map(|ls| ls.iter().map(|s| s.to_string()).collect())
+                                .unwrap_or_else(|| e2e_ref.languages.clone());
+                            for lang_name in &langs_to_clean {
+                                let lang_dir = output_root.join(lang_name);
+                                if lang_dir.exists() {
+                                    std::fs::remove_dir_all(&lang_dir)
+                                        .with_context(|| format!("failed to remove {}", lang_dir.display()))?;
+                                }
+                            }
+                        }
+
+                        let fixtures_dir = std::path::Path::new(&this_e2e_config.fixtures);
+                        let fixture_hash = cache::hash_directory(fixtures_dir).unwrap_or_default();
+                        let api = pipeline::extract(e2e_crate, config_path, false)?;
+                        let ir_json = serde_json::to_string(&api)?;
+                        let cache_key = "test-apps";
+                        let stage_hash = cache::compute_stage_hash(&ir_json, cache_key, &config_toml, &fixture_hash);
+                        if !clean && cache::is_stage_cached(&e2e_crate.name, cache_key, &stage_hash) {
+                            println!("Test apps up to date (cached)");
+                            continue;
+                        }
+
+                        eprintln!("Generating registry-mode test apps...");
+                        let languages = lang.as_deref();
+                        let files = alef::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
+                        let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
+                        let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
+
+                        alef::e2e::format::run_formatters(&files, e2e_ref);
+
+                        let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
+                        let path_set: std::collections::HashSet<PathBuf> = output_paths.iter().cloned().collect();
+                        pipeline::finalize_hashes(&path_set, &sources_hash)?;
+
+                        // Sweep orphans scoped to test_apps/ only — never touches e2e/.
+                        let sweep_roots: Vec<PathBuf> = if lang.is_some() {
+                            let mut seen = std::collections::HashSet::new();
+                            for path in &output_paths {
+                                if let Ok(rel) = path.strip_prefix(&output_root) {
+                                    if let Some(top) = rel.components().next() {
+                                        seen.insert(output_root.join(top.as_os_str()));
+                                    }
+                                }
+                            }
+                            seen.into_iter().collect()
+                        } else {
+                            vec![output_root]
+                        };
+                        pipeline::sweep_orphans(&sweep_roots, &path_set)?;
+
+                        cache::write_stage_hash(&e2e_crate.name, cache_key, &stage_hash, &output_paths)?;
+                        grand_count += count;
+                    }
+                    println!("Generated {grand_count} test-app files");
+                    Ok(())
                 }
             }
         }

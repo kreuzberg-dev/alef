@@ -13,6 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-e2e-homebrew: new `homebrew` test_app generator for Homebrew formulae.** Adds `HomebrewCodegen` (`src/e2e/codegen/homebrew.rs`) that emits `Brewfile` (tap + CLI + FFI formulae), `run_tests.sh` (installs via `brew bundle`, checks CLI version, pipes HTML through the CLI binary, and compiles/runs `ffi_smoke.c`), `ffi_smoke.c` (minimal C program linking against the FFI formula via `pkg-config`), and `README.md`. Registry-mode only; local mode emits a stub README. Schema: `[crates.e2e.registry.packages.homebrew]` with `tap`, `cli_formula`, `ffi_formula`, `version` fields (three new fields added to `PackageRef`).
 
+- **alef-cli: `alef test-apps generate` subcommand.** Splits registry-mode test_app generation into its own first-class CLI subcommand (`alef test-apps generate`), separate from `alef e2e generate` which is now local-mode only. `alef all` gains a dedicated test-apps stage that runs after the e2e stage; each stage sweeps its own output directory (`e2e/` vs `test_apps/`) so neither can delete the other's files. `alef all --clean` propagates to both stages. `alef e2e generate --registry` now emits a deprecation warning directing users to the new subcommand. (`src/main.rs`)
+
+- **alef-e2e-zig: registry-mode `build.zig.zon` uses remote tarball URL.** In registry mode the zig codegen now emits `.url = "https://github.com/.../releases/download/v{VERSION}/{CRATE}-zig-v{VERSION}.tar.gz"` instead of a local `.path` dependency. When `hash` is set under `[crates.e2e.registry.packages.zig]` in alef.toml, it is emitted as `.hash = "..."`. When absent, a placeholder comment directs the developer to run `zig fetch --save <url>` to populate it. A new optional `hash` field has been added to `PackageRef`. (`src/e2e/codegen/zig.rs`, `src/core/config/e2e.rs`)
+
+- **alef-e2e-kotlin_android: registry-mode `build.gradle.kts` consumes published Maven artifact.** In registry mode the kotlin_android codegen now emits `testImplementation("{pkg_name}:{pkg_version}")` and omits the local `sourceSets` wiring (which references workspace-relative paths invalid in a standalone test_app). Local mode behavior is unchanged. (`src/e2e/codegen/kotlin_android.rs`)
+
 ### Changed
 
 ### Fixed
