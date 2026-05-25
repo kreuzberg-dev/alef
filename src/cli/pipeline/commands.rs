@@ -8,7 +8,7 @@ use tracing::{debug, info, warn};
 use crate::cli::registry;
 
 use super::helpers::{
-    check_precondition, run_before, run_command, run_command_captured, run_command_streamed,
+    check_precondition, check_precondition_named, run_before, run_command, run_command_captured, run_command_streamed,
     run_command_streamed_with_env,
 };
 
@@ -463,6 +463,84 @@ pub fn clean(config: &ResolvedCrateConfig, languages: &[Language]) -> anyhow::Re
             eprintln!("✗ clean failed: {lang} — {e}");
             if first_error.is_none() {
                 first_error = Some(e);
+            }
+        }
+    }
+    if let Some(e) = first_error {
+        return Err(e);
+    }
+
+    Ok(())
+}
+
+/// Outcome of running a single language's registry-mode test app.
+///
+/// Distinguishes a precondition skip from a genuine pass so the summary can
+/// report them separately (a skip is not a failure, but it is also not a pass).
+#[derive(Debug)]
+enum TestAppOutcome {
+    /// The run commands executed successfully.
+    Passed,
+    /// The precondition command failed, so the run was skipped.
+    Skipped,
+    /// A before hook or a run command failed.
+    Failed(anyhow::Error),
+}
+
+/// Run the registry-mode test app for each language.
+///
+/// Each test app exercises the *published* package against the same fixtures the
+/// e2e suite uses. `names` are `[e2e].languages` entries — usually language slugs,
+/// but also string-only registry targets like `brew`. For each: check the
+/// precondition (skip with a warning on failure), run the `before` hook (abort
+/// that target on failure), then execute each configured `run` command with live
+/// output. The `run` commands `cd` into their own `test_apps/<name>/` directory,
+/// so no cwd is supplied here.
+///
+/// Targets run in parallel (mirroring `setup`/`clean`). A precondition skip — and
+/// a target with no `run` command (e.g. `ffi`) — is reported distinctly from a
+/// pass; the first failing target's error is returned so the process exits non-zero.
+pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::Result<()> {
+    let results: Vec<(String, TestAppOutcome)> = names
+        .par_iter()
+        .map(|name| {
+            let cfg = config.test_apps_run_config_for_name(name);
+            if !check_precondition_named(name, cfg.precondition.as_deref()) {
+                // `check_precondition_named` already warns on miss.
+                return (name.clone(), TestAppOutcome::Skipped);
+            }
+            if let Some(before) = &cfg.before {
+                for cmd in before.commands() {
+                    if let Err(e) = run_command_streamed(cmd, Some(name)) {
+                        return (name.clone(), TestAppOutcome::Failed(e));
+                    }
+                }
+            }
+            match &cfg.run {
+                Some(cmd_list) => {
+                    for cmd in cmd_list.commands() {
+                        if let Err(e) = run_command_streamed(cmd, Some(name)) {
+                            return (name.clone(), TestAppOutcome::Failed(e));
+                        }
+                    }
+                    (name.clone(), TestAppOutcome::Passed)
+                }
+                // No run command configured (e.g. ffi/jni) — nothing to verify.
+                None => (name.clone(), TestAppOutcome::Skipped),
+            }
+        })
+        .collect();
+
+    let mut first_error: Option<anyhow::Error> = None;
+    for (name, outcome) in results {
+        match outcome {
+            TestAppOutcome::Passed => eprintln!("✓ test-app passed: {name}"),
+            TestAppOutcome::Skipped => eprintln!("⊘ test-app skipped: {name}"),
+            TestAppOutcome::Failed(e) => {
+                eprintln!("✗ test-app failed: {name} — {e}");
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
             }
         }
     }
@@ -1153,6 +1231,119 @@ sources = ["src/lib.rs"]
             !command.contains(" -q"),
             "C# build must not use dotnet query mode shorthand: {command}"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod test_apps_run_tests {
+    // POSIX-only: relies on the shell builtins `true`/`false` to drive
+    // precondition / run outcomes. On Windows `sh` is absent, so a precondition
+    // miss is indistinguishable from a missing-program error and the skip-vs-fail
+    // distinction this module asserts could not be exercised meaningfully.
+    use super::*;
+
+    fn resolved_config() -> ResolvedCrateConfig {
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.call]
+function = "process"
+module = "my-lib"
+result_var = "result"
+
+[crates.e2e.registry.run.python]
+precondition = "false"
+run = "false"
+"#,
+        )
+        .unwrap();
+        cfg.resolve().unwrap().remove(0)
+    }
+
+    #[test]
+    fn failing_precondition_is_skipped_not_failed() {
+        // The python run override has `precondition = "false"`, so the language
+        // is skipped. The `run = "false"` command must NOT execute — if it did,
+        // the run would fail. A skip is reported distinctly and never surfaces
+        // as an error, so the overall result is `Ok`.
+        let config = resolved_config();
+        let result = test_apps_run(&config, &["python".to_string()]);
+        assert!(
+            result.is_ok(),
+            "a precondition skip must be reported as skipped, not failed: {result:?}"
+        );
+    }
+
+    #[test]
+    fn failing_run_command_propagates_error() {
+        // With the precondition passing (`true`) and the run command failing
+        // (`false`), the language is genuinely failed and the first error
+        // propagates so the process exits non-zero.
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.call]
+function = "process"
+module = "my-lib"
+result_var = "result"
+
+[crates.e2e.registry.run.python]
+precondition = "true"
+run = "false"
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+        let result = test_apps_run(&config, &["python".to_string()]);
+        assert!(result.is_err(), "a failing run command must propagate as an error");
+    }
+
+    #[test]
+    fn passing_run_command_succeeds() {
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.call]
+function = "process"
+module = "my-lib"
+result_var = "result"
+
+[crates.e2e.registry.run.python]
+precondition = "true"
+run = "true"
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+        let result = test_apps_run(&config, &["python".to_string()]);
+        assert!(result.is_ok(), "a passing run command must succeed: {result:?}");
     }
 }
 

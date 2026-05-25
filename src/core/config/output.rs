@@ -226,6 +226,17 @@ pub struct UpdateConfig {
     pub upgrade: Option<StringOrVec>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TestAppRunConfig {
+    /// Shell command that must exit 0 for the test-app run to proceed; skip with warning on failure.
+    pub precondition: Option<String>,
+    /// Command(s) to run before the main run commands; aborts on failure.
+    pub before: Option<StringOrVec>,
+    /// Command(s) that install the published package into the registry-mode test
+    /// app and exercise it (e.g. `cd test_apps/ruby && bundle install && bundle exec rspec`).
+    pub run: Option<StringOrVec>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct TestConfig {
     /// Shell command that must exit 0 for test to run; skip with warning on failure.
