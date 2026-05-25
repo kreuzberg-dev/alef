@@ -276,6 +276,7 @@ impl E2eCodegen for ZigE2eCodegen {
                         needs_mock_server,
                     },
                     &e2e_config.test_documents_relative_from(0),
+                    e2e_config.dep_mode,
                 ),
                 generated_header: false,
             },
@@ -535,14 +536,16 @@ struct ZigBuildFlags {
     needs_mock_server: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_build_zig(
     test_filenames: &[String],
-    _pkg_name: &str,
+    pkg_name: &str,
     module_name: &str,
     ffi_lib_name: &str,
     ffi_crate_path: &str,
     flags: ZigBuildFlags,
     test_documents_path: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
 ) -> String {
     let ZigBuildFlags {
         has_file_fixtures,
@@ -574,43 +577,63 @@ pub fn build(b: *std.Build) void {
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
-    let _ = writeln!(
-        content,
-        "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/release\";"
-    );
-    let _ = writeln!(
-        content,
-        "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
-    );
-    let _ = writeln!(content);
-    let _ = writeln!(
-        content,
-        "    const {module_name}_module = b.addModule(\"{module_name}\", .{{"
-    );
-    let _ = writeln!(
-        content,
-        "        .root_source_file = b.path(\"../../packages/zig/src/{module_name}.zig\"),"
-    );
-    content.push_str("        .target = target,\n");
-    content.push_str("        .optimize = optimize,\n");
-    // Zig 0.16 requires explicit libc linking for any module that transitively
-    // references stdlib C bindings (e.g. `c.getenv` via std.posix). The shared
-    // binding module pulls in the FFI header, so libc is always required.
-    content.push_str("        .link_libc = true,\n");
-    content.push_str("    });\n");
-    let _ = writeln!(
-        content,
-        "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"
-    );
-    let _ = writeln!(
-        content,
-        "    {module_name}_module.addIncludePath(.{{ .cwd_relative = ffi_include }});"
-    );
-    let _ = writeln!(
-        content,
-        "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
-    );
-    let _ = writeln!(content);
+    match dep_mode {
+        crate::e2e::config::DependencyMode::Registry => {
+            // Registry mode: consume the published Zig package declared in
+            // build.zig.zon. Its build.zig exports the `module_name` module with
+            // the bundled FFI library (lib/) and C header (include/) already wired,
+            // so importing it links the prebuilt native library shipped in the
+            // release tarball — no in-tree `ffi_path`/source paths are needed.
+            let _ = writeln!(content);
+            let _ = writeln!(
+                content,
+                "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{"
+            );
+            content.push_str("        .target = target,\n");
+            content.push_str("        .optimize = optimize,\n");
+            let _ = writeln!(content, "    }}).module(\"{module_name}\");");
+            let _ = writeln!(content);
+        }
+        crate::e2e::config::DependencyMode::Local => {
+            let _ = writeln!(
+                content,
+                "    const ffi_path = b.option([]const u8, \"ffi_path\", \"Path to directory containing lib{ffi_lib_name}\") orelse \"../../target/release\";"
+            );
+            let _ = writeln!(
+                content,
+                "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
+            );
+            let _ = writeln!(content);
+            let _ = writeln!(
+                content,
+                "    const {module_name}_module = b.addModule(\"{module_name}\", .{{"
+            );
+            let _ = writeln!(
+                content,
+                "        .root_source_file = b.path(\"../../packages/zig/src/{module_name}.zig\"),"
+            );
+            content.push_str("        .target = target,\n");
+            content.push_str("        .optimize = optimize,\n");
+            // Zig 0.16 requires explicit libc linking for any module that transitively
+            // references stdlib C bindings (e.g. `c.getenv` via std.posix). The shared
+            // binding module pulls in the FFI header, so libc is always required.
+            content.push_str("        .link_libc = true,\n");
+            content.push_str("    });\n");
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});"
+            );
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addIncludePath(.{{ .cwd_relative = ffi_include }});"
+            );
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+            );
+            let _ = writeln!(content);
+        }
+    }
 
     // Spawn the mock-server at configure time and capture its ephemeral URL so
     // every test run step can read it via `MOCK_SERVER_URL`. Zig has no

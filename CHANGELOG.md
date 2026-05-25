@@ -5,9 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.19.11] - 2026-05-25
 
 ### Fixed
+
+- **alef e2e + publish (zig): registry test-apps now consume the published package's bundled native library.** The registry-mode `build.zig` ignored the dependency declared in `build.zig.zon` and instead referenced the in-tree binding source (`../../packages/zig/src/<module>.zig`) and the Cargo workspace target dir (`../../target/release`), so a standalone `test_apps/zig` build failed at link time with `unable to find dynamic system library '<lib>_ffi'` (those paths do not exist outside the monorepo). Three coordinated fixes: (1) `render_build_zig` emits `b.dependency("<pkg>", .{ ... }).module("<module>")` in Registry mode, importing the published module instead of in-tree paths (Local mode unchanged); (2) `package_zig` rewrites the distributed `build.zig` so the exported module links the prebuilt shared library bundled in the package's own `lib/` + header in `include/` via package-relative `b.path`, and adds those directories to the `build.zig.zon` `.paths` allowlist so a `zig fetch` consumer can resolve them; (3) the in-tree scaffold `build.zig` is unchanged (still links `../../target/release` for local `zig build test`). Verified end-to-end with a synthesized published package consumed across a path dependency. (`src/e2e/codegen/zig.rs`, `src/publish/package/zig.rs`)
 
 - **alef e2e (node): pnpm-workspace.yaml isolation marker now gated on Registry mode.** The TypeScript codegen unconditionally emitted `packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n` at the test-app root. That is correct in Registry mode (standalone `test_apps/node/` installing from npm) but broke Local mode (`e2e/node/` with `"@kreuzberg/<crate>": "workspace:*"`): pnpm picks the nearest `pnpm-workspace.yaml` walking up, so the empty marker shadowed the consumer's root workspace and `pnpm install` exited 1 with no matching workspace package. Now only emitted when `dep_mode == Registry`. (`src/e2e/codegen/typescript/mod.rs`)
 
