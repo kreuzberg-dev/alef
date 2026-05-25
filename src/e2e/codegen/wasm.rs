@@ -288,9 +288,13 @@ impl E2eCodegen for WasmCodegen {
         // would also work, but it forces every caller (Taskfile, CI step) to
         // pass it; making `e2e/wasm/` self-rooted keeps the generated suite
         // self-contained.
+        // `allowBuilds` opts native-build scripts of common transitive deps
+        // (`esbuild`, `tree-sitter`) in. pnpm 11 refuses to silently run
+        // postinstall scripts and fails with `ERR_PNPM_IGNORED_BUILDS` unless
+        // they are listed explicitly.
         files.push(GeneratedFile {
             path: output_base.join("pnpm-workspace.yaml"),
-            content: "packages:\n  - \".\"\n".to_string(),
+            content: "packages:\n  - \".\"\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
             generated_header: false,
         });
 
