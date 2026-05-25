@@ -200,10 +200,15 @@ pub(crate) fn emit_cargo_toml(
     // Build the cargo-machete ignored list: the umbrella crate plus every sibling
     // crate from [crate.extra_dependencies]. flutter_rust_bridge resolves types
     // across all of them, but the generated Rust wrapper only `use`s a subset —
-    // cargo-machete would otherwise flag the rest.
+    // cargo-machete would otherwise flag the rest. `ahash` is added when any
+    // function parameter uses AHashMap<Cow, _>, but the bridge never directly uses
+    // ahash—it's used only in the Rust core for type field marshalling.
     let mut machete_ignored: Vec<String> = std::iter::once(core_dep_key.clone())
         .chain(workspace_extra.keys().cloned())
         .collect();
+    if api_has_ahash_param(api) {
+        machete_ignored.push("ahash".to_string());
+    }
     machete_ignored.sort();
     machete_ignored.dedup();
     let machete_ignored_list = machete_ignored
