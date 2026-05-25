@@ -274,15 +274,20 @@ fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSet<&str>) ->
 
 /// Render build.gradle.kts for the kotlin_android e2e project.
 ///
+/// In local mode: sources from `../../packages/kotlin-android/` are compiled
+/// directly into the test project via `sourceSets`. In registry mode: the
+/// published Maven artifact (`{pkg_name}:{pkg_version}`) is declared as a
+/// `testImplementation` dependency and `sourceSets` are not emitted.
+///
 /// This is an Android library project (applies `com.android.library`) so that
 /// the `android { }` DSL — including Gradle Managed Devices — resolves at
 /// Kotlin script compile time. The host-JVM test sources live in
 /// `src/test/kotlin/` and run against the shared native library via JNA.
 fn render_build_gradle_kotlin_android(
-    _pkg_name: &str,
+    pkg_name: &str,
     kotlin_pkg_id: &str,
-    _pkg_version: &str,
-    _dep_mode: crate::e2e::config::DependencyMode,
+    pkg_version: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
     needs_mock_server: bool,
 ) -> String {
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
@@ -305,6 +310,60 @@ fn render_build_gradle_kotlin_android(
         format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#)
     } else {
         String::new()
+    };
+
+    // In registry mode: depend on the published Maven artifact and declare
+    // mavenCentral()/google() repos explicitly so the test_app is standalone.
+    // In local mode: wire workspace sources directly via sourceSets so no
+    // publish step is needed during development.
+    let (source_sets_block, artifact_dep, tasks_block) = if dep_mode == crate::e2e::config::DependencyMode::Registry {
+        let artifact = format!(
+            r#"    // Published Android AAR from Maven Central
+    testImplementation("{pkg_name}:{pkg_version}")"#
+        );
+        // In registry mode tests run against the published AAR; the native
+        // library is bundled inside it so no java.library.path wiring is needed.
+        let tasks = r#"tasks.withType<Test> {
+    useJUnitPlatform()
+}"#;
+        (String::new(), artifact, tasks.to_string())
+    } else {
+        let src_sets = r#"
+    sourceSets {
+        getByName("test") {
+            // Include the AAR-bundled Java facade as test sources
+            java.srcDir("../../packages/kotlin-android/src/main/java")
+            // Include the AAR-bundled Kotlin wrapper as test sources
+            kotlin.srcDir("../../packages/kotlin-android/src/main/kotlin")
+        }
+    }
+"#;
+        // In local mode wire JNA so the native library can be loaded from
+        // the workspace target directory.
+        let tasks = r#"tasks.withType<Test> {
+    useJUnitPlatform()
+
+    // Resolve the native library location (e.g., ../../target/release)
+    val libPath = System.getProperty("kb.lib.path") ?: "${rootDir}/../../target/release"
+    systemProperty("java.library.path", libPath)
+    systemProperty("jna.library.path", libPath)
+
+    // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
+    workingDir = file("${rootDir}/../../test_documents")
+}"#;
+        (src_sets.to_string(), String::new(), tasks.to_string())
+    };
+
+    // JNA is only needed in local mode (the AAR bundles the native lib in registry mode).
+    let jna_dep = if dep_mode == crate::e2e::config::DependencyMode::Registry {
+        String::new()
+    } else {
+        format!(
+            r#"    // JNA for loading the native library from java.library.path
+    testImplementation("net.java.dev.jna:jna:{jna}")
+
+"#
+        )
     };
 
     format!(
@@ -330,17 +389,7 @@ android {{
     compileOptions {{
         sourceCompatibility = JavaVersion.VERSION_{jvm_target}
         targetCompatibility = JavaVersion.VERSION_{jvm_target}
-    }}
-
-    sourceSets {{
-        getByName("test") {{
-            // Include the AAR-bundled Java facade as test sources
-            java.srcDir("../../packages/kotlin-android/src/main/java")
-            // Include the AAR-bundled Kotlin wrapper as test sources
-            kotlin.srcDir("../../packages/kotlin-android/src/main/kotlin")
-        }}
-    }}
-
+    }}{source_sets_block}
     testOptions {{
         // Gradle Managed Virtual Devices for on-device instrumented tests.
         // Run: ./gradlew pixel6api34DebugAndroidTest
@@ -367,9 +416,7 @@ kotlin {{
 // here triggers Gradle "repository was added by build file" errors.
 
 dependencies {{
-    // JNA for loading the native library from java.library.path
-    testImplementation("net.java.dev.jna:jna:{jna}")
-
+{jna_dep}{artifact_dep}
     // Jackson for JSON assertion helpers
     testImplementation("com.fasterxml.jackson.core:jackson-annotations:{jackson}")
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
@@ -395,17 +442,7 @@ dependencies {{
     testImplementation(kotlin("test"))
 }}
 
-tasks.withType<Test> {{
-    useJUnitPlatform()
-
-    // Resolve the native library location (e.g., ../../target/release)
-    val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
-    systemProperty("java.library.path", libPath)
-    systemProperty("jna.library.path", libPath)
-
-    // Resolve fixture paths (e.g. "docx/fake.docx") against test_documents/
-    workingDir = file("${{rootDir}}/../../test_documents")
-}}
+{tasks_block}
 "#
     )
 }
@@ -620,13 +657,17 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "class {class_name} : {interface_name} {{");
 
     // Plugin super-trait `name()` function.
+    let mut emitted_methods = std::collections::HashSet::new();
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "    override fun name(): String = \"{plugin_name}\"");
+        emitted_methods.insert("name".to_string());
     }
 
-    // Required methods — use concrete Kotlin types from KotlinMapper.
+    // All methods from the trait — including those with default implementations.
+    // We must stub all interface methods even if they have defaults.
     for method in methods {
-        if method.has_default_impl {
+        // Skip if already emitted (e.g., super-trait name method).
+        if emitted_methods.contains(&method.name) {
             continue;
         }
         let method_name = method.name.to_lower_camel_case();
@@ -653,6 +694,7 @@ pub fn emit_test_backend(
                 "    override fun {method_name}({params_str}): {return_type} = {default_val}"
             );
         }
+        emitted_methods.insert(method.name.clone());
     }
 
     let _ = writeln!(setup, "}}");
