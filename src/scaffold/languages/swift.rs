@@ -222,7 +222,7 @@ struct Demo {{
     // The placeholder URL `https://github.com/kreuzberg-dev/{repo}/releases/download/{tag}/{archive}`
     // is replaced during publish by the actual release asset URL. The checksum is computed
     // by `swift package compute-checksum` and wired in by the release pipeline.
-    let root_package_swift = format!(
+    let _root_package_swift = format!(
         r#"// swift-tools-version: 6.0
 // Root-level Package.swift — alef-generated for published distributions.
 //
@@ -267,11 +267,18 @@ let package = Package(
     );
 
     Ok(vec![
-        GeneratedFile {
-            path: PathBuf::from("Package.swift"),
-            content: root_package_swift,
-            generated_header: false,
-        },
+        // Root-level Package.swift omitted for v3.5.2+:
+        // Consumers building from source should use `cd packages/swift && swift build`.
+        // Root Package.swift with .binaryTarget will be generated at release time by
+        // the publish workflow for artifact distribution.
+        //
+        // For now, this keeps the git repo clean and avoids placeholder URL issues.
+        //
+        // GeneratedFile {
+        //     path: PathBuf::from("Package.swift"),
+        //     content: root_package_swift,
+        //     generated_header: false,
+        // },
         GeneratedFile {
             path: PathBuf::from("packages/swift/Package.swift"),
             content: package_swift,
