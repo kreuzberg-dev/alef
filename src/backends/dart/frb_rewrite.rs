@@ -98,10 +98,11 @@ fn frb_init_prologue(source: &str) -> Option<String> {
 fn init_prologue_regex() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        // Match the init prologue with flexible whitespace indentation.
-        // Allows any amount of leading whitespace before `///` and parameters.
+        // Match the init prologue with flexible whitespace indentation and parameter order.
+        // FRB generates: `static Future<void> init({ ... }) async {`
+        // We match from "Initialize flutter_rust_bridge" comment through the opening brace.
         Regex::new(
-            r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\(\{\n(?:\s*RustLibApi\? api,\n)?(?:\s*BaseHandler\? handler,\n)?(?:\s*ExternalLibrary\? externalLibrary,\n)?(?:\s*bool forceSameCodegenVersion = true,\n)?\s*\}\) async \{\n"
+            r"(?m)^\s*/// Initialize flutter_rust_bridge\n\s*static Future<void> init\((?s:.)*?\}\) async \{\n"
         ).expect("init prologue regex must compile")
     })
 }

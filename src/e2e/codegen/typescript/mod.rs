@@ -110,9 +110,15 @@ impl E2eCodegen for TypeScriptCodegen {
         // `e2e/node/node_modules`, breaking `pnpm test` with a missing-vitest
         // error. An empty `packages: []` makes the directory self-rooted so
         // `pnpm install` installs the test app's deps in isolation.
+        //
+        // `allowBuilds` opts the native-build scripts of common transitive
+        // deps (`esbuild`, `tree-sitter`) in. pnpm 11 refuses to silently run
+        // postinstall/build scripts and fails with `ERR_PNPM_IGNORED_BUILDS`
+        // unless they are listed explicitly. These two cover the vast majority
+        // of generated test apps; downstream consumers can extend if needed.
         files.push(GeneratedFile {
             path: output_base.join("pnpm-workspace.yaml"),
-            content: "packages: []\n".to_string(),
+            content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
             generated_header: false,
         });
 
