@@ -1997,6 +1997,7 @@ fn main() -> Result<()> {
                             Some(alef::publish::package::php::PiePackageOptions {
                                 php_version: php_ver,
                                 ts_mode,
+                                debug_mode: alef::publish::package::php::DebugMode::NoDebug,
                                 libc_override: php_libc.as_deref(),
                                 windows_compiler: windows_compiler.as_deref(),
                             })
