@@ -117,11 +117,18 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             before: None,
             run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/csharp && dotnet test"))),
         },
-        Language::Kotlin | Language::KotlinAndroid => TestAppRunConfig {
+        Language::Kotlin => TestAppRunConfig {
             precondition: Some(require_tool("gradle")),
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/kotlin && gradle test --no-daemon"
+            ))),
+        },
+        Language::KotlinAndroid => TestAppRunConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            run: Some(StringOrVec::Single(format!(
+                "cd {test_apps_dir}/kotlin_android && gradle test --no-daemon"
             ))),
         },
         Language::Dart => TestAppRunConfig {
@@ -399,5 +406,17 @@ mod tests {
         let c = cfg(Language::Go, "my/custom/apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd my/custom/apps/go"), "got: {run}");
+    }
+
+    #[test]
+    fn kotlin_android_runs_under_kotlin_android_subdir() {
+        let c = cfg(Language::KotlinAndroid, "test_apps");
+        let run = c.run.unwrap().commands().join(" ");
+        assert!(run.contains("cd test_apps/kotlin_android"), "got: {run}");
+        assert!(
+            !run.contains("cd test_apps/kotlin "),
+            "must use kotlin_android/ subdir, not kotlin/, got: {run}"
+        );
+        assert!(run.contains("gradle test --no-daemon"), "got: {run}");
     }
 }
