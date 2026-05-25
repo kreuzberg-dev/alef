@@ -86,8 +86,15 @@ pub fn default_test_apps_run_config(lang: Language, test_apps_dir: &str, ctx: &L
             // test_apps/go into the outer workspace, which would cause `go test
             // ./...` to resolve the module graph via the workspace root and
             // reject the test app's go.mod as a non-member module.
+            //
+            // `go mod download` first populates `go.sum` from the version
+            // pinned in `go.mod` — alef emits a go.mod with the published
+            // module require but no go.sum (the checksums depend on the
+            // resolved module, not the manifest), and `go test` won't proceed
+            // without checksums. `download` is idempotent and a no-op once
+            // the sum is cached. Both commands share the same `GOWORK=off`.
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/go && GOWORK=off go test ./..."
+                "cd {test_apps_dir}/go && GOWORK=off go mod download && GOWORK=off go test ./..."
             ))),
         },
         Language::Java => TestAppRunConfig {
@@ -350,6 +357,10 @@ mod tests {
         assert!(
             run.contains("GOWORK=off go test ./..."),
             "expected GOWORK=off in go run command, got: {run}"
+        );
+        assert!(
+            run.contains("GOWORK=off go mod download"),
+            "expected `go mod download` to populate go.sum before test, got: {run}"
         );
         assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
