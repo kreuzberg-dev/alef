@@ -262,10 +262,8 @@ impl Backend for GoBackend {
         }
 
         // Generate generate.go with //go:generate directive for FFI library download
-        let generate_go_content = crate::backends::go::template_env::render(
-            "generate_cgo_flags.go.jinja",
-            minijinja::context! {},
-        );
+        let generate_go_content =
+            crate::backends::go::template_env::render("generate_cgo_flags.go.jinja", minijinja::context! {});
         files.push(GeneratedFile {
             path: PathBuf::from(format!("{output_dir}generate.go")),
             content: generate_go_content,

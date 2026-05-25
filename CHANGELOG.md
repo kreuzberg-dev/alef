@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef version bumped to 0.19.10** (`Cargo.toml`, `alef.toml`, `src/core/template_versions.rs`).
 
+- **alef production-source project-agnostic guard completed.** Expanded the no-project-special-casing cleanup through generated defaults and formatting follow-ups so production code paths no longer depend on downstream product literals; remaining examples now derive from config or use neutral placeholders.
+
 - **alef doc-comment generalization across C#, Dart, Go backends.** Replaced binding-crate-specific words and example identifiers in inline doc comments with generic phrasing (e.g. `KreuzbergLib` → `the facade`, `lib_name = "sample"` example removed) so the codegen library carries no host-application bias in its source. No behavioural change. (`src/backends/csharp/gen_bindings/methods.rs`, `src/backends/dart/gen_bindings/mod.rs`, `src/backends/go/gen_bindings/mod.rs`)
 
 - **alef php-ext codegen: derive package name from `config.name` instead of hardcoded `kreuzberg-dev/html-to-markdown-ext`.** Same generalization pass as the homebrew default change. (`src/e2e/codegen/php_ext.rs`)
