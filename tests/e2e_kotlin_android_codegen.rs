@@ -452,7 +452,7 @@ fn kotlin_android_streaming_collect_uses_flow_to_list_not_as_sequence() {
 }
 
 // ---------------------------------------------------------------------------
-// D: androidTest source set + Gradle Managed Devices
+// D: host-JVM test source set + Android Gradle Plugin
 // ---------------------------------------------------------------------------
 
 fn generate_kotlin_android_files(toml: &str, fixture: Fixture) -> Vec<alef::core::backend::GeneratedFile> {
@@ -468,46 +468,44 @@ fn generate_kotlin_android_files(toml: &str, fixture: Fixture) -> Vec<alef::core
         .expect("generation succeeds")
 }
 
-/// Regression for D: `kotlin_android` codegen must emit an `src/androidTest/`
-/// source set alongside the host-JVM `src/test/` source set so that
-/// instrumented tests can run on the Android emulator.
+/// Regression for D: `kotlin_android` codegen must emit a host-JVM
+/// `src/test/` source set so tests can run without an Android emulator.
 #[test]
-fn kotlin_android_emits_android_test_source_set() {
+fn kotlin_android_emits_host_jvm_test_source_set() {
     let fixture = make_chat_fixture("chat_basic");
     let files = generate_kotlin_android_files(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
     let all_paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
-    let android_test_file = files.iter().find(|f| {
+    let test_file = files.iter().find(|f| {
         let p = f.path.to_string_lossy();
-        p.contains("androidTest") && p.contains("ChatTest.kt")
+        p.contains("src/test/kotlin") && p.contains("ChatTest.kt")
     });
-    let file = android_test_file.unwrap_or_else(|| {
+    let file = test_file.unwrap_or_else(|| {
         panic!(
-            "src/androidTest/.../ChatTest.kt must be emitted; got files:\n{}",
+            "src/test/.../ChatTest.kt must be emitted; got files:\n{}",
             all_paths.join("\n")
         )
     });
     let content = &file.content;
 
     assert!(
-        content.contains("@RunWith(AndroidJUnit4::class)"),
-        "androidTest file must use @RunWith(AndroidJUnit4::class); got:\n{content}"
+        content.contains("class ChatTest"),
+        "host-JVM test file must declare ChatTest; got:\n{content}"
     );
     assert!(
-        content.contains("System.loadLibrary"),
-        "androidTest file must call System.loadLibrary; got:\n{content}"
+        content.contains("org.junit.jupiter.api.Test"),
+        "host-JVM test file must import JUnit 5 Test; got:\n{content}"
     );
     assert!(
-        content.contains("import androidx.test.ext.junit.runners.AndroidJUnit4"),
-        "androidTest file must import AndroidJUnit4; got:\n{content}"
+        !content.contains("AndroidJUnit4"),
+        "host-JVM test file must not depend on AndroidJUnit4; got:\n{content}"
     );
 }
 
 /// Regression for D: the emitted `build.gradle.kts` must apply the Android
-/// Gradle Plugin so that the `android { }` DSL — including Managed Devices —
-/// resolves at Kotlin script compile time.  Without the AGP in `plugins { }`,
-/// every reference to `android`, `testOptions`, `managedDevices`, and
-/// `ManagedVirtualDevice` raises "Unresolved reference" at script compilation.
+/// Gradle Plugin so that the `android { }` DSL resolves at Kotlin script compile
+/// time. The e2e app runs host-JVM tests, so it should not require Managed
+/// Devices or an Android emulator.
 #[test]
 fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
     let fixture = make_chat_fixture("chat_basic");
@@ -528,17 +526,12 @@ fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
         content.contains("kotlin(\"android\")"),
         "build.gradle.kts must apply kotlin(\"android\"); got:\n{content}"
     );
-    // The managed devices block must still be present for on-device runs.
     assert!(
-        content.contains("ManagedVirtualDevice"),
-        "build.gradle.kts must import ManagedVirtualDevice; got:\n{content}"
+        content.contains("unitTests"),
+        "build.gradle.kts must configure host-JVM unit tests; got:\n{content}"
     );
     assert!(
-        content.contains("managedDevices"),
-        "build.gradle.kts must have managedDevices block; got:\n{content}"
-    );
-    assert!(
-        content.contains("pixel6api34"),
-        "build.gradle.kts must declare pixel6api34 managed device; got:\n{content}"
+        !content.contains("ManagedVirtualDevice") && !content.contains("managedDevices"),
+        "build.gradle.kts must not require managed Android devices; got:\n{content}"
     );
 }
