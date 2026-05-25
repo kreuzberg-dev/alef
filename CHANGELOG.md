@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef-e2e-kotlin_android: registry-mode `build.gradle.kts` consumes published Maven artifact.** In registry mode the kotlin_android codegen now emits `testImplementation("{pkg_name}:{pkg_version}")` and omits the local `sourceSets` wiring (which references workspace-relative paths invalid in a standalone test_app). Local mode behavior is unchanged. (`src/e2e/codegen/kotlin_android.rs`)
 
+- **alef-scaffold: `.gitattributes` now marks the registry-mode test_apps output dir as `linguist-generated=true`.** The scaffold-emitted `.gitattributes` already covered the e2e local-mode output (default `e2e/**`). It now also reads `[e2e.registry].output` (default `test_apps`) and emits a matching `test_apps/** linguist-generated=true` entry, so GitHub collapses the registry-mode test_apps in PR diffs alongside the local-mode e2e tree. (`src/scaffold/mod.rs`)
+
 ### Changed
 
 ### Fixed
