@@ -246,10 +246,7 @@ fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "int main(void) {{");
     let _ = writeln!(out, "  const char *html = \"<h1>Hi</h1>\";");
-    let _ = writeln!(
-        out,
-        "  {result_type} result = {convert_fn}(html, NULL);"
-    );
+    let _ = writeln!(out, "  {result_type} result = {convert_fn}(html, NULL);");
     let _ = writeln!(out);
     let _ = writeln!(out, "  if (result.error_code != 0) {{");
     let _ = writeln!(
@@ -277,10 +274,7 @@ fn render_ffi_smoke_c(ffi_header: &str, ffi_prefix: &str) -> String {
     let _ = writeln!(out, "    return 1;");
     let _ = writeln!(out, "  }}");
     let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "  printf(\"PASS: {convert_fn} returned: %s\\n\", result.content);"
-    );
+    let _ = writeln!(out, "  printf(\"PASS: {convert_fn} returned: %s\\n\", result.content);");
     let _ = writeln!(out, "  {free_fn}(result);");
     let _ = writeln!(out, "  return 0;");
     let _ = writeln!(out, "}}");

@@ -164,10 +164,7 @@ fn render_main_php(extension_name: &str) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "// Verify the convert function exists.");
     let _ = writeln!(out, "if (!function_exists('{convert_function}')) {{");
-    let _ = writeln!(
-        out,
-        "    fwrite(STDERR, \"FAIL: {convert_function}() not found\\n\");"
-    );
+    let _ = writeln!(out, "    fwrite(STDERR, \"FAIL: {convert_function}() not found\\n\");");
     let _ = writeln!(out, "    exit(1);");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
@@ -182,10 +179,7 @@ fn render_main_php(extension_name: &str) -> String {
     let _ = writeln!(out, "    exit(1);");
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "echo \"PASS: {convert_function}('<h1>Hi</h1>') => $result\\n\";"
-    );
+    let _ = writeln!(out, "echo \"PASS: {convert_function}('<h1>Hi</h1>') => $result\\n\";");
     let _ = writeln!(out, "exit(0);");
     out
 }

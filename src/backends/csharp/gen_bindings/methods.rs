@@ -302,7 +302,9 @@ pub(super) fn gen_wrapper_class(
             "        var impl = bridge.GetType().GetField(\"_impl\", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(bridge) as I{};\n",
             trait_pascal
         ));
-        out.push_str("        if (impl == null) throw new InvalidOperationException(\"Cannot extract impl from bridge\");\n");
+        out.push_str(
+            "        if (impl == null) throw new InvalidOperationException(\"Cannot extract impl from bridge\");\n",
+        );
         if has_super {
             out.push_str("        var name = impl.Name;\n");
         } else {
