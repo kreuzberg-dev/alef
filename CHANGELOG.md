@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef-swift-rust-crate: ignore `ahash` in `cargo-machete` metadata of the generated Swift Rust crate.** The Swift Rust shim depends on `ahash` only when the umbrella crate exposes `AHashMap<Cow<str>, _>` parameters (the conditional `__*_ahash` shim rebuilds in `gen_rust_crate/shims.rs`). On consumers without such parameters (e.g. tslp), `ahash` is listed in `[dependencies]` for manifest stability but goes unreferenced, and `cargo-machete` then fails `prek run --all-files` with `unused dependencies: ahash`. `ahash` now joins `async-trait`, `serde`, and `tokio` in the `[package.metadata.cargo-machete] ignored` list and the doc comment is updated accordingly. (`src/backends/swift/gen_rust_crate/cargo.rs`)
+
 ### Removed
 
 ## [0.19.6] - 2026-05-25

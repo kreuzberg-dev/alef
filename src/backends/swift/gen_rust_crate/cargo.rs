@@ -92,15 +92,18 @@ version = "{version}"
 edition = "2024"
 license = "{license}"
 
-# `async-trait`, `serde`, and `tokio` are conditionally referenced by
-# alef-emitted code: only when the umbrella crate declares trait bridges
-# (inbound plugins), `Serialize`/`Deserialize`-derived response types, or
-# async adapter shims that block on a Tokio current-thread runtime. They
-# are listed unconditionally in `[dependencies]` so the manifest is stable
-# across regens, and ignored here so cargo-machete does not flag the
-# downstream (no-adapters, no-derives, no-async) case as unused.
+# `ahash`, `async-trait`, `serde`, and `tokio` are conditionally referenced
+# by alef-emitted code: `ahash` only when the umbrella crate exposes
+# `AHashMap<Cow<str>, _>` parameters (the conditional `__*_ahash` shim
+# rebuilds), `async-trait` / `serde` / `tokio` only when the umbrella
+# crate declares trait bridges (inbound plugins), `Serialize`/`Deserialize`-
+# derived response types, or async adapter shims that block on a Tokio
+# current-thread runtime. They are listed unconditionally in `[dependencies]`
+# so the manifest is stable across regens, and ignored here so cargo-machete
+# does not flag the downstream (no-ahash-maps, no-adapters, no-derives,
+# no-async) case as unused.
 [package.metadata.cargo-machete]
-ignored = ["async-trait", "serde", "tokio"]
+ignored = ["ahash", "async-trait", "serde", "tokio"]
 
 [lib]
 crate-type = ["cdylib", "staticlib"]
