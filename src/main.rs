@@ -439,6 +439,14 @@ enum TestAppsAction {
         #[arg(short, long, default_value = "0")]
         jobs: usize,
     },
+    /// Run the registry-mode test apps: install each published package from its
+    /// registry and exercise it, reporting pass/skip/fail per target. Verifies a
+    /// release end-to-end (e.g. the Ruby gem builds its native ext — issue #87).
+    Run {
+        /// Comma-separated list of test-app targets to run (default: all in `[e2e].languages`).
+        #[arg(long, value_delimiter = ',')]
+        lang: Option<Vec<String>>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -1857,6 +1865,31 @@ fn main() -> Result<()> {
                         grand_count += count;
                     }
                     println!("Generated {grand_count} test-app files");
+                    Ok(())
+                }
+                TestAppsAction::Run { lang } => {
+                    for e2e_crate in &crates_to_process {
+                        let Some(this_e2e_config) = e2e_crate.e2e.as_ref() else {
+                            continue;
+                        };
+                        let all_names: Vec<String> = if this_e2e_config.languages.is_empty() {
+                            alef::e2e::default_e2e_languages(&e2e_crate.languages)
+                        } else {
+                            this_e2e_config.languages.clone()
+                        };
+                        let names: Vec<String> = match lang.as_deref() {
+                            Some(filter) => all_names
+                                .into_iter()
+                                .filter(|n| filter.iter().any(|f| f == n))
+                                .collect(),
+                            None => all_names,
+                        };
+                        if names.is_empty() {
+                            continue;
+                        }
+                        eprintln!("Running test apps for: {}", names.join(", "));
+                        pipeline::test_apps_run(e2e_crate, &names)?;
+                    }
                     Ok(())
                 }
             }

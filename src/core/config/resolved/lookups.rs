@@ -4,10 +4,13 @@ use std::collections::HashMap;
 
 use super::ResolvedCrateConfig;
 use crate::core::config::extras::{AdapterConfig, Language};
-use crate::core::config::output::{BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, TestConfig, UpdateConfig};
+use crate::core::config::output::{
+    BuildCommandConfig, CleanConfig, LintConfig, SetupConfig, TestAppRunConfig, TestConfig, UpdateConfig,
+};
 use crate::core::config::tools::LangContext;
 use crate::core::config::{
-    build_defaults, clean_defaults, lint_defaults, setup_defaults, test_defaults, update_defaults,
+    build_defaults, clean_defaults, lint_defaults, setup_defaults, test_apps_run_defaults, test_defaults,
+    update_defaults,
 };
 
 impl ResolvedCrateConfig {
@@ -221,6 +224,37 @@ impl ResolvedCrateConfig {
             project_file: None,
         };
         update_defaults::default_update_config(lang, &output_dir, &ctx)
+    }
+
+    /// Resolve the test-app run configuration for a registry test-app `name`.
+    ///
+    /// `name` is an `[e2e].languages` entry — usually a language slug (`python`,
+    /// `node`, …) but also string-only registry targets such as `brew`. Returns
+    /// the explicit `[crates.e2e.registry.run.<name>]` override if present, else
+    /// the default from [`test_apps_run_defaults`]. The test app lives under the
+    /// registry `output` directory (default `test_apps`).
+    pub fn test_apps_run_config_for_name(&self, name: &str) -> TestAppRunConfig {
+        let test_apps_dir = self
+            .e2e
+            .as_ref()
+            .map(|e2e| e2e.registry.output.as_str())
+            .unwrap_or("test_apps");
+        if let Some(explicit) = self.e2e.as_ref().and_then(|e2e| e2e.registry.run.get(name)) {
+            return explicit.clone();
+        }
+        let ctx = LangContext {
+            tools: &self.tools,
+            run_wrapper: None,
+            extra_lint_paths: &[],
+            project_file: None,
+        };
+        // Most names map to a Language enum variant; string-only registry targets
+        // (e.g. `brew`) fall back to the name-based default.
+        let parsed: Result<Language, _> = toml::Value::String(name.to_string()).try_into();
+        match parsed {
+            Ok(lang) => test_apps_run_defaults::default_test_apps_run_config(lang, test_apps_dir, &ctx),
+            Err(_) => test_apps_run_defaults::default_test_apps_run_config_for_name(name, test_apps_dir, &ctx),
+        }
     }
 
     /// Get the effective test configuration for a language.

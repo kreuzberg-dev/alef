@@ -17,6 +17,7 @@ pub mod raw_crate;
 pub mod resolve_helpers;
 pub mod resolved;
 pub mod setup_defaults;
+pub mod test_apps_run_defaults;
 pub mod test_defaults;
 pub mod tools;
 pub mod trait_bridge;

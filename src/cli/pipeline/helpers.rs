@@ -337,6 +337,28 @@ pub(crate) fn check_precondition(lang: Language, precondition: Option<&str>) -> 
     }
 }
 
+/// Like [`check_precondition`] but keyed by a free-form label (e.g. a registry
+/// test-app name such as `brew`) rather than a [`Language`]. Returns `true` when
+/// the precondition succeeds or is absent, `false` when it fails (skip).
+pub(crate) fn check_precondition_named(label: &str, precondition: Option<&str>) -> bool {
+    let Some(cmd) = precondition else {
+        return true;
+    };
+    info!("Checking precondition for {label}: {cmd}");
+    let status = std::process::Command::new("sh")
+        .args(["-c", cmd])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => true,
+        _ => {
+            warn!("Skipping {label}: precondition failed ({cmd})");
+            false
+        }
+    }
+}
+
 /// Run before-hook commands. Returns `Ok(())` on success, or an error if any
 /// command fails (which should abort the operation for this language).
 pub(crate) fn run_before(lang: Language, before: Option<&StringOrVec>) -> anyhow::Result<()> {

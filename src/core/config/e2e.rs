@@ -39,6 +39,11 @@ pub struct RegistryConfig {
     /// `https://github.com/kreuzberg-dev/{crate.name}`.
     #[serde(default)]
     pub github_repo: Option<String>,
+    /// Per-language commands that install the published package into the
+    /// registry-mode test app and exercise it, executed by `alef test-apps run`.
+    /// Languages omitted here fall back to `test_apps_run_defaults`.
+    #[serde(default)]
+    pub run: HashMap<String, crate::core::config::output::TestAppRunConfig>,
 }
 
 impl Default for RegistryConfig {
@@ -48,6 +53,7 @@ impl Default for RegistryConfig {
             packages: HashMap::new(),
             categories: Vec::new(),
             github_repo: None,
+            run: HashMap::new(),
         }
     }
 }
