@@ -130,15 +130,15 @@ pub(crate) fn scaffold_elixir_cargo(
     if needs_ahash {
         machete_ignored.push("ahash");
     }
-    let (machete_ignored_str, machete_section) = if machete_ignored.is_empty() {
-        (String::new(), String::new())
+    let machete_section = if machete_ignored.is_empty() {
+        String::new()
     } else {
         let ignored_list = machete_ignored
             .iter()
             .map(|d| format!("\"{d}\""))
             .collect::<Vec<_>>()
             .join(", ");
-        (ignored_list.clone(), format!("\n[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n"))
+        format!("\n[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n")
     };
 
     let content = format!(
