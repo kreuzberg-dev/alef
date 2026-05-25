@@ -1577,7 +1577,7 @@ fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<String> {
 /// Rewrite the version for a module in a `go.mod` `require` block.
 ///
 /// The e2e `go.mod` has a line like:
-/// ```
+/// ```text
 /// github.com/sample_core-dev/sample-crawler/packages/go v0.3.0-rc.27
 /// ```
 /// We want to update ONLY lines whose module path matches `module_path_fragment`

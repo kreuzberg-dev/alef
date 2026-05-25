@@ -623,9 +623,12 @@ pub fn emit_test_backend(
         emitted_methods.insert("name".to_string());
     }
 
-    // All methods from the trait — including those with default implementations.
-    // We must stub all interface methods even if they have defaults.
+    // Required methods only. Trait methods with default implementations are optional
+    // for test stubs and should inherit the generated interface default.
     for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
         // Skip if already emitted (e.g., super-trait name method).
         if emitted_methods.contains(&method.name) {
             continue;
