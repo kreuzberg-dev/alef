@@ -370,6 +370,14 @@ fn fetch_zig_hash_from_network(url: &str) -> Option<String> {
 }
 "#;
     std::fs::write(tmp.path().join("build.zig.zon"), stub).ok()?;
+    // `zig fetch <url>` (hash-only, no `--save`) still aborts with "no build.zig
+    // file found" unless a build.zig exists in the directory tree, so write a
+    // no-op one alongside the manifest.
+    std::fs::write(
+        tmp.path().join("build.zig"),
+        "pub fn build(b: *@import(\"std\").Build) void {\n    _ = b;\n}\n",
+    )
+    .ok()?;
 
     let output = std::process::Command::new("zig")
         .arg("fetch")

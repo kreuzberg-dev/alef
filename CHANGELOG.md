@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.10] - 2026-05-25
+
 ### Added
 
 ### Changed
@@ -24,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef homebrew codegen: thread per-crate FFI metadata (header, lib name, prefix) into the run-tests template.** The `render_run_tests` helper now receives `ffi_lib_name` so generated tap-install smoke scripts grep for the correct shared-library symbol per host crate instead of a hardcoded name. (`src/e2e/codegen/homebrew.rs`)
 
 ### Fixed
+
+- **alef scaffold (kotlin/JVM): publish to Maven Central via the vanniktech plugin instead of bare `maven-publish`.** The scaffolded `packages/kotlin/build.gradle.kts` applied only the vanilla `maven-publish` plugin with a `publishing { publications { } }` block and no repository, signing, or POM metadata, so `gradle publish` had nothing to upload and the artifact never reached Central (the shared `publish-maven-gradle@v1` action's default `publishAndReleaseToMavenCentral` task did not even exist). `scaffold_kotlin_jvm` now applies `com.vanniktech.maven.publish` with `mavenPublishing { configure(KotlinJvm(...)); publishToMavenCentral(); signAllPublications(); coordinates(group, artifactId); pom { ... } }` (version inherited from the top-level `version` so `sync-versions` keeps it current), and drops the stale `kotlin { srcDir(".") }` source root that dragged `build/` into the sources jar (Gradle 9 output-overlap validation error). POM metadata derives from `scaffold_meta` with Kotlin-string escaping that preserves apostrophes in author names. (`src/scaffold/languages/kotlin.rs`)
+
+- **alef e2e (zig): write a stub `build.zig` so generate-time `zig fetch` resolves the hash.** `fetch_zig_hash_from_network` wrote only a stub `build.zig.zon`, but zig 0.16's `zig fetch <url>` aborts with "no build.zig file found, in the current directory or any parent directories" unless a `build.zig` is also present, so the hash silently fell back to `.hash = "TODO"` even after the release asset was published. The scratch dir now also gets a no-op `build.zig`. (`src/e2e/codegen/zig.rs`)
 
 - **alef e2e (elixir): force HTTP/1 on generated `Req` calls.** The shared e2e mock server is a plain HTTP/1.1 server, but the generated Elixir harness used `Req`'s default HTTP/2 negotiation, so every fixture request failed with `%Req.HTTPError{protocol: :http2, reason: :pool_not_available}` (no HTTP/2 Finch pool is started). The Elixir test-client renderer now injects `connect_options: [protocols: [:http1]]` into every emitted `Req` call (`Req.get/post/...` convenience calls and `Req.request/1`), pinning each request to the available HTTP/1 pool. (`src/e2e/codegen/elixir.rs`)
 
