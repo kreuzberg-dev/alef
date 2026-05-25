@@ -825,6 +825,80 @@ pub fn sync_versions(
         }
     }
 
+    // E2e manifests: the generated integration test trees under e2e/<lang>/ use
+    // local-source references to the library packages but still embed a hardcoded
+    // version string in language-native manifests (pom.xml, Gemfile.lock, go.mod,
+    // pubspec.lock). Without syncing these, CI's frozen-lockfile / dependency-
+    // resolution modes reject the mismatched version on the next run.
+    //
+    // Rules:
+    //   • Java  — e2e/java/pom.xml: <version> inside system-scope dep + <systemPath>
+    //   • Ruby  — e2e/ruby/Gemfile.lock: path-gem version (reuses sync_gemfile_lock)
+    //   • Go    — e2e/go/go.mod: require line version for the library module
+    //   • Dart  — e2e/dart/pubspec.lock: `version:` under path-source package entry
+    //
+    // These paths are alef-generated and therefore always present when the language
+    // backend is active; soft-skip (read_to_string returning Err) handles repos
+    // that do not yet generate them.
+
+    // Java e2e pom.xml
+    let e2e_java_pom = std::path::Path::new("e2e/java/pom.xml");
+    if let Ok(content) = std::fs::read_to_string(e2e_java_pom) {
+        if let Some(new_content) = sync_e2e_java_pom(&content, &version) {
+            std::fs::write(e2e_java_pom, &new_content)
+                .context("failed to write e2e/java/pom.xml")?;
+            updated.push("e2e/java/pom.xml".to_string());
+        }
+    }
+
+    // Ruby e2e Gemfile.lock
+    let e2e_ruby_lock = std::path::Path::new("e2e/ruby/Gemfile.lock");
+    if e2e_ruby_lock.exists() {
+        if let Ok(content) = std::fs::read_to_string(e2e_ruby_lock) {
+            if let Some(new_content) = sync_gemfile_lock(&content, &ruby_version) {
+                std::fs::write(e2e_ruby_lock, &new_content)
+                    .context("failed to write e2e/ruby/Gemfile.lock")?;
+                updated.push("e2e/ruby/Gemfile.lock".to_string());
+            }
+        }
+    }
+
+    // Go e2e go.mod — discover the module path fragment from the file itself
+    // so this logic works for any consumer repo (not just kreuzcrawl).
+    // We look for a `require` line whose module path ends with `/packages/go`
+    // and update its version.
+    for entry in glob::glob("e2e/go/go.mod").into_iter().flatten().flatten() {
+        if let Ok(content) = std::fs::read_to_string(&entry) {
+            // Find the module path fragment: any require entry ending in /packages/go
+            // that pairs with a local `replace` directive.
+            static GO_MOD_REQUIRE_RE: std::sync::LazyLock<regex::Regex> =
+                std::sync::LazyLock::new(|| {
+                    regex::Regex::new(r"(?m)^\s+([\w./\-]+/packages/go)\s+v[\w.\-]+")
+                        .expect("valid regex")
+                });
+            if let Some(caps) = GO_MOD_REQUIRE_RE.captures(&content) {
+                let fragment = caps[1].to_string();
+                if let Some(new_content) = sync_e2e_go_mod(&content, &fragment, &version) {
+                    std::fs::write(&entry, &new_content)
+                        .with_context(|| format!("failed to write {}", entry.display()))?;
+                    updated.push(entry.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+
+    // Dart e2e pubspec.lock
+    let e2e_dart_lock = std::path::Path::new("e2e/dart/pubspec.lock");
+    if e2e_dart_lock.exists() {
+        if let Ok(content) = std::fs::read_to_string(e2e_dart_lock) {
+            if let Some(new_content) = sync_e2e_dart_pubspec_lock(&content, &version) {
+                std::fs::write(e2e_dart_lock, &new_content)
+                    .context("failed to write e2e/dart/pubspec.lock")?;
+                updated.push("e2e/dart/pubspec.lock".to_string());
+            }
+        }
+    }
+
     // CITATION.cff (Citation File Format) — YAML at repo root.
     //
     // Two modes:
@@ -1415,6 +1489,224 @@ fn sync_gemfile_lock(content: &str, new_ruby_version: &str) -> Option<String> {
     };
 
     if changed { Some(new_content) } else { None }
+}
+
+/// Rewrite the dependency `<version>` and `<systemPath>` in an e2e `pom.xml`
+/// for a path-scope system dependency on the library JAR.
+///
+/// The e2e `pom.xml` carries a `<dependency>` block like:
+/// ```xml
+/// <dependency>
+///   <groupId>dev.kreuzberg.kreuzcrawl</groupId>
+///   <artifactId>kreuzcrawl</artifactId>
+///   <version>0.3.0-rc.27</version>
+///   <scope>system</scope>
+///   <systemPath>.../kreuzcrawl-0.3.0-rc.27.jar</systemPath>
+/// </dependency>
+/// ```
+/// Unlike `packages/java/pom.xml`, this file has a *separate* `<version>0.1.0</version>`
+/// for the e2e project itself at the top — we must not touch that one.
+///
+/// Strategy: two passes.
+///
+/// 1. Collect the byte-ranges of every `<dependency>...</dependency>` block
+///    that contains a `<systemPath>` element.
+/// 2. Within those ranges, rewrite `<version>X</version>` and the version
+///    fragment inside `<systemPath>`.
+///
+/// All other `<version>` tags are left untouched.
+///
+/// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
+fn sync_e2e_java_pom(content: &str, new_version: &str) -> Option<String> {
+    use std::sync::LazyLock;
+
+    static DEP_BLOCK_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?s)<dependency>(.*?)</dependency>").expect("valid regex")
+    });
+    static VERSION_TAG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"<version>([^<]*)</version>").expect("valid regex")
+    });
+    static SYSTEM_PATH_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(<systemPath>[^<]*?-)(\d+\.\d+\.\d+(?:-[A-Za-z0-9._]+)*)(\.[a-zA-Z]+</systemPath>)")
+            .expect("valid regex")
+    });
+
+    let mut result = content.to_string();
+    let mut changed = false;
+
+    // Collect ranges of <dependency> blocks that contain <systemPath>.
+    // We iterate over matches in the ORIGINAL content to get stable offsets,
+    // then apply replacements from back to front so earlier offsets stay valid.
+    let dep_matches: Vec<(usize, usize, String)> = DEP_BLOCK_RE
+        .find_iter(content)
+        .filter_map(|m| {
+            let block = m.as_str();
+            if !block.contains("<systemPath>") {
+                return None;
+            }
+            // Rewrite <version> and <systemPath> within this block.
+            let new_block = VERSION_TAG_RE
+                .replace(block, |caps: &regex::Captures<'_>| {
+                    let ver = &caps[1];
+                    if ver != new_version && !ver.contains('$') && !ver.contains('.') && ver.parse::<u64>().is_err() {
+                        // Only rewrite if it looks like a semver (has dots).
+                        // The check below handles that properly.
+                        format!("<version>{ver}</version>")
+                    } else if ver != new_version && ver.contains('.') && !ver.contains('$') {
+                        format!("<version>{new_version}</version>")
+                    } else {
+                        format!("<version>{ver}</version>")
+                    }
+                })
+                .into_owned();
+            let new_block = SYSTEM_PATH_RE
+                .replace(&new_block, |caps: &regex::Captures<'_>| {
+                    format!("{}{}{}", &caps[1], new_version, &caps[3])
+                })
+                .into_owned();
+            if new_block != block {
+                Some((m.start(), m.end(), new_block))
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // Apply from back to front so offsets remain valid.
+    for (start, end, new_block) in dep_matches.into_iter().rev() {
+        result.replace_range(start..end, &new_block);
+        changed = true;
+    }
+
+    if changed { Some(result) } else { None }
+}
+
+/// Rewrite the version for a module in a `go.mod` `require` block.
+///
+/// The e2e `go.mod` has a line like:
+/// ```
+/// github.com/kreuzberg-dev/kreuzcrawl/packages/go v0.3.0-rc.27
+/// ```
+/// We want to update ONLY lines whose module path matches `module_path_fragment`
+/// — a substring that uniquely identifies the library module (e.g.
+/// `"kreuzberg-dev/kreuzcrawl/packages/go"`). All other `require` entries are
+/// left untouched.
+///
+/// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
+fn sync_e2e_go_mod(content: &str, module_path_fragment: &str, new_version: &str) -> Option<String> {
+    let mut changed = false;
+    let lines: Vec<String> = content
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim();
+            // Match lines of the form `<module-path> v<version>` inside a require block.
+            if trimmed.starts_with(module_path_fragment) || line.trim_start().starts_with(module_path_fragment) {
+                // The line is `\t<module> v<version>` or `    <module> v<version>`.
+                // Split on the version token (starts with 'v' followed by a digit).
+                if let Some(pos) = trimmed.rfind(" v") {
+                    let current_ver = &trimmed[pos + 2..]; // strip " v"
+                    if current_ver != new_version {
+                        changed = true;
+                        let indent = &line[..line.len() - line.trim_start().len()];
+                        let module_path = &trimmed[..pos];
+                        return format!("{indent}{module_path} v{new_version}");
+                    }
+                }
+            }
+            line.to_string()
+        })
+        .collect();
+
+    if !changed {
+        return None;
+    }
+    let new_content = lines.join("\n");
+    let new_content = if content.ends_with('\n') {
+        format!("{new_content}\n")
+    } else {
+        new_content
+    };
+    Some(new_content)
+}
+
+/// Rewrite the `version:` field for a path-source package in a Dart `pubspec.lock`.
+///
+/// Dart's pub lockfile has entries like:
+/// ```yaml
+///   kreuzcrawl:
+///     dependency: "direct main"
+///     description:
+///       path: "../../packages/dart"
+///       relative: true
+///     source: path
+///     version: "0.3.0-rc.23"
+/// ```
+/// We match the package name, confirm it is a `source: path` entry, and rewrite
+/// only its `version:` scalar. Registry (hosted) packages are left untouched.
+///
+/// Returns `Some(new_content)` when a replacement was made, `None` otherwise.
+fn sync_e2e_dart_pubspec_lock(content: &str, new_version: &str) -> Option<String> {
+    // State machine: look for `  <name>:\n` (two-space indent, no further indent),
+    // then confirm `    source: path` within that block, then rewrite `    version:`.
+    let lines: Vec<&str> = content.lines().collect();
+    let n = lines.len();
+    let mut result: Vec<String> = Vec::with_capacity(n);
+    let mut changed = false;
+    let mut i = 0;
+
+    while i < n {
+        let line = lines[i];
+        // Detect a top-level package entry: exactly 2-space-indented key ending with `:`.
+        if line.starts_with("  ") && !line.starts_with("   ") && line.trim_end().ends_with(':') {
+            // Collect the block for this package entry (all lines with deeper indent).
+            let block_start = i;
+            i += 1;
+            while i < n && (lines[i].starts_with("    ") || lines[i].trim().is_empty()) {
+                i += 1;
+            }
+            let block = &lines[block_start..i];
+
+            // Check if this block is a path-source package.
+            let is_path_source = block.iter().any(|l| l.trim() == "source: path");
+            if is_path_source {
+                // Rewrite the `    version: "..."` line in this block.
+                for &bline in block {
+                    let trimmed = bline.trim();
+                    if trimmed.starts_with("version:") {
+                        // Extract current version (may be quoted or unquoted).
+                        let val = trimmed.trim_start_matches("version:").trim().trim_matches('"');
+                        if val != new_version {
+                            changed = true;
+                            let indent = &bline[..bline.len() - bline.trim_start().len()];
+                            result.push(format!("{indent}version: \"{new_version}\""));
+                        } else {
+                            result.push(bline.to_string());
+                        }
+                    } else {
+                        result.push(bline.to_string());
+                    }
+                }
+            } else {
+                for &bline in block {
+                    result.push(bline.to_string());
+                }
+            }
+        } else {
+            result.push(line.to_string());
+            i += 1;
+        }
+    }
+
+    if !changed {
+        return None;
+    }
+    let new_content = result.join("\n");
+    let new_content = if content.ends_with('\n') {
+        format!("{new_content}\n")
+    } else {
+        new_content
+    };
+    Some(new_content)
 }
 
 /// Read the workspace license string (`[workspace.package].license`) from a
@@ -3295,6 +3587,192 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
         assert!(
             updated.contains("version = \">=0.3.0-rc.28\""),
             "php composer constraint must be updated: {updated}"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_e2e_java_pom tests
+    // -----------------------------------------------------------------------
+
+    const JAVA_E2E_POM: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<project>
+    <groupId>dev.kreuzberg.kreuzcrawl</groupId>
+    <artifactId>kreuzcrawl-e2e-java</artifactId>
+    <version>0.1.0</version>
+
+    <dependencies>
+        <dependency>
+            <groupId>dev.kreuzberg.kreuzcrawl</groupId>
+            <artifactId>kreuzcrawl</artifactId>
+            <version>0.3.0-rc.27</version>
+            <scope>system</scope>
+            <systemPath>${project.basedir}/../../packages/java/target/kreuzcrawl-0.3.0-rc.27.jar</systemPath>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
+"#;
+
+    #[test]
+    fn sync_e2e_java_pom_updates_dependency_version_and_system_path() {
+        let result = sync_e2e_java_pom(JAVA_E2E_POM, "0.3.0-rc.28");
+        assert!(result.is_some(), "expected Some when version changes");
+        let new = result.unwrap();
+        // Dependency <version> updated
+        assert!(
+            new.contains("<version>0.3.0-rc.28</version>"),
+            "dependency version must be updated:\n{new}"
+        );
+        // systemPath version fragment updated
+        assert!(
+            new.contains("kreuzcrawl-0.3.0-rc.28.jar"),
+            "systemPath must be updated:\n{new}"
+        );
+        // Project-level <version>0.1.0</version> must NOT be touched
+        assert!(
+            new.contains("<version>0.1.0</version>"),
+            "project version must be unchanged:\n{new}"
+        );
+        // JUnit variable reference must not be touched
+        assert!(
+            new.contains("<version>${junit.version}</version>"),
+            "junit version placeholder must be unchanged:\n{new}"
+        );
+        // Old version string gone
+        assert!(!new.contains("0.3.0-rc.27"), "old version must be removed:\n{new}");
+    }
+
+    #[test]
+    fn sync_e2e_java_pom_is_idempotent() {
+        let first = sync_e2e_java_pom(JAVA_E2E_POM, "0.3.0-rc.28").unwrap();
+        let second = sync_e2e_java_pom(&first, "0.3.0-rc.28");
+        assert!(second.is_none(), "second call with same version must be a no-op");
+    }
+
+    #[test]
+    fn sync_e2e_java_pom_no_system_scope_returns_none() {
+        let content = "<?xml version=\"1.0\"?>\n<project><version>0.1.0</version></project>\n";
+        assert!(
+            sync_e2e_java_pom(content, "1.0.0").is_none(),
+            "no system-scope dep means nothing to update"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_e2e_go_mod tests
+    // -----------------------------------------------------------------------
+
+    const GO_MOD_E2E: &str = "\
+module e2e_go
+
+go 1.26
+
+require (
+\tgithub.com/kreuzberg-dev/kreuzcrawl/packages/go v0.3.0-rc.27
+\tgithub.com/stretchr/testify v1.11.1
+)
+
+replace github.com/kreuzberg-dev/kreuzcrawl/packages/go => ../../packages/go
+";
+
+    #[test]
+    fn sync_e2e_go_mod_updates_library_require_line() {
+        let fragment = "github.com/kreuzberg-dev/kreuzcrawl/packages/go";
+        let result = sync_e2e_go_mod(GO_MOD_E2E, fragment, "0.3.0-rc.28");
+        assert!(result.is_some(), "expected Some when version changes");
+        let new = result.unwrap();
+        assert!(
+            new.contains("github.com/kreuzberg-dev/kreuzcrawl/packages/go v0.3.0-rc.28"),
+            "library require line must be updated:\n{new}"
+        );
+        // Third-party dep untouched
+        assert!(
+            new.contains("github.com/stretchr/testify v1.11.1"),
+            "testify version must be unchanged:\n{new}"
+        );
+        assert!(!new.contains("v0.3.0-rc.27"), "old version must be gone:\n{new}");
+    }
+
+    #[test]
+    fn sync_e2e_go_mod_is_idempotent() {
+        let fragment = "github.com/kreuzberg-dev/kreuzcrawl/packages/go";
+        let first = sync_e2e_go_mod(GO_MOD_E2E, fragment, "0.3.0-rc.28").unwrap();
+        let second = sync_e2e_go_mod(&first, fragment, "0.3.0-rc.28");
+        assert!(second.is_none(), "second call with same version must be a no-op");
+    }
+
+    // -----------------------------------------------------------------------
+    // sync_e2e_dart_pubspec_lock tests
+    // -----------------------------------------------------------------------
+
+    const DART_PUBSPEC_LOCK: &str = "\
+# Generated by pub
+packages:
+  async:
+    dependency: transitive
+    description:
+      name: async
+      sha256: abc123
+      url: \"https://pub.dev\"
+    source: hosted
+    version: \"1.19.1\"
+  kreuzcrawl:
+    dependency: \"direct main\"
+    description:
+      path: \"../../packages/dart\"
+      relative: true
+    source: path
+    version: \"0.3.0-rc.23\"
+  logging:
+    dependency: transitive
+    description:
+      name: logging
+      sha256: def456
+      url: \"https://pub.dev\"
+    source: hosted
+    version: \"1.2.0\"
+";
+
+    #[test]
+    fn sync_e2e_dart_pubspec_lock_updates_path_source_version() {
+        let result = sync_e2e_dart_pubspec_lock(DART_PUBSPEC_LOCK, "0.3.0-rc.28");
+        assert!(result.is_some(), "expected Some when version changes");
+        let new = result.unwrap();
+        assert!(
+            new.contains("version: \"0.3.0-rc.28\""),
+            "path-source version must be updated:\n{new}"
+        );
+        // Hosted packages untouched
+        assert!(
+            new.contains("version: \"1.19.1\""),
+            "hosted async version must be unchanged:\n{new}"
+        );
+        assert!(
+            new.contains("version: \"1.2.0\""),
+            "hosted logging version must be unchanged:\n{new}"
+        );
+        assert!(!new.contains("0.3.0-rc.23"), "old version must be gone:\n{new}");
+    }
+
+    #[test]
+    fn sync_e2e_dart_pubspec_lock_is_idempotent() {
+        let first = sync_e2e_dart_pubspec_lock(DART_PUBSPEC_LOCK, "0.3.0-rc.28").unwrap();
+        let second = sync_e2e_dart_pubspec_lock(&first, "0.3.0-rc.28");
+        assert!(second.is_none(), "second call with same version must be a no-op");
+    }
+
+    #[test]
+    fn sync_e2e_dart_pubspec_lock_no_path_source_returns_none() {
+        // A pubspec.lock with only hosted packages — nothing to sync.
+        let content = "packages:\n  async:\n    dependency: transitive\n    description:\n      name: async\n      url: \"https://pub.dev\"\n    source: hosted\n    version: \"1.19.1\"\n";
+        assert!(
+            sync_e2e_dart_pubspec_lock(content, "0.3.0-rc.28").is_none(),
+            "no path-source means nothing to update"
         );
     }
 }

@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef sync-versions`: rewrite e2e manifest version pins on every version bump.** Previously `sync-versions` updated manifests under `packages/<lang>/` and `test_apps/<lang>/` but skipped the generated integration test trees under `e2e/<lang>/`. This caused CI failures on the first run after a bump: Java's `e2e/java/pom.xml` held a stale `<version>` and `<systemPath>` for the system-scope JAR dependency (Maven could not resolve it), and Ruby's `e2e/ruby/Gemfile.lock` was out of sync with the bumped gem version so `bundle install --frozen` exited 16. The fix adds four targeted rewrites: `sync_e2e_java_pom` (rewrites `<version>` and `<systemPath>` inside system-scope `<dependency>` blocks only, leaving the e2e project's own `<version>` untouched), `e2e/ruby/Gemfile.lock` (reuses the existing `sync_gemfile_lock` helper), `sync_e2e_go_mod` (updates the library module version in the `require` block), and `sync_e2e_dart_pubspec_lock` (updates `version:` under path-source package entries). All four rewrites are idempotent; hosted/third-party version strings are untouched. (`src/cli/pipeline/version.rs`)
+
 ### Removed
 
 ## [0.19.8] - 2026-05-25
