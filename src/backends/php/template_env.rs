@@ -568,6 +568,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "php_visitor_interface_method.jinja",
         include_str!("templates/php_visitor_interface_method.jinja"),
     ),
+    (
+        "php_interface_start.jinja",
+        include_str!("templates/php_interface_start.jinja"),
+    ),
+    (
+        "php_interface_method.jinja",
+        include_str!("templates/php_interface_method.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
