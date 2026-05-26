@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.13] - 2026-05-26
+
 ### Fixed
 
 - **alef kotlin-android e2e codegen: infer actual config class name from type_defs for optional json_object args.** When a fixture had no config value for an optional argument like `config`, the emitter inferred the type from the argument name via `arg.name.to_upper_camel_case()`, producing `Config()` instead of `ExtractionConfig()`. The fix checks the `type_defs` passed to the emitter, looking for `ExtractionConfig` or the fully qualified type (e.g., `EmbeddingConfig`) before falling back to simple name derivation. For `EmbeddingConfig`, which has a required `model` parameter, the emitter now provides a sensible default: `EmbeddingConfig(model = EmbeddingModelType.Preset(name = "balanced"))`. (`src/e2e/codegen/kotlin.rs:1630–1661`)
