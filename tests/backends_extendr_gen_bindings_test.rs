@@ -1122,6 +1122,7 @@ mod trait_bridge {
 
     #[test]
     fn test_exclude_functions_honored() {
+        use super::*;  // Import helpers from root scope
         let backend = ExtendrBackend;
 
         // Create API surface with two functions
@@ -1174,7 +1175,7 @@ mod trait_bridge {
         };
 
         // Config with exclude_functions for R
-        let mut config = make_config();
+        let mut config = super::make_config();
         config.r = Some(alef::core::config::languages::RConfig {
             package_name: Some("testlib".to_string()),
             features: None,
