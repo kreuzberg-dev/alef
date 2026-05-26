@@ -142,16 +142,14 @@ pub fn default_test_apps_run_config(
                     "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go mod vendor && GOWORK=off go generate ./vendor/{mod_path}/... && GOWORK=off go test -mod=vendor ./..."
                 )
             } else {
-                format!(
-                    "cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./..."
-                )
+                format!("cd {test_apps_dir}/go && GOWORK=off go mod tidy && GOWORK=off go test ./...")
             };
             TestAppRunConfig {
                 precondition: Some(require_tool("go")),
                 before: None,
                 run: Some(StringOrVec::Single(run_cmd)),
             }
-        },
+        }
         Language::Java => TestAppRunConfig {
             precondition: Some(require_tool("mvn")),
             before: None,
