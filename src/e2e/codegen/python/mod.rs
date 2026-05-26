@@ -170,6 +170,11 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "    def initialize(self):");
         let _ = writeln!(setup, "        pass");
         method_count += 1;
+        // shutdown() also has a Rust default impl but PyO3 calls it unconditionally
+        // on cleanup — the Python stub must define it.
+        let _ = writeln!(setup, "    def shutdown(self):");
+        let _ = writeln!(setup, "        pass");
+        method_count += 1;
     }
 
     // Required methods only.
@@ -241,8 +246,15 @@ fn emit_python_stub_method(
     // Returning `TypeName()` would reference a type that is not imported/defined
     // in the generated test file and would cause a NameError at runtime. Return
     // an empty dict `{}` instead — it round-trips cleanly through serde_json.
+    //
+    // For numeric types in test backends, use 1 instead of 0 to satisfy validation
+    // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
     let default_val = match &method.return_type {
         crate::core::ir::TypeRef::Named(_) => "{}".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "False".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
+        crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => "0.0".to_string(),
+        crate::core::ir::TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
         other => defaults.emit_default(other),
     };
 
@@ -480,6 +492,105 @@ result_var = "result"
         assert!(
             !emission.setup_block.contains("def may_implement("),
             "optional method should be skipped"
+        );
+    }
+
+    #[test]
+    fn emit_test_backend_python_includes_shutdown_with_super_trait() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        let dimension_method = test_method("dimensions", TypeRef::I32, false, false);
+        let methods = [&dimension_method];
+
+        let fixture = make_fixture("py_embedding_backend", serde_json::json!({ "name": "test-embedding-backend" }));
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // Verify name() is emitted
+        assert!(
+            emission.setup_block.contains("def name(self):"),
+            "name() should be emitted with super_trait"
+        );
+
+        // Verify initialize() is emitted
+        assert!(
+            emission.setup_block.contains("def initialize(self):"),
+            "initialize() should be emitted with super_trait"
+        );
+
+        // Verify shutdown() is emitted (the fix)
+        assert!(
+            emission.setup_block.contains("def shutdown(self):"),
+            "shutdown() should be emitted with super_trait, got: {}",
+            emission.setup_block
+        );
+
+        // All three should have `pass` bodies
+        assert!(
+            emission.setup_block.contains("    def name(self):\n        return \"test-embedding-backend\""),
+            "name() should return backend name"
+        );
+        assert!(
+            emission.setup_block.contains("    def initialize(self):\n        pass"),
+            "initialize() should have pass body"
+        );
+        assert!(
+            emission.setup_block.contains("    def shutdown(self):\n        pass"),
+            "shutdown() should have pass body"
+        );
+    }
+
+    #[test]
+    fn emit_test_backend_python_numeric_return_types_return_nonzero() {
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::TypeRef;
+
+        let bridge = TraitBridgeConfig {
+            trait_name: "EmbeddingBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            ..Default::default()
+        };
+
+        // Test integer return types
+        let dimensions_method = test_method("dimensions", TypeRef::I32, false, false);
+        let size_method = test_method("embedding_size", TypeRef::U64, false, false);
+        let float_method = test_method("similarity_score", TypeRef::F64, false, false);
+        let bool_method = test_method("is_valid", TypeRef::Bool, false, false);
+        let methods = [&dimensions_method, &size_method, &float_method, &bool_method];
+
+        let fixture = make_fixture("py_numeric_backend", serde_json::json!({ "name": "test-numeric-backend" }));
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // Integer types should return 1 instead of 0 (for validation constraints)
+        assert!(
+            emission.setup_block.contains("def dimensions(_p0):\n        return 1"),
+            "I32 should return 1, got: {}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("def embedding_size(_p0):\n        return 1"),
+            "U64 should return 1, got: {}",
+            emission.setup_block
+        );
+
+        // Float types should return 0.0
+        assert!(
+            emission.setup_block.contains("def similarity_score(_p0):\n        return 0.0"),
+            "F64 should return 0.0, got: {}",
+            emission.setup_block
+        );
+
+        // Bool should return False
+        assert!(
+            emission.setup_block.contains("def is_valid(_p0):\n        return False"),
+            "Bool should return False, got: {}",
+            emission.setup_block
         );
     }
 }

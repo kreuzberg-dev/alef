@@ -18,17 +18,17 @@ public static class {{ trait_pascal }}Registry {
         return userData;
     }
 
-    /// <summary>Register a {{ trait_pascal }} implementation</summary>
+    /// <summary>Register a {{ trait_pascal }} implementation and return its native handle</summary>
 
 {% if has_super_trait %}
-    public static void Register(I{{ trait_pascal }} impl) {
+    public static IntPtr Register(I{{ trait_pascal }} impl) {
         if (impl == null)
             throw new ArgumentNullException(nameof(impl));
 
         var name = impl.Name;
 
 {% else %}
-    public static void Register(I{{ trait_pascal }} impl, string name) {
+    public static IntPtr Register(I{{ trait_pascal }} impl, string name) {
         if (impl == null)
             throw new ArgumentNullException(nameof(impl));
 
@@ -51,6 +51,7 @@ public static class {{ trait_pascal }}Registry {
             }
 
             _bridges.TryAdd(name, bridge);
+            return userData;
         } catch {
             bridge.Dispose();
             throw;

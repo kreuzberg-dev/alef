@@ -2772,7 +2772,7 @@ pub fn emit_test_backend(
         let mut params = vec!["_: *@This()".to_string()];
         for p in &method.params {
             let p_ty = zig_type_for_stub(&p.ty);
-            params.push(format!("{}: {}", p.name, p_ty));
+            params.push(format!("_: {}", p_ty)); // Mark all method params as unused with _
         }
         let param_list = params.join(", ");
 

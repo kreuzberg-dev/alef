@@ -360,7 +360,7 @@ impl LanguageDefaults for ZigDefaults {
             TypeRef::Vec(_) => "&.{}".to_string(), // empty array literal
             TypeRef::Map(..) => ".{}".to_string(),
             TypeRef::Optional(_) => "null".to_string(),
-            TypeRef::Named(_name) => ".{}".to_string(), // struct literal pattern in Zig
+            TypeRef::Named(_name) => "undefined".to_string(), // Zig's undefined for stub testing
             TypeRef::Unit => "null".to_string(),
             TypeRef::Json => ".{}".to_string(),
             TypeRef::Duration => "0".to_string(),
