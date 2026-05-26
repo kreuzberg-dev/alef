@@ -295,7 +295,12 @@ impl E2eCodegen for WasmCodegen {
         files.push(GeneratedFile {
             path: output_base.join("pnpm-workspace.yaml"),
             content: "packages:\n  - \".\"\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
-            generated_header: false,
+            // `generated_header: true` so the cleanup pass can recognize and
+            // sweep this file if the wasm e2e codegen ever stops emitting it
+            // (or if consumers migrate to a different workspace layout).
+            // Symmetric with the typescript codegen's pnpm-workspace.yaml.
+            // YAML handles `#` comments fine; pnpm's parser preserves them.
+            generated_header: true,
         });
 
         // Resolve options_type from override (e.g. `WasmExtractionConfig`).
