@@ -190,8 +190,8 @@ pub(crate) fn gen_facade_class(
             if !api_function_names.contains(&java_register_fn) {
                 let trait_ident = format!("I{}", trait_pascal);
                 let method_code = format!(
-                    "    public static void {}(final {} impl) throws {}Exception {{\n        {}.{}(impl);\n    }}\n\n",
-                    java_register_fn, trait_ident, raw_class, bridge_class, java_register_fn
+                    "    public static void {}(final {} impl) throws {}Exception {{\n        try {{\n            {}.{}(impl);\n        }} catch (Exception e) {{\n            throw new {}Exception(e.getMessage(), e);\n        }}\n    }}\n\n",
+                    java_register_fn, trait_ident, raw_class, bridge_class, java_register_fn, raw_class
                 );
                 trait_bridge_wrappers.push_str(&method_code);
             }
@@ -203,8 +203,8 @@ pub(crate) fn gen_facade_class(
             // Skip if already emitted as an api.functions delegate above.
             if !api_function_names.contains(&java_unregister_fn) {
                 let method_code = format!(
-                    "    public static void {}(final String name) throws {}Exception {{\n        {}.{}(name);\n    }}\n\n",
-                    java_unregister_fn, raw_class, bridge_class, java_unregister_fn
+                    "    public static void {}(final String name) throws {}Exception {{\n        try {{\n            {}.{}(name);\n        }} catch (Exception e) {{\n            throw new {}Exception(e.getMessage(), e);\n        }}\n    }}\n\n",
+                    java_unregister_fn, raw_class, bridge_class, java_unregister_fn, raw_class
                 );
                 trait_bridge_wrappers.push_str(&method_code);
             }
@@ -216,8 +216,8 @@ pub(crate) fn gen_facade_class(
             // Skip if already emitted as an api.functions delegate above.
             if !api_function_names.contains(&java_clear_fn) {
                 let method_code = format!(
-                    "    public static void {}() throws {}Exception {{\n        {}.{}();\n    }}\n\n",
-                    java_clear_fn, raw_class, bridge_class, java_clear_fn
+                    "    public static void {}() throws {}Exception {{\n        try {{\n            {}.{}();\n        }} catch (Exception e) {{\n            throw new {}Exception(e.getMessage(), e);\n        }}\n    }}\n\n",
+                    java_clear_fn, raw_class, bridge_class, java_clear_fn, raw_class
                 );
                 trait_bridge_wrappers.push_str(&method_code);
             }
