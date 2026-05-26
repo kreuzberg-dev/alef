@@ -126,7 +126,15 @@ impl E2eCodegen for TypeScriptCodegen {
             files.push(GeneratedFile {
                 path: output_base.join("pnpm-workspace.yaml"),
                 content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
-                generated_header: false,
+                // `generated_header: true` so the cleanup pass can recognize
+                // and remove this file when the consumer flips
+                // `[crates.e2e.dep_mode]` from Registry to Local. Without the
+                // header, the prior Registry-mode emit lingers on disk and
+                // shadows the consumer's root pnpm workspace (an empty
+                // `packages: []` makes `cd e2e/node && pnpm install` fail to
+                // resolve any `workspace:*` deps). YAML handles `#` comments
+                // fine; pnpm's YAML parser preserves them.
+                generated_header: true,
             });
         }
 
