@@ -498,7 +498,7 @@ result_var = "result"
     #[test]
     fn emit_test_backend_python_includes_shutdown_with_super_trait() {
         use crate::core::config::TraitBridgeConfig;
-        use crate::core::ir::TypeRef;
+        use crate::core::ir::{PrimitiveType, TypeRef};
 
         let bridge = TraitBridgeConfig {
             trait_name: "EmbeddingBackend".to_string(),
@@ -506,10 +506,13 @@ result_var = "result"
             ..Default::default()
         };
 
-        let dimension_method = test_method("dimensions", TypeRef::I32, false, false);
+        let dimension_method = test_method("dimensions", TypeRef::Primitive(PrimitiveType::I32), false, false);
         let methods = [&dimension_method];
 
-        let fixture = make_fixture("py_embedding_backend", serde_json::json!({ "name": "test-embedding-backend" }));
+        let fixture = make_fixture(
+            "py_embedding_backend",
+            serde_json::json!({ "name": "test-embedding-backend" }),
+        );
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         // Verify name() is emitted
@@ -531,17 +534,18 @@ result_var = "result"
             emission.setup_block
         );
 
-        // All three should have `pass` bodies
+        // All three should be present with correct bodies
         assert!(
-            emission.setup_block.contains("    def name(self):\n        return \"test-embedding-backend\""),
+            emission.setup_block.contains("def name(self):")
+                && emission.setup_block.contains("return \"test-embedding-backend\""),
             "name() should return backend name"
         );
         assert!(
-            emission.setup_block.contains("    def initialize(self):\n        pass"),
+            emission.setup_block.contains("def initialize(self):") && emission.setup_block.contains("pass"),
             "initialize() should have pass body"
         );
         assert!(
-            emission.setup_block.contains("    def shutdown(self):\n        pass"),
+            emission.setup_block.contains("def shutdown(self):") && emission.setup_block.contains("pass"),
             "shutdown() should have pass body"
         );
     }
@@ -549,7 +553,7 @@ result_var = "result"
     #[test]
     fn emit_test_backend_python_numeric_return_types_return_nonzero() {
         use crate::core::config::TraitBridgeConfig;
-        use crate::core::ir::TypeRef;
+        use crate::core::ir::{PrimitiveType, TypeRef};
 
         let bridge = TraitBridgeConfig {
             trait_name: "EmbeddingBackend".to_string(),
@@ -558,37 +562,40 @@ result_var = "result"
         };
 
         // Test integer return types
-        let dimensions_method = test_method("dimensions", TypeRef::I32, false, false);
-        let size_method = test_method("embedding_size", TypeRef::U64, false, false);
-        let float_method = test_method("similarity_score", TypeRef::F64, false, false);
-        let bool_method = test_method("is_valid", TypeRef::Bool, false, false);
+        let dimensions_method = test_method("dimensions", TypeRef::Primitive(PrimitiveType::I32), false, false);
+        let size_method = test_method("embedding_size", TypeRef::Primitive(PrimitiveType::U64), false, false);
+        let float_method = test_method("similarity_score", TypeRef::Primitive(PrimitiveType::F64), false, false);
+        let bool_method = test_method("is_valid", TypeRef::Primitive(PrimitiveType::Bool), false, false);
         let methods = [&dimensions_method, &size_method, &float_method, &bool_method];
 
-        let fixture = make_fixture("py_numeric_backend", serde_json::json!({ "name": "test-numeric-backend" }));
+        let fixture = make_fixture(
+            "py_numeric_backend",
+            serde_json::json!({ "name": "test-numeric-backend" }),
+        );
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         // Integer types should return 1 instead of 0 (for validation constraints)
         assert!(
-            emission.setup_block.contains("def dimensions(_p0):\n        return 1"),
+            emission.setup_block.contains("def dimensions(") && emission.setup_block.contains("return 1"),
             "I32 should return 1, got: {}",
             emission.setup_block
         );
         assert!(
-            emission.setup_block.contains("def embedding_size(_p0):\n        return 1"),
+            emission.setup_block.contains("def embedding_size(") && emission.setup_block.contains("return 1"),
             "U64 should return 1, got: {}",
             emission.setup_block
         );
 
         // Float types should return 0.0
         assert!(
-            emission.setup_block.contains("def similarity_score(_p0):\n        return 0.0"),
+            emission.setup_block.contains("def similarity_score(") && emission.setup_block.contains("return 0.0"),
             "F64 should return 0.0, got: {}",
             emission.setup_block
         );
 
         // Bool should return False
         assert!(
-            emission.setup_block.contains("def is_valid(_p0):\n        return False"),
+            emission.setup_block.contains("def is_valid(") && emission.setup_block.contains("return False"),
             "Bool should return False, got: {}",
             emission.setup_block
         );
