@@ -964,21 +964,8 @@ pub fn gen_registration_interface(
     ));
     out.push('\n');
 
-    // Include super-trait methods if present
-    let mut all_methods = Vec::new();
-
-    // If there's a super_trait (from Plugin or similar), include its methods
-    if let Some(super_trait_name) = &bridge_cfg.super_trait {
-        if let Some(super_trait_def) = trait_type.super_traits.iter().find(|t| &t.name == super_trait_name) {
-            all_methods.extend(super_trait_def.methods.clone());
-        }
-    }
-
-    // Add the trait's own methods
-    all_methods.extend(trait_type.methods.iter().cloned());
-
-    // Generate each interface method
-    for method in all_methods {
+    // Generate each interface method (trait_type.methods already includes super-trait methods)
+    for method in &trait_type.methods {
         let name = &method.name;
 
         // Build method signature parameters

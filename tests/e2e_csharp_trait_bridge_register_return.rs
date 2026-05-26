@@ -4,9 +4,9 @@
 //! `var result = RendererBridge.Register(new TestStub_...)` was invalid when Register
 //! returned void. Now Register returns IntPtr and is assignable to a variable.
 
-use alef::backends::csharp::trait_bridge::{gen_trait_bridges_file, gen_native_methods_trait_bridges};
+use alef::backends::csharp::trait_bridge::gen_trait_bridges_file;
 use alef::core::config::{BridgeBinding, TraitBridgeConfig};
-use alef::core::ir::{TypeDef, TypeRef};
+use alef::core::ir::TypeDef;
 use std::collections::HashSet;
 
 fn make_trait_def(name: &str) -> TypeDef {
