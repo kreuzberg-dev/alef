@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.19] - 2026-05-26
+
 ### Fixed
+
+- **alef python scaffold: bundle the core Rust crate in the maturin sdist.** Generated `packages/python/pyproject.toml` now emits `[tool.maturin] include = [{ path = "../../crates/<core>/**/*", format = "sdist" }]` so the published sdist tarball contains the workspace's core crate alongside the binding crate. Without this, `pip install <package>` on platforms without a precompiled wheel (Alpine/musl, less-common architectures) falls back to building from sdist and fails — maturin strips the binding's `path = "../<core>"` clause from the published manifest, and the workspace `[patch.crates-io]` (when present) is left pointing at a missing path. Surfaced by `html-to-markdown` issue #390 (Alpine/musl source build broken on 3.5.1). (`src/scaffold/languages/python.rs`)
 
 - **alef r-backend: honor [crates.r.exclude_functions] and [crates.r.exclude_types] to prevent incompatible functions from being emitted.** The R backend (extendr) did not respect the `exclude_functions` and `exclude_types` configuration fields that have been supported by other backends (Python, Ruby, etc.) since v0.19.10. This caused kreuzberg v5.0.0-rc.3 R CI job (run 26452244660, job 77885220796) to fail with type-mismatch compilation errors when binding `calculate_quality_score`, which returns `AHashMap<Cow<'_, str>, serde_json::Value>` — a type that cannot be mapped to R's standard types. The function was correctly listed in kreuzberg's `alef.toml` `[crates.exclude_functions]` (task #70) but the R backend had not yet implemented filtering. Fixes: (1) add `exclude_functions: Vec<String>` and `exclude_types: Vec<String>` fields to `RConfig` struct (alongside existing RubyConfig, PythonConfig patterns); (2) integrate exclusion filtering into three code generation paths: Rust-side function emission (in `generate_bindings`), R-wrapper generation (in `gen_extendr_wrappers_r`), and NAMESPACE export (in `gen_namespace`); (3) add snapshot test `test_exclude_functions_honored` verifying functions in the exclusion list are not emitted in Rust, R wrappers, or NAMESPACE. (`src/core/config/languages.rs`, `src/backends/extendr/gen_bindings.rs`, `tests/backends_extendr_gen_bindings_test.rs`)
 
