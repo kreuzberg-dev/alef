@@ -846,7 +846,7 @@ impl Backend for PhpBackend {
             generated_header: false,
         }];
 
-        // Emit PHP interface files for visitor bridges
+        // Emit PHP interface files for all trait bridges (visitor-style and registration-style)
         for bridge_cfg in &config.trait_bridges {
             if let Some(trait_type) = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name) {
                 // Check if this is a visitor-style bridge (has type_alias, no register_fn, all methods have defaults)
@@ -855,20 +855,29 @@ impl Backend for PhpBackend {
                     && bridge_cfg.super_trait.is_none()
                     && trait_type.methods.iter().all(|m| m.has_default_impl);
 
-                if is_visitor_bridge {
-                    let interface_content = crate::backends::php::trait_bridge::gen_visitor_interface(
+                let interface_content = if is_visitor_bridge {
+                    crate::backends::php::trait_bridge::gen_visitor_interface(
                         trait_type,
                         bridge_cfg,
                         &php_namespace,
                         &HashMap::new(), // type_paths not needed for the interface file itself
-                    );
-                    let interface_filename = format!("{}Interface.php", bridge_cfg.trait_name);
-                    generated_files.push(GeneratedFile {
-                        path: PathBuf::from(&php_stubs_dir).join(&interface_filename),
-                        content: interface_content,
-                        generated_header: false,
-                    });
-                }
+                    )
+                } else {
+                    // Registration-style bridge: generate full interface with super-trait methods
+                    crate::backends::php::trait_bridge::gen_registration_interface(
+                        trait_type,
+                        bridge_cfg,
+                        &php_namespace,
+                        &HashMap::new(), // type_paths not needed for the interface file itself
+                    )
+                };
+
+                let interface_filename = format!("{}.php", bridge_cfg.trait_name);
+                generated_files.push(GeneratedFile {
+                    path: PathBuf::from(&php_stubs_dir).join(&interface_filename),
+                    content: interface_content,
+                    generated_header: false,
+                });
             }
         }
 

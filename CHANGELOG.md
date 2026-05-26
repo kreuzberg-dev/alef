@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **alef-csharp(trait bridges): Bridge.Register() now returns IntPtr instead of void.** C# e2e test generator emits `var result = RendererBridge.Register(new TestStub_...())` to capture the native handle for plugin assertions. Previously, the generated Register method returned void, causing `CS0815: Cannot assign void to an implicitly-typed variable` compilation errors on Renderer and Validator trait bridges (along with 6 other errors for other trait bridge registrations). The fix changes the return type of the public `Register(ITraitName impl)` registry method from void to IntPtr, returning the userData handle after successful FFI registration. This allows e2e test stubs to capture and use the registration result without compilation failure. (`src/backends/csharp/templates/trait_registry_class.jinja`)
+
+- **alef python-e2e-codegen: emit `shutdown()` stub in plugin test backends and use non-zero defaults for integer return types.** Generated Python test stubs for trait-bridge fixtures (plugin API tests) were missing `def shutdown(self): pass` because the emitter skipped all methods with `has_default_impl = true`. However, the PyO3 bridge unconditionally calls `call_method0("shutdown")` on every registered plugin object during cleanup regardless of whether Rust has a default implementation. At runtime this produced `AttributeError: 'method 'shutdown' failed'`. Additionally, integer-returning methods (like `dimensions()` on EmbeddingBackend) were returning 0, which violated backend validation that requires `dimensions() > 0`. The fixes: (1) emit `shutdown(self): pass` unconditionally alongside `name(self)` and `initialize(self)` whenever `super_trait` is set; (2) special-case numeric types in stub method emission to return 1 for integers and 0.0 for floats instead of delegating to defaults. This mirrors the Node.js fix in v0.19.13. (`src/e2e/codegen/python/mod.rs`)
+
+- Go E2E test stub emitter now collects both main-trait and super-trait (Plugin)
+  methods so stubs implement all required interface members. Previously, stubs
+  were missing `Initialize`, `Shutdown` and other super-trait lifecycle methods,
+  causing compilation failures in generated `plugin_api_test.go`.
+
 ## [0.19.18] - 2026-05-26
 
 ### Fixed

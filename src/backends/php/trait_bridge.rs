@@ -938,3 +938,95 @@ pub fn gen_visitor_interface(
 
     out
 }
+
+/// Generate a PHP interface stub definition for a registration-style trait bridge.
+/// These bridges allow PHP users to implement the interface and register their implementation.
+pub fn gen_registration_interface(
+    trait_type: &TypeDef,
+    bridge_cfg: &TraitBridgeConfig,
+    namespace: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let interface_name = &bridge_cfg.trait_name;
+    let mut out = String::with_capacity(2048);
+
+    // PHP file header with declare(strict_types=1)
+    out.push_str("<?php\n\n");
+    out.push_str("declare(strict_types=1);\n\n");
+    out.push_str(&format!("namespace {namespace};\n\n"));
+
+    // Interface declaration header
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_interface_start.jinja",
+        context! {
+            interface_name => interface_name,
+        },
+    ));
+    out.push('\n');
+
+    // Include super-trait methods if present
+    let mut all_methods = Vec::new();
+
+    // If there's a super_trait (from Plugin or similar), include its methods
+    if let Some(super_trait_name) = &bridge_cfg.super_trait {
+        if let Some(super_trait_def) = trait_type.super_traits.iter().find(|t| &t.name == super_trait_name) {
+            all_methods.extend(super_trait_def.methods.clone());
+        }
+    }
+
+    // Add the trait's own methods
+    all_methods.extend(trait_type.methods.iter().cloned());
+
+    // Generate each interface method
+    for method in all_methods {
+        let name = &method.name;
+
+        // Build method signature parameters
+        let mut method_params_parts = Vec::new();
+        let mut param_docs = Vec::new();
+
+        for p in &method.params {
+            // Convert Rust type to PHP type
+            let php_type = rust_type_to_php_type(&p.ty, p.is_ref, p.optional, type_paths);
+            method_params_parts.push(format!("{} ${}", php_type, p.name));
+
+            let doc = format!("     * @param {} ${}", php_type, p.name);
+            param_docs.push(doc);
+        }
+
+        let method_params = if method_params_parts.is_empty() {
+            String::new()
+        } else {
+            format!(", {}", method_params_parts.join(", "))
+        };
+
+        let param_docs_str = if param_docs.is_empty() {
+            String::new()
+        } else {
+            format!("\n{}", param_docs.join("\n"))
+        };
+
+        // Get docstring from method, sanitized for PHP target
+        let doc_lines = if !method.doc.is_empty() {
+            let sanitized = sanitize_rust_idioms(&method.doc, DocTarget::PhpDoc);
+            sanitized.lines().next().unwrap_or("").to_string()
+        } else {
+            format!("Trait method: {}", name)
+        };
+
+        out.push_str(&crate::backends::php::template_env::render(
+            "php_interface_method.jinja",
+            context! {
+                method_name => name,
+                method_params => &method_params,
+                doc_lines => &doc_lines,
+                param_docs => &param_docs_str,
+            },
+        ));
+        out.push('\n');
+    }
+
+    out.push_str("}\n");
+
+    out
+}
