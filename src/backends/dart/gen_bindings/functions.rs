@@ -127,12 +127,8 @@ pub(super) fn emit_function(
         // are NOT shadowed — FRB references the `dart:typed_data` versions
         // directly. Import `dart:typed_data` for these, hiding the shadowed
         // names so the FRB versions remain unambiguous when both appear.
-        let needs_frb_typed = FRB_SHADOWED_TYPED_CTORS
-            .iter()
-            .any(|ctor| default_expr.contains(ctor));
-        let needs_dart_typed = DART_TYPED_DATA_CTORS
-            .iter()
-            .any(|ctor| default_expr.contains(ctor));
+        let needs_frb_typed = FRB_SHADOWED_TYPED_CTORS.iter().any(|ctor| default_expr.contains(ctor));
+        let needs_dart_typed = DART_TYPED_DATA_CTORS.iter().any(|ctor| default_expr.contains(ctor));
         if needs_frb_typed {
             imports.insert("import 'package:flutter_rust_bridge/flutter_rust_bridge.dart';".to_string());
         }
@@ -307,7 +303,14 @@ fn render_enum_variant_default(ty: &TypeRef, variant: &str, enums: &[EnumDef]) -
     let variant_name = dart_safe_ident(&variant.to_lower_camel_case());
     let enum_def = enums.iter().find(|e| e.name == *name)?;
     let enum_variant = enum_def.variants.iter().find(|v| v.name == variant)?;
-    if enum_variant.fields.is_empty() {
+    // Flat Dart enums (all variants are unit variants) are emitted as `enum Foo { a, b }`.
+    // Their variants are accessed as `Foo.a` with no call parens.
+    // Tagged enums (any variant has fields) become `@freezed sealed class Foo` in Dart,
+    // where every variant — including unit ones — is a `const factory` constructor and
+    // requires `()` to invoke it.  Without the parens the expression is a function
+    // tear-off (`OutputFormat Function()`), not an `OutputFormat` value.
+    let is_flat_enum = enum_def.variants.iter().all(|v| v.fields.is_empty());
+    if is_flat_enum && enum_variant.fields.is_empty() {
         Some(format!("{name}.{variant_name}"))
     } else {
         Some(format!("{name}.{variant_name}()"))
