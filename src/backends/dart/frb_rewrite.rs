@@ -118,9 +118,11 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
   /// Checks in order:
   /// 1. FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR environment variable
   ///    (allows test harnesses to point to development build paths)
-  /// 2. Package-installed location (lib/src/{module}_bridge_generated/)
-  ///    (for published pub.dev packages with bundled native libraries)
-  /// 3. Returns null (flutter_rust_bridge falls back to its default loader)
+  /// 2. Package-installed location with RID subdirectory (lib/src/native/<rid>/)
+  ///    (for published pub.dev packages with platform-specific bundled native libraries)
+  /// 3. Package-installed location (lib/src/{module}_bridge_generated/)
+  ///    (legacy fallback for development or packages without per-platform binaries)
+  /// 4. Returns null (flutter_rust_bridge falls back to its default loader)
   static Future<ExternalLibrary?> {marker}() async {{
     try {{
       const candidates = <String>[
@@ -144,7 +146,46 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
         }}
       }}
 
-      // Check package-installed location.
+      // Compute RID (runtime identifier) from platform and architecture.
+      String? computeRid() {{
+        final os = Platform.operatingSystem;
+        // Use Dart's Platform.version to detect architecture.
+        // Format: "Dart <version> (stable) ... on \"<os> <arch>\""
+        final version = Platform.version;
+        final archMatch = version.contains('x86_64') ? 'x64'
+            : version.contains('aarch64') || version.contains('arm64') ? 'arm64'
+            : version.contains('armv7') ? 'arm'
+            : null;
+        if (archMatch == null) return null;
+
+        switch (os) {{
+          case 'linux':
+            return 'linux-$archMatch';
+          case 'macos':
+            return 'macos-$archMatch';
+          case 'windows':
+            return 'windows-$archMatch';
+          default:
+            return null;
+        }}
+      }}
+
+      final rid = computeRid();
+      if (rid != null) {{
+        final packageRoot =
+            await Isolate.resolvePackageUri(Uri.parse('package:{package}/{package}.dart'));
+        if (packageRoot != null) {{
+          final ridDir = packageRoot.resolve('src/native/$rid/');
+          for (final candidate in candidates) {{
+            final libPath = ridDir.resolve(candidate).toFilePath();
+            if (File(libPath).existsSync()) {{
+              return ExternalLibrary.open(libPath);
+            }}
+          }}
+        }}
+      }}
+
+      // Check legacy package-installed location as fallback.
       final packageRoot =
           await Isolate.resolvePackageUri(Uri.parse('package:{package}/{package}.dart'));
       if (packageRoot != null) {{
@@ -895,6 +936,42 @@ Future<int> extractBytes({required List<int> content}) =>
         assert!(
             !out.contains("_alefResolveExternalLibrary"),
             "lib.dart must not get a loader, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn loader_rewrite_includes_rid_aware_path() {
+        let out = rewrite_frb_external_library_loader(frb_generated_fixture(), "spikard", "spikard", "spikard_dart");
+        assert!(
+            out.contains("src/native/"),
+            "loader must check RID-aware path (src/native/<rid>/), got:\n{out}"
+        );
+        assert!(
+            out.contains("computeRid()"),
+            "loader must compute RID from platform and arch, got:\n{out}"
+        );
+        assert!(
+            out.contains("Platform.operatingSystem"),
+            "loader must detect operating system, got:\n{out}"
+        );
+        assert!(
+            out.contains("'linux-x64'") || out.contains("linux-"),
+            "loader must support linux RID variants, got:\n{out}"
+        );
+        assert!(
+            out.contains("'macos-arm64'") || out.contains("macos-"),
+            "loader must support macos RID variants, got:\n{out}"
+        );
+        assert!(
+            out.contains("'windows-x64'") || out.contains("windows-"),
+            "loader must support windows RID variants, got:\n{out}"
+        );
+        // RID-aware check should come before legacy fallback
+        let rid_pos = out.find("src/native/").expect("RID path must exist");
+        let legacy_pos = out.find("src/spikard_bridge_generated/").expect("legacy path must exist");
+        assert!(
+            rid_pos < legacy_pos,
+            "RID-aware check must come before legacy fallback, got:\n{out}"
         );
     }
 }
