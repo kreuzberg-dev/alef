@@ -319,7 +319,7 @@ impl BuildCommandConfig {
 }
 
 fn default_setup_timeout() -> u64 {
-    600
+    1800
 }
 
 /// Per-language output path templates for multi-crate workspaces.
