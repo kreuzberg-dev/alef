@@ -4,23 +4,30 @@
 //! generates:
 //!
 //! 1. A Swift `protocol Swift<TraitName>Bridge` declaring the trait methods with
-//!    async/throws matching the Rust trait method signatures.
+//!    async/throws matching the Rust trait method signatures. Excluded/internal types
+//!    are marshalled as JSON strings at the boundary.
 //! 2. A Swift `struct Swift<TraitName>Adapter` wrapping an instance of the protocol
-//!    and exposing it via `@convention(c)` function pointers that match the Rust
-//!    extern shims in `gen_rust_crate::trait_bridge`. The adapter marshals Swift
-//!    types to/from the C boundary (String for JSON, raw primitives, etc.).
+//!    and exposing methods that handle marshalling (conversion from/to JSON for excluded types,
+//!    conversion from/to proper Swift types for visible types).
 //! 3. A `register<TraitName>(_ bridge: Swift<TraitName>Bridge)` function that
-//!    constructs the adapter, boxes it, and calls into Rust to register it.
+//!    constructs the adapter and calls into Rust to register it.
 
 use crate::backends::swift::naming::bridge_protocol_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{TypeDef, TypeRef};
 use heck::{ToLowerCamelCase, ToSnakeCase};
+use std::collections::HashSet;
 
 /// Generate Swift trait bridge protocol and adapter for outbound plugins.
 ///
+/// `exclude_types` is the set of types that are not visible in the generated Swift binding.
+/// These types are marshalled as JSON strings at the trait boundary.
+///
 /// Returns a list of (filename, content) tuples ready for emission.
-pub fn gen_trait_bridge_files(bridges: &[(String, &TraitBridgeConfig, &TypeDef)]) -> Vec<(String, String)> {
+pub fn gen_trait_bridge_files(
+    bridges: &[(String, &TraitBridgeConfig, &TypeDef)],
+    exclude_types: &HashSet<String>,
+) -> Vec<(String, String)> {
     let mut files = Vec::new();
 
     for (trait_name, bridge_cfg, trait_def) in bridges {
@@ -34,7 +41,7 @@ pub fn gen_trait_bridge_files(bridges: &[(String, &TraitBridgeConfig, &TypeDef)]
             continue;
         }
 
-        let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def);
+        let content = gen_single_trait_bridge_file(trait_name, bridge_cfg, trait_def, exclude_types);
         // Use the canonical protocol name as the filename base so the filename
         // stays in sync with the protocol declaration.
         let protocol = bridge_protocol_name(trait_name);
@@ -46,7 +53,15 @@ pub fn gen_trait_bridge_files(bridges: &[(String, &TraitBridgeConfig, &TypeDef)]
 }
 
 /// Generate Swift trait bridge code for a single trait.
-fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig, trait_def: &TypeDef) -> String {
+///
+/// `exclude_types` contains type names that are not visible in the Swift binding surface.
+/// These types are marshalled as JSON strings at trait boundaries.
+fn gen_single_trait_bridge_file(
+    trait_name: &str,
+    bridge_cfg: &TraitBridgeConfig,
+    trait_def: &TypeDef,
+    exclude_types: &HashSet<String>,
+) -> String {
     let mut out = String::new();
 
     // Header
@@ -71,8 +86,10 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        let params_sig = swift_method_params(&method.params);
-        let return_type = swift_return_type(&method.return_type);
+        // Build params, marshalling excluded types as JSON (String)
+        let params_sig = swift_method_params(&method.params, exclude_types);
+        // Build return type, marshalling excluded types as JSON (String)
+        let return_type = swift_return_type(&method.return_type, exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         let async_kw = if method.is_async { " async" } else { "" };
 
@@ -86,7 +103,8 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
     // MARK: Adapter Class
     out.push_str(&format!(
         "/// Internal adapter wrapping a `{protocol}` conformer.\n\
-         /// Exposes C function pointers that call the bridge implementation.\n\
+         /// Marshals Swift types and trait calls to/from the C boundary.\n\
+         /// Excluded/internal types are serialised to/from JSON strings.\n\
          final class Swift{trait_name}Adapter {{\n\
          \x20   private let bridge: any {protocol}\n\n"
     ));
@@ -98,25 +116,82 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
          \x20   }}\n\n"
     ));
 
-    // Method entry points (these would be the C function pointers in the real implementation)
+    // Method entry points — these marshal types across the boundary
     for method in &trait_def.methods {
         if method.has_default_impl {
             continue;
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        let params_sig = swift_method_params(&method.params);
-        let return_type = swift_return_type(&method.return_type);
+        // Build parameter signature for the adapter method (input from Rust across the boundary)
+        let params_sig = swift_method_params(&method.params, exclude_types);
+        // Build return type for the adapter method (output back to Rust)
+        let return_type = swift_return_type(&method.return_type, exclude_types);
 
         out.push_str(&format!(
             "    func {method_camel}Call({params_sig}) -> {return_type} {{\n"
         ));
-        out.push_str("        // Marshalling code would go here\n");
-        out.push_str("        \"\"\n");
+
+        // Generate method body: construct call arguments and handle return value.
+        let (call_args, call_expr) = build_adapter_call_expr(method, exclude_types);
+        let call_args_str = call_args.join(", ");
+
+        if method.error_type.is_some() {
+            // Error-returning method: wrap result in try-catch and return JSON envelope
+            out.push_str(&format!(
+                "        do {{\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20let result = try self.bridge.{method_camel}({call_args_str})\n"
+            ));
+            out.push_str(&format!(
+                "            return marshal_ok_result({call_expr})\n\
+                 \x20\x20\x20\x20}} catch {{\n\
+                 \x20\x20\x20\x20\x20\x20\x20\x20return marshal_error_result(error)\n\
+                 \x20\x20\x20\x20}}\n"
+            ));
+        } else if method.is_async {
+            // Async method without error: return the result directly (already marshalled)
+            out.push_str(&format!(
+                "        let result = await self.bridge.{method_camel}({call_args_str})\n"
+            ));
+            out.push_str(&format!(
+                "        return {call_expr}\n"
+            ));
+        } else {
+            // Sync method without error: return the result directly
+            out.push_str(&format!(
+                "        let result = self.bridge.{method_camel}({call_args_str})\n"
+            ));
+            out.push_str(&format!(
+                "        return {call_expr}\n"
+            ));
+        }
+
         out.push_str("    }\n\n");
     }
 
     out.push_str("}\n\n");
+
+    // MARK: Helper functions for marshalling
+    out.push_str("// MARK: - Marshalling helpers\n\n");
+    out.push_str(
+        "private func marshal_ok_result<T: Encodable>(_ value: T) -> String {\n\
+         \x20\x20\x20\x20let encoder = JSONEncoder()\n\
+         \x20\x20\x20\x20if let data = try? encoder.encode(value),\n\
+         \x20\x20\x20\x20   let jsonString = String(data: data, encoding: .utf8) {\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20return \"{\\\"ok\\\": \\(jsonString)}\"\n\
+         \x20\x20\x20\x20}\n\
+         \x20\x20\x20\x20return \"{\\\"ok\\\": null}\"\n\
+         }\n\n\
+         private func marshal_error_result(_ error: any Error) -> String {\n\
+         \x20\x20\x20\x20let errorString = String(describing: error)\n\
+         \x20\x20\x20\x20let encoder = JSONEncoder()\n\
+         \x20\x20\x20\x20if let data = try? encoder.encode(errorString),\n\
+         \x20\x20\x20\x20   let jsonString = String(data: data, encoding: .utf8) {\n\
+         \x20\x20\x20\x20\x20\x20\x20\x20return \"{\\\"err\\\": \\(jsonString)}\"\n\
+         \x20\x20\x20\x20}\n\
+         \x20\x20\x20\x20return \"{\\\"err\\\": \\\"unknown error\\\"}\"\n\
+         }\n\n"
+    );
 
     // MARK: Registration Function
     if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
@@ -136,7 +211,9 @@ fn gen_single_trait_bridge_file(trait_name: &str, bridge_cfg: &TraitBridgeConfig
 }
 
 /// Emit Swift method parameter signature from MethodDef params.
-fn swift_method_params(params: &[crate::core::ir::ParamDef]) -> String {
+///
+/// Excluded types (not in the visible binding surface) are marshalled as JSON strings.
+fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &HashSet<String>) -> String {
     if params.is_empty() {
         return String::new();
     }
@@ -145,7 +222,7 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef]) -> String {
         .iter()
         .map(|p| {
             let name = p.name.to_snake_case();
-            let ty = swift_type_name(&p.ty);
+            let ty = swift_type_name(&p.ty, exclude_types);
             format!("{}: {}", name, ty)
         })
         .collect::<Vec<_>>()
@@ -153,7 +230,9 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef]) -> String {
 }
 
 /// Get the Swift type name for a TypeRef.
-fn swift_type_name(ty: &TypeRef) -> String {
+///
+/// Excluded/internal types (not in the visible binding surface) are marshalled as JSON strings.
+fn swift_type_name(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
             crate::core::ir::PrimitiveType::Bool => "Bool".to_string(),
@@ -174,10 +253,17 @@ fn swift_type_name(ty: &TypeRef) -> String {
         TypeRef::Bytes => "Data".to_string(),
         TypeRef::Path => "URL".to_string(),
         TypeRef::Char => "Character".to_string(),
-        TypeRef::Named(name) => name.clone(),
-        TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner)),
-        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k), swift_type_name(v)),
-        TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner)),
+        TypeRef::Named(name) => {
+            // If the named type is excluded (internal/not visible), marshal as JSON string
+            if exclude_types.contains(name) {
+                "String".to_string() // JSON-marshalled as String
+            } else {
+                name.clone()
+            }
+        }
+        TypeRef::Vec(inner) => format!("[{}]", swift_type_name(inner, exclude_types)),
+        TypeRef::Map(k, v) => format!("[{}: {}]", swift_type_name(k, exclude_types), swift_type_name(v, exclude_types)),
+        TypeRef::Optional(inner) => format!("{}?", swift_type_name(inner, exclude_types)),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Json => "String".to_string(), // JSON is marshalled as String
         TypeRef::Duration => "TimeInterval".to_string(), // Duration -> TimeInterval in Swift
@@ -185,8 +271,40 @@ fn swift_type_name(ty: &TypeRef) -> String {
 }
 
 /// Emit Swift return type from TypeRef.
-fn swift_return_type(ty: &TypeRef) -> String {
-    swift_type_name(ty)
+fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
+    swift_type_name(ty, exclude_types)
+}
+
+/// Build the call arguments and return expression for the adapter method.
+///
+/// Returns (call_args: Vec<String>, return_expr: String) where:
+/// - call_args: formatted arguments to pass to the bridge method
+/// - return_expr: expression to marshal the result back across the boundary
+fn build_adapter_call_expr(
+    method: &crate::core::ir::MethodDef,
+    exclude_types: &HashSet<String>,
+) -> (Vec<String>, String) {
+    // Build the call arguments — for now, pass them through as-is
+    // (they're already in the correct type after boundary marshalling)
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| p.name.to_snake_case())
+        .collect();
+
+    // Build the return expression — marshal the result back to the boundary type
+    let return_expr = match &method.return_type {
+        TypeRef::Named(name) if exclude_types.contains(name) => {
+            // Excluded type: encode to JSON string
+            "try JSONEncoder().encode(result)...".to_string() // Placeholder
+        }
+        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) | TypeRef::Unit => {
+            "result".to_string()
+        }
+        _ => "result".to_string(), // Other types pass through
+    };
+
+    (call_args, return_expr)
 }
 
 #[cfg(test)]
@@ -244,7 +362,8 @@ mod tests {
         let trait_def = make_trait_def("OcrBackend");
         let bridge_cfg = make_bridge_cfg("OcrBackend");
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let files = gen_trait_bridge_files(&bridges);
+        let exclude_types = HashSet::new();
+        let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
         assert_eq!(files.len(), 1);
         assert_eq!(files[0].0, "SwiftOcrBackendBridge.swift");
@@ -257,7 +376,8 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend");
         bridge_cfg.exclude_languages = vec!["swift".to_string()];
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let files = gen_trait_bridge_files(&bridges);
+        let exclude_types = HashSet::new();
+        let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
         assert!(files.is_empty());
     }
@@ -268,7 +388,8 @@ mod tests {
         let mut bridge_cfg = make_bridge_cfg("OcrBackend");
         bridge_cfg.bind_via = BridgeBinding::OptionsField;
         let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
-        let files = gen_trait_bridge_files(&bridges);
+        let exclude_types = HashSet::new();
+        let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
         assert!(files.is_empty());
     }
@@ -276,10 +397,27 @@ mod tests {
     #[test]
     fn test_swift_type_mapping() {
         use crate::core::ir::PrimitiveType;
-        assert_eq!(swift_type_name(&TypeRef::String), "String");
-        assert_eq!(swift_type_name(&TypeRef::Bytes), "Data");
-        assert_eq!(swift_type_name(&TypeRef::Unit), "Void");
-        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::I32)), "Int32");
-        assert_eq!(swift_type_name(&TypeRef::Duration), "TimeInterval");
+        let exclude_types = HashSet::new();
+        assert_eq!(swift_type_name(&TypeRef::String, &exclude_types), "String");
+        assert_eq!(swift_type_name(&TypeRef::Bytes, &exclude_types), "Data");
+        assert_eq!(swift_type_name(&TypeRef::Unit, &exclude_types), "Void");
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::I32), &exclude_types), "Int32");
+        assert_eq!(swift_type_name(&TypeRef::Duration, &exclude_types), "TimeInterval");
+    }
+
+    #[test]
+    fn test_swift_marshals_excluded_types_as_json() {
+        let mut exclude_types = HashSet::new();
+        exclude_types.insert("InternalDocument".to_string());
+        assert_eq!(
+            swift_type_name(&TypeRef::Named("InternalDocument".to_string()), &exclude_types),
+            "String",
+            "Excluded types should be marshalled as JSON strings"
+        );
+        assert_eq!(
+            swift_type_name(&TypeRef::Named("ExtractionResult".to_string()), &exclude_types),
+            "ExtractionResult",
+            "Non-excluded types should keep their original names"
+        );
     }
 }

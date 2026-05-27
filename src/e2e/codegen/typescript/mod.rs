@@ -102,40 +102,36 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
-        // Emit a local `pnpm-workspace.yaml` declaring the test-app directory
-        // as its own pnpm workspace root. Without it, `pnpm install` walks up
-        // to the repo-root `pnpm-workspace.yaml` and treats this test app as a
-        // member of the outer workspace — so its own devDependencies (vitest)
-        // are hoisted/deduped against the root and never installed into the
-        // test app's `node_modules`, breaking `pnpm test` with a missing-vitest
-        // error. An empty `packages: []` makes the directory self-rooted so
-        // `pnpm install` installs the test app's deps in isolation.
+        // Emit a sealed `pnpm-workspace.yaml` ONLY in Registry mode to isolate
+        // the test app's devDependencies (vitest, etc.) from the outer workspace.
+        // Without it, pnpm hoists/dedupes transitive deps against any parent
+        // workspace and `vitest` ends up uninstalled locally, breaking e2e tests.
         //
-        // Only emit this isolation marker in Registry mode. In Local mode the
-        // test app depends on the binding via `workspace:*`, which can only
-        // resolve through the consumer's root pnpm workspace — emitting the
-        // empty marker would shadow the consumer's workspace and break
-        // `pnpm install` with `ERR_PNPM_NO_MATCHING_VERSION_INSIDE_WORKSPACE`.
+        // In Local mode, the test app depends on the binding via `workspace:*`,
+        // which MUST resolve through the consumer's root pnpm workspace. Emitting
+        // the sealed marker would shadow the root and cause `pnpm install` to fail:
+        // `ERR_PNPM_NO_MATCHING_VERSION_INSIDE_WORKSPACE`.
         //
-        // `allowBuilds` opts the native-build scripts of common transitive
-        // deps (`esbuild`, `tree-sitter`) in. pnpm 11 refuses to silently run
-        // postinstall/build scripts and fails with `ERR_PNPM_IGNORED_BUILDS`
-        // unless they are listed explicitly. These two cover the vast majority
-        // of generated test apps; downstream consumers can extend if needed.
+        // For cleanup: if in Local mode, explicitly tell cleanup to remove any
+        // stale pnpm-workspace.yaml (with or without alef header). This handles
+        // the migration from Registry to Local mode, even if prior Registry-mode
+        // emissions lacked the generated header.
+        let workspace_yaml_path = output_base.join("pnpm-workspace.yaml");
         if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            // Registry mode: emit with generated header for proper cleanup tracking
             files.push(GeneratedFile {
-                path: output_base.join("pnpm-workspace.yaml"),
+                path: workspace_yaml_path.clone(),
                 content: "packages: []\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
-                // `generated_header: true` so the cleanup pass can recognize
-                // and remove this file when the consumer flips
-                // `[crates.e2e.dep_mode]` from Registry to Local. Without the
-                // header, the prior Registry-mode emit lingers on disk and
-                // shadows the consumer's root pnpm workspace (an empty
-                // `packages: []` makes `cd e2e/node && pnpm install` fail to
-                // resolve any `workspace:*` deps). YAML handles `#` comments
-                // fine; pnpm's YAML parser preserves them.
                 generated_header: true,
             });
+        } else {
+            // Local mode: explicitly emit a cleanup marker to remove the file if
+            // it exists, even without an alef header. This handles stale files
+            // from prior Registry-mode runs or manual creation.
+            if workspace_yaml_path.exists() {
+                std::fs::remove_file(&workspace_yaml_path)
+                    .map_err(|e| anyhow::anyhow!("Failed to remove stale pnpm-workspace.yaml: {}", e))?;
+            }
         }
 
         // globalSetup spawns the mock-server binary and exposes its URL via
@@ -455,6 +451,46 @@ result_var = "result"
             workspace.content.contains("packages:"),
             "pnpm-workspace.yaml must declare an isolated workspace root, got: {}",
             workspace.content
+        );
+    }
+
+    #[test]
+    fn local_mode_does_not_emit_pnpm_workspace_yaml() {
+        use crate::core::config::NewAlefConfig;
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["node"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.call]
+function = "process"
+module = "my-lib"
+result_var = "result"
+"#,
+        )
+        .unwrap();
+        // Default dep_mode is Local (not Registry)
+        let e2e = cfg.crates[0].e2e.clone().unwrap();
+        assert_eq!(e2e.dep_mode, crate::e2e::config::DependencyMode::Local);
+        let resolved = cfg.resolve().unwrap().remove(0);
+        let codegen = TypeScriptCodegen;
+        let files = codegen.generate(&[], &e2e, &resolved, &[], &[]).unwrap();
+
+        // In Local mode, pnpm-workspace.yaml must NOT be emitted. The root
+        // workspace will handle e2e/node naturally, and workspace:* deps will
+        // resolve correctly through the parent workspace.
+        let workspace = files.iter().find(|f| f.path.ends_with("pnpm-workspace.yaml"));
+        assert!(
+            workspace.is_none(),
+            "Local mode must NOT emit pnpm-workspace.yaml; found: {:?}",
+            workspace
         );
     }
 

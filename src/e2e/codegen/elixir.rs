@@ -2595,6 +2595,7 @@ pub fn emit_test_backend(
     // re-running the same compiled test file does not trigger a redefinition
     // warning (which becomes an error under --warnings-as-errors).
     let qualified_module = format!("E2e.TestStubs.{module_name}");
+    let genserver_module = format!("{}GenServer", qualified_module);
 
     let mut setup = String::new();
     let _ = writeln!(setup, "unless Code.ensure_loaded?({qualified_module}) do");
@@ -2641,9 +2642,39 @@ pub fn emit_test_backend(
     let _ = writeln!(setup, "end");
     let _ = writeln!(setup, "end");
 
+    // Emit the GenServer wrapper that Rustler NIFs can call via PID message passing.
+    // Messages arrive as {:trait_call, method_atom, args_json_string, reply_id}.
+    // The GenServer calls the stub module method, serializes the result to JSON, and
+    // passes it back to Kreuzberg.complete_trait_call/2 NIF which unblocks the waiting Rust thread.
+    let _ = writeln!(setup, "unless Code.ensure_loaded?({genserver_module}) do");
+    let _ = writeln!(setup, "defmodule {genserver_module} do");
+    let _ = writeln!(setup, "  use GenServer");
+    let _ = writeln!(setup, "");
+    let _ = writeln!(setup, "  def start_link(_opts) do");
+    let _ = writeln!(setup, "    GenServer.start_link(__MODULE__, nil)");
+    let _ = writeln!(setup, "  end");
+    let _ = writeln!(setup, "");
+    let _ = writeln!(setup, "  @impl true");
+    let _ = writeln!(setup, "  def init(_), do: {{:ok, nil}}");
+    let _ = writeln!(setup, "");
+    let _ = writeln!(setup, "  @impl true");
+    let _ = writeln!(setup, "  def handle_info({{:trait_call, method_atom, args_json, reply_id}}, state) do");
+    let _ = writeln!(setup, "    args = Jason.decode!(args_json)");
+    let _ = writeln!(setup, "    result = apply({qualified_module}, method_atom, args)");
+    let _ = writeln!(setup, "    result_json = Jason.encode!(result)");
+    let _ = writeln!(setup, "    Kreuzberg.complete_trait_call(reply_id, result_json)");
+    let _ = writeln!(setup, "    {{:noreply, state}}");
+    let _ = writeln!(setup, "  end");
+    let _ = writeln!(setup, "end");
+    let _ = writeln!(setup, "end");
+
+    // Start the GenServer and capture its PID.
+    let pid_var = format!("{}_pid", pascal_id.to_lowercase());
+    let _ = writeln!(setup, "{{:ok, {pid_var}}} = {genserver_module}.start_link(nil)");
+
     super::TestBackendEmission {
         setup_block: setup,
-        arg_expr: qualified_module,
+        arg_expr: pid_var,
         type_imports: Vec::new(),
     }
 }
@@ -2820,9 +2851,66 @@ mod test_backend_tests {
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         assert!(
-            emission.arg_expr.starts_with("E2e.TestStubs."),
-            "arg_expr must be namespaced under E2e.TestStubs, got:\n{}",
+            emission.setup_block.contains("E2e.TestStubs."),
+            "setup_block must reference E2e.TestStubs namespace, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Verify that a GenServer is emitted to wrap the stub module so Rustler NIFs
+    /// can call trait methods via PID message passing.
+    #[test]
+    fn elixir_stub_emits_genserver_wrapper() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        assert!(
+            emission.setup_block.contains("defmodule") && emission.setup_block.contains("GenServer"),
+            "setup_block must define a GenServer module, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("handle_info"),
+            "GenServer must implement handle_info for trait_call messages, got:\n{}",
+            emission.setup_block
+        );
+        assert!(
+            emission.setup_block.contains("complete_trait_call"),
+            "GenServer must reply via Kreuzberg.complete_trait_call/2 NIF, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Verify that arg_expr is a PID variable, not a module name.
+    /// This allows Rustler NIFs to receive the PID and send messages to it.
+    #[test]
+    fn elixir_stub_arg_expr_is_pid_variable() {
+        let bridge = make_trait_bridge("TestTrait");
+        let required_method = make_method("process", true);
+        let methods = [&required_method];
+        let fixture = make_fixture("my_test_fixture");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+
+        // arg_expr should be a lowercase variable name like "my_test_fixture_pid", not a module atom
+        assert!(
+            !emission.arg_expr.contains("."),
+            "arg_expr must be a PID variable (not a module atom), got:\n{}",
             emission.arg_expr
+        );
+        assert!(
+            emission.arg_expr.ends_with("_pid"),
+            "arg_expr must end with _pid to indicate it is a process identifier, got:\n{}",
+            emission.arg_expr
+        );
+        assert!(
+            emission.setup_block.contains(&format!("{{:ok, {}}}", emission.arg_expr)),
+            "setup_block must start GenServer and assign its PID to the arg_expr variable, got:\n{}",
+            emission.setup_block
         );
     }
 }

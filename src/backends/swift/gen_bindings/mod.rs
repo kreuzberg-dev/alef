@@ -491,7 +491,7 @@ impl Backend for SwiftBackend {
             base_path.join("Sources").join(&module_name)
         };
 
-        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs) {
+        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
                 path,

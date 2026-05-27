@@ -1625,11 +1625,27 @@ fn build_args_and_setup(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    // Collect methods from both the main trait and its super-trait (if present).
+                    // The super-trait methods are needed so stubs implement the full interface.
+                    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
+
+                    // If there's a super-trait, also collect its methods.
+                    // Compare against rust_path (full module path), not just the simple name.
+                    if let Some(super_trait) = &trait_bridge.super_trait {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
+                            for method in &super_type.methods {
+                                // Only add if not already present (avoid duplicates).
+                                if !methods.iter().any(|m| m.name == method.name) {
+                                    methods.push(method);
+                                }
+                            }
+                        }
+                    }
+
                     let emission = emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace);
                     // Split multi-line setup_block into individual lines so the
                     // Jinja template can indent each line uniformly with `        {{ line }}`.
@@ -2861,6 +2877,59 @@ mod trait_bridge_tests {
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
         assert_eq!(emission.arg_expr, "$stub");
+    }
+
+    /// Verify that test stubs include both direct trait methods and super-trait methods.
+    #[test]
+    fn test_backend_includes_super_trait_methods() {
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "DocumentExtractor".to_string(),
+            super_trait: Some("crate::plugin::Plugin".to_string()),
+            register_fn: Some("register_document_extractor".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        // Simulate a direct trait method.
+        let extract_bytes = make_method(
+            "extract_bytes",
+            vec![
+                ("content", TypeRef::Bytes),
+                ("mime_type", TypeRef::String),
+            ],
+            TypeRef::Named("ExtractionResult".to_string()),
+            false,
+        );
+
+        // Simulate super-trait methods (Plugin trait).
+        let name_method = make_method("name", vec![], TypeRef::String, false);
+        let priority_method = make_method("priority", vec![], TypeRef::Primitive(crate::core::ir::PrimitiveType::U32), false);
+
+        let mut fixture = make_fixture("test_super_trait_methods");
+        fixture.input = serde_json::json!({
+            "extractor": { "type": "test", "name": "my-extractor" }
+        });
+
+        // Pass both direct trait methods and super-trait methods.
+        let methods = vec![&extract_bytes, &name_method, &priority_method];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // Verify the setup_block includes all required methods.
+        assert!(
+            emission.setup_block.contains("public function name()"),
+            "setup_block must include name() from super-trait (Plugin)"
+        );
+        assert!(
+            emission.setup_block.contains("public function priority()"),
+            "setup_block must include priority() from super-trait (Plugin)"
+        );
+        assert!(
+            emission.setup_block.contains("public function extractBytes("),
+            "setup_block must include extractBytes() from direct trait (DocumentExtractor)"
+        );
+        assert!(
+            emission.setup_block.contains("my-extractor"),
+            "setup_block must use input-derived name"
+        );
     }
 }
 

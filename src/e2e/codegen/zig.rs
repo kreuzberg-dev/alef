@@ -2753,8 +2753,9 @@ pub fn emit_test_backend(
         }
     }
 
-    // Required methods only (non-default, non-super-trait).
-    for method in methods.iter().filter(|m| !m.has_default_impl) {
+    // Emit ALL trait methods (both required and optional with defaults).
+    // The trait-bridge vtable will call all of them, so stubs must implement them all.
+    for method in methods.iter() {
         // Skip super-trait methods already emitted above.
         if trait_bridge
             .super_trait
