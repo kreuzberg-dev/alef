@@ -630,8 +630,29 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
     // Map of struct names to field names that should be made optional.
     // These correspond to Rust fields with #[serde(default...)] or similar.
     let optional_fields: std::collections::HashMap<&str, Vec<&str>> = [
-        ("EmbeddingConfig", vec!["model", "normalize", "batchSize", "showDownloadProgress", "acceleration", "maxEmbedDurationSecs"]),
-        ("ChunkingConfig", vec!["maxCharacters", "overlap", "trim", "chunkerType", "sizing", "prependHeadingContext", "topicThreshold"]),
+        (
+            "EmbeddingConfig",
+            vec![
+                "model",
+                "normalize",
+                "batchSize",
+                "showDownloadProgress",
+                "acceleration",
+                "maxEmbedDurationSecs",
+            ],
+        ),
+        (
+            "ChunkingConfig",
+            vec![
+                "maxCharacters",
+                "overlap",
+                "trim",
+                "chunkerType",
+                "sizing",
+                "prependHeadingContext",
+                "topicThreshold",
+            ],
+        ),
         ("ExtractionConfig", vec!["useCache", "enableQualityProcessing"]),
     ]
     .iter()
@@ -647,15 +668,15 @@ pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
         let trimmed = line.trim();
 
         // Check if this is a const constructor for a known type with optional fields
-        let should_process = optional_fields.iter().any(|(struct_name, _)| {
-            trimmed.starts_with(&format!("const {}({{", struct_name))
-        });
+        let should_process = optional_fields
+            .iter()
+            .any(|(struct_name, _)| trimmed.starts_with(&format!("const {}({{", struct_name)));
 
         if should_process {
             // Find which struct this is
-            let struct_name = optional_fields.keys().find(|&&name| {
-                trimmed.starts_with(&format!("const {}({{", name))
-            });
+            let struct_name = optional_fields
+                .keys()
+                .find(|&&name| trimmed.starts_with(&format!("const {}({{", name)));
 
             if let Some(&struct_name) = struct_name {
                 let fields_to_make_optional = optional_fields[struct_name].clone();

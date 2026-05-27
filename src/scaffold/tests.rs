@@ -937,8 +937,8 @@ fn test_scaffold_go_production_format() {
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
     let files = language_files(&all_files);
-    // go.mod + .golangci.yml
-    assert_eq!(files.len(), 2);
+    // go.mod + .golangci.yml + .lib/.gitkeep
+    assert_eq!(files.len(), 3);
     let content = &files[0].content;
     assert!(content.contains("go 1.26"));
     assert!(!content.contains("require ("));

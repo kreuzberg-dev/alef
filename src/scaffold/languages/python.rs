@@ -430,5 +430,4 @@ mod tests {
         // Surrounding whitespace inside clauses is normalized away.
         assert_eq!(canonicalize_pep440_specifier(">=1.0, <2.0"), ">=1,<2");
     }
-
 }

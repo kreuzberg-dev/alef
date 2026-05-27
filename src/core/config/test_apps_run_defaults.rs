@@ -372,7 +372,11 @@ mod tests {
     #[test]
     fn node_dispatches_on_package_manager() {
         for (pm, expected_pre, expected_cmd) in [
-            ("npm", "command -v npm >/dev/null 2>&1", "npm install --no-package-lock && npm test"),
+            (
+                "npm",
+                "command -v npm >/dev/null 2>&1",
+                "npm install --no-package-lock && npm test",
+            ),
             ("yarn", "command -v yarn >/dev/null 2>&1", "yarn install && yarn test"),
         ] {
             let tools = ToolsConfig {
@@ -484,7 +488,10 @@ mod tests {
         let c = cfg(Language::Wasm, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
         assert!(run.contains("cd test_apps/wasm"), "got: {run}");
-        assert!(run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"), "got: {run}");
+        assert!(
+            run.contains("pnpm install --no-frozen-lockfile --config.minimumReleaseAge=0"),
+            "got: {run}"
+        );
         assert!(run.contains("&& pnpm test"), "got: {run}");
     }
 

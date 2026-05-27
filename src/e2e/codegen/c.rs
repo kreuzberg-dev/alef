@@ -455,8 +455,14 @@ fn render_makefile(
 
     // Dynamically select FFI library location using shell tests (evaluated at compilation time for each command)
     // Priority: downloaded ffi/ > in-tree > pkg-config
-    let _ = writeln!(out, "FFI_INCLUDE := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include,$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include))");
-    let _ = writeln!(out, "FFI_LIB_DIR := $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))");
+    let _ = writeln!(
+        out,
+        "FFI_INCLUDE := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include,$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include))"
+    );
+    let _ = writeln!(
+        out,
+        "FFI_LIB_DIR := $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))"
+    );
     let _ = writeln!(out);
     let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");
     let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_INCLUDE)");
@@ -635,10 +641,16 @@ fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) 
     let _ = writeln!(out, "mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "curl -fSL \"$URL\" | tar xz -C \"$FFI_DIR\"");
     let _ = writeln!(out, "# Flatten the versioned subdirectory into the ffi/ root");
-    let _ = writeln!(out, "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}");
+    let _ = writeln!(
+        out,
+        "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}"
+    );
     let _ = writeln!(out, "if [ -d \"$EXTRACTED_DIR\" ]; then");
     let _ = writeln!(out, "  rm -rf \"$FFI_DIR\"/include \"$FFI_DIR\"/lib");
-    let _ = writeln!(out, "  mv \"$EXTRACTED_DIR\"/include \"$EXTRACTED_DIR\"/lib \"$FFI_DIR\"/");
+    let _ = writeln!(
+        out,
+        "  mv \"$EXTRACTED_DIR\"/include \"$EXTRACTED_DIR\"/lib \"$FFI_DIR\"/"
+    );
     let _ = writeln!(out, "  rm -rf \"$FFI_DIR\"/${{FFI_PKG_NAME}}-*");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out, "echo \"FFI library extracted to $FFI_DIR/\"");
