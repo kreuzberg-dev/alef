@@ -5,6 +5,7 @@ pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
+pub mod service_api;
 pub mod types;
 
 use crate::backends::napi::type_map::NapiMapper;
@@ -77,6 +78,7 @@ impl Backend for NapiBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -1064,6 +1066,14 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             content,
             generated_header: true,
         }])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

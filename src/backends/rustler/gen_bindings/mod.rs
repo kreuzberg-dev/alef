@@ -1,5 +1,6 @@
 mod functions;
 mod helpers;
+mod service_api;
 mod types;
 
 use crate::backends::rustler::template_env;
@@ -45,6 +46,7 @@ impl Backend for RustlerBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -1609,6 +1611,14 @@ impl Backend for RustlerBackend {
         });
 
         Ok(files)
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
