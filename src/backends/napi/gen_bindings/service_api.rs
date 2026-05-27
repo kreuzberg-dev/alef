@@ -468,20 +468,28 @@ fn gen_run_napi_function(
                 "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
             ));
 
-            // Extract metadata params (for now, we skip them — future: extract from _metadata)
+            // Extract and convert metadata params from JsUnknown
             if !reg.metadata_params.is_empty() {
-                out.push_str("                // Note: metadata extraction from JsUnknown would go here\n");
-                let meta_args: Vec<String> = (0..reg.metadata_params.len())
-                    .map(|_| "/* TODO: extract metadata */".to_owned())
-                    .collect();
-                if !meta_args.is_empty() {
+                for (idx, param) in reg.metadata_params.iter().enumerate() {
+                    let param_name = &param.name;
+                    let rust_ty = typeref_to_rust_type(&param.ty, core_import);
                     out.push_str(&format!(
-                        "                owner.{reg_method}({}, handler)\n",
-                        meta_args.join(", ")
+                        "                let {param_name}: {rust_ty} = {{\n"
                     ));
-                } else {
-                    out.push_str(&format!("                owner.{reg_method}(handler)\n"));
+                    out.push_str(&format!(
+                        "                    let val = _metadata.get({idx}).ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing metadata parameter at index {idx}\"))?;\n"
+                    ));
+                    out.push_str(&format!(
+                        "                    {}\n",
+                        gen_metadata_extraction(&param.ty, core_import)
+                    ));
+                    out.push_str("                };\n");
                 }
+                let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
+                out.push_str(&format!(
+                    "                owner.{reg_method}({}, handler)\n",
+                    meta_names.join(", ")
+                ));
             } else {
                 out.push_str(&format!("                owner.{reg_method}(handler)\n"));
             }
@@ -546,6 +554,46 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
             )
         } else {
             format!("    owner.{ep_method}({args_str});\n")
+        }
+    }
+}
+
+/// Generate code to extract and convert a metadata parameter from a JsUnknown value.
+///
+/// Returns a Rust expression that converts `val` (a `JsUnknown`) to the target type.
+/// The generated code uses NAPI's coercion methods and type conversions.
+fn gen_metadata_extraction(ty: &TypeRef, _core_import: &str) -> String {
+    match ty {
+        TypeRef::String | TypeRef::Char => {
+            "val.coerce_to_string()?.into_utf8().map(|buf| buf.as_str().to_owned())?".to_owned()
+        }
+        TypeRef::Primitive(p) => {
+            use crate::core::ir::PrimitiveType;
+            match p {
+                PrimitiveType::Bool => "val.coerce_to_bool()?".to_owned(),
+                PrimitiveType::U8 => "val.coerce_to_number()? as u8".to_owned(),
+                PrimitiveType::U16 => "val.coerce_to_number()? as u16".to_owned(),
+                PrimitiveType::U32 => "val.coerce_to_number()? as u32".to_owned(),
+                PrimitiveType::U64 => "val.coerce_to_number()? as u64".to_owned(),
+                PrimitiveType::I8 => "val.coerce_to_number()? as i8".to_owned(),
+                PrimitiveType::I16 => "val.coerce_to_number()? as i16".to_owned(),
+                PrimitiveType::I32 => "val.coerce_to_number()? as i32".to_owned(),
+                PrimitiveType::I64 => "val.coerce_to_number()? as i64".to_owned(),
+                PrimitiveType::F32 => "val.coerce_to_number()? as f32".to_owned(),
+                PrimitiveType::F64 => "val.coerce_to_number()?".to_owned(),
+                PrimitiveType::Usize => "val.coerce_to_number()? as usize".to_owned(),
+                PrimitiveType::Isize => "val.coerce_to_number()? as isize".to_owned(),
+            }
+        }
+        TypeRef::Optional(inner) => {
+            let inner_extraction = gen_metadata_extraction(inner, "");
+            format!("if val.is_null() || val.is_undefined() {{ None }} else {{ Some({inner_extraction}) }}")
+        }
+        _ => {
+            // For Named types and other complex types: use JSON serialization roundtrip
+            // The JsUnknown is converted to serde_json::Value, which can then be deserialized
+            "serde_json::from_value(serde_json::to_value(&val).map_err(|e| napi::Error::from_reason(format!(\"metadata serialization failed: {}\", e)))?)
+                .map_err(|e| napi::Error::from_reason(format!(\"metadata deserialization failed: {}\", e)))?".to_owned()
         }
     }
 }
@@ -906,6 +954,50 @@ mod tests {
         assert!(
             output.contains("impl my_crate::RequestHandler for RequestHandlerBridge"),
             "expected trait impl in output:\n{output}"
+        );
+    }
+
+    #[test]
+    fn rust_output_extracts_metadata_params() {
+        let surface = make_fixture_surface();
+        let config = ResolvedCrateConfig {
+            name: "my_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let output = gen_service_rs(&surface, &config);
+
+        // Assert metadata params are extracted as real typed variables, not stubs
+        assert!(
+            !output.contains("/* TODO: extract metadata */"),
+            "expected no TODO placeholder in output:\n{output}"
+        );
+        assert!(
+            !output.contains("TODO: extract metadata"),
+            "expected no TODO marker in output:\n{output}"
+        );
+
+        // Assert the "path" metadata param is extracted and declared with proper type
+        assert!(
+            output.contains("let path: String"),
+            "expected `let path: String` extraction in output:\n{output}"
+        );
+
+        // Assert the "method" metadata param is extracted and declared with proper type
+        assert!(
+            output.contains("let method: String"),
+            "expected `let method: String` extraction in output:\n{output}"
+        );
+
+        // Assert both metadata params are passed to the registration method call
+        assert!(
+            output.contains("owner.add_handler(path, method, handler)"),
+            "expected owner.add_handler(path, method, handler) call in output:\n{output}"
+        );
+
+        // Assert metadata is accessed from the _metadata vector
+        assert!(
+            output.contains("_metadata.get("),
+            "expected _metadata.get(...) access in output:\n{output}"
         );
     }
 }
