@@ -294,10 +294,7 @@ impl Backend for GoBackend {
         // includes files that are referenced in the module; this directive tells Go
         // to include the include/ directory so that the cgo #include directives work
         // in vendored environments.
-        let embed_ffi_content = crate::backends::go::template_env::render(
-            "embed_ffi.go.jinja",
-            minijinja::context! {},
-        );
+        let embed_ffi_content = crate::backends::go::template_env::render("embed_ffi.go.jinja", minijinja::context! {});
         files.push(GeneratedFile {
             path: PathBuf::from(format!("{output_dir}embed_ffi.go")),
             content: embed_ffi_content,

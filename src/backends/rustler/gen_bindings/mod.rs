@@ -1528,9 +1528,7 @@ impl Backend for RustlerBackend {
                     "  @doc \"Register a {} plugin with a GenServer PID and name.\"\n",
                     bridge_cfg.trait_name
                 ));
-                content.push_str(&format!(
-                    "  @spec {fn_name}(pid(), String.t()) :: :ok | :error\n"
-                ));
+                content.push_str(&format!("  @spec {fn_name}(pid(), String.t()) :: :ok | :error\n"));
                 content.push_str(&format!("  def {fn_name}(genserver_pid, plugin_name) do\n"));
                 content.push_str(&format!("    {native_mod}.{fn_name}(genserver_pid, plugin_name)\n"));
                 content.push_str("  end\n\n");

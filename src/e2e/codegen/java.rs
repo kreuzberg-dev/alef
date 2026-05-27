@@ -2819,7 +2819,6 @@ fn emit_java_stub_method(
     }
 }
 
-
 /// Map a TypeRef to its Java type with fully-qualified names for use in test stubs.
 /// This variant ensures all types are qualified (e.g., `java.util.List` not `List`).
 fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {

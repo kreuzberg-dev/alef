@@ -142,7 +142,13 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
 /// - Lifecycle slots (`name_fn`, `version_fn`, `initialize_fn`, `shutdown_fn`) are
 ///   emitted with `unreachable` bodies as stubs — the consumer overrides the
 ///   relevant field in the returned vtable if needed.
-pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &TypeDef, excluded_types: &HashSet<String>, out: &mut String) {
+pub fn emit_make_vtable(
+    trait_name: &str,
+    has_super_trait: bool,
+    trait_def: &TypeDef,
+    excluded_types: &HashSet<String>,
+    out: &mut String,
+) {
     let snake = trait_snake(trait_name);
     let excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
 
@@ -850,7 +856,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "demo",
+            "error",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Vtable struct
         assert!(
@@ -899,7 +912,14 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         assert!(
             out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
@@ -932,7 +952,14 @@ mod tests {
         // clear_fn left as None.
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         assert!(
             !out.contains("pub fn clear_"),
@@ -965,7 +992,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Struct name
         assert!(
@@ -1025,7 +1059,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "demo",
+            "error",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Helper function declaration
         assert!(
@@ -1058,7 +1099,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         assert!(
             out.contains("pub fn make_ocr_backend_vtable(comptime T: type, instance: *T)"),
@@ -1084,7 +1132,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Processor", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "demo",
+            "error",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Thunk receives ptr+len params
         assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
@@ -1110,7 +1165,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Parser", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "demo",
+            "error",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Thunk returns i32 (fallible → i32 return)
         assert!(
@@ -1139,7 +1201,14 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("demo", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
+        emit_trait_bridge(
+            "demo",
+            "error",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
 
         // Infallible primitive method: thunk returns the value directly
         assert!(
