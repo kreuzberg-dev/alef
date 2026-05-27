@@ -1958,7 +1958,8 @@ fn build_args_and_setup(
                         .unwrap_or_default();
 
                     // If there's a super-trait, also collect its methods.
-                    // Compare against rust_path (full module path), not just the simple name.
+                    // The dispatcher (in mod.rs) uses trait_source to identify super-trait methods,
+                    // so we need to account for methods that come from the super-trait.
                     if let Some(super_trait) = &trait_bridge.super_trait {
                         if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
                             for method in &super_type.methods {
@@ -3739,12 +3740,16 @@ fn method_to_camel(snake: &str) -> String {
 /// Go is interface-based: define a package-level struct type + methods that satisfy
 /// the trait's Go interface. The Plugin super-trait `Name()` method returns the fixture id.
 ///
-/// Check if a type uses json.RawMessage (either Named or Optional<Named>).
+/// Check if a type maps to json.RawMessage (only TypeRef::Json).
+/// Named types now use their proper Go types, so we only need json import for
+/// the Json type itself.
 fn uses_json_type(ty: &crate::core::ir::TypeRef) -> bool {
     use crate::core::ir::TypeRef;
     match ty {
-        TypeRef::Named(_) | TypeRef::Json => true,
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(_)),
+        TypeRef::Json => true,
+        TypeRef::Optional(inner) => uses_json_type(inner),
+        TypeRef::Vec(inner) => uses_json_type(inner),
+        TypeRef::Map(k, v) => uses_json_type(k) || uses_json_type(v),
         _ => false,
     }
 }
@@ -3825,63 +3830,24 @@ pub fn emit_test_backend(
     }
 }
 
-/// Emit a single Go stub method receiver function into `out`.
+/// Returns the Go zero-value expression for a stub method return statement.
 ///
-/// Used by both the main method loop and the super-trait method section of
-/// `emit_test_backend` so both paths share the same formatting logic.
-/// `go_method` is the already-PascalCased method name (caller's responsibility).
-/// Zero-value expression for Go stub method return statements.
-///
-/// Named types map to `json.RawMessage{}` (the substitute type) rather than
-/// `&TypeName{}` — avoids generating a pointer to an undefined type.
-/// Vec types produce a typed nil slice (`[]ElementType(nil)`) so the return
-/// value is type-correct for the interface without relying on `[]interface{}`.
+/// Uses go_zero_value from the type_map to ensure consistency with actual
+/// Go binding signatures. Named types produce nil (pointer zero), primitives
+/// produce their standard zero values (0, false, ""), and Vec produces a nil slice.
 fn go_stub_default(ty: &crate::core::ir::TypeRef) -> String {
-    use crate::core::ir::TypeRef;
-    match ty {
-        TypeRef::Named(_) => "json.RawMessage(nil)".to_string(),
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "json.RawMessage(nil)".to_string(),
-        TypeRef::Vec(inner) => {
-            let inner_ty = stub_go_type(inner);
-            format!("([]{})(nil)", inner_ty)
-        }
-        TypeRef::Optional(_) => "nil".to_string(),
-        TypeRef::Json => "json.RawMessage(nil)".to_string(),
-        TypeRef::Map(_, _) => "nil".to_string(),
-        TypeRef::Bytes => "nil".to_string(),
-        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
-        TypeRef::Primitive(p) => {
-            use crate::core::ir::PrimitiveType;
-            match p {
-                PrimitiveType::Bool => "false".to_string(),
-                PrimitiveType::F32 | PrimitiveType::F64 => "0.0".to_string(),
-                _ => "0".to_string(),
-            }
-        }
-        TypeRef::Unit => String::new(),
-        TypeRef::Duration => "0".to_string(),
-    }
+    use crate::backends::go::type_map::go_zero_value;
+    go_zero_value(ty)
 }
 
 /// Maps a type reference to its Go representation in stub method signatures.
 ///
-/// Named types that are opaque across the FFI boundary (not in the public
-/// binding surface) are substituted with `json.RawMessage`, matching how the
-/// generated Go trait-bridge interface declares them.  This keeps the stub
-/// type-compatible with the interface without importing types that are not
-/// exported from the binding package.
+/// For most types, delegates to `go_type` which produces the canonical Go binding type.
+/// This ensures stubs match the actual trait-bridge interface signatures exactly,
+/// including Named types like OcrBackendType.
 fn stub_go_type(ty: &crate::core::ir::TypeRef) -> String {
     use crate::backends::go::type_map::go_type;
-    use crate::core::ir::TypeRef;
-    match ty {
-        // Named types may be opaque (excluded from the binding surface).  Use
-        // json.RawMessage so the stub satisfies the interface without importing
-        // a type that does not exist in the binding package.  This matches how
-        // the generated Go trait-bridge interface declares these return types.
-        TypeRef::Named(_) => "json.RawMessage".to_string(),
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "json.RawMessage".to_string(),
-        _ => go_type(ty).into_owned(),
-    }
+    go_type(ty).into_owned()
 }
 
 /// Emit a single Go stub method receiver function into `out`.
@@ -4159,6 +4125,43 @@ mod trait_bridge_tests {
         assert!(
             emission.setup_block.contains("Name()"),
             "setup_block must contain Name() from IR name method, got:\n{}",
+            emission.setup_block
+        );
+    }
+
+    /// Verify that Named types (like OcrBackendType) use their proper Go type names
+    /// in stubs, matching the actual trait-bridge interface signatures.
+    #[test]
+    fn test_go_stub_named_types_use_proper_go_names() {
+        let backend_type_method = make_method(
+            "backend_type",
+            vec![],
+            TypeRef::Named("OcrBackendType".to_string()),
+            false,
+        );
+
+        let trait_bridge = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            register_fn: Some("register_ocr_backend".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+
+        let fixture = make_fixture("backend_type_test");
+        let methods = vec![&backend_type_method];
+        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
+
+        // The method signature should use OcrBackendType (proper Go name), not json.RawMessage.
+        assert!(
+            emission.setup_block.contains("BackendType()") && emission.setup_block.contains("OcrBackendType"),
+            "setup_block must use OcrBackendType in BackendType() method signature, got:\n{}",
+            emission.setup_block
+        );
+
+        // Return value must match go_zero_value for OcrBackendType (which is nil for Named types).
+        assert!(
+            !emission.setup_block.contains("json.RawMessage(nil)"),
+            "setup_block must not use json.RawMessage for OcrBackendType, got:\n{}",
             emission.setup_block
         );
     }

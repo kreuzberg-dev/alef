@@ -2791,10 +2791,11 @@ fn emit_java_stub_method(
     let ret_java = java_stub_type_fqn(&method.return_type);
     let default_val = defaults.emit_default(&method.return_type);
 
+    // Use java_stub_type_fqn for all parameter types to ensure proper FQN qualification
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", java_type_fqn(&p.ty), p.name.to_lower_camel_case()))
+        .map(|p| format!("{} {}", java_stub_type_fqn(&p.ty), p.name.to_lower_camel_case()))
         .collect();
     let params_str = params.join(", ");
 
@@ -2848,18 +2849,35 @@ fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 }
 
 /// Map a TypeRef to its Java stub type with fully-qualified names.
-/// Substitutes `Object` for opaque named types; uses FQN for List/Map/ArrayList.
+/// For opaque named types (Kreuzberg domain types), use `dev.kreuzberg.{TypeName}`.
+/// For Collections, use FQN for List/Map with qualified inner types.
 fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
     use crate::core::ir::TypeRef;
     match ty {
-        TypeRef::Named(_) => "Object".to_string(),
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "Object".to_string(),
-        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "java.util.List<Object>".to_string(),
+        TypeRef::Named(name) => {
+            // Qualify all named types (ExtractionResult, ProcessingStage, etc.)
+            // with the kreuzberg package to match the binding FFI interface.
+            format!("dev.kreuzberg.{}", name)
+        }
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => format!("dev.kreuzberg.{}", name),
+            other => java_stub_type_fqn(other),
+        },
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => format!("java.util.List<dev.kreuzberg.{}>", name),
+            other => format!("java.util.List<{}>", java_stub_type_fqn(other)),
+        },
+        TypeRef::Map(k, v) => {
+            let key_type = java_stub_type_fqn(k);
+            let val_type = java_stub_type_fqn(v);
+            format!("java.util.Map<{}, {}>", key_type, val_type)
+        }
         _ => java_type_fqn(ty),
     }
 }
 
 /// Boxed version of java_stub_type_fqn for use as a CompletableFuture generic parameter.
+/// Ensures all types are boxed (no primitives) and fully qualified.
 fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
     use crate::core::ir::TypeRef;
     match ty {
@@ -2875,6 +2893,7 @@ fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
                 "long" => "Long".to_string(),
                 "float" => "Float".to_string(),
                 "double" => "Double".to_string(),
+                "byte[]" => "byte[]".to_string(), // byte[] stays as-is (already boxed in Java)
                 _ => t,
             }
         }
@@ -3051,6 +3070,43 @@ mod test_backend_tests {
         assert!(
             output.contains("processItem"),
             "required method must be emitted in camelCase, got:\n{output}"
+        );
+    }
+
+    /// Test that stub method signatures use fully-qualified names for Kreuzberg domain types.
+    #[test]
+    fn java_stub_method_uses_fqn_for_kreuzberg_types() {
+        let bridge = make_trait_bridge("DocumentExtractor");
+        // Method returning a Kreuzberg domain type
+        let method = MethodDef {
+            name: "extract_bytes".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("ExtractionResult".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("DocumentExtractor".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let methods = [&method];
+        let fixture = make_fixture("extract_bytes_test");
+
+        let emission = emit_test_backend(&bridge, &methods, &fixture);
+        let output = &emission.setup_block;
+
+        // Should use FQN for ExtractionResult return
+        assert!(
+            output.contains("public dev.kreuzberg.ExtractionResult extractBytes"),
+            "return type must use FQN dev.kreuzberg.ExtractionResult, got:\n{output}"
         );
     }
 }

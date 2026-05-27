@@ -26,38 +26,15 @@ use heck::ToSnakeCase;
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
-/// Recursively substitute `TypeRef::Named(n)` references where `n` is explicitly excluded
-/// from the binding's public surface with `TypeRef::Json`. This prevents internal types
-/// like `InternalDocument` from appearing in generated Zig trait-bridge signatures, which
-/// would cause "use of undeclared identifier" errors.
-fn substitute_excluded_types(ty: &TypeRef, excluded: &HashSet<&str>) -> TypeRef {
-    match ty {
-        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
-        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded_types(inner, excluded))),
-        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded_types(inner, excluded))),
-        TypeRef::Map(k, v) => TypeRef::Map(
-            Box::new(substitute_excluded_types(k, excluded)),
-            Box::new(substitute_excluded_types(v, excluded)),
-        ),
-        other => other.clone(),
-    }
-}
-
-/// Clone a `MethodDef`, substituting any excluded named-type references in its
-/// parameters and return type with `TypeRef::Json`.
-fn method_with_excluded_substituted(method: &MethodDef, excluded: &HashSet<&str>) -> MethodDef {
-    let mut m = method.clone();
-    for p in &mut m.params {
-        p.ty = substitute_excluded_types(&p.ty, excluded);
-    }
-    m.return_type = substitute_excluded_types(&m.return_type, excluded);
-    m
-}
-
 /// Zig type string to use for a vtable slot parameter or return type.
 ///
 /// All string/complex types collapse to `[*c]const u8` (C string pointer) since
 /// the vtable slots use the raw C ABI — not the Zig-friendly wrapper layer.
+///
+/// CRITICAL: This function must NOT apply type substitution. The vtable ABI is C-compatible
+/// and must remain stable. Excluded types appearing in vtable signatures should be kept as-is
+/// so the C FFI layer can link correctly. Type substitution happens only at the Zig wrapper
+/// level, not in the C ABI boundary.
 fn vtable_param_type(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(p) => {
@@ -150,7 +127,7 @@ pub fn emit_make_vtable(
     out: &mut String,
 ) {
     let snake = trait_snake(trait_name);
-    let excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
+    let _excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
 
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_header_doc.jinja",
@@ -195,12 +172,13 @@ pub fn emit_make_vtable(
 
     // Per-method thunks
     for method in &trait_def.methods {
-        // Substitute excluded types (like InternalDocument) with Json
-        let method_substituted = method_with_excluded_substituted(method, &excluded_strs);
+        // CRITICAL: Do NOT substitute excluded types in thunk C ABI signatures!
+        // The thunk must match the C ABI exactly or it won't call correctly.
+        // Substitution should never happen at the C boundary.
 
         let method_snake = method.name.to_snake_case();
-        let c_params = vtable_c_params(&method_substituted);
-        let ret = vtable_return_type(&method_substituted);
+        let c_params = vtable_c_params(method);
+        let ret = vtable_return_type(method);
 
         // Build the thunk parameter list string
         let params_str = c_params
@@ -223,7 +201,7 @@ pub fn emit_make_vtable(
 
         // Reconstruct Bytes slices and build forwarding arg list
         let mut call_args: Vec<String> = Vec::new();
-        for p in &method_substituted.params {
+        for p in &method.params {
             if matches!(p.ty, TypeRef::Bytes) {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "thunk_bytes_slice.jinja",
@@ -244,15 +222,15 @@ pub fn emit_make_vtable(
         // Pick a capture name for the success branch that won't collide with method
         // params. Methods can have a param literally called `result`; using that as
         // the unwrap binding shadows the outer scope (zig 0.16+ flags this).
-        let ok_binding = if method_substituted.params.iter().any(|p| p.name == "value") {
+        let ok_binding = if method.params.iter().any(|p| p.name == "value") {
             "ok_value"
         } else {
             "value"
         };
 
-        if method_substituted.error_type.is_some() {
+        if method.error_type.is_some() {
             // Fallible method: call returns error union, write out_result/out_error
-            let has_result_out = !matches!(method_substituted.return_type, TypeRef::Unit);
+            let has_result_out = !matches!(method.return_type, TypeRef::Unit);
             out.push_str(&crate::backends::zig::template_env::render(
                 "thunk_fn_signature.jinja",
                 minijinja::context! {
@@ -267,7 +245,7 @@ pub fn emit_make_vtable(
             // when the success path actually flows through.
             let mut success_path_diverges = false;
             if has_result_out {
-                match &method_substituted.return_type {
+                match &method.return_type {
                     TypeRef::Primitive(_) | TypeRef::Unit => {
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_result_assign.jinja",
@@ -309,10 +287,10 @@ pub fn emit_make_vtable(
             // (see vtable_c_params), but the body returns the value directly via the
             // function return type — so the param is unused. Discard it so zig 0.16+
             // doesn't flag "unused function parameter".
-            if !matches!(method_substituted.return_type, TypeRef::Unit) {
+            if !matches!(method.return_type, TypeRef::Unit) {
                 out.push_str("                _ = out_result;\n");
             }
-            match &method_substituted.return_type {
+            match &method.return_type {
                 TypeRef::Unit => {
                     out.push_str(&crate::backends::zig::template_env::render(
                         "thunk_if_error.jinja",
@@ -379,8 +357,9 @@ pub fn emit_trait_bridge(
     let snake = trait_snake(trait_name);
     let has_super_trait = bridge_cfg.super_trait.is_some();
 
-    // Convert excluded type names to &str for the substitution function
-    let excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
+    // Excluded types are NOT used in vtable signatures (they're C ABI, must stay stable).
+    // This collection is kept for potential future use in wrapper-only contexts.
+    let _excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
 
     // -------------------------------------------------------------------------
     // Vtable struct: I{Trait}
@@ -428,9 +407,10 @@ pub fn emit_trait_bridge(
 
     // Trait method slots
     for method in &trait_def.methods {
-        // Substitute excluded types (like InternalDocument) with Json to prevent
-        // "use of undeclared identifier" errors in the generated Zig code.
-        let method_substituted = method_with_excluded_substituted(method, &excluded_strs);
+        // CRITICAL: Do NOT substitute excluded types in vtable struct signatures!
+        // The vtable is a C ABI struct, and changing parameter/return types breaks
+        // linking with the FFI layer. Excluded types remain as-is here.
+        // Substitution only applies to Zig-level wrapper code, not the C boundary.
 
         if !method.doc.is_empty() {
             out.push_str(&crate::backends::zig::template_env::render(
@@ -441,12 +421,12 @@ pub fn emit_trait_bridge(
             ));
         }
 
-        let ret = vtable_return_type(&method_substituted);
+        let ret = vtable_return_type(method);
         let method_snake = method.name.to_snake_case();
 
         // Build the parameter list: user_data first, then method params.
         let mut params = vec!["user_data: ?*anyopaque".to_string()];
-        for p in &method_substituted.params {
+        for p in &method.params {
             let ty = vtable_param_type(&p.ty);
             // Bytes expand to two args (ptr + len)
             if matches!(p.ty, TypeRef::Bytes) {
@@ -458,12 +438,12 @@ pub fn emit_trait_bridge(
         }
 
         // Fallible methods get out-result and out-error pointers.
-        if method_substituted.error_type.is_some() {
-            if !matches!(method_substituted.return_type, TypeRef::Unit) {
+        if method.error_type.is_some() {
+            if !matches!(method.return_type, TypeRef::Unit) {
                 params.push("out_result: ?*?[*c]u8".to_string());
             }
             params.push("out_error: ?*?[*c]u8".to_string());
-        } else if !matches!(method_substituted.return_type, TypeRef::Unit) {
+        } else if !matches!(method.return_type, TypeRef::Unit) {
             // Infallible non-void: return via out_result too for uniformity
             params.push("out_result: ?*?[*c]u8".to_string());
         }
@@ -1351,6 +1331,134 @@ mod tests {
         assert!(
             out.contains("c.demo_clear_all_extractors("),
             "must use configured fn name in C symbol: {out}"
+        );
+    }
+
+    #[test]
+    fn vtable_preserves_named_types_for_c_abi_compatibility() {
+        // Test that VTable signatures do NOT substitute excluded types.
+        // The vtable is a C ABI struct and must preserve the exact C types.
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("InternalDocument".to_string());
+        excluded.insert("ExtractionResult".to_string());
+
+        let trait_def = make_trait_def(
+            "DocumentExtractor",
+            vec![
+                make_method(
+                    "extract_bytes",
+                    vec![
+                        make_param("content", TypeRef::Bytes),
+                        make_param("mime_type", TypeRef::String),
+                    ],
+                    TypeRef::Named("InternalDocument".to_string()),
+                    Some("KreuzbergError"),
+                ),
+                make_method(
+                    "process_result",
+                    vec![make_param("result", TypeRef::Named("ExtractionResult".to_string()))],
+                    TypeRef::Unit,
+                    None,
+                ),
+            ],
+        );
+        let bridge_cfg = make_bridge_cfg("DocumentExtractor", None);
+
+        let mut out = String::new();
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &excluded,
+            &mut out,
+        );
+
+        // VTable struct must be present with the trait name
+        assert!(
+            out.contains("pub const IDocumentExtractor = extern struct {"),
+            "missing vtable struct"
+        );
+
+        // Method slots must NOT have type substitution — they should use C ABI types
+        // ([*c]const u8, i32, etc.) not Zig types. The excluded types should appear
+        // as C pointers, not as Json or other substitutions.
+        assert!(
+            out.contains("extract_bytes:") && out.contains("callconv(.c)"),
+            "extract_bytes method slot missing"
+        );
+        assert!(
+            out.contains("process_result:"),
+            "process_result method slot missing"
+        );
+
+        // Bytes param expands to ptr + len in vtable signature
+        assert!(
+            out.contains("content_ptr: [*c]const u8") && out.contains("content_len: usize"),
+            "Bytes param should expand to ptr+len in C ABI"
+        );
+
+        // The result param should be [*c]const u8 (C string), not the Zig type
+        // ExtractionResult or Json or any substitution
+        assert!(
+            out.contains("result: [*c]const u8"),
+            "Named types in vtable should map to [*c]const u8, not be substituted"
+        );
+
+        // Return type should be i32 (error code) for fallible methods, not substituted
+        let has_fallible_return = out.contains("callconv(.c) i32");
+        assert!(has_fallible_return, "fallible method should return i32 for error code");
+    }
+
+    #[test]
+    fn make_vtable_thunks_preserve_c_abi_types() {
+        // Test that thunk function signatures preserve C ABI types.
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("InternalDocument".to_string());
+
+        let trait_def = make_trait_def(
+            "Renderer",
+            vec![make_method(
+                "render",
+                vec![make_param("doc", TypeRef::Named("InternalDocument".to_string()))],
+                TypeRef::Bytes,
+                Some("KreuzbergError"),
+            )],
+        );
+        let bridge_cfg = make_bridge_cfg("Renderer", None);
+
+        let mut out = String::new();
+        emit_trait_bridge(
+            "kreuzberg",
+            "KreuzbergError",
+            &bridge_cfg,
+            &trait_def,
+            &excluded,
+            &mut out,
+        );
+
+        // make_renderer_vtable should exist
+        assert!(
+            out.contains("pub fn make_renderer_vtable(comptime T: type, instance: *T)"),
+            "make_renderer_vtable helper missing"
+        );
+
+        // Thunk for render method should use C ABI types in its signature
+        assert!(
+            out.contains(".render ="),
+            "render thunk field missing"
+        );
+
+        // Thunk should have callconv(.c) and i32 return for the fallible method
+        assert!(
+            out.contains("callconv(.c) i32"),
+            "thunk should return i32 for error code"
+        );
+
+        // The parameter should be [*c]const u8 (C string from doc param)
+        assert!(
+            out.contains("doc: [*c]const u8"),
+            "thunk param should be C ABI type, not substituted"
         );
     }
 }
