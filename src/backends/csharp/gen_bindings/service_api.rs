@@ -252,16 +252,16 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
     out.push_str("        try {\n");
     out.push_str("            // Recover the GCHandle and invoke the delegate\n");
     out.push_str("            var handle = GCHandle.FromIntPtr(ctx);\n");
-    out.push_str("            if (handle.Target is Delegate handler) {\n");
+    out.push_str("            if (handle.Target is Func<string, string> handler) {\n");
     out.push_str("                // Unmarshal the request JSON\n");
     out.push_str("                string requestStr = Marshal.PtrToStringUTF8(requestJson) ?? \"{}\";\n");
-    out.push_str("                // Invoke the handler (stub implementation)\n");
-    out.push_str("                string responseStr = \"{}\";\n");
+    out.push_str("                // Invoke the handler and get the response\n");
+    out.push_str("                string responseStr = handler(requestStr);\n");
     out.push_str("                // Allocate response string in native memory\n");
     out.push_str("                return Marshal.StringToHGlobalUTF8(responseStr);\n");
     out.push_str("            }\n");
     out.push_str("        } catch {\n");
-    out.push_str("            // Return null or empty on error\n");
+    out.push_str("            // Return null on error\n");
     out.push_str("        }\n");
     out.push_str("        return IntPtr.Zero;\n");
     out.push_str("    }\n\n");
@@ -651,6 +651,47 @@ mod tests {
         assert!(cs.contains("UnmanagedCallersOnlyHandler"));
         assert!(cs.contains("GCHandle.FromIntPtr(ctx)"));
         assert!(cs.contains("Marshal.PtrToStringUTF8"));
+    }
+
+    #[test]
+    fn test_gen_service_cs_trampoline_invokes_delegate() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let cs = gen_service_cs(&api, service, "MyNamespace", "test");
+
+        // Verify the delegate type is Func<string, string>
+        assert!(
+            cs.contains("if (handle.Target is Func<string, string> handler)"),
+            "trampoline must cast to Func<string, string>"
+        );
+
+        // Verify the delegate is actually invoked
+        assert!(
+            cs.contains("handler(requestStr)"),
+            "trampoline must invoke the handler with request string"
+        );
+
+        // Verify the response from the delegate is marshalled (not a hardcoded response)
+        assert!(
+            cs.contains("string responseStr = handler(requestStr);"),
+            "trampoline must capture delegate result into responseStr"
+        );
+
+        // Verify there is NO hardcoded "{}" response or "stub" comment
+        assert!(
+            !cs.contains("\"stub implementation\""),
+            "trampoline must not have stub implementation comment"
+        );
+        assert!(
+            !cs.contains("string responseStr = \"{}\""),
+            "trampoline must not return hardcoded {{}} response"
+        );
+
+        // Verify the marshalled response is properly allocated in native memory
+        assert!(
+            cs.contains("Marshal.StringToHGlobalUTF8(responseStr)"),
+            "trampoline must marshal the response back to native memory"
+        );
     }
 
     #[test]
