@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-05-27
+
 ### Changed
 
 - **alef hash: compute per-file `alef:hash:` over generation inputs, not emitted content.** Previously `finalize_hashes` embedded `blake3(sources_hash || file_content)`, so any post-generation formatter (rumdl-fmt, oxfmt, cargo fmt, ruff, etc.) that rewrote whitespace or trailing newlines in a generated file would invalidate its embedded hash. `alef verify --exit-code` would then report the file as stale even though no inputs had changed, causing false-positive CI failures on every regen+lint cycle. The new formula is `blake3("alef:inputs\0" || ALEF_REV || "\0" || sources_hash || "\0" || alef_toml_bytes)` — capturing alef's own revision, the Rust source fingerprint, and the raw alef.toml bytes, but not the emitted file content at all. `alef verify` now compares the embedded hex directly against a freshly recomputed inputs hash without reading or hashing the surrounding file content. The domain separator `"alef:inputs\0"` prevents collision with any hash computed under the old scheme. (`src/core/hash.rs`, `src/cli/pipeline/generate.rs`, `src/cli/pipeline/version.rs`, `src/cli/cache.rs`, `src/main.rs`)
