@@ -180,11 +180,15 @@ impl E2eCodegen for CCodegen {
 
         // Resolve package config.
         let c_pkg = e2e_config.resolve_package("c");
-        let lib_name = c_pkg
+        // lib_name is the actual Rust library name (for linking)
+        let lib_name = config.ffi_lib_name();
+
+        // ffi_pkg_name is the release artifact package name (for downloads, may differ from lib_name)
+        let ffi_pkg_name = c_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| config.ffi_lib_name());
+            .unwrap_or_else(|| lib_name.clone());
 
         // Filter active groups (with non-skipped fixtures).
         let active_groups: Vec<(&FixtureGroup, Vec<&Fixture>)> = groups
@@ -242,13 +246,6 @@ impl E2eCodegen for CCodegen {
         // Generate download_ffi.sh for downloading prebuilt FFI from GitHub releases.
         let github_repo = config.github_repo();
         let version = config.resolved_version().unwrap_or_else(|| "0.0.0".to_string());
-        let ffi_pkg_name = e2e_config
-            .registry
-            .packages
-            .get("c")
-            .and_then(|p| p.name.as_ref())
-            .cloned()
-            .unwrap_or_else(|| lib_name.clone());
         files.push(GeneratedFile {
             path: output_base.join("download_ffi.sh"),
             content: render_download_script(&github_repo, &version, &ffi_pkg_name),
@@ -451,19 +448,19 @@ fn render_makefile(
     // pkg-config package name retains the original form (as declared in the .pc file).
     let link_lib_name = lib_name.replace('-', "_");
 
-    // 4-path fallback: ffi/ (download script) -> local repo build -> download on-demand -> pkg-config.
-    let _ = writeln!(out, "ifneq ($(wildcard $(FFI_DIR)/include/{header_name}),)");
-    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_DIR)/include");
-    let _ = writeln!(
-        out,
-        "    LDFLAGS = -L$(FFI_DIR)/lib -l{link_lib_name} -Wl,-rpath,$(FFI_DIR)/lib"
-    );
-    let _ = writeln!(out, "else ifneq ($(wildcard {ffi_crate_path}/include/{header_name}),)");
-    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I{ffi_crate_path}/include");
-    let _ = writeln!(
-        out,
-        "    LDFLAGS = -L../../target/release -l{link_lib_name} -Wl,-rpath,../../target/release"
-    );
+    // Ensure FFI artifacts are downloaded if not present locally
+    let _ = writeln!(out, "$(FFI_DIR)/include/{header_name}: download_ffi.sh");
+    let _ = writeln!(out, "\tbash download_ffi.sh");
+    let _ = writeln!(out);
+
+    // Dynamically select FFI library location using shell tests (evaluated at compilation time for each command)
+    // Priority: downloaded ffi/ > in-tree > pkg-config
+    let _ = writeln!(out, "FFI_INCLUDE := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include,$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include))");
+    let _ = writeln!(out, "FFI_LIB_DIR := $(if $(wildcard $(FFI_DIR)/lib),$(FFI_DIR)/lib,$(if $(wildcard ../../target/release),../../target/release))");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "ifneq ($(FFI_INCLUDE),)");
+    let _ = writeln!(out, "    CFLAGS = -Wall -Wextra -I. -I$(FFI_INCLUDE)");
+    let _ = writeln!(out, "    LDFLAGS = -L$(FFI_LIB_DIR) -l{link_lib_name}");
     let _ = writeln!(out, "else");
     let _ = writeln!(
         out,
@@ -471,10 +468,6 @@ fn render_makefile(
     );
     let _ = writeln!(out, "    LDFLAGS = $(shell pkg-config --libs {lib_name} 2>/dev/null)");
     let _ = writeln!(out, "endif");
-    let _ = writeln!(out);
-    let _ = writeln!(out, "# Ensure FFI artifacts are downloaded if not present locally");
-    let _ = writeln!(out, "$(FFI_DIR)/include/{header_name}: download_ffi.sh");
-    let _ = writeln!(out, "\tbash download_ffi.sh");
     let _ = writeln!(out);
 
     let src_files: Vec<String> = categories.iter().map(|c| format!("test_{c}.c")).collect();
@@ -641,6 +634,13 @@ fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) 
     let _ = writeln!(out, "echo \"Downloading ${{ARCHIVE}} from v${{VERSION}}...\"");
     let _ = writeln!(out, "mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "curl -fSL \"$URL\" | tar xz -C \"$FFI_DIR\"");
+    let _ = writeln!(out, "# Flatten the versioned subdirectory into the ffi/ root");
+    let _ = writeln!(out, "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}");
+    let _ = writeln!(out, "if [ -d \"$EXTRACTED_DIR\" ]; then");
+    let _ = writeln!(out, "  rm -rf \"$FFI_DIR\"/include \"$FFI_DIR\"/lib");
+    let _ = writeln!(out, "  mv \"$EXTRACTED_DIR\"/include \"$EXTRACTED_DIR\"/lib \"$FFI_DIR\"/");
+    let _ = writeln!(out, "  rm -rf \"$FFI_DIR\"/${{FFI_PKG_NAME}}-*");
+    let _ = writeln!(out, "fi");
     let _ = writeln!(out, "echo \"FFI library extracted to $FFI_DIR/\"");
     out
 }

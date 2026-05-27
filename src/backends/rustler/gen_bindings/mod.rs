@@ -1508,10 +1508,10 @@ impl Backend for RustlerBackend {
             }
         }
 
-        // Emit unregister_* delegates for every trait bridge that has an unregister_fn.
+        // Emit register_*, unregister_*, and clear_* delegates for every trait bridge.
         // These are excluded from the main function loop (via exclude_functions) because
-        // the trait bridge generator handles register/clear, but unregister delegates
-        // must also be surfaced in the public module so e2e tests can call them.
+        // the trait bridge generator handles them, but they must also be surfaced in the
+        // public module so e2e tests can call them.
         for bridge_cfg in &config.trait_bridges {
             if bridge_cfg
                 .exclude_languages
@@ -1520,6 +1520,23 @@ impl Backend for RustlerBackend {
             {
                 continue;
             }
+
+            // Emit register_* delegate
+            if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+                let fn_name = register_fn.to_snake_case();
+                content.push_str(&format!(
+                    "  @doc \"Register a {} plugin with a GenServer PID and name.\"\n",
+                    bridge_cfg.trait_name
+                ));
+                content.push_str(&format!(
+                    "  @spec {fn_name}(pid(), String.t()) :: :ok | :error\n"
+                ));
+                content.push_str(&format!("  def {fn_name}(genserver_pid, plugin_name) do\n"));
+                content.push_str(&format!("    {native_mod}.{fn_name}(genserver_pid, plugin_name)\n"));
+                content.push_str("  end\n\n");
+            }
+
+            // Emit unregister_* delegate
             if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
                 let fn_name = unregister_fn.to_snake_case();
                 content.push_str(&format!(
@@ -1531,6 +1548,21 @@ impl Backend for RustlerBackend {
                 ));
                 content.push_str(&format!("  def {fn_name}(name) do\n"));
                 content.push_str(&format!("    {native_mod}.{fn_name}(name)\n"));
+                content.push_str("  end\n\n");
+            }
+
+            // Emit clear_* delegate
+            if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+                let fn_name = clear_fn.to_snake_case();
+                content.push_str(&format!(
+                    "  @doc \"Clear all {} plugins from the global registry.\"\n",
+                    bridge_cfg.trait_name
+                ));
+                content.push_str(&format!(
+                    "  @spec {fn_name}() :: {{:ok, nil}} | {{:error, atom, String.t()}}\n"
+                ));
+                content.push_str(&format!("  def {fn_name} do\n"));
+                content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
                 content.push_str("  end\n\n");
             }
         }

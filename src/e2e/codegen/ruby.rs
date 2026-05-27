@@ -1388,6 +1388,13 @@ fn build_args_and_setup(
                         setup_lines.push(line.to_string());
                     }
                     parts.push(emission.arg_expr);
+
+                    // For register_fn traits (plugin pattern), Magnus requires a second "name" argument.
+                    // Extract the backend name from fixture input (same logic as emit_test_backend).
+                    if trait_bridge.register_fn.is_some() {
+                        let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
+                        parts.push(ruby_string_literal(&backend_name));
+                    }
                     continue;
                 }
             }
