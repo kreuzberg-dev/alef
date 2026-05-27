@@ -1,6 +1,7 @@
 mod functions;
 mod helpers;
 pub mod types;
+pub mod service_api;
 
 use crate::backends::php::type_map::PhpMapper;
 use crate::codegen::builder::RustFileBuilder;
@@ -96,6 +97,7 @@ impl Backend for PhpBackend {
             supports_enums: true,
             supports_option: true,
             supports_result: true,
+            supports_service_api: true,
             ..Capabilities::default()
         }
     }
@@ -1657,6 +1659,14 @@ impl Backend for PhpBackend {
             content,
             generated_header: false,
         }])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        service_api::generate(api, config)
     }
 
     fn build_config(&self) -> Option<BuildConfig> {
