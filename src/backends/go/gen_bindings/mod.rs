@@ -289,6 +289,21 @@ impl Backend for GoBackend {
             generated_header: false,
         });
 
+        // Generate embed_ffi.go with //go:embed directive to ensure header files
+        // are included when this module is vendored. Go's go mod vendor command only
+        // includes files that are referenced in the module; this directive tells Go
+        // to include the include/ directory so that the cgo #include directives work
+        // in vendored environments.
+        let embed_ffi_content = crate::backends::go::template_env::render(
+            "embed_ffi.go.jinja",
+            minijinja::context! {},
+        );
+        files.push(GeneratedFile {
+            path: PathBuf::from(format!("{output_dir}embed_ffi.go")),
+            content: embed_ffi_content,
+            generated_header: false,
+        });
+
         Ok(files)
     }
 

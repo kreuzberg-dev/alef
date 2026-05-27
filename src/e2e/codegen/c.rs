@@ -628,7 +628,7 @@ fn render_download_script(github_repo: &str, version: &str, ffi_pkg_name: &str) 
     let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
-    let _ = writeln!(out, "ARCHIVE=\"${{FFI_PKG_NAME}}-${{TRIPLE}}.tar.gz\"");
+    let _ = writeln!(out, "ARCHIVE=\"${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}.tar.gz\"");
     let _ = writeln!(
         out,
         "URL=\"${{REPO_URL}}/releases/download/v${{VERSION}}/${{ARCHIVE}}\""
@@ -3185,11 +3185,20 @@ fn build_args_string_c(
         if arg.arg_type == "test_backend" {
             if let Some(trait_name) = &arg.trait_name {
                 if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
-                    let methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                    let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
                         .iter()
                         .find(|t| t.name == *trait_name)
                         .map(|t| t.methods.iter().collect())
                         .unwrap_or_default();
+                    if let Some(super_trait) = &trait_bridge.super_trait {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
+                            for method in &super_type.methods {
+                                if !methods.iter().any(|m| m.name == method.name) {
+                                    methods.push(method);
+                                }
+                            }
+                        }
+                    }
                     let emission = super::emit_test_backend("c", trait_bridge, &methods, fixture);
                     parts.push(emission.arg_expr);
                     continue;
