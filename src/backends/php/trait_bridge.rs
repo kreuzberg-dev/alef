@@ -902,11 +902,7 @@ pub fn gen_visitor_interface(
             param_docs.push(doc);
         }
 
-        let method_params = if method_params_parts.is_empty() {
-            String::new()
-        } else {
-            format!(", {}", method_params_parts.join(", "))
-        };
+        let method_params = method_params_parts.join(", ");
 
         let param_docs_str = if param_docs.is_empty() {
             String::new()
@@ -981,11 +977,7 @@ pub fn gen_registration_interface(
             param_docs.push(doc);
         }
 
-        let method_params = if method_params_parts.is_empty() {
-            String::new()
-        } else {
-            format!(", {}", method_params_parts.join(", "))
-        };
+        let method_params = method_params_parts.join(", ");
 
         let param_docs_str = if param_docs.is_empty() {
             String::new()

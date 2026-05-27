@@ -43,6 +43,9 @@ pub enum PostProcessor {
     /// Filter excluded function definitions from frb-generated Dart lib.dart.
     /// Stores the set of function names to exclude.
     FrbDartExcludeFunctions(Vec<String>),
+    /// Make struct constructor fields optional for types with Rust defaults.
+    /// This handles Dart types that have #[serde(default)] fields in Rust.
+    FrbDartOptionalFieldsWithDefaults,
 }
 
 /// A post-build processing step.

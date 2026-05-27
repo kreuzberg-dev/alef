@@ -1275,6 +1275,9 @@ fn run_post_build(
                                 excluded.iter().map(|s| s.as_str()).collect();
                             crate::backends::dart::filter_excluded_functions(&content, &exclude_set)
                         }
+                        PostProcessor::FrbDartOptionalFieldsWithDefaults => {
+                            crate::backends::dart::make_struct_fields_with_defaults_optional(&content)
+                        }
                     };
                     if processed != content {
                         std::fs::write(&file_path, &processed)

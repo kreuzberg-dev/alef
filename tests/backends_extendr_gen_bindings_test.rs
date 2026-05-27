@@ -1243,5 +1243,16 @@ mod trait_bridge {
             !namespace.content.contains("export(excluded_func)"),
             "excluded_func should not be exported in NAMESPACE"
         );
+
+        // Check that excluded_func is NOT in the extendr_module! macro
+        // The macro should only contain `fn allowed_func;` but not `fn excluded_func;`
+        assert!(
+            lib_rs.content.contains("fn allowed_func;"),
+            "allowed_func should be registered in extendr_module!"
+        );
+        assert!(
+            !lib_rs.content.contains("fn excluded_func;"),
+            "excluded_func should not be registered in extendr_module! (would cause dangling meta__ reference)"
+        );
     }
 }

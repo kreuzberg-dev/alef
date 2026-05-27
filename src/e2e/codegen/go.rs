@@ -1958,8 +1958,9 @@ fn build_args_and_setup(
                         .unwrap_or_default();
 
                     // If there's a super-trait, also collect its methods.
+                    // Compare against rust_path (full module path), not just the simple name.
                     if let Some(super_trait) = &trait_bridge.super_trait {
-                        if let Some(super_type) = type_defs.iter().find(|t| &t.name == super_trait) {
+                        if let Some(super_type) = type_defs.iter().find(|t| &t.rust_path == super_trait) {
                             for method in &super_type.methods {
                                 // Only add if not already present (avoid duplicates).
                                 if !methods.iter().any(|m| m.name == method.name) {

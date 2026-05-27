@@ -23,7 +23,36 @@ use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridge
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
+use std::collections::HashSet;
 use std::fmt::Write as _;
+
+/// Recursively substitute `TypeRef::Named(n)` references where `n` is explicitly excluded
+/// from the binding's public surface with `TypeRef::Json`. This prevents internal types
+/// like `InternalDocument` from appearing in generated Zig trait-bridge signatures, which
+/// would cause "use of undeclared identifier" errors.
+fn substitute_excluded_types(ty: &TypeRef, excluded: &HashSet<&str>) -> TypeRef {
+    match ty {
+        TypeRef::Named(name) if excluded.contains(name.as_str()) => TypeRef::Json,
+        TypeRef::Optional(inner) => TypeRef::Optional(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Vec(inner) => TypeRef::Vec(Box::new(substitute_excluded_types(inner, excluded))),
+        TypeRef::Map(k, v) => TypeRef::Map(
+            Box::new(substitute_excluded_types(k, excluded)),
+            Box::new(substitute_excluded_types(v, excluded)),
+        ),
+        other => other.clone(),
+    }
+}
+
+/// Clone a `MethodDef`, substituting any excluded named-type references in its
+/// parameters and return type with `TypeRef::Json`.
+fn method_with_excluded_substituted(method: &MethodDef, excluded: &HashSet<&str>) -> MethodDef {
+    let mut m = method.clone();
+    for p in &mut m.params {
+        p.ty = substitute_excluded_types(&p.ty, excluded);
+    }
+    m.return_type = substitute_excluded_types(&m.return_type, excluded);
+    m
+}
 
 /// Zig type string to use for a vtable slot parameter or return type.
 ///
@@ -113,8 +142,9 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
 /// - Lifecycle slots (`name_fn`, `version_fn`, `initialize_fn`, `shutdown_fn`) are
 ///   emitted with `unreachable` bodies as stubs — the consumer overrides the
 ///   relevant field in the returned vtable if needed.
-pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &TypeDef, out: &mut String) {
+pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &TypeDef, excluded_types: &HashSet<String>, out: &mut String) {
     let snake = trait_snake(trait_name);
+    let excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
 
     out.push_str(&crate::backends::zig::template_env::render(
         "vtable_header_doc.jinja",
@@ -159,9 +189,12 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 
     // Per-method thunks
     for method in &trait_def.methods {
+        // Substitute excluded types (like InternalDocument) with Json
+        let method_substituted = method_with_excluded_substituted(method, &excluded_strs);
+
         let method_snake = method.name.to_snake_case();
-        let c_params = vtable_c_params(method);
-        let ret = vtable_return_type(method);
+        let c_params = vtable_c_params(&method_substituted);
+        let ret = vtable_return_type(&method_substituted);
 
         // Build the thunk parameter list string
         let params_str = c_params
@@ -184,7 +217,7 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 
         // Reconstruct Bytes slices and build forwarding arg list
         let mut call_args: Vec<String> = Vec::new();
-        for p in &method.params {
+        for p in &method_substituted.params {
             if matches!(p.ty, TypeRef::Bytes) {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "thunk_bytes_slice.jinja",
@@ -205,15 +238,15 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
         // Pick a capture name for the success branch that won't collide with method
         // params. Methods can have a param literally called `result`; using that as
         // the unwrap binding shadows the outer scope (zig 0.16+ flags this).
-        let ok_binding = if method.params.iter().any(|p| p.name == "value") {
+        let ok_binding = if method_substituted.params.iter().any(|p| p.name == "value") {
             "ok_value"
         } else {
             "value"
         };
 
-        if method.error_type.is_some() {
+        if method_substituted.error_type.is_some() {
             // Fallible method: call returns error union, write out_result/out_error
-            let has_result_out = !matches!(method.return_type, TypeRef::Unit);
+            let has_result_out = !matches!(method_substituted.return_type, TypeRef::Unit);
             out.push_str(&crate::backends::zig::template_env::render(
                 "thunk_fn_signature.jinja",
                 minijinja::context! {
@@ -228,7 +261,7 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             // when the success path actually flows through.
             let mut success_path_diverges = false;
             if has_result_out {
-                match &method.return_type {
+                match &method_substituted.return_type {
                     TypeRef::Primitive(_) | TypeRef::Unit => {
                         out.push_str(&crate::backends::zig::template_env::render(
                             "thunk_result_assign.jinja",
@@ -270,10 +303,10 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
             // (see vtable_c_params), but the body returns the value directly via the
             // function return type — so the param is unused. Discard it so zig 0.16+
             // doesn't flag "unused function parameter".
-            if !matches!(method.return_type, TypeRef::Unit) {
+            if !matches!(method_substituted.return_type, TypeRef::Unit) {
                 out.push_str("                _ = out_result;\n");
             }
-            match &method.return_type {
+            match &method_substituted.return_type {
                 TypeRef::Unit => {
                     out.push_str(&crate::backends::zig::template_env::render(
                         "thunk_if_error.jinja",
@@ -326,17 +359,22 @@ pub fn emit_make_vtable(trait_name: &str, has_super_trait: bool, trait_def: &Typ
 /// `error_type` is the Zig error set type name (e.g., `"KreuzbergError"`, `"CrawlError"`).
 /// `bridge_cfg` is the trait bridge configuration entry.
 /// `trait_def` is the IR type definition for the trait (must have `is_trait = true`).
+/// `excluded_types` is the set of type names that are excluded from the public binding surface.
 /// `out` is the output buffer to append to.
 pub fn emit_trait_bridge(
     prefix: &str,
     error_type: &str,
     bridge_cfg: &TraitBridgeConfig,
     trait_def: &TypeDef,
+    excluded_types: &HashSet<String>,
     out: &mut String,
 ) {
     let trait_name = &trait_def.name;
     let snake = trait_snake(trait_name);
     let has_super_trait = bridge_cfg.super_trait.is_some();
+
+    // Convert excluded type names to &str for the substitution function
+    let excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
 
     // -------------------------------------------------------------------------
     // Vtable struct: I{Trait}
@@ -384,6 +422,10 @@ pub fn emit_trait_bridge(
 
     // Trait method slots
     for method in &trait_def.methods {
+        // Substitute excluded types (like InternalDocument) with Json to prevent
+        // "use of undeclared identifier" errors in the generated Zig code.
+        let method_substituted = method_with_excluded_substituted(method, &excluded_strs);
+
         if !method.doc.is_empty() {
             out.push_str(&crate::backends::zig::template_env::render(
                 "trait_method_doc_lines.jinja",
@@ -393,12 +435,12 @@ pub fn emit_trait_bridge(
             ));
         }
 
-        let ret = vtable_return_type(method);
+        let ret = vtable_return_type(&method_substituted);
         let method_snake = method.name.to_snake_case();
 
         // Build the parameter list: user_data first, then method params.
         let mut params = vec!["user_data: ?*anyopaque".to_string()];
-        for p in &method.params {
+        for p in &method_substituted.params {
             let ty = vtable_param_type(&p.ty);
             // Bytes expand to two args (ptr + len)
             if matches!(p.ty, TypeRef::Bytes) {
@@ -410,12 +452,12 @@ pub fn emit_trait_bridge(
         }
 
         // Fallible methods get out-result and out-error pointers.
-        if method.error_type.is_some() {
-            if !matches!(method.return_type, TypeRef::Unit) {
+        if method_substituted.error_type.is_some() {
+            if !matches!(method_substituted.return_type, TypeRef::Unit) {
                 params.push("out_result: ?*?[*c]u8".to_string());
             }
             params.push("out_error: ?*?[*c]u8".to_string());
-        } else if !matches!(method.return_type, TypeRef::Unit) {
+        } else if !matches!(method_substituted.return_type, TypeRef::Unit) {
             // Infallible non-void: return via out_result too for uniformity
             params.push("out_result: ?*?[*c]u8".to_string());
         }
@@ -576,7 +618,7 @@ pub fn emit_trait_bridge(
     // -------------------------------------------------------------------------
     // Comptime vtable builder: make_{trait_snake}_vtable
     // -------------------------------------------------------------------------
-    emit_make_vtable(trait_name, has_super_trait, trait_def, out);
+    emit_make_vtable(trait_name, has_super_trait, trait_def, excluded_types, out);
 }
 
 // ---------------------------------------------------------------------------
@@ -808,7 +850,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Vtable struct
         assert!(
@@ -857,7 +899,7 @@ mod tests {
         bridge_cfg.clear_fn = Some("clear_ocr_backends".to_string());
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         assert!(
             out.contains("pub fn clear_ocr_backends() KreuzbergError!void"),
@@ -890,7 +932,7 @@ mod tests {
         // clear_fn left as None.
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         assert!(
             !out.contains("pub fn clear_"),
@@ -923,7 +965,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::plugins::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Struct name
         assert!(
@@ -983,7 +1025,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Validator", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Helper function declaration
         assert!(
@@ -1016,7 +1058,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("OcrBackend", Some("kreuzberg::Plugin"));
 
         let mut out = String::new();
-        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("kreuzberg", "KreuzbergError", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         assert!(
             out.contains("pub fn make_ocr_backend_vtable(comptime T: type, instance: *T)"),
@@ -1042,7 +1084,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Processor", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Thunk receives ptr+len params
         assert!(out.contains("data_ptr: [*c]const u8"), "missing data_ptr param: {out}");
@@ -1068,7 +1110,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("Parser", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Thunk returns i32 (fallible → i32 return)
         assert!(
@@ -1097,7 +1139,7 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("demo", None);
 
         let mut out = String::new();
-        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &mut out);
+        emit_trait_bridge("demo", "error", &bridge_cfg, &trait_def, &std::collections::HashSet::new(), &mut out);
 
         // Infallible primitive method: thunk returns the value directly
         assert!(

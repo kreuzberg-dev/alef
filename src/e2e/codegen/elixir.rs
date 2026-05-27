@@ -1393,6 +1393,13 @@ fn build_args_and_setup(
                     let emission = crate::e2e::codegen::emit_test_backend("elixir", trait_bridge, &methods, fixture);
                     setup_lines.push(emission.setup_block);
                     parts.push(emission.arg_expr);
+
+                    // For register_fn traits (plugin pattern), Rustler requires a second "name" argument.
+                    // Extract the backend name from fixture input (same logic as emit_test_backend).
+                    if trait_bridge.register_fn.is_some() {
+                        let backend_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
+                        parts.push(format!("\"{}\"", escape_elixir(&backend_name)));
+                    }
                     continue;
                 }
             }
@@ -2639,6 +2646,31 @@ pub fn emit_test_backend(
         arg_expr: qualified_module,
         type_imports: Vec::new(),
     }
+}
+
+/// Extract the backend name from fixture input for register_fn traits.
+///
+/// Looks for a "name" field at the root or nested one level deep,
+/// then falls back to the first string value encountered, then to the fallback.
+fn extract_backend_name_from_input(input: &serde_json::Value, fallback: &str) -> String {
+    if let Some(obj) = input.as_object() {
+        if let Some(s) = obj.get("name").and_then(|v| v.as_str()) {
+            return s.to_string();
+        }
+        for v in obj.values() {
+            if let Some(inner) = v.as_object() {
+                if let Some(s) = inner.get("name").and_then(|v| v.as_str()) {
+                    return s.to_string();
+                }
+            }
+        }
+        for v in obj.values() {
+            if let Some(s) = v.as_str() {
+                return s.to_string();
+            }
+        }
+    }
+    fallback.to_string()
 }
 
 #[cfg(test)]

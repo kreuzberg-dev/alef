@@ -17,5 +17,7 @@ pub mod naming;
 mod template_env;
 pub(crate) mod type_map;
 
-pub use frb_rewrite::{filter_excluded_functions, rewrite_frb_sealed_variants};
+pub use frb_rewrite::{
+    filter_excluded_functions, make_struct_fields_with_defaults_optional, rewrite_frb_sealed_variants,
+};
 pub use gen_bindings::DartBackend;

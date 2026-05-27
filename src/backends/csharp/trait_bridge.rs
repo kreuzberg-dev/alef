@@ -879,4 +879,32 @@ mod tests {
         assert!(!content.contains("public static void Unregister(string name)"));
         assert!(!content.contains("NativeMethods.UnregisterOcrBackend"));
     }
+
+    #[test]
+    fn test_bridge_class_has_register_static_method_with_super_trait() {
+        // Bridge class should have a static Register method that takes the impl and optionally name
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", Some("Plugin"));
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
+        assert!(content.contains("public static IntPtr Register(IOcrBackend impl)"));
+        // Verify it's reading impl.Name
+        assert!(content.contains("var name = impl.Name;"));
+    }
+
+    #[test]
+    fn test_bridge_class_has_register_static_method_without_super_trait() {
+        // Bridge class should have a static Register method that takes impl and explicit name param
+        let trait_def = make_trait_def("OcrBackend");
+        let bridge_cfg = make_bridge_cfg("OcrBackend", None);
+        let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["OcrBackend"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("Kreuzberg", "kreuzberg", &bridges, &visible_types);
+
+        assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
+        assert!(content.contains("public static IntPtr Register(IOcrBackend impl, string name)"));
+    }
 }

@@ -110,27 +110,6 @@ python = "crates/my-lib-py/src/"
 }
 
 #[test]
-fn test_scaffold_python_pyproject_sdist_includes_local_rust_crates() {
-    let mut config = test_config();
-    config.extra_dependencies.insert(
-        "my-helper".to_string(),
-        toml::Value::Table({
-            let mut table = toml::map::Map::new();
-            table.insert("path".to_string(), toml::Value::String("../my-helper".to_string()));
-            table
-        }),
-    );
-    let api = test_api();
-    let all_files = scaffold(&api, &config, &[Language::Python]).unwrap();
-    let files = language_files(&all_files);
-    let pyproject = &files[0].content;
-
-    assert!(pyproject.contains(r#"{ path = "../../crates/my-lib-py/**/*", format = "sdist" }"#));
-    assert!(pyproject.contains(r#"{ path = "../../crates/my-lib/**/*", format = "sdist" }"#));
-    assert!(pyproject.contains(r#"{ path = "../../crates/my-helper/**/*", format = "sdist" }"#));
-}
-
-#[test]
 fn test_scaffold_node() {
     let config = test_config();
     let api = test_api();

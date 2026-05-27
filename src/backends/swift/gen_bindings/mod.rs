@@ -2995,20 +2995,20 @@ fn emit_swift_bridge_files(
         Some(d) => d,
         None => {
             // No build output yet.  Upgrade the committed placeholder `RustBridgeC.h` to
-            // include the minimal `RustStr` typedef so that `SwiftBridgeCore.swift` compiles
-            // even before `cargo build -p {binding_crate_name}` has been run.  Without this
-            // typedef the Swift compiler reports "cannot find type 'RustStr' in scope" for
-            // every `extension RustStr` block in the committed `SwiftBridgeCore.swift`.
+            // include C structs used by swift-bridge's generated `SwiftBridgeCore.swift`.
+            // Without these typedefs the Swift compiler reports "cannot find type" errors
+            // for RustStr, __private__FfiSlice, and __private__OptionXX extensions
+            // in the committed `SwiftBridgeCore.swift`.
             let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
             let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
             // Only emit the minimal placeholder when the existing header still matches the
-            // old empty form (no RustStr typedef).  If the full header has already been
+            // old form (no __private__FfiSlice typedef).  If the full header has already been
             // written by a prior generate run with build output, leave it alone.
             let needs_upgrade = header_path
                 .exists()
                 .then(|| std::fs::read_to_string(&header_path).ok())
                 .flatten()
-                .map(|content| !content.contains("RustStr"))
+                .map(|content| !content.contains("__private__FfiSlice"))
                 .unwrap_or(false);
             if needs_upgrade {
                 let minimal_header = format!(
@@ -3017,12 +3017,27 @@ fn emit_swift_bridge_files(
                      \n\
                      // Placeholder header for the RustBridgeC SwiftPM target.\n\
                      // Run `cargo build -p {binding_crate_name}` and re-run `alef generate` to populate.\n\
-                     // The RustStr typedef below is the minimum required for SwiftBridgeCore.swift\n\
+                     // The typedefs below are the minimum required for SwiftBridgeCore.swift\n\
                      // to compile before the full cargo build has been run.\n\
                      \n\
                      #include <stdint.h>\n\
+                     #include <stdbool.h>\n\
                      \n\
                      typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
+                     typedef struct __private__FfiSlice {{ void* const start; uintptr_t len; }} __private__FfiSlice;\n\
+                     typedef struct __private__OptionU8 {{ uint8_t val; bool is_some; }} __private__OptionU8;\n\
+                     typedef struct __private__OptionI8 {{ int8_t val; bool is_some; }} __private__OptionI8;\n\
+                     typedef struct __private__OptionU16 {{ uint16_t val; bool is_some; }} __private__OptionU16;\n\
+                     typedef struct __private__OptionI16 {{ int16_t val; bool is_some; }} __private__OptionI16;\n\
+                     typedef struct __private__OptionU32 {{ uint32_t val; bool is_some; }} __private__OptionU32;\n\
+                     typedef struct __private__OptionI32 {{ int32_t val; bool is_some; }} __private__OptionI32;\n\
+                     typedef struct __private__OptionU64 {{ uint64_t val; bool is_some; }} __private__OptionU64;\n\
+                     typedef struct __private__OptionI64 {{ int64_t val; bool is_some; }} __private__OptionI64;\n\
+                     typedef struct __private__OptionUsize {{ uintptr_t val; bool is_some; }} __private__OptionUsize;\n\
+                     typedef struct __private__OptionIsize {{ intptr_t val; bool is_some; }} __private__OptionIsize;\n\
+                     typedef struct __private__OptionF32 {{ float val; bool is_some; }} __private__OptionF32;\n\
+                     typedef struct __private__OptionF64 {{ double val; bool is_some; }} __private__OptionF64;\n\
+                     typedef struct __private__OptionBool {{ bool val; bool is_some; }} __private__OptionBool;\n\
                      \n\
                      #endif /* RUST_BRIDGE_C_H */\n"
                 );

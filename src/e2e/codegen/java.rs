@@ -2786,22 +2786,21 @@ fn emit_java_stub_method(
     method: &crate::core::ir::MethodDef,
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
 ) {
-    use crate::backends::java::type_map::java_type;
     use std::fmt::Write as _;
 
-    let ret_java = java_stub_type(&method.return_type);
+    let ret_java = java_stub_type_fqn(&method.return_type);
     let default_val = defaults.emit_default(&method.return_type);
 
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", java_type(&p.ty), p.name.to_lower_camel_case()))
+        .map(|p| format!("{} {}", java_type_fqn(&p.ty), p.name.to_lower_camel_case()))
         .collect();
     let params_str = params.join(", ");
 
     let _ = writeln!(out, "    @Override");
     if method.is_async {
-        let ret_boxed = java_boxed_stub_type(&method.return_type);
+        let ret_boxed = java_boxed_stub_type_fqn(&method.return_type);
         let _ = writeln!(
             out,
             "    public java.util.concurrent.CompletableFuture<{ret_boxed}> {method_java}({params_str}) {{"
@@ -2820,26 +2819,54 @@ fn emit_java_stub_method(
     }
 }
 
-/// Map a TypeRef to its Java type, substituting `Object` for opaque named types
-/// (which cross the JNI/Panama boundary as opaque handles, not classes available in tests).
-fn java_stub_type(ty: &crate::core::ir::TypeRef) -> String {
+
+/// Map a TypeRef to its Java type with fully-qualified names for use in test stubs.
+/// This variant ensures all types are qualified (e.g., `java.util.List` not `List`).
+fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
     use crate::backends::java::type_map::java_type;
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Named(_) => "Object".to_string(),
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "Object".to_string(),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "java.util.List<Object>".to_string(),
-        _ => java_type(ty).into_owned(),
+        TypeRef::Vec(_) => {
+            // Use JavaBoxedMapper to get boxed inner types, then qualify List
+            format!("java.util.{}", java_type(ty).into_owned())
+        }
+        TypeRef::Map(_, _) => {
+            // Use JavaBoxedMapper to get boxed inner types, then qualify Map
+            format!("java.util.{}", java_type(ty).into_owned())
+        }
+        _ => {
+            let t = java_type(ty).into_owned();
+            match t.as_str() {
+                "List" | "ArrayList" => format!("java.util.{}", t),
+                "Map" | "HashMap" => format!("java.util.{}", t),
+                _ => t,
+            }
+        }
     }
 }
 
-/// Boxed version of java_stub_type for use as a CompletableFuture generic parameter.
-fn java_boxed_stub_type(ty: &crate::core::ir::TypeRef) -> String {
+/// Map a TypeRef to its Java stub type with fully-qualified names.
+/// Substitutes `Object` for opaque named types; uses FQN for List/Map/ArrayList.
+fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::Named(_) => "Object".to_string(),
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "Object".to_string(),
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => "java.util.List<Object>".to_string(),
+        _ => java_type_fqn(ty),
+    }
+}
+
+/// Boxed version of java_stub_type_fqn for use as a CompletableFuture generic parameter.
+fn java_boxed_stub_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Unit => "Void".to_string(),
         _ => {
-            let t = java_stub_type(ty);
+            let t = java_stub_type_fqn(ty);
             // Box primitives for use as generic type parameters.
             match t.as_str() {
                 "boolean" => "Boolean".to_string(),
@@ -2872,7 +2899,8 @@ pub fn emit_test_backend(
     let pascal_id = fixture.id.to_upper_camel_case();
     let class_name = format!("TestStub{pascal_id}");
     // Java interface follows the I{TraitName} convention from the Panama FFM bridge.
-    let interface_name = format!("I{}", trait_bridge.trait_name);
+    // Use fully-qualified name to avoid "cannot find symbol" errors in test compilation.
+    let interface_name = format!("dev.kreuzberg.I{}", trait_bridge.trait_name);
 
     let plugin_name = fixture
         .input
@@ -3018,8 +3046,8 @@ mod test_backend_tests {
             "class name must be derived from fixture id, got:\n{output}"
         );
         assert!(
-            output.contains("implements ITestTrait"),
-            "class must implement interface derived from trait name, got:\n{output}"
+            output.contains("implements dev.kreuzberg.ITestTrait"),
+            "class must implement fully-qualified interface, got:\n{output}"
         );
         assert!(
             output.contains("processItem"),

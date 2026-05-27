@@ -300,15 +300,29 @@ impl DartBackend {
                     ],
                 }];
 
-                // Use the dedicated post-processor to filter excluded functions.
+                // Use the dedicated post-processor to filter excluded functions from lib.dart.
                 post_build_steps.push(PostBuildStep::PostProcessFile {
                     path: lib_dart_path.clone(),
-                    processor: PostProcessor::FrbDartExcludeFunctions(exclude_functions),
+                    processor: PostProcessor::FrbDartExcludeFunctions(exclude_functions.clone()),
                 });
 
                 post_build_steps.push(PostBuildStep::PostProcessFile {
-                    path: lib_dart_path,
+                    path: lib_dart_path.clone(),
                     processor: PostProcessor::FrbDartSealedVariants,
+                });
+
+                // Make struct fields with Rust defaults optional in the Dart constructor.
+                // This handles types like EmbeddingConfig which have #[serde(default)] fields.
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: lib_dart_path.clone(),
+                    processor: PostProcessor::FrbDartOptionalFieldsWithDefaults,
+                });
+
+                // Filter excluded functions from frb_generated.dart as well, since FRB
+                // generates Rust FFI bridge wrappers there (e.g., `crateCalculateQualityScore`).
+                post_build_steps.push(PostBuildStep::PostProcessFile {
+                    path: frb_generated_path.clone(),
+                    processor: PostProcessor::FrbDartExcludeFunctions(exclude_functions),
                 });
 
                 // Inject the published-package native-library loader into

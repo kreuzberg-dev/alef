@@ -256,7 +256,7 @@ impl Backend for ZigBackend {
                 continue;
             }
             if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
-                emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &mut content);
+                emit_trait_bridge(&prefix, error_type, bridge_cfg, trait_def, &exclude_types, &mut content);
                 content.push('\n');
             }
         }
