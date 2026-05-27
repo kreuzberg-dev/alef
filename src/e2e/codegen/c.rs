@@ -462,6 +462,16 @@ fn render_makefile(
         out,
         "HEADER_PATH := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include/{header_name},$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include/{header_name}))"
     );
+    // Resolve the shared lib to whichever location holds it (downloaded ffi/
+    // or a local cargo build at ../../target/release). Symmetric to
+    // HEADER_PATH: the build target only skips the download prerequisite when
+    // BOTH header and lib are present locally. Without the lib check, a tree
+    // that has the in-tree header but no local cargo build would skip the
+    // download and then fail at link time with "library not found".
+    let _ = writeln!(
+        out,
+        "LIB_PATH := $(or $(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.so),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.dylib),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.a),$(wildcard ../../target/release/lib{link_lib_name}.so),$(wildcard ../../target/release/lib{link_lib_name}.dylib),$(wildcard ../../target/release/lib{link_lib_name}.a))"
+    );
     let _ = writeln!(out);
 
     // Dynamically select FFI library location using shell tests (evaluated at compilation time for each command)
@@ -499,7 +509,7 @@ fn render_makefile(
     let _ = writeln!(out);
     let _ = writeln!(
         out,
-        "$(TARGET): $(SRCS) $(if $(HEADER_PATH),,$(FFI_DIR)/include/{header_name})"
+        "$(TARGET): $(SRCS) $(if $(and $(HEADER_PATH),$(LIB_PATH)),,$(FFI_DIR)/include/{header_name})"
     );
     let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)");
     let _ = writeln!(out);

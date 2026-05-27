@@ -83,7 +83,7 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>{{ maven_surefire_version }}</version>
                 <configuration>
-                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED -Djava.library.path=${project.basedir}/../../target/release</argLine>
+                    <argLine>--enable-preview --enable-native-access=ALL-UNNAMED{% if include_native_lib_path %} -Djava.library.path=${project.basedir}/../../target/release{% endif %}</argLine>
                     <workingDirectory>${project.basedir}/{{ test_documents_path | safe }}</workingDirectory>
                 </configuration>
             </plugin>
