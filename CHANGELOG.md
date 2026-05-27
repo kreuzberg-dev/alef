@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef zig publish: emit per-platform tarballs with distinct filenames.** `alef publish package --lang zig --target <T>` now produces `{crate}-zig-v{version}-{platform}.tar.gz` (mirroring the Go package naming scheme) instead of `{crate}-v{version}.tar.gz`. Previously all platform-specific builds collided on the same filename during GitHub Release asset upload, leaving only the final tarball in the release. Platform naming uses the Go ecosystem convention (e.g. `linux-x86_64`, `macos-arm64`).
+
+### Fixed
+
 - **alef packaging: generate and validate language package internals instead of relying on repo-local drift.** Python sdists now include the PyO3 crate, core crate, and local Rust path dependencies; Ruby gemspecs include README/LICENSE and generated type files; Node package scaffolding emits platform manifests, optional dependencies, `exports`, engines, musl libc metadata, and `win32-arm64-msvc`; WASM packages can use explicit package names and publish from Alef's manifest; Elixir scaffolds include `nif_targets`; PHP root Composer autoload points at `packages/php/src/`; publish validation detects stale Ruby/C# package entrypoints, Go `/vN` layout mismatches, Swift release placeholders, and missing Java/Dart/Zig metadata.
 
 ## [0.19.21] - 2026-05-26

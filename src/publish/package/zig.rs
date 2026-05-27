@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Package Zig bindings as a source distribution with bundled FFI library.
 ///
-/// Produces: `{name}-v{version}.tar.gz` containing:
+/// Produces: `{name}-zig-v{version}-{platform}.tar.gz` containing:
 /// - `src/` — Zig source code
 /// - `lib/` — FFI shared library (.so/.dylib)
 /// - `include/` — C header
@@ -27,8 +27,9 @@ pub fn package_zig(
     let module_name = config.zig_module_name();
     let crate_name = &config.name;
     let pkg_dir = config.package_dir(crate::core::config::extras::Language::Zig);
+    let platform = target.platform_for(crate::core::config::extras::Language::Go);
 
-    let pkg_name = format!("{crate_name}-v{version}");
+    let pkg_name = format!("{crate_name}-zig-v{version}-{platform}");
     let staging = output_dir.join(&pkg_name);
 
     if staging.exists() {
