@@ -350,6 +350,63 @@ fn render_test_file(
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "# E2e tests for category: {category}");
+
+    // First pass: collect all trait-bridge module definitions from fixtures.
+    // These must be emitted at the file level (before the test module defmodule),
+    // not nested inside it, so modules can be defined at the correct scope.
+    let mut trait_bridge_module_defs = Vec::new();
+    for fixture in fixtures {
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let resolved_args = fixture.resolved_args(&call_config);
+        for arg in resolved_args.iter() {
+            if arg.arg_type == "test_backend" {
+                if let Some(trait_name) = &arg.trait_name {
+                    if let Some(trait_bridge) = config.trait_bridges.iter().find(|tb| tb.trait_name == *trait_name) {
+                        let mut methods: Vec<&crate::core::ir::MethodDef> = type_defs
+                            .iter()
+                            .find(|t| t.name == *trait_name)
+                            .map(|t| t.methods.iter().collect())
+                            .unwrap_or_default();
+                        if let Some(super_trait) = &trait_bridge.super_trait {
+                            if let Some(super_type) = type_defs.iter().find(|t| &t.name == super_trait) {
+                                for method in &super_type.methods {
+                                    if !methods.iter().any(|m| m.name == method.name) {
+                                        methods.push(method);
+                                    }
+                                }
+                            }
+                        }
+                        let elixir_nif_module = format!("{module_path}.Native");
+                        let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module);
+
+                        // Extract module defs from the combined setup_block
+                        if let Some(pos) = emission.setup_block.find("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
+                            let marker_start = emission.setup_block[..pos].rfind('\n').unwrap_or(0);
+                            let module_defs_str = emission.setup_block[..marker_start].trim_end().to_string();
+                            for line in module_defs_str.lines() {
+                                if !line.is_empty() {
+                                    trait_bridge_module_defs.push(line.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Emit trait-bridge module definitions at file level (before test module defmodule).
+    // Strip leading whitespace since emit_test_backend includes indentation.
+    for module_def_line in &trait_bridge_module_defs {
+        let _ = writeln!(out, "{}", module_def_line.trim_start());
+    }
+
     let _ = writeln!(out, "defmodule E2e.{}Test do", elixir_module_name(category));
 
     // Add client helper when there are HTTP fixtures in this group.
@@ -990,21 +1047,14 @@ fn render_test_case(
     // use the real API when the key is set, otherwise fall back to the mock server.
     let needs_env_fallback = has_mock && api_key_var_opt.is_some();
 
-    // Extract trait-bridge module definitions from setup_lines so they can be emitted
-    // at module level (before the describe block), not indented inside the test function.
+    // Extract trait-bridge module definitions from setup_lines and keep only the test-level parts.
     // Trait-bridge setup blocks are formatted with a marker: module defs, then marker, then test setup.
-    let mut trait_bridge_module_defs = Vec::new();
+    // Module defs are emitted at file level by render_test_file, so we only keep the test-level setup here.
     let mut cleaned_setup_lines = Vec::new();
     for line in setup_lines.iter() {
         if line.contains("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
-            // Split this line on the marker
-            let (module_part, test_part) = extract_trait_bridge_parts(line);
-            // Emit module defs at module level (no indentation)
-            for module_line in module_part.lines() {
-                if !module_line.is_empty() {
-                    trait_bridge_module_defs.push(module_line.to_string());
-                }
-            }
+            // Split this line on the marker and discard the module-level part
+            let (_module_part, test_part) = extract_trait_bridge_parts(line);
             // Emit test-level part indented in the test function
             for test_line in test_part.lines() {
                 if !test_line.is_empty() {
@@ -1014,11 +1064,6 @@ fn render_test_case(
         } else {
             cleaned_setup_lines.push(line.clone());
         }
-    }
-
-    // Emit trait-bridge module definitions at module level (before describe block)
-    for module_def_line in &trait_bridge_module_defs {
-        let _ = writeln!(out, "{module_def_line}");
     }
 
     let _ = writeln!(out, "  describe \"{test_name}\" do");
@@ -1449,7 +1494,22 @@ fn build_args_and_setup(
                     // follows the "{AppModule}.Native" convention used by the Elixir scaffold.
                     let elixir_nif_module = format!("{module_path}.Native");
                     let emission = emit_test_backend(trait_bridge, &methods, fixture, &elixir_nif_module);
-                    setup_lines.push(emission.setup_block);
+
+                    // Extract only the test-level setup part (after the marker).
+                    // Module-level defs are emitted at file level by render_test_file, not here.
+                    if let Some(pos) = emission.setup_block.find("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
+                        let marker_end = emission.setup_block[pos + 32..].find('\n')
+                            .map(|i| pos + 32 + i + 1)
+                            .unwrap_or_else(|| emission.setup_block.len());
+                        let test_setup = emission.setup_block[marker_end..].trim_start().to_string();
+                        if !test_setup.is_empty() {
+                            setup_lines.push(test_setup);
+                        }
+                    } else {
+                        // Fallback for non-marker blocks (shouldn't happen for trait bridges)
+                        setup_lines.push(emission.setup_block);
+                    }
+
                     parts.push(emission.arg_expr);
 
                     // For register_fn traits (plugin pattern), Rustler requires a second "name" argument.
