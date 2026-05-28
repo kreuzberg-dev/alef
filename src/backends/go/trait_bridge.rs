@@ -104,6 +104,68 @@ pub fn gen_trait_bridges_file(
             ffi_header => ffi_header,
         },
     ));
+    out.push('\n');
+
+    // Forward-declare all exported Go trampolines in the CGO preamble so that
+    // C code can reference them. These are Go functions with //export directives
+    // that will be linked when the Go code is compiled.
+    for bridge_cfg in &config.trait_bridges {
+        if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name) {
+            let pascal = bridge_cfg.trait_name.to_pascal_case();
+            for method in trait_def
+                .methods
+                .iter()
+                .filter(|m| !bridge_cfg.ffi_skip_methods.contains(&m.name))
+            {
+                let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
+                let method_substituted = method_with_excluded_substituted(method, &excluded_named_types);
+                let c_sig = c_trampoline_signature(&export_name, &method_substituted);
+                out.push_str(&crate::backends::go::template_env::render(
+                    "extern_trampoline_decl.jinja",
+                    minijinja::context! {
+                        export_name => export_name,
+                        c_sig => c_sig,
+                    },
+                ));
+            }
+            // Plugin lifecycle trampolines
+            out.push_str(&crate::backends::go::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Name",
+                },
+            ));
+            out.push_str(&crate::backends::go::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Version",
+                },
+            ));
+            out.push_str(&crate::backends::go::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Initialize",
+                },
+            ));
+            out.push_str(&crate::backends::go::template_env::render(
+                "plugin_trampoline_decl.jinja",
+                minijinja::context! {
+                    pascal => pascal.clone(),
+                    method => "Shutdown",
+                },
+            ));
+            out.push_str(&crate::backends::go::template_env::render(
+                "plugin_free_user_data_extern.jinja",
+                minijinja::context! {
+                    pascal => &pascal,
+                },
+            ));
+        }
+    }
+
     out.push_str("*/\n");
     out.push_str("import \"C\"\n");
     out.push('\n');
@@ -767,6 +829,7 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
 
 /// Build the C trampoline function signature for extern declaration in the CGo preamble.
 /// Uses actual C types (not Go CGo types like `C.int32_t`).
+#[allow(dead_code)]
 fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
     let mut params = vec!["void* user_data".to_string()];
     for p in &method.params {
@@ -786,6 +849,7 @@ fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
 }
 
 /// Convert a Rust TypeRef to a plain C type string (for CGo preamble extern declarations).
+#[allow(dead_code)]
 fn rust_to_plain_c_type(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Primitive(p) => {
