@@ -126,10 +126,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
     let class_name = service.name.to_upper_camel_case();
     let bridge_object_name = service_bridge_class_name(&service.name);
     out.push_str("/**\n");
-    out.push_str(&format!(
-        " * JNI bridge object for {} service.\n",
-        service.name
-    ));
+    out.push_str(&format!(" * JNI bridge object for {} service.\n", service.name));
     out.push_str(" *\n");
     out.push_str(" * Contains native declarations matched to JNI symbols.\n");
     out.push_str(" */\n");
@@ -160,9 +157,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
     out.push_str(&format!("     * Allocate a new {} instance.\n", service.name));
     out.push_str("     */\n");
     out.push_str("    init {\n");
-    out.push_str(&format!(
-        "        handle = {bridge_object_name}.{ctor_method}()\n"
-    ));
+    out.push_str(&format!("        handle = {bridge_object_name}.{ctor_method}()\n"));
     out.push_str("    }\n\n");
 
     // Closeable impl: destructor
@@ -172,9 +167,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
     out.push_str("     */\n");
     out.push_str("    override fun close() {\n");
     out.push_str("        if (handle != 0L) {\n");
-    out.push_str(&format!(
-        "            {bridge_object_name}.{dtor_method}(handle)\n"
-    ));
+    out.push_str(&format!("            {bridge_object_name}.{dtor_method}(handle)\n"));
     out.push_str("            handle = 0L\n");
     out.push_str("        }\n");
     out.push_str("    }\n\n");
@@ -192,7 +185,10 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
 
         // Document metadata params
         for meta_param in &reg.metadata_params {
-            out.push_str(&format!("     * @param {} Metadata: {}\n", meta_param.name, meta_param.name));
+            out.push_str(&format!(
+                "     * @param {} Metadata: {}\n",
+                meta_param.name, meta_param.name
+            ));
         }
 
         out.push_str("     * @return 0 on success, non-zero error code on failure\n");
@@ -209,7 +205,9 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
         }
 
         out.push_str("\n    ): Int {\n");
-        out.push_str(&format!("        return {bridge_object_name}.{native_register_name}(\n"));
+        out.push_str(&format!(
+            "        return {bridge_object_name}.{native_register_name}(\n"
+        ));
         out.push_str("            handle,\n");
         out.push_str("            handler,\n");
 
@@ -274,9 +272,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
         let ep_method_name = bridge_method_name(&service.name, &ep.method);
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!(
-                    "        {bridge_object_name}.{ep_method_name}(\n"
-                ));
+                out.push_str(&format!("        {bridge_object_name}.{ep_method_name}(\n"));
                 out.push_str("            handle");
 
                 for param in &ep.params {
@@ -287,9 +283,7 @@ fn gen_service_kotlin(_api: &ApiSurface, service: &ServiceDef, package: &str, li
                 out.push_str("\n        )\n");
             }
             EntrypointKind::Finalize => {
-                out.push_str(&format!(
-                    "        return {bridge_object_name}.{ep_method_name}(\n"
-                ));
+                out.push_str(&format!("        return {bridge_object_name}.{ep_method_name}(\n"));
                 out.push_str("            handle");
 
                 for param in &ep.params {
@@ -619,7 +613,9 @@ mod tests {
         let files = generate(&api, &config).expect("generate should not fail");
         assert!(!files.is_empty(), "expected at least one file");
 
-        let has_service_file = files.iter().any(|f| f.path.to_string_lossy().contains("TestService.kt"));
+        let has_service_file = files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("TestService.kt"));
         assert!(has_service_file, "expected TestService.kt in output");
     }
 

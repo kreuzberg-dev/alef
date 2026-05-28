@@ -54,7 +54,9 @@ fn test_java_mvnw_wrapper_files_emitted() {
         "mvnw.cmd not found in generated files"
     );
     assert!(
-        paths.iter().any(|p| p.ends_with(".mvn/wrapper/maven-wrapper.properties")),
+        paths
+            .iter()
+            .any(|p| p.ends_with(".mvn/wrapper/maven-wrapper.properties")),
         "maven-wrapper.properties not found in generated files"
     );
 

@@ -872,7 +872,8 @@ impl Backend for ExtendrBackend {
         if let Some(opts_type) = api.types.iter().find(|t| t.name == "ConversionOptions" && !t.is_trait) {
             let core_import = config.core_import_name();
             let options_rs = gen_options_rs(opts_type, &core_import);
-            let rust_output_path = resolve_output_dir(config.output_paths.get("r"), &config.name, "packages/r/src/rust/src");
+            let rust_output_path =
+                resolve_output_dir(config.output_paths.get("r"), &config.name, "packages/r/src/rust/src");
             files.push(GeneratedFile {
                 path: PathBuf::from(&rust_output_path).join("options.rs"),
                 content: options_rs,
@@ -975,8 +976,7 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 /// This allows R callers to pass `ConversionOptions$default()` directly to convert() without error.
 /// Full list-based construction is left to project-specific implementation if needed.
 fn gen_options_rs(_opts_type: &TypeDef, _core_import: &str) -> String {
-    format!(
-        r#"//! Option decoding for R bindings.
+    r#"//! Option decoding for R bindings.
 
 use extendr_api::prelude::*;
 
@@ -988,26 +988,24 @@ use extendr_api::prelude::*;
 ///
 /// This function is a placeholder that handles the core ExternalPtr case. Full list-based
 /// field parsing can be added by the project if needed for advanced use cases.
-pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOptions, String> {{
-    if options.is_null() {{
+pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOptions, String> {
+    if options.is_null() {
         return Ok(crate::ConversionOptions::default().into());
-    }}
+    }
 
     // Accept the wrapper struct returned by `ConversionOptions$default()` / builder methods,
     // which extendr exposes as an `ExternalPtr`. The binding struct is returned directly
     // from the #[extendr] impl methods, so unwrap it as the binding type.
-    if let Ok(ext) = ExternalPtr::<crate::ConversionOptions>::try_from(&options) {{
+    if let Ok(ext) = ExternalPtr::<crate::ConversionOptions>::try_from(&options) {
         // Clone the binding struct and convert to core type via the generated From impl
         return Ok((*ext).clone().into());
-    }}
+    }
 
     // If unwrapping as ExternalPtr failed, the input is not a valid options object
     Err("options must be NULL, or an ExternalPtr from ConversionOptions$default()".to_string())
-}}
-"#
-    )
 }
-
+"#.to_string()
+}
 
 /// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro
 /// automatically, and therefore requires JSON bridging.

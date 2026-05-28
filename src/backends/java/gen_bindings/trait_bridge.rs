@@ -465,7 +465,12 @@ fn gen_bridge_file(
                     } else {
                         None
                     };
-                    unmarshal_params.push(format_unmarshal_param(&local, &segment, &param.ty, bytes_len.as_deref()));
+                    unmarshal_params.push(format_unmarshal_param(
+                        &local,
+                        &segment,
+                        &param.ty,
+                        bytes_len.as_deref(),
+                    ));
                 }
             }
 

@@ -12,9 +12,9 @@ mod helpers;
 mod line_wrap;
 mod marshal;
 mod native_lib;
+mod service_api;
 pub mod trait_bridge;
 mod types;
-mod service_api;
 
 use facade::gen_facade_class;
 use ffi_class::gen_main_class;
@@ -526,7 +526,11 @@ impl Backend for JavaBackend {
         }])
     }
 
-    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         service_api::generate(api, config)
     }
 

@@ -112,7 +112,15 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     for service in &api.services {
         let service_bridge_class = service_bridge_class_name(&service.name);
         for reg in &service.registrations {
-            gen_register_jni_function(&mut out, service, reg, api, &core_import, &package, &service_bridge_class);
+            gen_register_jni_function(
+                &mut out,
+                service,
+                reg,
+                api,
+                &core_import,
+                &package,
+                &service_bridge_class,
+            );
         }
         for ep in &service.entrypoints {
             gen_entrypoint_jni_function(&mut out, service, ep, &core_import, &package, &service_bridge_class);

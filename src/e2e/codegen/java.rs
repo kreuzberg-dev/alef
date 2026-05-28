@@ -109,7 +109,10 @@ impl E2eCodegen for JavaCodegen {
             generated_header: false,
         });
         files.push(GeneratedFile {
-            path: output_base.join(".mvn").join("wrapper").join("maven-wrapper.properties"),
+            path: output_base
+                .join(".mvn")
+                .join("wrapper")
+                .join("maven-wrapper.properties"),
             content: MAVEN_WRAPPER_PROPERTIES.to_string(),
             generated_header: false,
         });
@@ -2838,7 +2841,13 @@ fn emit_java_stub_method(
     let params: Vec<String> = method
         .params
         .iter()
-        .map(|p| format!("{} {}", java_stub_type_fqn(&p.ty, binding_pkg), p.name.to_lower_camel_case()))
+        .map(|p| {
+            format!(
+                "{} {}",
+                java_stub_type_fqn(&p.ty, binding_pkg),
+                p.name.to_lower_camel_case()
+            )
+        })
         .collect();
     let params_str = params.join(", ");
 
@@ -2898,7 +2907,11 @@ fn java_type_fqn(ty: &crate::core::ir::TypeRef) -> String {
 /// Pass `""` to fall back to unqualified simple names (used by the generic dispatch path).
 fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> String {
     use crate::core::ir::TypeRef;
-    let pkg_prefix = if binding_pkg.is_empty() { String::new() } else { format!("{binding_pkg}.") };
+    let pkg_prefix = if binding_pkg.is_empty() {
+        String::new()
+    } else {
+        format!("{binding_pkg}.")
+    };
     match ty {
         TypeRef::Named(name) => {
             // Qualify all named types with the binding package so the generated stub

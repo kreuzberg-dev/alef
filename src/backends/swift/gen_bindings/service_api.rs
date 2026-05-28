@@ -178,18 +178,14 @@ fn gen_registration_method(
 
     // Recover the boxed handler from the context pointer.
     out.push_str("            // Recover the boxed handler closure from the context pointer\n");
-    out.push_str(
-        "            let handlerBox = Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()\n",
-    );
+    out.push_str("            let handlerBox = Unmanaged<HandlerBox>.fromOpaque(contextPtr).takeUnretainedValue()\n");
     out.push_str("            let requestJSON = String(cString: requestPtr)\n");
     out.push_str("            let responseJSON = handlerBox.handler(requestJSON)\n\n");
 
     // Allocate and return response (caller frees).
     out.push_str("            // Allocate response string on C heap (caller must free)\n");
     out.push_str("            let responseBytes = responseJSON.utf8CString\n");
-    out.push_str(
-        "            let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n",
-    );
+    out.push_str("            let responsePtr = UnsafeMutablePointer<CChar>.allocate(capacity: responseBytes.count)\n");
     out.push_str("            responsePtr.initialize(from: responseBytes, count: responseBytes.count)\n");
     out.push_str("            return responsePtr\n");
     out.push_str("        }\n\n");

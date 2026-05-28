@@ -363,7 +363,7 @@ fn render_test_file(
             &fixture.tags,
             &fixture.input,
         );
-        let resolved_args = fixture.resolved_args(&call_config);
+        let resolved_args = fixture.resolved_args(call_config);
         for arg in resolved_args.iter() {
             if arg.arg_type == "test_backend" {
                 if let Some(trait_name) = &arg.trait_name {
@@ -1498,7 +1498,8 @@ fn build_args_and_setup(
                     // Extract only the test-level setup part (after the marker).
                     // Module-level defs are emitted at file level by render_test_file, not here.
                     if let Some(pos) = emission.setup_block.find("__TRAIT_BRIDGE_MODULE_DEFS_END__") {
-                        let marker_end = emission.setup_block[pos + 32..].find('\n')
+                        let marker_end = emission.setup_block[pos + 32..]
+                            .find('\n')
                             .map(|i| pos + 32 + i + 1)
                             .unwrap_or_else(|| emission.setup_block.len());
                         let test_setup = emission.setup_block[marker_end..].trim_start().to_string();
