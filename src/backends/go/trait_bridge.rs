@@ -298,6 +298,7 @@ fn gen_trait_bridge(
         out.push('\n');
         let method_substituted = method_with_excluded_substituted(method, excluded_named_types);
         gen_trampoline(out, trait_name, &trait_pascal, &method_substituted);
+        out.push('\n');
     }
 
     // Plugin method trampolines

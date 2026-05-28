@@ -474,17 +474,13 @@ fn gen_single_trait_bridge(
         }
         let unmanaged_param_sig = sig_parts.join(", ");
 
-        let params_decl = if unmanaged_param_sig.is_empty() {
-            String::new()
-        } else {
-            format!("{}, ", unmanaged_param_sig)
-        };
-
-        // For Unit / primitive returns the callback has NO trailing out params,
-        // so `params_decl` IS the whole parameter list. The Jinja-emitted variants
-        // for complex returns concatenate a fixed prefix/suffix and require the
-        // trailing `, ` baked into `params_decl`; here we must strip it.
-        let params_decl_no_trailing = params_decl.trim_end().trim_end_matches(',').to_string();
+        // params_decl is the comma-separated parameter list WITHOUT trailing
+        // comma. Each callback header template that consumes it is responsible
+        // for emitting the `, ` separator between userData and params_decl (and
+        // between params_decl and the out params). This avoids double-commas
+        // when params_decl is non-empty.
+        let params_decl = unmanaged_param_sig.clone();
+        let params_decl_no_trailing = params_decl.clone();
 
         if method.return_type == TypeRef::Unit {
             // void return: no out params
