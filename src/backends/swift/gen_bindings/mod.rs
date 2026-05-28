@@ -493,7 +493,19 @@ impl Backend for SwiftBackend {
             base_path.join("Sources").join(&module_name)
         };
 
-        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types) {
+        // Augment exclude_types with IR `binding_excluded` types.
+        // These types (e.g. InternalDocument) exist in Rust but are not emitted as Swift
+        // structs — they are serialised as JSON strings at the trait boundary.
+        // They must be in the exclude set so swift_type_name() maps them to String in
+        // protocol/adapter method signatures.
+        let mut exclude_types_with_ir = exclude_types.clone();
+        exclude_types_with_ir.extend(
+            api.types
+                .iter()
+                .filter(|t| t.binding_excluded)
+                .map(|t| t.name.clone()),
+        );
+        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types_with_ir) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
                 path,
