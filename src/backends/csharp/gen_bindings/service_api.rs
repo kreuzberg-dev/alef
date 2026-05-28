@@ -70,6 +70,7 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
 
     out.push_str(&format!("namespace {namespace} {{\n\n"));
     out.push_str("using System;\n");
+    out.push_str("using System.Collections.Generic;\n");
     out.push_str("using System.Runtime.InteropServices;\n\n");
 
     // Service class
@@ -80,7 +81,8 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
     out.push_str(&format!("public class {class_name} {{\n\n"));
 
     // Private opaque handle field
-    out.push_str("    private IntPtr _handle;\n\n");
+    out.push_str("    private IntPtr _handle;\n");
+    out.push_str("    private static readonly Dictionary<IntPtr, GCHandle> _registeredCallbacks = new();\n\n");
 
     // Constructor
     {
@@ -161,8 +163,8 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
         }
         out.push_str(", Delegate handler) {\n");
 
-        // Create GCHandle to hold the handler delegate
-        out.push_str("        var handle = GCHandle.Alloc(handler);\n");
+        // Create GCHandle to hold the handler delegate, pin it to prevent GC movement
+        out.push_str("        var handle = GCHandle.Alloc(handler, GCHandleType.Pinned);\n");
         out.push_str("        IntPtr ctx = GCHandle.ToIntPtr(handle);\n\n");
 
         // Call native registration function
@@ -183,7 +185,12 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
         }
 
         out.push_str("\n        );\n\n");
-        out.push_str("        if (result != 0) {\n");
+        out.push_str("        if (result == 0) {\n");
+        out.push_str("            // Keep the GCHandle alive for the lifetime of the registration\n");
+        out.push_str("            lock (_registeredCallbacks) {\n");
+        out.push_str("                _registeredCallbacks[ctx] = handle;\n");
+        out.push_str("            }\n");
+        out.push_str("        } else {\n");
         out.push_str("            handle.Free();\n");
         out.push_str("        }\n");
         out.push_str("        return result;\n");
@@ -239,6 +246,15 @@ fn gen_service_cs(_api: &ApiSurface, service: &ServiceDef, namespace: &str, pref
         prefix.to_lowercase(),
         service_snake
     ));
+    out.push_str("        // Clean up all registered callbacks for this instance\n");
+    out.push_str("        lock (_registeredCallbacks) {\n");
+    out.push_str("            var keys = _registeredCallbacks.Keys.ToList();\n");
+    out.push_str("            foreach (var key in keys) {\n");
+    out.push_str("                var handle = _registeredCallbacks[key];\n");
+    out.push_str("                handle.Free();\n");
+    out.push_str("                _registeredCallbacks.Remove(key);\n");
+    out.push_str("            }\n");
+    out.push_str("        }\n");
     out.push_str("    }\n\n");
 
     // Static unmanaged callback handler
@@ -627,8 +643,9 @@ mod tests {
         let cs = gen_service_cs(&api, service, "MyNamespace", "test");
 
         assert!(cs.contains("public int add_handler("));
-        assert!(cs.contains("GCHandle.Alloc(handler)"));
+        assert!(cs.contains("GCHandle.Alloc(handler, GCHandleType.Pinned)"));
         assert!(cs.contains("UnmanagedCallersOnlyHandler"));
+        assert!(cs.contains("_registeredCallbacks[ctx] = handle"));
     }
 
     #[test]
