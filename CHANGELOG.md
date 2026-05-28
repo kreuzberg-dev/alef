@@ -7,15 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+## [0.20.7] - 2026-05-28
 
-- **Swift trait-bridge: protocol accepts native excluded types, adapter marshals to JSON strings.** The protocol signature now declares excluded-type parameters and returns using their native Swift struct types (e.g., `func processImage(...) -> ExtractionResult`), while the internal adapter method marshals the excluded type to a JSON string at the FFI boundary (`func processImageCall(...) -> String`). This allows user implementations to work with idiomatic Swift types without needing to manually encode them. Previously, the trait-bridge emitter tried to call `JSONEncoder().encode(result)` on the excluded type struct (not Encodable), causing compile errors: `instance method 'encode' requires that 'ExtractionResult' conform to 'Encodable'`. The fix separates native-type functions (protocol) from marshalled-type functions (adapter), adds `marshal_encode_excluded<T: Encodable>` helper for encoding excluded types, and detects when the return type is excluded to use the helper. All six bridge files (OcrBackend, EmbeddingBackend, DocumentExtractor, PostProcessor, Validator, Renderer) now compile. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+### Added
 
-- **Zig trait-bridge stub methods**: now use C FFI types (e.g., `[*c]const u8`, `i32`) instead of Zig high-level types (e.g., `[]const u8`, `bool`). This ensures stub signatures match the vtable thunks' expectations. All collections marshal as JSON strings. Numeric returns (bool, etc.) use appropriate C types (i32 for bool). Fixes 24 compile errors in `plugin_api_test.zig` where test stubs were emitting Zig-idiomatic types instead of C-compatible FFI types. (`src/e2e/codegen/zig.rs`)
-
-## [0.20.6] - 2026-05-28
+- **alef NodeConfig: `exclude_platforms` opt-out for napi target list.** Allows `[crates.node].exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]` to drop platforms from generated `package.json.napi.targets`, `optionalDependencies`, npm dispatch table, and per-platform stub directories. Mirrors the existing `exclude_types` pattern. Default empty — no behavior change. Fixes liter-llm rc.37 musl ENEEDAUTH regression repeating across regens. (`src/core/config/languages.rs`, `src/scaffold/languages/node.rs`)
 
 ### Fixed
+
+- **Swift trait-bridge protocol return types:** protocol method returns now use JSON-marshalled `String` for excluded types (e.g., `InternalDocument`), matching Java/Go behavior. Previously returned unrendered Rust type names that don't exist in Swift, causing `error: cannot find type 'InternalDocument'`. Protocol parameters still use native Swift types. Fixes all six bridge file compilation errors. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
+- **Swift trait-bridge error-handling syntax:** fixed double braces (`}} catch {{`) and indentation in try-catch blocks. Removed Rust escape sequences (changed `}} catch {{` to `} catch {`) in catch-block template strings. Reduced indentation inside `do` blocks from 16 to 12 spaces to align with method scope (4 for method + 4 for do block). Fixes `extraneous '}' at top level` and `consecutive declarations on a line` compilation errors. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
+- **Zig trait-bridge register fn: cast vtable pointer to C-compatible representation.** The generated `register_<trait>` body now wraps the vtable argument with `@bitCast(vtable)` so the Zig-side struct pointer reaches `<c_register>` with the layout the C ABI expects. Fixes vtable register-fn call sites that otherwise pass an incompatible pointer type. (`src/backends/zig/templates/register_fn_body.jinja`)
 
 - **alef php visitor-bridge: emit `use ext_php_rs::rc::PhpRc;` import for visitor-style bridges (e.g. `HtmlVisitor`) so generated `inc_count()`/`dec_count()` calls compile.** v0.20.3 fixed the import for registration-style trait bridges via `PhpBridgeGenerator::bridge_imports()`, but the visitor-style path in `gen_trait_bridge_files()` returned `BridgeOutput { imports: vec![], code }` and never propagated the trait import. The generated `visitor_bridge_struct.jinja` template uses `inc_count()`/`dec_count()` in its `Clone`, `Drop`, and `new()` impls, so binding crates with a visitor-style bridge (h2m, etc.) failed to compile with `E0599: no method named 'inc_count' found for struct '_zend_object'`. Fix returns `vec!["ext_php_rs::rc::PhpRc".to_string()]` from the visitor-bridge code path. (`src/backends/php/trait_bridge.rs`)
 
