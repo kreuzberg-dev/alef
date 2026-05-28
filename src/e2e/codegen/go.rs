@@ -244,6 +244,7 @@ impl E2eCodegen for GoCodegen {
                     data_enum_names: &data_enum_names,
                     config,
                     type_defs,
+                    enums,
                 },
             );
             files.push(GeneratedFile {
@@ -482,6 +483,7 @@ struct GoTestFileContext<'a> {
     data_enum_names: &'a std::collections::HashSet<&'a str>,
     config: &'a crate::core::config::ResolvedCrateConfig,
     type_defs: &'a [crate::core::ir::TypeDef],
+    enums: &'a [crate::core::ir::EnumDef],
 }
 
 fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileContext<'_>) -> String {
@@ -493,6 +495,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
         data_enum_names,
         config,
         type_defs,
+        enums,
     } = context;
     let mut out = String::new();
     let emits_executable_test =
@@ -802,6 +805,7 @@ fn render_test_file(category: &str, fixtures: &[&Fixture], context: GoTestFileCo
                 data_enum_names,
                 config,
                 type_defs,
+                enums,
             },
         );
         if i + 1 < fixtures.len() {
@@ -930,6 +934,7 @@ struct GoTestFunctionContext<'a> {
     data_enum_names: &'a std::collections::HashSet<&'a str>,
     config: &'a crate::core::config::ResolvedCrateConfig,
     type_defs: &'a [crate::core::ir::TypeDef],
+    enums: &'a [crate::core::ir::EnumDef],
 }
 
 fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunctionContext<'_>) {
@@ -940,6 +945,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
         data_enum_names,
         config,
         type_defs,
+        enums,
     } = context;
     let fn_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -1071,6 +1077,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
         data_enum_names,
         config,
         type_defs,
+        enums,
     );
 
     // Emit package-level declarations (test-backend struct + method receivers)
@@ -1887,6 +1894,7 @@ fn build_args_and_setup(
     data_enum_names: &std::collections::HashSet<&str>,
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> (Vec<String>, Vec<String>, String) {
     let fixture_id = &fixture.id;
     use heck::ToUpperCamelCase;
@@ -1974,17 +1982,25 @@ fn build_args_and_setup(
                     // Collect binding-excluded type names (e.g. InternalDocument) from IR.
                     // These types are never emitted as Go structs; the trait-bridge interface
                     // serialises them to JSON, so stubs must use json.RawMessage.
-                    let excluded_named: std::collections::HashSet<&str> = type_defs
+                    // Additionally, manually add Go-specific hardcoded excluded types like InternalDocument.
+                    let mut excluded_named: std::collections::HashSet<&str> = type_defs
                         .iter()
                         .filter(|t| t.binding_excluded)
                         .map(|t| t.name.as_str())
                         .collect();
+                    // InternalDocument is a special case: it's always excluded in Go trait bridges,
+                    // even though it may not be marked as binding_excluded in the IR.
+                    excluded_named.insert("InternalDocument");
+                    // Collect enum names for proper Go zero-value generation.
+                    // Enums map to string types in Go, so their zero-value is "" not nil.
+                    let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
                     let emission = emit_test_backend_with_context(
                         trait_bridge,
                         &methods,
                         fixture,
                         &excluded_named,
                         import_alias,
+                        &enum_names,
                     );
                     // Go does not allow method declarations inside function bodies.
                     // The setup_block (struct type + method receivers) must be emitted
@@ -3780,7 +3796,14 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
-    emit_test_backend_with_context(trait_bridge, methods, fixture, &std::collections::HashSet::new(), "")
+    emit_test_backend_with_context(
+        trait_bridge,
+        methods,
+        fixture,
+        &std::collections::HashSet::new(),
+        "",
+        &std::collections::HashSet::new(),
+    )
 }
 
 /// Like [`emit_test_backend`] but with type-qualification context.
@@ -3792,12 +3815,16 @@ pub fn emit_test_backend(
 /// `import_alias` — the import alias used for the binding package in the generated test file
 /// (e.g. `"kreuzberg"`).  When non-empty, `Named` types are qualified as `{alias}.{GoName}`
 /// so the stub compiles from `package e2e_test` which imports the binding under that alias.
+///
+/// `enum_names` — set of type names that are enums in the IR (used to determine zero-values
+/// for stub returns; enums map to string types in Go, so their zero-value is `""` not `nil`).
 pub fn emit_test_backend_with_context(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
+    enum_names: &std::collections::HashSet<&str>,
 ) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::sanitize_ident;
@@ -3828,7 +3855,16 @@ pub fn emit_test_backend_with_context(
                     "func ({struct_name}) {go_method}() string {{ return \"{safe_id}\" }}"
                 );
             } else {
-                emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults, excluded_types, import_alias);
+                emit_go_stub_method_body(
+                    &mut setup,
+                    &struct_name,
+                    &go_method,
+                    method,
+                    &*defaults,
+                    excluded_types,
+                    import_alias,
+                    enum_names,
+                );
             }
         }
         if !super_methods.is_empty() {
@@ -3836,8 +3872,12 @@ pub fn emit_test_backend_with_context(
         }
     }
 
-    // Emit method stubs for all required methods (skip default-impl and super-trait methods).
-    for method in methods.iter().filter(|m| !m.has_default_impl) {
+    // Emit method stubs for all required methods.
+    // Go interfaces require ALL abstract methods to be implemented, even if they have
+    // default implementations in the Rust trait.
+    // Skip only the super-trait methods already emitted above, and the name() method
+    // when it's hardcoded by super_trait.
+    for method in methods.iter() {
         // Skip super-trait methods already emitted above.
         if trait_bridge
             .super_trait
@@ -3847,7 +3887,16 @@ pub fn emit_test_backend_with_context(
             continue;
         }
         let go_method = method_to_camel(&method.name);
-        emit_go_stub_method_body(&mut setup, &struct_name, &go_method, method, &*defaults, excluded_types, import_alias);
+        emit_go_stub_method_body(
+            &mut setup,
+            &struct_name,
+            &go_method,
+            method,
+            &*defaults,
+            excluded_types,
+            import_alias,
+            enum_names,
+        );
     }
 
     // Determine if encoding/json is needed by checking if any method uses json.RawMessage.
@@ -3858,9 +3907,9 @@ pub fn emit_test_backend_with_context(
             matches!(ty, TypeRef::Named(n) if excluded_types.contains(n.as_str()))
         }
     };
-    let needs_json = methods.iter().any(|m| {
-        uses_json_with_context(&m.return_type) || m.params.iter().any(|p| uses_json_with_context(&p.ty))
-    });
+    let needs_json = methods
+        .iter()
+        .any(|m| uses_json_with_context(&m.return_type) || m.params.iter().any(|p| uses_json_with_context(&p.ty)));
 
     let mut type_imports = Vec::new();
     if needs_json {
@@ -3878,11 +3927,18 @@ pub fn emit_test_backend_with_context(
 /// Returns the Go zero-value expression for a stub method return statement.
 ///
 /// Uses go_zero_value from the type_map to ensure consistency with actual
-/// Go binding signatures. Named types produce nil (pointer zero), primitives
-/// produce their standard zero values (0, false, ""), and Vec produces a nil slice.
-fn go_stub_default(ty: &crate::core::ir::TypeRef) -> String {
+/// Go binding signatures. Named types check enum_names to determine if they're
+/// enums (zero-value `""`) or structs (zero-value `nil`). Primitives produce
+/// their standard zero values (0, false, ""), and Vec produces a nil slice.
+fn go_stub_default(ty: &crate::core::ir::TypeRef, enum_names: &std::collections::HashSet<&str>) -> String {
     use crate::backends::go::type_map::go_zero_value;
-    go_zero_value(ty)
+    use crate::core::ir::TypeRef;
+
+    // Check if this is an enum type — enums map to string in Go, so zero-value is ""
+    match ty {
+        TypeRef::Named(name) if enum_names.contains(name.as_str()) => "\"\"".to_string(),
+        _ => go_zero_value(ty),
+    }
 }
 
 /// Maps a type reference to its Go representation in stub method signatures, with context.
@@ -3938,6 +3994,7 @@ fn stub_go_type_with_context(
 ///
 /// `excluded_types` — names of binding-excluded types substituted with `json.RawMessage`.
 /// `import_alias` — binding package import alias; qualifies Named types for external packages.
+/// `enum_names` — set of type names that are enums (map to string types, zero-value is `""`).
 fn emit_go_stub_method_body(
     out: &mut String,
     struct_name: &str,
@@ -3946,6 +4003,7 @@ fn emit_go_stub_method_body(
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
+    enum_names: &std::collections::HashSet<&str>,
 ) {
     use crate::core::ir::TypeRef;
 
@@ -3979,14 +4037,14 @@ fn emit_go_stub_method_body(
         match &method.return_type {
             TypeRef::Unit => "return nil".to_string(),
             _ => {
-                let default_val = go_stub_default(&method.return_type);
+                let default_val = go_stub_default(&method.return_type, enum_names);
                 format!("return {default_val}, nil")
             }
         }
     } else if matches!(method.return_type, TypeRef::Unit) {
         String::new()
     } else {
-        let default_val = go_stub_default(&method.return_type);
+        let default_val = go_stub_default(&method.return_type, enum_names);
         format!("return {default_val}")
     };
 
@@ -4284,7 +4342,9 @@ mod trait_bridge_tests {
         let mut excluded = std::collections::HashSet::new();
         excluded.insert("InternalDocument");
 
-        let emission = emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg");
+        let enum_names = std::collections::HashSet::new();
+        let emission =
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "kreuzberg", &enum_names);
 
         // InternalDocument return type must become json.RawMessage.
         assert!(
@@ -4369,6 +4429,7 @@ mod tests {
         let mut out = String::new();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4379,6 +4440,7 @@ mod tests {
                 data_enum_names: &std::collections::HashSet::new(),
                 config: &config,
                 type_defs: &type_defs,
+                enums: &enums,
             },
         );
 
@@ -4426,6 +4488,7 @@ mod tests {
         let mut out = String::new();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4436,6 +4499,7 @@ mod tests {
                 data_enum_names: &std::collections::HashSet::new(),
                 config: &config,
                 type_defs: &type_defs,
+                enums: &enums,
             },
         );
 
@@ -4510,6 +4574,7 @@ mod tests {
                 data_enum_names: &std::collections::HashSet::new(),
                 config: &crate::core::config::ResolvedCrateConfig::default(),
                 type_defs: &[],
+                enums: &[],
             },
         );
 
@@ -4580,6 +4645,7 @@ mod tests {
         let mut out = String::new();
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         render_test_function(
             &mut out,
             &fixture,
@@ -4590,6 +4656,7 @@ mod tests {
                 data_enum_names: &std::collections::HashSet::new(),
                 config: &config,
                 type_defs: &type_defs,
+                enums: &enums,
             },
         );
 
@@ -4665,6 +4732,7 @@ mod tests {
 
         let config = crate::core::config::ResolvedCrateConfig::default();
         let type_defs: Vec<crate::core::ir::TypeDef> = Vec::new();
+        let enums: Vec<crate::core::ir::EnumDef> = Vec::new();
         let out = render_test_file(
             "mime_utilities",
             &[&fixture],
@@ -4676,6 +4744,7 @@ mod tests {
                 data_enum_names: &std::collections::HashSet::new(),
                 config: &config,
                 type_defs: &type_defs,
+                enums: &enums,
             },
         );
 

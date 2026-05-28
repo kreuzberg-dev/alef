@@ -126,7 +126,13 @@ fn gen_single_trait_bridge_file(
         // Build parameter signature for the adapter method (input from Rust across the boundary)
         let params_sig = swift_method_params(&method.params, exclude_types);
         // Build return type for the adapter method (output back to Rust)
-        let return_type = swift_return_type(&method.return_type, exclude_types);
+        // If the method has an error type, the adapter returns String (JSON envelope);
+        // otherwise, it returns the original type
+        let return_type = if method.error_type.is_some() {
+            "String".to_string()
+        } else {
+            swift_return_type(&method.return_type, exclude_types)
+        };
 
         out.push_str(&format!(
             "    func {method_camel}Call({params_sig}) -> {return_type} {{\n"
@@ -271,15 +277,18 @@ fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
 /// Build the call arguments and return expression for the adapter method.
 ///
 /// Returns (call_args: Vec<String>, return_expr: String) where:
-/// - call_args: formatted arguments to pass to the bridge method
+/// - call_args: formatted arguments to pass to the bridge method (with Swift argument labels)
 /// - return_expr: expression to marshal the result back across the boundary
 fn build_adapter_call_expr(
     method: &crate::core::ir::MethodDef,
     exclude_types: &HashSet<String>,
 ) -> (Vec<String>, String) {
-    // Build the call arguments — for now, pass them through as-is
-    // (they're already in the correct type after boundary marshalling)
-    let call_args: Vec<String> = method.params.iter().map(|p| p.name.to_snake_case()).collect();
+    // Build the call arguments with Swift argument labels (name: value format)
+    // Swift requires explicit labels for all method arguments
+    let call_args: Vec<String> = method.params.iter().map(|p| {
+        let name = p.name.to_snake_case();
+        format!("{}: {}", name, name)
+    }).collect();
 
     // Build the return expression — marshal the result back to the boundary type
     let return_expr = match &method.return_type {
@@ -456,22 +465,20 @@ mod tests {
         // Add a method with InternalDocument as return type.
         trait_def.methods.push(MethodDef {
             name: "extract_bytes".to_string(),
-            params: vec![
-                ParamDef {
-                    name: "content".to_string(),
-                    ty: TypeRef::Bytes,
-                    optional: false,
-                    default: None,
-                    sanitized: false,
-                    typed_default: None,
-                    is_ref: false,
-                    is_mut: false,
-                    newtype_wrapper: None,
-                    original_type: None,
-                    map_is_ahash: false,
-                    map_key_is_cow: false,
-                },
-            ],
+            params: vec![ParamDef {
+                name: "content".to_string(),
+                ty: TypeRef::Bytes,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
             return_type: TypeRef::Named("InternalDocument".to_string()),
             is_async: false,
             is_static: false,

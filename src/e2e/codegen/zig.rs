@@ -478,16 +478,13 @@ fn render_build_zig_zon(
             // The build.zig script selects the correct one at build time via @import("builtin").
             let mut entries = String::new();
             for (platform, _) in supported_zig_platforms() {
-                let (url, hash_opt) = &platform_hashes
-                    .get(&platform.to_string())
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        // Fallback in case platform is missing from the map (shouldn't happen).
-                        let fallback_url = format!(
-                            "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}-{platform}.tar.gz"
-                        );
-                        (fallback_url, None)
-                    });
+                let (url, hash_opt) = &platform_hashes.get(&platform.to_string()).cloned().unwrap_or_else(|| {
+                    // Fallback in case platform is missing from the map (shouldn't happen).
+                    let fallback_url = format!(
+                        "{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}-{platform}.tar.gz"
+                    );
+                    (fallback_url, None)
+                });
 
                 let platform_clean = platform.replace('-', "_");
                 let hash_str = match hash_opt {
@@ -504,9 +501,7 @@ fn render_build_zig_zon(
         }
         crate::e2e::config::DependencyMode::Local => {
             // Zig 0.16+ requires named dependencies. Use the package name as the key.
-            format!(
-                "        .{pkg_name} = .{{\n            .path = \"{pkg_path}\",\n        }},"
-            )
+            format!("        .{pkg_name} = .{{\n            .path = \"{pkg_path}\",\n        }},")
         }
     };
 
@@ -601,8 +596,7 @@ pub fn build(b: *std.Build) void {{
 "#
                 )
             }
-            crate::e2e::config::DependencyMode::Local => {
-                r#"const std = @import("std");
+            crate::e2e::config::DependencyMode::Local => r#"const std = @import("std");
 
 pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
@@ -611,8 +605,7 @@ pub fn build(b: *std.Build) void {
     const test_step = b.step("test", "Run tests");
 }
 "#
-                    .to_string()
-            }
+            .to_string(),
         };
     }
 
@@ -625,7 +618,9 @@ pub fn build(b: *std.Build) void {
     //                          files use to import the binding module.
     // Callers pass these in resolved form so this function never embeds a
     // downstream crate's name.
-    let mut content = String::from("const std = @import(\"std\");\nconst builtin = @import(\"builtin\");\n\npub fn build(b: *std.Build) void {\n");
+    let mut content = String::from(
+        "const std = @import(\"std\");\nconst builtin = @import(\"builtin\");\n\npub fn build(b: *std.Build) void {\n",
+    );
     content.push_str("    const target = b.standardTargetOptions(.{});\n");
     content.push_str("    const optimize = b.standardOptimizeOption(.{});\n");
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
@@ -649,12 +644,9 @@ pub fn build(b: *std.Build) void {
             content.push_str("\")\n");
             content.push_str("    else if (builtin.target.os.tag == .windows) \"");
             content.push_str(&format!("{pkg_name}_windows_x86_64"));
-            content.push_str("\"");
+            content.push('"');
             content.push_str(" else @compileError(\"unsupported platform for this Zig package\");\n\n");
-            let _ = writeln!(
-                content,
-                "    const {module_name}_module = b.dependency(pkg_name, .{{"
-            );
+            let _ = writeln!(content, "    const {module_name}_module = b.dependency(pkg_name, .{{");
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
             let _ = writeln!(content, "    }}).module(\"{module_name}\");");
@@ -3012,8 +3004,7 @@ mod zig_hash_tests {
     /// verbatim — no network fetch, no cache lookup.
     #[test]
     fn explicit_hash_override_is_used_verbatim() {
-        let url =
-            "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-linux-x86_64.tar.gz";
+        let url = "https://github.com/sample_crate-dev/sample-llm/releases/download/v1.4.0/sample-llm-zig-v1.4.0-linux-x86_64.tar.gz";
         let pinned = "1220abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789ab";
         let result = resolve_zig_hash(Some(pinned), url);
         assert_eq!(

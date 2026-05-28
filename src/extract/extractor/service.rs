@@ -108,7 +108,7 @@ fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfi
         names.extend(svc.entrypoints.iter().map(|e| e.method.clone()));
 
         for name in names {
-            let present = owner_methods.as_ref().is_some_and(|ms| ms.iter().any(|m| *m == name));
+            let present = owner_methods.as_ref().is_some_and(|ms| ms.contains(&name));
             if !present {
                 wanted.push((svc.owner_type.clone(), name));
             }
@@ -517,7 +517,10 @@ pub trait IntoHandler {}
         assert_eq!(surface.services.len(), 1, "exactly one ServiceDef expected");
         let svc = &surface.services[0];
         assert_eq!(svc.name, "App");
-        assert_eq!(svc.constructor.name, "new", "constructor `new` must be recovered from source");
+        assert_eq!(
+            svc.constructor.name, "new",
+            "constructor `new` must be recovered from source"
+        );
         assert_eq!(svc.configurators.len(), 1);
         assert_eq!(svc.configurators[0].name, "set_address");
 

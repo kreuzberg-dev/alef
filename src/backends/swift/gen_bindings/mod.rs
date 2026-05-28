@@ -499,12 +499,7 @@ impl Backend for SwiftBackend {
         // They must be in the exclude set so swift_type_name() maps them to String in
         // protocol/adapter method signatures.
         let mut exclude_types_with_ir = exclude_types.clone();
-        exclude_types_with_ir.extend(
-            api.types
-                .iter()
-                .filter(|t| t.binding_excluded)
-                .map(|t| t.name.clone()),
-        );
+        exclude_types_with_ir.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
         for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types_with_ir) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
@@ -517,7 +512,11 @@ impl Backend for SwiftBackend {
         Ok(files)
     }
 
-    fn generate_service_api(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
         service_api::generate(api, config)
     }
 

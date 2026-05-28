@@ -545,7 +545,8 @@ fn gen_run_nif(
             out.push_str(&format!(
                 "                    let bridge = {bridge_wrapper}::new(handler_pid);\n"
             ));
-            let args_list = metadata_param_names.iter()
+            let args_list = metadata_param_names
+                .iter()
                 .map(|name| format!("{}, ", name))
                 .collect::<String>();
             out.push_str(&format!(

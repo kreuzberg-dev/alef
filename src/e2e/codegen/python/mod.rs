@@ -641,7 +641,9 @@ result_var = "result"
         let emission = emit_test_backend(&bridge, &methods, &fixture);
 
         assert!(
-            emission.teardown_block.contains("unregister_test_backend(\"my-backend\")"),
+            emission
+                .teardown_block
+                .contains("unregister_test_backend(\"my-backend\")"),
             "teardown_block should call the unregister fn with the backend name, got: {:?}",
             emission.teardown_block
         );

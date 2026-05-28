@@ -183,9 +183,8 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
         if normalized.starts_with("#!") {
             use std::os::unix::fs::PermissionsExt;
             let perms = std::fs::Permissions::from_mode(0o755);
-            std::fs::set_permissions(&full_path, perms).with_context(|| {
-                format!("failed to chmod 755 generated script {}", full_path.display())
-            })?;
+            std::fs::set_permissions(&full_path, perms)
+                .with_context(|| format!("failed to chmod 755 generated script {}", full_path.display()))?;
         }
         debug!("  wrote: {}", full_path.display());
         Ok(())

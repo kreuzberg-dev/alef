@@ -9,8 +9,8 @@ use alef::backends::kotlin::KotlinBackend;
 use alef::core::backend::Backend;
 use alef::core::config::ResolvedCrateConfig;
 use alef::core::ir::{
-    ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef,
-    PrimitiveType, RegistrationDef, ServiceDef, TypeRef,
+    ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, PrimitiveType, RegistrationDef,
+    ServiceDef, TypeRef,
 };
 use alef::core::jni::{jni_package, jni_symbol, service_bridge_class_name};
 

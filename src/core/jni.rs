@@ -6,8 +6,8 @@
 //!
 //! All functions are pure string transformations — no I/O, no config access.
 
-use heck::ToUpperCamelCase;
 use crate::core::config::ResolvedCrateConfig;
+use heck::ToUpperCamelCase;
 
 /// Resolve the Kotlin package used for JNI symbols.
 ///
@@ -32,7 +32,7 @@ pub fn jni_package(config: &ResolvedCrateConfig) -> String {
         .unwrap_or_else(|| {
             // Derive a valid Java package from the crate name so generated JNI symbols
             // are always syntactically valid even when no repository or package is set.
-            let clean = config.name.replace('-', "").replace('_', "").to_lowercase();
+            let clean = config.name.replace(['-', '_'], "").to_lowercase();
             format!("com.example.{clean}")
         })
 }

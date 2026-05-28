@@ -76,21 +76,29 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
     out.push_str(&format!(" * Service wrapper for {} using Panama FFM.\n", service.name));
     out.push_str(" *\n");
     out.push_str(" * Binds to C FFI symbols:\n");
-    out.push_str(&format!(" * - {}_{}_new() -> opaque handle\n", ffi_prefix, service_snake));
+    out.push_str(&format!(
+        " * - {}_{}_new() -> opaque handle\n",
+        ffi_prefix, service_snake
+    ));
     out.push_str(&format!(" * - {}_{}_free(opaque)\n", ffi_prefix, service_snake));
     for reg in &service.registrations {
-        out.push_str(&format!(" * - {}_{}_register_{} (handler registration)\n",
-            ffi_prefix, service_snake, reg.method.to_snake_case()));
+        out.push_str(&format!(
+            " * - {}_{}_register_{} (handler registration)\n",
+            ffi_prefix,
+            service_snake,
+            reg.method.to_snake_case()
+        ));
     }
     for ep in &service.entrypoints {
-        out.push_str(&format!(" * - {}_{}_ep_{} (entrypoint)\n",
-            ffi_prefix, service_snake, ep.method.to_snake_case()));
+        out.push_str(&format!(
+            " * - {}_{}_ep_{} (entrypoint)\n",
+            ffi_prefix,
+            service_snake,
+            ep.method.to_snake_case()
+        ));
     }
     out.push_str(" */\n");
-    out.push_str(&format!(
-        "public class {} implements AutoCloseable {{\n\n",
-        class_name
-    ));
+    out.push_str(&format!("public class {} implements AutoCloseable {{\n\n", class_name));
 
     // Private fields: owner handle + arena for callback lifetime management
     out.push_str("    private MemorySegment ownerHandle;\n");
@@ -104,7 +112,10 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
     {
         out.push_str("    /**\n");
         out.push_str(&format!("     * Create a new {}.\n", service.name));
-        out.push_str(&format!("     * Invokes C FFI: {}_{}_new()\n", ffi_prefix, service_snake));
+        out.push_str(&format!(
+            "     * Invokes C FFI: {}_{}_new()\n",
+            ffi_prefix, service_snake
+        ));
         out.push_str("     */\n");
         out.push_str(&format!("    public {}() {{\n", class_name));
 
@@ -133,7 +144,10 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
 
         out.push_str("    /**\n");
         out.push_str(&format!("     * Register a handler for {}.\n", reg_method));
-        out.push_str(&format!("     * Invokes C FFI: {}_{}_register_{}\n", ffi_prefix, service_snake, reg_method_snake));
+        out.push_str(&format!(
+            "     * Invokes C FFI: {}_{}_register_{}\n",
+            ffi_prefix, service_snake, reg_method_snake
+        ));
         out.push_str("     *\n");
         out.push_str("     * @param handler functional interface receiving JSON request, returning JSON response\n");
 
@@ -172,7 +186,9 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
         out.push_str("            MethodHandle boundMh = mh.bindTo(handler);\n\n");
 
         out.push_str("            // Build adapter: (context: ADDRESS, request: ADDRESS) -> ADDRESS\n");
-        out.push_str("            // Marshalling: C *const char -> Java String -> handler.handle() -> String -> C *mut char\n");
+        out.push_str(
+            "            // Marshalling: C *const char -> Java String -> handler.handle() -> String -> C *mut char\n",
+        );
         out.push_str("            // For now, simplified: upcall receives pointers, marshalls to/from Java strings\n");
         out.push_str("            FunctionDescriptor upcallDesc = FunctionDescriptor.of(\n");
         out.push_str("                ValueLayout.ADDRESS,  // return: *mut c_char\n");
@@ -252,7 +268,10 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
 
         out.push_str("    /**\n");
         out.push_str(&format!("     * {}.\n", ep_method));
-        out.push_str(&format!("     * Invokes C FFI: {}_{}_ep_{}\n", ffi_prefix, service_snake, ep_method_snake));
+        out.push_str(&format!(
+            "     * Invokes C FFI: {}_{}_ep_{}\n",
+            ffi_prefix, service_snake, ep_method_snake
+        ));
         out.push_str("     */\n");
 
         let return_type = match ep.kind {
@@ -260,10 +279,7 @@ fn gen_service_class(_api: &ApiSurface, service: &ServiceDef, package: &str, con
             EntrypointKind::Finalize => "long",
         };
 
-        out.push_str(&format!(
-            "    public {} {}(",
-            return_type, ep_method
-        ));
+        out.push_str(&format!("    public {} {}(", return_type, ep_method));
 
         // Add entrypoint parameters
         for (i, param) in ep.params.iter().enumerate() {
@@ -584,8 +600,14 @@ mod tests {
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
         assert!(java.contains("public TestService()"));
-        assert!(java.contains("test_crate_test_service_new"), "constructor should bind to C symbol");
-        assert!(java.contains("LINKER.downcallHandle"), "constructor should use downcall");
+        assert!(
+            java.contains("test_crate_test_service_new"),
+            "constructor should bind to C symbol"
+        );
+        assert!(
+            java.contains("LINKER.downcallHandle"),
+            "constructor should use downcall"
+        );
     }
 
     #[test]
@@ -594,7 +616,10 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        assert!(java.contains("LINKER.upcallStub"), "registration should build upcall stub for handler");
+        assert!(
+            java.contains("LINKER.upcallStub"),
+            "registration should build upcall stub for handler"
+        );
         assert!(java.contains("MethodHandle"), "should use MethodHandle to wrap handler");
     }
 
@@ -604,8 +629,10 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        assert!(java.contains("test_crate_test_service_register_add_handler"),
-            "registration should bind to exact C FFI symbol");
+        assert!(
+            java.contains("test_crate_test_service_register_add_handler"),
+            "registration should bind to exact C FFI symbol"
+        );
     }
 
     #[test]
@@ -615,7 +642,10 @@ mod tests {
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
         assert!(java.contains("public void run(String addr)"));
-        assert!(java.contains("test_crate_test_service_ep_run"), "entrypoint should bind to C symbol");
+        assert!(
+            java.contains("test_crate_test_service_ep_run"),
+            "entrypoint should bind to C symbol"
+        );
         assert!(java.contains("LINKER.downcallHandle"), "entrypoint should use downcall");
     }
 
@@ -627,7 +657,10 @@ mod tests {
 
         assert!(java.contains("@Override"));
         assert!(java.contains("public void close()"));
-        assert!(java.contains("test_crate_test_service_free"), "close should bind to C symbol");
+        assert!(
+            java.contains("test_crate_test_service_free"),
+            "close should bind to C symbol"
+        );
         assert!(java.contains("LINKER.downcallHandle"), "close should use downcall");
         assert!(java.contains("arena.close()"), "arena lifetime should be managed");
     }
@@ -638,8 +671,14 @@ mod tests {
         let config = make_test_config();
         let java = gen_service_class(&surface, &surface.services[0], "com.example", &config);
 
-        assert!(!java.contains("native "), "should not contain JNI native method declarations");
-        assert!(!java.contains("System.loadLibrary"), "should not load library (Panama manages it)");
+        assert!(
+            !java.contains("native "),
+            "should not contain JNI native method declarations"
+        );
+        assert!(
+            !java.contains("System.loadLibrary"),
+            "should not load library (Panama manages it)"
+        );
         assert!(!java.contains("Java_"), "should not contain Java_ JNI symbols");
     }
 
@@ -660,7 +699,9 @@ mod tests {
         let files = generate(&surface, &config).expect("generate should not fail");
         assert!(files.len() >= 2, "expected at least service class + Callable interface");
 
-        let has_service_class = files.iter().any(|f| f.path.to_string_lossy().contains("TestService.java"));
+        let has_service_class = files
+            .iter()
+            .any(|f| f.path.to_string_lossy().contains("TestService.java"));
         let has_callable = files.iter().any(|f| f.path.to_string_lossy().contains("Callable.java"));
 
         assert!(has_service_class, "expected TestService.java");

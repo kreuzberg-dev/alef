@@ -85,14 +85,14 @@ const DEPENDENCY_CACHE_DIRS: &[&str] = &[
     "venv",
     "__pypackages__",
     "node_modules",
-    "deps",       // Elixir/mix hex deps
-    "_build",     // Elixir/mix build
-    "vendor",     // Composer / Bundler
-    "target",     // Rust cargo build (also typically gitignored)
+    "deps",   // Elixir/mix hex deps
+    "_build", // Elixir/mix build
+    "vendor", // Composer / Bundler
+    "target", // Rust cargo build (also typically gitignored)
     ".cargo",
-    "pkg",        // wasm-pack output
-    ".gradle",    // Gradle build cache
-    ".m2",        // Maven local repo
+    "pkg",     // wasm-pack output
+    ".gradle", // Gradle build cache
+    ".m2",     // Maven local repo
     ".cache",
 ];
 

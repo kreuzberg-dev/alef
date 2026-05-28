@@ -1239,7 +1239,7 @@ fn ts_builder_expression_inner(
     wasm_type_prefix: &str,
     depth: usize,
 ) -> String {
-    // Use a depth-indexed variable name so nested IIFEs don't shadow each other.
+    // Use a depth-indexed variable name so nested IFEs don't shadow each other.
     // Without this, `const _u = WasmConversionOptions.default(); _u.preprocessing =
     // (() => { const _u = WasmPreprocessingOptions.default(); ... })()` triggers
     // oxlint `no-shadow` on every nested-options expression.
