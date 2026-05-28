@@ -3020,11 +3020,10 @@ pub fn emit_test_backend(
         }
     }
 
-    // Required methods (non-default, non-super-trait).
+    // All non-super-trait methods (including those with default impls).
+    // Java interfaces require all abstract methods to be implemented, even if
+    // Rust traits provide default implementations.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Skip super-trait methods already emitted above.
         if trait_bridge
             .super_trait
