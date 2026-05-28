@@ -7,7 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.20.8] - 2026-05-28
+### Fixed
+
+- **PHP visitor-bridge `new()`: drop unnecessary `unsafe` block around `inc_count()`.** `php_obj` is `&mut ZendObject` (a safe reference) and `PhpRc::inc_count()` is a safe method — no raw pointer deref. The wrapping `unsafe { ... }` block triggered `-D warnings unused_unsafe`, breaking every PHP build (8.2/8.3/8.4/8.5 × linux/windows × x86/arm). Reproduced in h2m v3.5.5 publish across all PHP matrices. Clone/Drop blocks retain `unsafe` because they dereference `*mut ZendObject`. (`src/backends/php/templates/visitor_bridge_struct.jinja`)
+
+- **Ruby Rakefile: use `RbSys::ExtensionTask` instead of `Rake::ExtensionTask`.** `Rake::ExtensionTask` requires pre-built `rbconfig-<platform>-<ruby_version>` files in `~/.rake-compiler/config.yml` populated by `rake-compiler cross-ruby` ahead of time. The rb-sys-dock container does not pre-populate every Ruby version, so cross-compile invocations like `rake "native[x64-mingw-ucrt]"` fail with "no configuration section for specified version of Ruby (rbconfig-x64-mingw-ucrt-3.0.7)" followed by "Don't know how to build task 'native'". `RbSys::ExtensionTask` is rb-sys's drop-in replacement that reads `RUBY_CC_VERSION` from the dock env and registers cross-compile tasks automatically. Reproduced in h2m v3.5.5 publish on the `Build Ruby gem (windows-x64)` job. (`src/scaffold/languages/ruby.rs`)
 
 ### Fixed
 
