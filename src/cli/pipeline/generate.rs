@@ -145,6 +145,30 @@ pub fn generate_public_api(
     Ok(results)
 }
 
+/// Apply `0o755` permissions to a file whose content begins with a shebang line.
+///
+/// Called immediately after every `fs::write` in both [`write_files`] and
+/// [`write_scaffold_files_with_overwrite`] so that generated shell scripts
+/// (e.g. `download_ffi.sh`, `run_tests.sh`, `mvnw`) are executable on Unix
+/// without a manual `chmod` step by the consumer.
+///
+/// On non-Unix platforms this is a no-op — POSIX permission bits do not exist.
+#[cfg(unix)]
+fn apply_shebang_chmod(path: &std::path::Path, content: &str) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if content.starts_with("#!") {
+        let perms = std::fs::Permissions::from_mode(0o755);
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("failed to chmod 755 {}", path.display()))?;
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn apply_shebang_chmod(_path: &std::path::Path, _content: &str) -> anyhow::Result<()> {
+    Ok(())
+}
+
 /// Write generated files to disk.
 ///
 /// Rust files are formatted with `rustfmt` before writing so prek's `cargo fmt`
@@ -179,13 +203,7 @@ pub fn write_files(files: &[(Language, Vec<GeneratedFile>)], base_dir: &Path) ->
         let normalized = normalize_content(&file.path, &file.content);
         std::fs::write(&full_path, &normalized)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
-        #[cfg(unix)]
-        if normalized.starts_with("#!") {
-            use std::os::unix::fs::PermissionsExt;
-            let perms = std::fs::Permissions::from_mode(0o755);
-            std::fs::set_permissions(&full_path, perms)
-                .with_context(|| format!("failed to chmod 755 generated script {}", full_path.display()))?;
-        }
+        apply_shebang_chmod(&full_path, &normalized)?;
         debug!("  wrote: {}", full_path.display());
         Ok(())
     })?;
@@ -425,6 +443,7 @@ pub fn write_scaffold_files_with_overwrite(
         let normalized = normalize_content(&full_path, &file.content);
         std::fs::write(&full_path, &normalized)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
+        apply_shebang_chmod(&full_path, &normalized)?;
         count += 1;
         debug!("  wrote: {}", full_path.display());
     }
