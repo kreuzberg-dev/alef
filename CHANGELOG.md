@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Go test_app no longer uses vendor mode; go generate runs on the live module so download_ffi can fetch FFI tarballs.** The previous test command sequence used `go mod vendor` to copy the module into a writable `./vendor/` directory, then invoked `go generate ./vendor/<module-path>/...` to populate `.lib/` with native FFI artifacts. However, Go forbids `go generate` in dependency modules (with error "not generating in packages in dependency modules"), making the `./vendor/...` invocation a no-op. This left `.lib/` empty, causing linker failures when trying to link against native dylibs. The fix switches to non-vendor mode: `go mod tidy` downloads the module into the Go module cache, then `go generate <module>` runs on the live (non-vendored) module to invoke the `//go:generate go run ./cmd/download_ffi` directive, which correctly fetches FFI tarballs into `.lib/<platform>/`. Finally, `go test ./...` links against the live module's FFI artifacts without `-mod=vendor`. (`src/core/config/test_apps_run_defaults.rs`)
+
 ## [0.20.3] - 2026-05-28
 
 ### Fixed
