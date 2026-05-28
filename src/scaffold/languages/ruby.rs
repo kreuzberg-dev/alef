@@ -275,12 +275,12 @@ RSpec/NestedGroups:
 
 require "bundler"
 Bundler::GemHelper.install_tasks name: "{gem_name_snake}"
-require "rake/extensiontask"
+require "rb_sys/extensiontask"
 require "rspec/core/rake_task"
 
 GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", __dir__))
 
-Rake::ExtensionTask.new("{ext_name}", GEMSPEC) do |ext|
+RbSys::ExtensionTask.new("{ext_name}", GEMSPEC) do |ext|
   ext.lib_dir = "lib"
   ext.ext_dir = "ext/{ext_name}"
   ext.cross_compile = true
