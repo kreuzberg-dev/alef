@@ -37,15 +37,16 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
 
     let mut warnings = Vec::new();
 
-    // Recover registration methods that the main extraction skipped because they
-    // are generic over the callback bound (e.g. `fn add_route<H: IntoHandler>`).
-    // The generic-method skip in `extract_impl_block` is intentional for FFI
-    // safety, but methods named explicitly in `[[crates.services]]` registrations
-    // are bridged via their callback contract and must be recovered. They are
-    // re-parsed from the configured sources and injected into the owner type's
-    // method list; the owner is later marked `binding_excluded`, so they never
-    // reach the generic struct/trait codegen.
-    recover_registration_methods(surface, config);
+    // Recover any service method the main extraction skipped — registration
+    // methods generic over the callback bound (e.g. `fn route<H: IntoHandler>`)
+    // and a `new`-returning-`Self` constructor (treated as a field-constructed
+    // default). Those generic-extraction skips are intentional for FFI safety,
+    // but methods named explicitly in `[[crates.services]]` are bridged via the
+    // service codegen and must be recovered. They are re-parsed from the
+    // configured sources and injected into the owner type's method list; the
+    // owner is later marked `binding_excluded`, so they never reach the generic
+    // struct/trait codegen.
+    recover_service_methods(surface, config);
 
     // Build handler contracts first so we can reference them from service defs.
     for hc_cfg in &config.handler_contracts {
@@ -81,23 +82,35 @@ pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateC
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Re-parse the configured Rust sources to recover registration methods that the
-/// main extraction pass dropped because they are generic over the callback bound.
-/// Only methods explicitly named in `[[crates.services]]` registrations are
-/// recovered, and only when absent from the owner type's already-extracted
-/// methods. Recovered methods are injected into the owner `TypeDef`.
-fn recover_registration_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
+/// Re-parse the configured Rust sources to recover any service method that the
+/// main extraction pass dropped. Two generic-extraction heuristics commonly drop
+/// methods a service relies on: registration methods are skipped because they are
+/// generic over the callback bound (e.g. `fn route<H: IntoHandler>`), and a
+/// constructor named `new` returning `Self` is skipped (treated as a
+/// field-constructed default). Every method named by the service config —
+/// constructor, configurators, registrations, and entrypoints — is recovered when
+/// absent from the owner type's already-extracted methods. Recovered methods are
+/// injected into the owner `TypeDef`.
+fn recover_service_methods(surface: &mut ApiSurface, config: &ResolvedCrateConfig) {
     // (owner_type, method_name) pairs configured but missing from the surface.
     let mut wanted: Vec<(String, String)> = Vec::new();
     for svc in &config.services {
-        for reg in &svc.registrations {
-            let present = surface
-                .types
-                .iter()
-                .find(|t| t.name == svc.owner_type && !t.is_trait)
-                .is_some_and(|t| t.methods.iter().any(|m| m.name == reg.method));
+        let owner_methods: Option<Vec<String>> = surface
+            .types
+            .iter()
+            .find(|t| t.name == svc.owner_type && !t.is_trait)
+            .map(|t| t.methods.iter().map(|m| m.name.clone()).collect());
+
+        // Every method the service config references on the owner.
+        let mut names: Vec<String> = vec![svc.constructor.clone().unwrap_or_else(|| "new".to_owned())];
+        names.extend(svc.configurators.iter().cloned());
+        names.extend(svc.registrations.iter().map(|r| r.method.clone()));
+        names.extend(svc.entrypoints.iter().map(|e| e.method.clone()));
+
+        for name in names {
+            let present = owner_methods.as_ref().is_some_and(|ms| ms.iter().any(|m| *m == name));
             if !present {
-                wanted.push((svc.owner_type.clone(), reg.method.clone()));
+                wanted.push((svc.owner_type.clone(), name));
             }
         }
     }
@@ -383,9 +396,10 @@ mod tests {
     /// Minimal Rust source with an owner type, a contract trait, and supporting
     /// methods that exercise every classification bucket.
     ///
-    /// Note: the extractor intentionally skips methods named `new` that return
-    /// `Self` (they are treated as field-constructed defaults).  The constructor
-    /// here is therefore named `create` to avoid that special-case.
+    /// Note: the constructor is named `new` and returns `Self`, which the main
+    /// extraction pass intentionally skips (treated as a field-constructed
+    /// default).  The service pass must recover it from source so the
+    /// `ServiceDef` constructor is populated.
     const SERVICE_SOURCE: &str = r#"
 /// App documentation.
 pub struct App {
@@ -393,8 +407,8 @@ pub struct App {
 }
 
 impl App {
-    /// Create a new App from config.
-    pub fn create(config: String) -> Self { todo!() }
+    /// Create a new App.
+    pub fn new() -> Self { todo!() }
 
     /// Set bind address (configurator).
     pub fn set_address(mut self, addr: String) -> Self { todo!() }
@@ -436,7 +450,7 @@ pub trait IntoHandler {}
             name: "test_crate".to_string(),
             services: vec![ServiceConfig {
                 owner_type: "App".to_string(),
-                constructor: Some("create".to_string()),
+                constructor: Some("new".to_string()),
                 configurators: vec!["set_address".to_string()],
                 registrations: vec![RegistrationSpec {
                     method: "add_route".to_string(),
@@ -503,7 +517,7 @@ pub trait IntoHandler {}
         assert_eq!(surface.services.len(), 1, "exactly one ServiceDef expected");
         let svc = &surface.services[0];
         assert_eq!(svc.name, "App");
-        assert_eq!(svc.constructor.name, "create");
+        assert_eq!(svc.constructor.name, "new", "constructor `new` must be recovered from source");
         assert_eq!(svc.configurators.len(), 1);
         assert_eq!(svc.configurators[0].name, "set_address");
 
