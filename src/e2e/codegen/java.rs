@@ -2907,6 +2907,22 @@ fn java_stub_type_fqn(ty: &crate::core::ir::TypeRef, binding_pkg: &str) -> Strin
 /// When a Named type is in `excluded_types`, it is substituted with `String`
 /// (matching the trait-bridge interface which serializes excluded types to JSON strings).
 /// Otherwise behaves like `java_stub_type_fqn`.
+/// Box a Java type for use in generic parameters (List<T>, Map<K,V>).
+/// Primitive types like `float` become `Float`, but already-boxed and complex types pass through.
+fn box_java_type_for_generic(ty: &str) -> String {
+    match ty {
+        "boolean" => "Boolean".to_string(),
+        "byte" => "Byte".to_string(),
+        "short" => "Short".to_string(),
+        "int" => "Integer".to_string(),
+        "long" => "Long".to_string(),
+        "float" => "Float".to_string(),
+        "double" => "Double".to_string(),
+        "char" => "Character".to_string(),
+        other => other.to_string(),
+    }
+}
+
 fn java_stub_type_with_context(
     ty: &crate::core::ir::TypeRef,
     binding_pkg: &str,
@@ -2929,13 +2945,18 @@ fn java_stub_type_with_context(
             }
             other => {
                 let inner_type = java_stub_type_with_context(other, binding_pkg, excluded_types);
-                format!("java.util.List<{inner_type}>")
+                // Box primitives for use in generic parameters
+                let boxed_inner = box_java_type_for_generic(&inner_type);
+                format!("java.util.List<{boxed_inner}>")
             }
         },
         TypeRef::Map(k, v) => {
             let key_type = java_stub_type_with_context(k, binding_pkg, excluded_types);
             let val_type = java_stub_type_with_context(v, binding_pkg, excluded_types);
-            format!("java.util.Map<{}, {}>", key_type, val_type)
+            // Box primitives for use in generic parameters
+            let boxed_key = box_java_type_for_generic(&key_type);
+            let boxed_val = box_java_type_for_generic(&val_type);
+            format!("java.util.Map<{}, {}>", boxed_key, boxed_val)
         }
         _ => java_stub_type_fqn(ty, binding_pkg),
     }
@@ -3095,7 +3116,7 @@ pub fn emit_test_backend_with_context(
             .iter()
             .filter(|m| m.trait_source.as_deref() == Some(super_trait))
         {
-            let method_java = &method.name;  // Keep snake_case to match interface
+            let method_java = &method.name; // Keep snake_case to match interface
             if method.name == "name" {
                 let _ = writeln!(setup, "    @Override");
                 let _ = writeln!(
@@ -3128,15 +3149,8 @@ pub fn emit_test_backend_with_context(
         {
             continue;
         }
-        let method_java = &method.name;  // Keep snake_case to match interface
-        emit_java_stub_method_with_context(
-            &mut setup,
-            method_java,
-            method,
-            &*defaults,
-            binding_pkg,
-            excluded_types,
-        );
+        let method_java = &method.name; // Keep snake_case to match interface
+        emit_java_stub_method_with_context(&mut setup, method_java, method, &*defaults, binding_pkg, excluded_types);
     }
 
     let _ = writeln!(setup, "}}");

@@ -148,10 +148,11 @@ fn gen_single_trait_bridge_file(
 
         if method.error_type.is_some() {
             // Error-returning method: wrap result in try-catch and return JSON envelope
-            let await_kw = if method.is_async { "await " } else { "" };
+            // Swift requires 'try await' order (not 'await try')
+            let try_await = if method.is_async { "try await " } else { "try " };
             out.push_str(&format!(
                 "        do {{\n\
-                 \x20\x20\x20\x20\x20\x20\x20\x20let result = {await_kw}try self.bridge.{method_camel}({call_args_str})\n"
+                 \x20\x20\x20\x20\x20\x20\x20\x20let result = {try_await}self.bridge.{method_camel}({call_args_str})\n"
             ));
             // Special case: if return type is Void, don't try to marshal it
             if matches!(method.return_type, TypeRef::Unit) {
@@ -297,7 +298,7 @@ fn swift_return_type(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
 /// - return_expr: expression to marshal the result back across the boundary
 fn build_adapter_call_expr(
     method: &crate::core::ir::MethodDef,
-    exclude_types: &HashSet<String>,
+    _exclude_types: &HashSet<String>,
 ) -> (Vec<String>, String) {
     // Build the call arguments with Swift argument labels (name: value format)
     // Swift requires explicit labels for all method arguments
@@ -311,17 +312,30 @@ fn build_adapter_call_expr(
         .collect();
 
     // Build the return expression — marshal the result back to the boundary type
+    // For trait bridges with error types, all results are JSON-encoded for the C FFI boundary
     let return_expr = match &method.return_type {
         TypeRef::Unit => {
             // Unit/Void: no result to marshal, handled separately in method body
             "result".to_string()
         }
-        TypeRef::Named(name) if exclude_types.contains(name) => {
-            // Excluded type: encode to JSON string
+        TypeRef::String => {
+            // String is already JSON-marshalled in trait protocol signatures
+            "result".to_string()
+        }
+        TypeRef::Named(_) => {
+            // Named types (structs, enums) need JSON encoding at the FFI boundary
+            // This includes both excluded types and visible types like ExtractionResult
             "try JSONEncoder().encode(result)".to_string()
         }
-        TypeRef::String | TypeRef::Bytes | TypeRef::Primitive(_) => "result".to_string(),
-        _ => "result".to_string(), // Other types pass through
+        TypeRef::Vec(_) | TypeRef::Map(_, _) => {
+            // Collections also need encoding
+            "try JSONEncoder().encode(result)".to_string()
+        }
+        TypeRef::Primitive(_) | TypeRef::Bytes | TypeRef::Char => {
+            // Primitives pass through directly
+            "result".to_string()
+        }
+        _ => "try JSONEncoder().encode(result)".to_string(), // Default: encode everything else
     };
 
     (call_args, return_expr)
