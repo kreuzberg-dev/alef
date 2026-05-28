@@ -1239,8 +1239,13 @@ fn render_test_fn(
     //   [crates.e2e.calls.language_count.overrides.zig]
     //   returns_result = false
     //
+    // Special case: functions named `unregister_*` always return error unions
+    // (plugin trait unregister calls) and must always use `try`, regardless
+    // of the `returns_result` override.
+    //
     // This is safer than guessing wrong and producing un-compilable Zig.
-    let call_returns_error_union = call_overrides.and_then(|o| o.returns_result) != Some(false);
+    let call_returns_error_union =
+        function_name.starts_with("unregister_") || call_overrides.and_then(|o| o.returns_result) != Some(false);
 
     let test_name = fixture.id.to_snake_case();
     let description = &fixture.description;
