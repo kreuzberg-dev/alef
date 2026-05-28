@@ -2646,8 +2646,15 @@ pub fn emit_test_backend_with_ns(
             .map(|p| format!("${}", sanitize_ident(&p.name)))
             .collect();
         let param_str = params.join(", ");
+        // The PHP interface declares every method as `: mixed` (uniform catch-all
+        // return type), so stubs must match — including Unit-returning Rust
+        // methods like PostProcessor::process. Emit a null return for Unit so
+        // the stub is callable; the registry never reads its result.
         if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(setup, "    public function {php_name}({param_str}): void {{}}");
+            let _ = writeln!(
+                setup,
+                "    public function {php_name}({param_str}): mixed {{ return null; }}"
+            );
         } else {
             let _ = writeln!(
                 setup,
