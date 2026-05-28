@@ -1795,11 +1795,10 @@ fn build_args_and_setup(
                     excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
 
-                    // Remove any methods that return excluded types — they don't appear in the Java interface.
-                    methods.retain(|m| match &m.return_type {
-                        crate::core::ir::TypeRef::Named(n) => !excluded_named.contains(n.as_str()),
-                        _ => true,
-                    });
+                    // Do NOT filter out methods that return excluded types. As of the trait method extraction
+                    // fix, trait methods with excluded type signatures are now kept in the interface with type
+                    // substitution (excluded types become String). The trait-bridge interface properly handles
+                    // these via emit_test_backend_with_context, which uses excluded_named to substitute types.
 
                     // Call java::emit_test_backend_with_context so stubs handle excluded types correctly.
                     let emission = emit_test_backend_with_context(
