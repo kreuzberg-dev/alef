@@ -580,36 +580,37 @@ fn gen_single_trait_bridge(
         }
         // Recover the bridge instance from the registry using userData as key
         callbacks.push_str(&format!(
-            "        {}Bridge _bridgeFromRegistry = null!;\n",
+            "        {}Bridge? _bridgeFromRegistry = null;\n",
             trait_pascal
         ));
         callbacks.push_str(&format!("        lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!(
-            "            if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n",
+            "            if ({}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n",
             trait_pascal
         ));
-
-        // Bridge not found: return error gracefully instead of throwing.
-        if is_primitive_return {
-            callbacks.push_str("                return 0;\n");
-        } else if is_options_field {
-            callbacks.push_str("                outResult = IntPtr.Zero;\n");
-            callbacks.push_str("                return 1;\n");
-        } else {
-            callbacks.push_str("                outResult = IntPtr.Zero;\n");
-            callbacks.push_str("                outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8($\"Bridge not found for userData (likely unregistered): {userData}\");\n");
-            callbacks.push_str("                return 1;\n");
-        }
-
+        callbacks.push_str("                _bridgeFromRegistry = bridgeFromRegistry;\n");
+        callbacks.push_str("                // Increment callback refcount to prevent GC while callback executes\n");
+        callbacks.push_str("                _bridgeFromRegistry.IncrementCallbackRef();\n");
         callbacks.push_str("            }\n");
-        callbacks.push_str("            _bridgeFromRegistry = bridgeFromRegistry;\n");
-        callbacks.push_str("            // Increment callback refcount to prevent GC while callback executes\n");
-        callbacks.push_str("            _bridgeFromRegistry.IncrementCallbackRef();\n");
         callbacks.push_str("        }\n");
 
-        // Outer try-finally to ensure refcount is decremented
+        // If bridge not found, return error gracefully
+        callbacks.push_str("        if (_bridgeFromRegistry == null) {\n");
+        if is_primitive_return {
+            callbacks.push_str("            return 0;\n");
+        } else if is_options_field {
+            callbacks.push_str("            outResult = IntPtr.Zero;\n");
+            callbacks.push_str("            return 1;\n");
+        } else {
+            callbacks.push_str("            outResult = IntPtr.Zero;\n");
+            callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8($\"Bridge not found for userData (likely unregistered): {userData}\");\n");
+            callbacks.push_str("            return 1;\n");
+        }
+        callbacks.push_str("        }\n");
+
+        // Outer try-finally to ensure refcount is decremented (only for successful bridge acquisition)
         callbacks.push_str("        try {\n");
-        callbacks.push_str("            var bridge = _bridgeFromRegistry;\n");
+        callbacks.push_str("            var bridge = _bridgeFromRegistry!;\n");
 
         // Marshal parameters from IntPtr to managed types
         let mut param_call_parts = Vec::new();
@@ -735,7 +736,9 @@ fn gen_single_trait_bridge(
             callbacks.push_str("            return 0;\n");
         }
         callbacks.push_str("        } finally {\n");
-        callbacks.push_str("            _bridgeFromRegistry?.DecrementCallbackRef();\n");
+        callbacks.push_str("            if (_bridgeFromRegistry != null) {\n");
+        callbacks.push_str("                try { _bridgeFromRegistry.DecrementCallbackRef(); } catch { /* Bridge already removed from registry */ }\n");
+        callbacks.push_str("            }\n");
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
         callbacks.push('\n');

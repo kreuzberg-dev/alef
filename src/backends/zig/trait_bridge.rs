@@ -125,6 +125,7 @@ pub fn emit_make_vtable(
     trait_def: &TypeDef,
     excluded_types: &HashSet<String>,
     out: &mut String,
+    ffi_skip_methods: &[String],
 ) {
     let snake = trait_snake(trait_name);
     let _excluded_strs: HashSet<&str> = excluded_types.iter().map(|s| s.as_str()).collect();
@@ -172,6 +173,10 @@ pub fn emit_make_vtable(
 
     // Per-method thunks
     for method in &trait_def.methods {
+        // Skip methods listed in ffi_skip_methods — they cannot be represented in the C ABI.
+        if ffi_skip_methods.iter().any(|skip| skip == &method.name) {
+            continue;
+        }
         // CRITICAL: Do NOT substitute excluded types in thunk C ABI signatures!
         // The thunk must match the C ABI exactly or it won't call correctly.
         // Substitution should never happen at the C boundary.
@@ -402,6 +407,11 @@ pub fn emit_trait_bridge(
 
     // Trait method slots
     for method in &trait_def.methods {
+        // Skip methods listed in ffi_skip_methods — they cannot be represented in the C ABI.
+        if bridge_cfg.ffi_skip_methods.iter().any(|skip| skip == &method.name) {
+            continue;
+        }
+
         // CRITICAL: Do NOT substitute excluded types in vtable struct signatures!
         // The vtable is a C ABI struct, and changing parameter/return types breaks
         // linking with the FFI layer. Excluded types remain as-is here.
@@ -599,7 +609,7 @@ pub fn emit_trait_bridge(
     // -------------------------------------------------------------------------
     // Comptime vtable builder: make_{trait_snake}_vtable
     // -------------------------------------------------------------------------
-    emit_make_vtable(trait_name, has_super_trait, trait_def, excluded_types, out);
+    emit_make_vtable(trait_name, has_super_trait, trait_def, excluded_types, out, &bridge_cfg.ffi_skip_methods);
 }
 
 // ---------------------------------------------------------------------------
