@@ -203,10 +203,16 @@ pub fn default_test_apps_run_config(
             // The Swift test app is emitted under `swift_e2e/` (not `swift/`) so the
             // SwiftPM package identity is distinct from any sibling package — see
             // `src/e2e/codegen/swift.rs` (`output_base = ...join("swift_e2e")`).
+            //
+            // `download_swift_artifact.sh` downloads the .artifactbundle.zip from the
+            // GitHub release, computes its SHA256 via `swift package compute-checksum`,
+            // and substitutes `__ALEF_SWIFT_CHECKSUM__` in Package.swift before tests.
+            // This bypasses SwiftPM tag-URL pinning, which cannot resolve against
+            // placeholder-bearing root manifests at the release tag.
             precondition: Some(require_tool("swift")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/swift_e2e && swift test"
+                "cd {test_apps_dir}/swift_e2e && bash download_swift_artifact.sh && swift test"
             ))),
         },
         Language::Zig => TestAppRunConfig {
