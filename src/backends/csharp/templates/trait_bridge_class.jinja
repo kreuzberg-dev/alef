@@ -89,10 +89,13 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
     /// <summary>Called by Rust via FreeUserDataCallback when done with this bridge</summary>
     internal static void FreeUserData(IntPtr bridgeId) {
         lock (_registryLock) {
-            if (_bridgeRegistry.TryGetValue(bridgeId, out var bridge)) {
-                _bridgeRegistry.Remove(bridgeId);
-                bridge.Dispose();
-            }
+            // Remove bridge from registry to stop accepting new callbacks.
+            // Do NOT call bridge.Dispose() here — Rust may still be inside a callback
+            // (via reverse P/Invoke) when this is called. Disposing while a callback
+            // is executing causes NullReferenceException when the callback tries to
+            // access bridge._impl. Let the GC clean up the bridge when no more
+            // references exist.
+            _bridgeRegistry.Remove(bridgeId);
         }
     }
 
