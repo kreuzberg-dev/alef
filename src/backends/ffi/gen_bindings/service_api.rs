@@ -211,6 +211,72 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef, core_import: &str) -> String {
     }
 }
 
+/// A C-ABI binding for one non-callback parameter (registration metadata or entrypoint param).
+struct FfiParamBinding {
+    /// The Rust `extern "C"` parameter declaration (`name: type`).
+    decl: String,
+    /// A statement (possibly empty) that rebinds the raw value to a usable owned Rust value.
+    conversion: String,
+    /// The expression to pass at the call site.
+    arg: String,
+    /// Whether the raw parameter is a pointer that must be null-checked before use.
+    pointer: bool,
+}
+
+/// Bind a non-callback parameter to its C-ABI form.
+///
+/// - `String` crosses as `*const c_char` and is rebound to an owned `String`.
+/// - A `Named` type this surface wraps crosses as a `*mut {core}::{name}` opaque pointer and is
+///   reconstructed (consumed) via `Box::from_raw`.
+/// - Everything else crosses by value via [`typeref_to_rust_ffi_type`].
+fn ffi_param_binding(p: &crate::core::ir::ParamDef, core_import: &str, api: &ApiSurface) -> FfiParamBinding {
+    match &p.ty {
+        TypeRef::String => FfiParamBinding {
+            decl: format!("{}: *const c_char", p.name),
+            conversion: format!(
+                "    let {0} = if {0}.is_null() {{\n        \
+                     String::new()\n    \
+                 }} else {{\n        \
+                     // SAFETY: caller guarantees a valid null-terminated C string.\n        \
+                     unsafe {{ CStr::from_ptr({0}) }}.to_string_lossy().into_owned()\n    \
+                 }};\n",
+                p.name
+            ),
+            arg: p.name.clone(),
+            pointer: true,
+        },
+        TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => FfiParamBinding {
+            decl: format!("{}: *mut {core_import}::{n}", p.name),
+            conversion: format!(
+                "    // SAFETY: pointer was produced by the matching opaque `_new`/builder export and is consumed here.\n    \
+                 let {0} = unsafe {{ *Box::from_raw({0}) }};\n",
+                p.name
+            ),
+            arg: p.name.clone(),
+            pointer: true,
+        },
+        _ => FfiParamBinding {
+            decl: format!("{}: {}", p.name, typeref_to_rust_ffi_type(&p.ty, core_import)),
+            conversion: String::new(),
+            arg: p.name.clone(),
+            pointer: false,
+        },
+    }
+}
+
+/// Whether an entrypoint's return type can be represented over the C ABI as a function return.
+///
+/// Unit/primitive/string/bytes map to a status code or scalar; a `Named` type is representable only
+/// when this surface wraps it (so it can cross as a `*mut {core}::{name}` opaque). Anything else
+/// (e.g. a foreign framework type a `finalize` converts into) is not representable.
+fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+    match &ep.return_type {
+        TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
+        TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
+        _ => false,
+    }
+}
+
 // ──────────────────────────────────────────────── Rust glue (extern "C") ──
 
 /// Generate the Rust FFI glue module (`service.rs`).
@@ -269,9 +335,9 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
         "/// Opaque handle to a {} service instance.\n\
          /// Allocated by {}_{}_new(), freed by {}_{}_free().\n\
          #[repr(C)]\n\
-         pub struct {}({{\n    \
+         pub struct {} {{\n    \
              inner: Box<{}>,\n\
-         }})\n\n",
+         }}\n\n",
         service.name, prefix_lower, service_snake, prefix_lower, service_snake, opaque_name, owner_path
     ));
 
@@ -285,9 +351,9 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
          #[no_mangle]\n\
          pub extern \"C\" fn {}_{}_new() -> *mut {} {{\n    \
              let owner = {}::{}();\n    \
-             Box::into_raw(Box::new({}({{\n        \
+             Box::into_raw(Box::new({} {{\n        \
                  inner: Box::new(owner),\n    \
-             }})))\n\
+             }}))\n\
          }}\n\n",
         service.name,
         prefix_lower,
@@ -427,31 +493,34 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                      .map_err(|e| Box::new(e) as {box_err})?;\n                \
                  let req_c_str = CString::new(req_json)\n                    \
                      .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                 // Call the C callback in a blocking context to avoid blocking the async executor\n                \
-                 let resp_ptr = tokio::task::spawn_blocking({{\n                    \
-                     let callback = self.callback;\n                    \
-                     let context = self.context;\n                    \
-                     let req_ptr = req_c_str.as_ptr();\n                    \
-                     move || (callback)(context, req_ptr)\n                \
+                 // Call the C callback on a blocking thread to avoid stalling the async executor.\n                \
+                 // Raw pointers are not `Send`, so the context and result pointers cross the\n                \
+                 // spawn_blocking boundary as `usize`; the owned `CString` moves in to stay alive.\n                \
+                 let callback = self.callback;\n                \
+                 let context = self.context as usize;\n                \
+                 let resp_addr = tokio::task::spawn_blocking(move || {{\n                    \
+                     (callback)(context as *mut c_void, req_c_str.as_ptr()) as usize\n                \
                  }})\n                \
                  .await\n                \
-                 .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
+                 .map_err(|e| Box::new(e) as {box_err})?;\n                \
+                 let resp_ptr = resp_addr as *mut c_char;\n\n                \
                  if resp_ptr.is_null() {{\n                    \
                      return Err(\"C callback returned null response\".into());\n                \
                  }}\n\n                \
                  // SAFETY: resp_ptr was returned by the C callback and must be a null-terminated string.\n                \
-                 let resp_c_str = unsafe {{\n                    \
-                     CStr::from_ptr(resp_ptr)\n                \
-                 }};\n                \
+                 let resp_c_str = unsafe {{ CStr::from_ptr(resp_ptr) }};\n                \
                  let resp_json = resp_c_str.to_string_lossy();\n\n                \
                  // Deserialize response from JSON\n                \
                  let response: {resp_path} = serde_json::from_str(&resp_json)\n                    \
                      .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                 // Free the C-allocated response string.\n                \
-                 // SAFETY: resp_ptr is null-checked above, and we assume the C side\n                \
-                 // allocated it via libc::malloc or equivalent.\n                \
+                 // Free the C-allocated response string. The host allocates it via malloc/strdup\n                \
+                 // and hands ownership to us; we release it with the C runtime's free.\n                \
+                 // SAFETY: resp_ptr is null-checked above and was produced by the host callback.\n                \
                  unsafe {{\n                    \
-                     libc::free(resp_ptr as *mut c_void);\n                \
+                     extern \"C\" {{\n                        \
+                         fn free(ptr: *mut c_void);\n                    \
+                     }}\n                    \
+                     free(resp_ptr as *mut c_void);\n                \
                  }}\n\n                \
                  Ok(response)\n            \
              }}\n            \
@@ -519,16 +588,38 @@ fn gen_registration_function(
         service_snake
     ));
 
-    // Add metadata parameters
-    for meta_param in &reg.metadata_params {
-        let rust_type = typeref_to_rust_ffi_type(&meta_param.ty, core_import);
-        out.push_str(&format!(",\n    {} {}", rust_type, meta_param.name));
+    // Add metadata parameters as C-ABI declarations.
+    let meta_bindings: Vec<FfiParamBinding> = reg
+        .metadata_params
+        .iter()
+        .map(|p| ffi_param_binding(p, core_import, api))
+        .collect();
+    for binding in &meta_bindings {
+        out.push_str(&format!(",\n    {}", binding.decl));
     }
 
     out.push_str("\n) -> i32 {\n");
     out.push_str("    if owner.is_null() {\n");
     out.push_str("        return 1; // Error: null pointer\n");
-    out.push_str("    }\n\n");
+    out.push_str("    }\n");
+    // Null-check pointer metadata params before reconstructing them.
+    for (meta_param, binding) in reg.metadata_params.iter().zip(&meta_bindings) {
+        if binding.pointer {
+            out.push_str(&format!(
+                "    if {}.is_null() {{\n        return 1; // Error: null pointer\n    }}\n",
+                meta_param.name
+            ));
+        }
+    }
+    out.push('\n');
+
+    // Reconstruct metadata params into owned Rust values.
+    for binding in &meta_bindings {
+        out.push_str(&binding.conversion);
+    }
+    if meta_bindings.iter().any(|b| !b.conversion.is_empty()) {
+        out.push('\n');
+    }
 
     out.push_str("    let bridge = ");
     out.push_str(&bridge_name);
@@ -540,21 +631,24 @@ fn gen_registration_function(
     out.push_str(&format!("{}::{}", core_import, contract.trait_name));
     out.push_str("> = Arc::new(bridge);\n\n");
 
-    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
-    out.push_str("    match unsafe {\n");
-    out.push_str("        let owner_ref = &mut (*owner).inner;\n");
-    out.push_str(&format!("        owner_ref.{}(", reg.method));
+    let meta_args: String = meta_bindings.iter().map(|b| format!("{}, ", b.arg)).collect();
 
-    // Metadata arguments
-    for meta_param in &reg.metadata_params {
-        out.push_str(&meta_param.name);
-        out.push_str(", ");
+    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
+    if reg.error_type.is_some() {
+        out.push_str("    match unsafe {\n");
+        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        out.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
+        out.push_str("    } {\n");
+        out.push_str("        Ok(_) => 0, // Success\n");
+        out.push_str("        Err(_) => 1, // Error\n");
+        out.push_str("    }\n");
+    } else {
+        out.push_str("    unsafe {\n");
+        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        out.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
+        out.push_str("    }\n");
+        out.push_str("    0\n");
     }
-    out.push_str("handler)\n");
-    out.push_str("    } {\n");
-    out.push_str("        Ok(_) => 0, // Success\n");
-    out.push_str("        Err(_) => 1, // Error\n");
-    out.push_str("    }\n");
     out.push_str("}\n\n");
 }
 
@@ -562,21 +656,36 @@ fn gen_entrypoint_function(
     out: &mut String,
     service: &ServiceDef,
     ep: &crate::core::ir::EntrypointDef,
-    _api: &ApiSurface,
-    _core_import: &str,
+    api: &ApiSurface,
+    core_import: &str,
     prefix: &str,
     opaque_name: &str,
 ) {
+    // A `finalize` that converts the owner into a type this backend cannot represent over the C
+    // ABI (e.g. a foreign framework router) has no C-callable form — skip it.
+    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+        return;
+    }
+
     let service_snake = service.name.to_snake_case();
     let ep_name_snake = ep.method.to_snake_case();
     let fn_name = format!("{}_{}_ep_{}", prefix.to_lowercase(), service_snake, ep_name_snake);
-    let return_type = typeref_to_c_type(&ep.return_type);
+
+    // A finalize producing an opaque this surface wraps returns a `*mut {core}::{name}` pointer;
+    // everything else returns an `i32` status code (0 = ok, non-zero = error / null owner).
+    let returns_opaque = matches!(&ep.return_type, TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n));
+    let return_type = match &ep.return_type {
+        TypeRef::Named(n) if returns_opaque => format!("*mut {core_import}::{n}"),
+        _ => "i32".to_owned(),
+    };
+    let null_return = if returns_opaque { "std::ptr::null_mut()" } else { "1" };
 
     out.push_str(&format!(
         "/// Run the service entrypoint '{0}'.\n\
          ///\n\
          /// # Safety\n\
          /// - `owner` must be a valid pointer returned by `{1}_{2}_new()` and not yet freed.\n\
+         /// - `owner` is consumed by this call; it must not be used or freed afterwards.\n\
          #[no_mangle]\n\
          pub extern \"C\" fn {fn_name}(\n    \
              owner: *mut {opaque_name}",
@@ -585,43 +694,54 @@ fn gen_entrypoint_function(
         service_snake
     ));
 
-    // Add entrypoint parameters
-    for ep_param in &ep.params {
-        let rust_type = typeref_to_rust_ffi_type(&ep_param.ty, "");
-        out.push_str(&format!(",\n    {} {}", rust_type, ep_param.name));
+    let param_bindings: Vec<FfiParamBinding> = ep.params.iter().map(|p| ffi_param_binding(p, core_import, api)).collect();
+    for binding in &param_bindings {
+        out.push_str(&format!(",\n    {}", binding.decl));
     }
-
     out.push_str(&format!("\n) -> {return_type} {{\n"));
 
     out.push_str("    if owner.is_null() {\n");
-    match return_type.as_str() {
-        "void" => out.push_str("        return;\n"),
-        _ => out.push_str("        return 0;\n"),
+    out.push_str(&format!("        return {null_return};\n"));
+    out.push_str("    }\n");
+    for (ep_param, binding) in ep.params.iter().zip(&param_bindings) {
+        if binding.pointer {
+            out.push_str(&format!(
+                "    if {}.is_null() {{\n        return {null_return};\n    }}\n",
+                ep_param.name
+            ));
+        }
     }
-    out.push_str("    }\n\n");
+    out.push('\n');
+    for binding in &param_bindings {
+        out.push_str(&binding.conversion);
+    }
 
-    // SAFETY comment for dereferencing
-    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
-    out.push_str("    unsafe {\n");
-    out.push_str("        let owner_ref = &mut (*owner).inner;\n");
+    out.push_str("    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.\n");
+    out.push_str("    let owner = unsafe { Box::from_raw(owner) };\n");
+    out.push_str("    let inner = *owner.inner;\n");
 
+    let call_args: String = param_bindings.iter().map(|b| b.arg.clone()).collect::<Vec<_>>().join(", ");
     if ep.is_async {
-        out.push_str("        let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n");
-        out.push_str(&format!("        rt.block_on(owner_ref.{}(", ep.method));
-    } else {
-        out.push_str(&format!("        owner_ref.{}(", ep.method));
+        out.push_str("    let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n");
     }
+    let call = if ep.is_async {
+        format!("rt.block_on(inner.{}({call_args}))", ep.method)
+    } else {
+        format!("inner.{}({call_args})", ep.method)
+    };
 
-    // Entrypoint arguments
-    for ep_param in &ep.params {
-        out.push_str(&ep_param.name);
-        out.push_str(", ");
-    }
-    out.push_str("))");
-    if ep.is_async {
-        out.push_str("\n    }\n");
+    if returns_opaque {
+        if ep.error_type.is_some() {
+            out.push_str(&format!(
+                "    match {call} {{\n        Ok(value) => Box::into_raw(Box::new(value)),\n        Err(_) => std::ptr::null_mut(),\n    }}\n"
+            ));
+        } else {
+            out.push_str(&format!("    Box::into_raw(Box::new({call}))\n"));
+        }
+    } else if ep.error_type.is_some() {
+        out.push_str(&format!("    match {call} {{\n        Ok(_) => 0,\n        Err(_) => 1,\n    }}\n"));
     } else {
-        out.push_str(";\n    }\n");
+        out.push_str(&format!("    {call};\n    0\n"));
     }
 
     out.push_str("}\n\n");
