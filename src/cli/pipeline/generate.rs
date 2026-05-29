@@ -440,6 +440,27 @@ pub fn write_scaffold_files_with_overwrite(
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
         let normalized = normalize_content(&full_path, &file.content);
+        // Skip the write when on-disk bytes already match the normalized output.
+        // `std::fs::write` is unconditional truncate+write, which updates mtime
+        // even for identical content; pre-commit/prek hooks then report the file
+        // as "modified by this hook" and fail the run, breaking the
+        // alef-sync-versions hook for downstream repos on every commit.
+        //
+        // The on-disk file may carry an `alef:hash:` line injected by
+        // `finalize_hashes` after the original write, while the freshly
+        // generated `normalized` does not — so strip the hash line from both
+        // before comparing. `finalize_hashes` runs after this function and
+        // re-injects the hash idempotently, so skipping the rewrite here does
+        // not lose information.
+        if let Ok(existing) = std::fs::read_to_string(&full_path) {
+            let existing_body = crate::core::hash::strip_hash_line(&existing);
+            let normalized_body = crate::core::hash::strip_hash_line(&normalized);
+            if existing_body == normalized_body {
+                apply_shebang_chmod(&full_path, &normalized)?;
+                debug!("  unchanged: {}", full_path.display());
+                continue;
+            }
+        }
         std::fs::write(&full_path, &normalized)
             .with_context(|| format!("failed to write generated file {}", full_path.display()))?;
         apply_shebang_chmod(&full_path, &normalized)?;
