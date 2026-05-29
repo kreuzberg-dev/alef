@@ -107,7 +107,9 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 
     private void DecrementCallbackRef() {
         lock (_registryLock) {
-            _callbackRefCount--;
+            if (_callbackRefCount > 0) {
+                _callbackRefCount--;
+            }
             // Once refcount reaches 0 and bridge is disposed, remove from registry
             if (_callbackRefCount == 0 && _disposed) {
                 _bridgeRegistry.Remove(_bridgeId);
