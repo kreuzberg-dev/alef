@@ -288,12 +288,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         }
     }
 
-    // Collect the set of type names excluded via [ffi] exclude_types.
-    let ffi_exclude_types: ahash::AHashSet<&str> = config
+    // Collect the set of type names excluded via [ffi] exclude_types, plus service-owner and
+    // handler-contract types flagged `binding_excluded` by the service extraction pass. Those are
+    // emitted through the service-API path (service.rs); also wrapping them as plain opaques here
+    // would collide on the `_new`/`_free` C symbols.
+    let mut ffi_exclude_types: ahash::AHashSet<&str> = config
         .ffi
         .as_ref()
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
+    ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
 
     // Struct opaque-handle functions (from_json + free + field accessors + methods)
     for typ in api
