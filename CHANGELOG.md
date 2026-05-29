@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **alef ffi scaffold: remove unused `extra_deps_block` and `core_dep_line_block` locals.** After the FFI Cargo.toml generator was refactored to sort all deps into a single `dep_entries` vec, the two intermediate block-formatting variables were no longer interpolated into the template string but were still computed. Removed both dead assignments. (`src/scaffold/languages/ffi.rs`)
+
+- **alef zig e2e: remove unused `supported_zig_platforms` helper.** The function was part of the old per-platform URL/hash generation path, which was replaced by a single generic tarball in `db268275f`. The function was left behind and only called by a test that was itself testing the dead multi-platform code path. Removed the function and updated the test to use a single `"generic"` map entry matching the current codegen. (`src/e2e/codegen/zig.rs`)
+
 - **alef csharp: trait-bridge callbacks return error code instead of throwing when bridge is unregistered.** When Rust dispatches callbacks on bridges that were unregistered (FreeUserData removes registry entry, but callbacks may still be pending), the C# callback now returns error code 1 with an error message instead of throwing InvalidOperationException. This prevents cascade crashes through the registry lookup and makes the system more resilient to race conditions between unregistration and pending callbacks. (`src/backends/csharp/trait_bridge.rs`)
 - **alef go: make FreeUserData no-op to avoid Go 1.26.3 cleanup-queue panic.** Go 1.26.3 introduced runtime cleanup-queue finalizers that panic when cgo.Handle.Delete() is called in finalizer context on invalid handles. The fix makes FreeUserData() a no-op; handles are only cleaned up in explicit Unregister() calls. Fixes go:e2e panic on exit. (`src/backends/go/trait_bridge.rs`)
 
