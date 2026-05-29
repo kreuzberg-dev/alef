@@ -569,7 +569,24 @@ fn gen_single_trait_bridge(
         callbacks.push_str(&format!("            {}Bridge _bridgeFromRegistry = null!;\n", trait_pascal));
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!("                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n", trait_pascal));
-        callbacks.push_str("                    throw new InvalidOperationException($\"Bridge not found for userData: {userData}\");\n");
+
+        // Bridge not found: return error gracefully instead of throwing.
+        // This can happen when Rust dispatches callbacks on bridges that were unregistered
+        // (FreeUserData removes the entry, but callbacks may still be pending).
+        if is_primitive_return {
+            // Primitive return: return 0 (default value)
+            callbacks.push_str("                    return 0;\n");
+        } else if is_options_field {
+            // Options field: return outResult=0, no outError
+            callbacks.push_str("                    outResult = IntPtr.Zero;\n");
+            callbacks.push_str("                    return 1;\n");
+        } else {
+            // Standard case: return outResult=0, outError with message
+            callbacks.push_str("                    outResult = IntPtr.Zero;\n");
+            callbacks.push_str("                    outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8($\"Bridge not found for userData (likely unregistered): {userData}\");\n");
+            callbacks.push_str("                    return 1;\n");
+        }
+
         callbacks.push_str("                }\n");
         callbacks.push_str("                _bridgeFromRegistry = bridgeFromRegistry;\n");
         callbacks.push_str("            }\n");
