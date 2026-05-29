@@ -25,7 +25,7 @@ static TEMPLATES: &[(&str, &str)] = &[
     version: Mix.Project.config()[:version],
     targets: ~w({{ nif_targets }}),
     nif_versions: ["2.16", "2.17"],
-    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev, :test]
+    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]
 
 "#,
     ),
