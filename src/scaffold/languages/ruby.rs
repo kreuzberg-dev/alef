@@ -286,7 +286,7 @@ GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", _
 
 RbSys::ExtensionTask.new("{cargo_pkg_name}", GEMSPEC) do |ext|
   ext.lib_dir = "lib"
-  ext.ext_dir = "ext/{ext_name}"
+  ext.ext_dir = "ext/{ext_name}/native"
   ext.cross_compile = true
   ext.cross_platform = %w[
     x86_64-linux
@@ -318,7 +318,6 @@ default_profile = ENV.fetch("CARGO_PROFILE", "release")
 
 create_rust_makefile("{ext_name}") do |config|
   config.profile = default_profile.to_sym
-  config.ext_dir = "native"
 end
 "#,
         ext_name = ext_name,

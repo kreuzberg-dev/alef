@@ -702,7 +702,6 @@ fn render_test_file(
 
     // Render all test methods
     let mut fixtures_body = String::new();
-    let mut trait_bridge_imports: Vec<String> = Vec::new();
     for (i, fixture) in fixtures.iter().enumerate() {
         if fixture.is_http_test() {
             render_http_test_method(&mut fixtures_body, fixture, fixture.http.as_ref().unwrap());
@@ -723,15 +722,12 @@ fn render_test_file(
                 adapters,
                 &php_lang_rename_all,
                 config,
-                &mut trait_bridge_imports,
             );
         }
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
         }
     }
-    // Merge trait-bridge imports into imports_use
-    imports_use.extend(trait_bridge_imports);
 
     crate::e2e::template_env::render(
         "php/test_file.jinja",
@@ -1059,7 +1055,6 @@ fn render_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     php_lang_rename_all: &str,
     config: &ResolvedCrateConfig,
-    trait_bridge_imports: &mut Vec<String>,
 ) {
     // Resolve per-fixture call config: supports named calls via fixture.call field.
     let mut call_config = e2e_config.resolve_call_for_fixture(
@@ -1482,6 +1477,7 @@ fn build_args_and_setup(
     let mut setup_lines: Vec<String> = Vec::new();
     let mut parts: Vec<String> = Vec::new();
     let mut teardown_block = String::new();
+    let mut trait_bridge_imports: Vec<String> = Vec::new();
 
     // True when any arg after `from_idx` has a fixture value (or has no fixture
     // value but is required — i.e. would emit *something*). Used to decide
@@ -1661,8 +1657,6 @@ fn build_args_and_setup(
                     }
                     parts.push(emission.arg_expr);
                     teardown_block.push_str(&emission.teardown_block);
-                    // Collect any function imports needed for trait-bridge teardown
-                    trait_bridge_imports.extend(emission.type_imports);
                     continue;
                 }
             }
