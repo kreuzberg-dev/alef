@@ -105,11 +105,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         extra_dep_lines.push("futures-util = \"0.3\"".to_string());
     }
     extra_dep_lines.sort();
-    let extra_deps_block = if extra_dep_lines.is_empty() {
-        String::new()
-    } else {
-        format!("\n{}", extra_dep_lines.join("\n"))
-    };
 
     // Build the cargo-machete ignored list. `serde_json` and `tokio` are
     // always emitted unconditionally above so they are always ignored.
@@ -142,13 +137,6 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         &core_dep_features(config, Language::Ffi),
         target_overrides,
     );
-    // Prepend a newline when the core-crate dep stays inside `[dependencies]`
-    // so the generated TOML matches the historical layout exactly.
-    let core_dep_line_block = if core_dep_line.is_empty() {
-        String::new()
-    } else {
-        format!("{core_dep_line}\n")
-    };
     // Separate the main [dependencies] table from any per-target tables.
     let target_blocks_section = if target_blocks.is_empty() {
         String::new()
