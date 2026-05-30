@@ -1,4 +1,5 @@
     extern "Rust" {
+        #[swift_bridge(swift_name = "{{ reg_camel }}ViaCallback")]
         fn {{ service_snake }}_{{ reg_snake }}_via_callback(
             self: &mut {{ service_name }},
 {%- for meta_param in metadata_params %}

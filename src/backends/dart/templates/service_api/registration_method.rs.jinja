@@ -6,18 +6,15 @@
 {%- endfor %}
         {{ callback_param }}: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
     ) -> i32 {
-        let metadata = serde_json::json!({
+        let bridge = crate::{{ bridge_name }}::new({{ callback_param }});
+        let mut guard = self.inner.blocking_lock();
+        if let Some(inner) = guard.as_mut() {
+            inner.{{ method_name }}(
 {%- for param in metadata_params %}
-            "{{ param.name }}": {{ param.name }},
+                {{ param.name }},
 {%- endfor %}
-        });
-
-        if let Ok(mut regs) = self.registrations.blocking_lock_mut() {
-            regs.push(DartRegistration {
-                method: "{{ method_name }}".to_string(),
-                metadata_json: metadata.to_string(),
-                handler: std::sync::Arc::new({{ callback_param }}),
-            });
+                std::sync::Arc::new(bridge),
+            );
             0
         } else {
             -1

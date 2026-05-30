@@ -1,7 +1,13 @@
     #[frb(sync)]
     pub fn {{ config_name }}(&mut self{{ method_params }}) -> &mut Self {
-        if let Some(inner) = self.inner.blocking_lock().as_mut() {
-            {{ method_call_expr }}
+        let mut guard = self.inner.blocking_lock();
+        if let Some(inner) = guard.as_mut() {
+            inner.{{ config_name }}(
+{%- for param in configurator_params %}
+                {{ param.name }},
+{%- endfor %}
+            );
         }
+        drop(guard);
         self
     }

@@ -4,6 +4,5 @@ impl {{ service_name }} {
         let inner = {{ owner_path }}{{ ctor_call }};
         Self {
             inner: tokio::sync::Mutex::new(Some(inner)),
-            registrations: tokio::sync::Mutex::new(Vec::new()),
         }
     }
