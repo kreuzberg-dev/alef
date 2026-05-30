@@ -249,6 +249,8 @@ fn emit_method_jni_external_funs(
             // Methods with no params are called with only the handle.
             let params = if method.params.is_empty() {
                 "handle: Long".to_string()
+            } else if method.params.len() == 1 && is_binary_param_type(&method.params[0].ty) {
+                format!("handle: Long, {}: ByteArray", to_lower_camel(&method.params[0].name))
             } else {
                 "handle: Long, requestJson: String".to_string()
             };
@@ -514,8 +516,10 @@ fn emit_jni_client_method(
     // Vec<u8> maps to ByteArray at the JNI boundary (no base64 overhead); the
     // generic Kotlin mapper would produce List<Byte> which is incompatible.
     // All other types use the standard Kotlin type mapper.
-    let wrapper_return_ty = if is_vec_u8(&m.return_type) {
+    let wrapper_return_ty = if is_binary_return_type(&m.return_type) {
         "ByteArray".to_string()
+    } else if is_optional_binary_return_type(&m.return_type) {
+        "ByteArray?".to_string()
     } else {
         kotlin_type_with_string_imports(&m.return_type, false, imports)
     };
@@ -540,6 +544,16 @@ fn emit_jni_client_method(
 fn build_bridge_call(m: &crate::core::ir::MethodDef, bridge_name: &str, native_name: &str) -> String {
     if m.params.is_empty() {
         return format!("{bridge_name}.{native_name}(handle)");
+    }
+    if m.params.len() == 1 && is_binary_param_type(&m.params[0].ty) {
+        let p = &m.params[0];
+        let param_name = to_lower_camel(&p.name);
+        let arg = if p.optional {
+            format!("{param_name} ?: ByteArray(0)")
+        } else {
+            param_name
+        };
+        return format!("{bridge_name}.{native_name}(handle, {arg})");
     }
     // Build requestJson expression.
     let request_json_expr = if m.params.len() == 1 {
@@ -633,6 +647,23 @@ fn is_vec_u8(ty: &TypeRef) -> bool {
         ty,
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8))
     )
+}
+
+fn is_binary_return_type(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Bytes) || is_vec_u8(ty)
+}
+
+fn is_optional_binary_return_type(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Optional(inner) if is_binary_return_type(inner))
+}
+
+fn is_binary_param_type(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Bytes => true,
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)),
+        TypeRef::Optional(inner) => is_binary_param_type(inner),
+        _ => false,
+    }
 }
 
 /// Returns true when the bridge return type is a JSON String that must be
@@ -751,7 +782,9 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
             }
         }
         TypeRef::String => "String",
+        TypeRef::Bytes => "ByteArray",
         // Optional return → nullable String (JSON-encoded or null)
+        TypeRef::Optional(inner) if is_binary_return_type(inner) => "ByteArray?",
         TypeRef::Optional(_) => "String?",
         // Named types (structs, enums, errors) → JSON-encoded String
         TypeRef::Named(_) => "String",
@@ -764,8 +797,6 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
             }
         }
         TypeRef::Map(_, _) => "String",
-        // bytes::Bytes → ByteArray (same as Vec<u8>)
-        TypeRef::Bytes => "ByteArray",
         // Opaque handle → Long
         _ => "Long",
     }
@@ -820,6 +851,9 @@ fn jni_param_type_for_function(ty: &TypeRef, opaque_type_names: &std::collection
 }
 
 fn jni_param_type(ty: &TypeRef) -> &'static str {
+    if is_binary_param_type(ty) {
+        return "ByteArray";
+    }
     match ty {
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType;

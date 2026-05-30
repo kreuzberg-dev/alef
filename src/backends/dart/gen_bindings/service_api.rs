@@ -368,36 +368,37 @@ fn gen_service_owner(out: &mut String, service: &ServiceDef, api: &ApiSurface, _
                 })
                 .collect();
 
-            let (wrapper_type_path, wrapper_local_type, constructor_method, wrapper_args) = if let Some(wc) = &variant.wrapper_call {
-                let args: Vec<_> = wc
-                    .args
-                    .iter()
-                    .map(|arg| match arg {
-                        crate::core::ir::WrapperConstructorArg::Fixed {
-                            param_name: _,
-                            value_expr,
-                        } => minijinja::context! {
-                            kind => "fixed",
-                            value_expr => value_expr.as_str(),
-                        },
-                        crate::core::ir::WrapperConstructorArg::Free { param } => minijinja::context! {
-                            kind => "free",
-                            param => minijinja::context! {
-                                name => param.name.as_str(),
-                                rust_type => typeref_to_rust_type(&param.ty).as_str(),
+            let (wrapper_type_path, wrapper_local_type, constructor_method, wrapper_args) =
+                if let Some(wc) = &variant.wrapper_call {
+                    let args: Vec<_> = wc
+                        .args
+                        .iter()
+                        .map(|arg| match arg {
+                            crate::core::ir::WrapperConstructorArg::Fixed {
+                                param_name: _,
+                                value_expr,
+                            } => minijinja::context! {
+                                kind => "fixed",
+                                value_expr => value_expr.as_str(),
                             },
-                        },
-                    })
-                    .collect();
-                (
-                    wc.wrapper_type_path.clone(),
-                    wc.wrapper_type_name.clone(),
-                    wc.constructor_method.clone(),
-                    args,
-                )
-            } else {
-                (String::new(), String::new(), String::new(), vec![])
-            };
+                            crate::core::ir::WrapperConstructorArg::Free { param } => minijinja::context! {
+                                kind => "free",
+                                param => minijinja::context! {
+                                    name => param.name.as_str(),
+                                    rust_type => typeref_to_rust_type(&param.ty).as_str(),
+                                },
+                            },
+                        })
+                        .collect();
+                    (
+                        wc.wrapper_type_path.clone(),
+                        wc.wrapper_type_name.clone(),
+                        wc.constructor_method.clone(),
+                        args,
+                    )
+                } else {
+                    (String::new(), String::new(), String::new(), vec![])
+                };
 
             out.push_str(&crate::backends::dart::template_env::render(
                 "service_api/registration_variant.rs.jinja",

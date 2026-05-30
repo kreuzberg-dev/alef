@@ -1459,6 +1459,100 @@ fn minimal_csharp_config(crate_name: &str) -> ResolvedCrateConfig {
     make_config(crate_name, Some("Test"), true)
 }
 
+#[test]
+fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "test::ExtractionConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        functions: vec![FunctionDef {
+            name: "extract_bytes".to_string(),
+            rust_path: "test::extract_bytes".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "content".to_string(),
+                    ty: TypeRef::Bytes,
+                    optional: false,
+                    ..Default::default()
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("ExtractionConfig".to_string()),
+                    optional: true,
+                    ..Default::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("TestLib.cs"))
+        .expect("wrapper class should be generated");
+
+    assert_eq!(
+        lib.content.matches("contentHandle.Free();").count(),
+        1,
+        "pinned byte input must be released exactly once:\n{}",
+        lib.content
+    );
+    assert_eq!(
+        lib.content.matches("ExtractionConfigFree(configHandle)").count(),
+        1,
+        "named config handle must be released exactly once:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content.contains(
+            "if (configHandle != global::System.IntPtr.Zero) NativeMethods.ExtractionConfigFree(configHandle);"
+        ),
+        "optional named cleanup must preserve the IntPtr.Zero guard:\n{}",
+        lib.content
+    );
+}
+
 /// Regression test: Duration field in a has_default struct must emit `ulong?` (single `?`),
 /// not `ulong??`. Reproduces the CS1519 error introduced by commit 9ee50d0.
 #[test]

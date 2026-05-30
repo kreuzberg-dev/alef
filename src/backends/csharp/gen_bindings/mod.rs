@@ -889,6 +889,20 @@ pub(super) fn native_call_arg(
     }
 }
 
+/// Returns true when wrapper setup allocates a temporary handle that must be
+/// released after the native call.
+pub(super) fn needs_param_teardown(
+    params: &[crate::core::ir::ParamDef],
+    true_opaque_types: &HashSet<String>,
+    enum_names: &HashSet<String>,
+) -> bool {
+    params.iter().any(|param| match &param.ty {
+        TypeRef::Named(type_name) => !true_opaque_types.contains(type_name) && !enum_names.contains(type_name),
+        TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Bytes => true,
+        _ => false,
+    })
+}
+
 /// Check if a type has any required fields (optional=false and no default value).
 fn type_has_required_fields(type_def: &TypeDef) -> bool {
     type_def

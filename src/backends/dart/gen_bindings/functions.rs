@@ -17,11 +17,7 @@ use super::render_type::{format_param, render_type};
 /// default (e.g. a field whose type lacks a known zero value), the config param stays
 /// required in the wrapper signature — otherwise the `config ?? Type()` fallback emits
 /// dart that fails to compile.
-fn is_optional_config_param(
-    p: &crate::core::ir::ParamDef,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-) -> bool {
+fn is_optional_config_param(p: &crate::core::ir::ParamDef, type_defs: &[TypeDef], enums: &[EnumDef]) -> bool {
     let TypeRef::Named(name) = &p.ty else {
         return false;
     };

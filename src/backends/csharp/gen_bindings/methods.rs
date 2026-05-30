@@ -4,7 +4,7 @@ use super::errors::{emit_return_marshalling_indented, emit_return_statement, emi
 use super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::{
     StreamingMethodMeta, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
-    is_bridge_param, native_call_arg, returns_ptr,
+    is_bridge_param, native_call_arg, needs_param_teardown, returns_ptr,
 };
 use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::doc_emission;
@@ -660,20 +660,15 @@ fn gen_wrapper_function(
     // Method body - delegation to native method with proper marshalling
     let cs_native_name = to_csharp_name(&func.name);
 
-    // Check if this function has Bytes/GCHandle or Vec/HGlobal parameters that need cleanup
-    let has_gchandle_param = visible_params.iter().any(|p| matches!(p.ty, TypeRef::Bytes));
-    let has_hglobal_param = visible_params
-        .iter()
-        .any(|p| matches!(p.ty, TypeRef::Vec(_) | TypeRef::Map(_, _)));
-    let needs_outer_try = has_gchandle_param || has_hglobal_param;
+    let needs_outer_try = needs_param_teardown(&visible_params, true_opaque_types, enum_names);
 
     if func.is_async {
         // Async: wrap in Task.Run for non-blocking execution. CS1997 disallows
         // `return await Task.Run(...)` in an `async Task` (non-generic) method,
         // so for unit returns we drop the `return`.
 
-        // If we have GCHandle or HGlobal params, wrap everything in try-finally
-        // to ensure cleanup happens even if setup or Task.Run throws
+        // If we allocate temporary handles, wrap the native call in try/finally
+        // so cleanup also runs when the native call reports failure.
         if needs_outer_try {
             out.push_str("        try\n        {\n");
         }
@@ -750,13 +745,6 @@ fn gen_wrapper_function(
             enum_names,
             true_opaque_types,
             handle_returned_types,
-        );
-        emit_named_param_teardown_indented(
-            &mut out,
-            &visible_params,
-            "                ",
-            true_opaque_types,
-            enum_names,
         );
         emit_return_statement_indented(&mut out, &func.return_type, "                ");
         out.push_str("            });\n");
@@ -850,7 +838,6 @@ fn gen_wrapper_function(
         );
 
         if needs_outer_try {
-            emit_named_param_teardown_indented(&mut out, &visible_params, body_indent, true_opaque_types, enum_names);
             emit_return_statement_indented(&mut out, &func.return_type, body_indent);
             out.push_str("        }\n        finally\n        {\n");
             emit_named_param_teardown_indented(

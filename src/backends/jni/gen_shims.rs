@@ -593,9 +593,16 @@ fn emit_function_shim(
     // Determine whether the return type is an opaque handle up-front so we can
     // use the correct null/zero sentinel in unmarshal error paths.
     let is_opaque_return = matches!(return_type, TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
-    // Opaque returns use jlong; everything else uses jstring (or unit / primitives).
-    let ret_decl = if is_opaque_return { " -> jlong" } else { " -> jstring" };
-    let err_null = if is_opaque_return { "0" } else { "std::ptr::null_mut()" };
+    let ret_decl = if is_opaque_return {
+        " -> jlong".to_string()
+    } else {
+        method_return_type_decl(return_type)
+    };
+    let err_null = if is_opaque_return {
+        "0"
+    } else {
+        method_return_null(return_type)
+    };
 
     // Collect param signatures and unmarshal logic.
     let mut param_sigs = String::new();
@@ -661,6 +668,84 @@ fn emit_function_shim(
                     }
                 } else {
                     call_args.push_str(&cast_expr);
+                }
+            }
+            TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
+                param_sigs.push_str(&format!("    {rust_name}: jbyteArray,\n"));
+                unmarshal.push_str(&format!(
+                    "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
+                ));
+                if p.optional {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("        Ok(0) => None,\n");
+                    unmarshal.push_str(&format!(
+                        "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("            Ok(v) => Some(v),\n");
+                    unmarshal.push_str(&format!(
+                        "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("        },\n");
+                    unmarshal.push_str(&format!(
+                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("    };\n");
+                    call_args.push_str(&rust_name);
+                } else {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("        Ok(v) => v,\n");
+                    unmarshal.push_str(&format!(
+                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("    };\n");
+                    if p.is_ref {
+                        call_args.push_str(&format!("&{rust_name}"));
+                    } else {
+                        call_args.push_str(&rust_name);
+                    }
+                }
+            }
+            TypeRef::Bytes => {
+                param_sigs.push_str(&format!("    {rust_name}: jbyteArray,\n"));
+                unmarshal.push_str(&format!(
+                    "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
+                ));
+                if p.optional {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("        Ok(0) => None,\n");
+                    unmarshal.push_str(&format!(
+                        "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("            Ok(v) => Some(v),\n");
+                    unmarshal.push_str(&format!(
+                        "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("        },\n");
+                    unmarshal.push_str(&format!(
+                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("    };\n");
+                    call_args.push_str(&rust_name);
+                } else {
+                    unmarshal.push_str(&format!(
+                        "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
+                    ));
+                    unmarshal.push_str("        Ok(v) => v,\n");
+                    unmarshal.push_str(&format!(
+                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
+                    ));
+                    unmarshal.push_str("    };\n");
+                    if p.is_ref {
+                        call_args.push_str(&format!("&{rust_name}"));
+                    } else {
+                        call_args.push_str(&rust_name);
+                    }
                 }
             }
             TypeRef::Named(type_name) if opaque_type_names.contains(type_name.as_str()) => {
@@ -775,16 +860,8 @@ fn emit_function_shim(
         out.push_str("        Ok(v) => {\n");
         if is_opaque_return {
             out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
-        } else if matches!(return_type, TypeRef::Unit) {
-            out.push_str("            string_to_jstring(env, \"null\")\n");
         } else {
-            out.push_str("            let s = match serde_json::to_string(&v) {\n");
-            out.push_str("                Ok(s) => s,\n");
-            out.push_str(&format!(
-                "                Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
-            ));
-            out.push_str("            };\n");
-            out.push_str("            string_to_jstring(env, &s)\n");
+            emit_return_marshal_with_indent(out, return_type, "            ", err_null);
         }
         out.push_str("        }\n");
         out.push_str("    }\n");
@@ -801,16 +878,8 @@ fn emit_function_shim(
         }
         if is_opaque_return {
             out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
-        } else if matches!(return_type, TypeRef::Unit) {
-            out.push_str("    string_to_jstring(env, \"null\")\n");
         } else {
-            out.push_str("    let s = match serde_json::to_string(&v) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {err_null}; }}\n"
-            ));
-            out.push_str("    };\n");
-            out.push_str("    string_to_jstring(env, &s)\n");
+            emit_return_marshal_with_indent(out, return_type, "    ", err_null);
         }
     }
 
@@ -1253,6 +1322,31 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             out.push_str(&format!("{indent}    Err(_) => std::ptr::null_mut(),\n"));
             out.push_str(&format!("{indent}}}\n"));
         }
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Bytes)
+                || matches!(inner.as_ref(), TypeRef::Vec(vec_inner) if matches!(vec_inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8))) =>
+        {
+            out.push_str(&format!("{indent}match v {{\n"));
+            out.push_str(&format!("{indent}    None => std::ptr::null_mut(),\n"));
+            match inner.as_ref() {
+                TypeRef::Bytes => {
+                    out.push_str(&format!(
+                        "{indent}    Some(bytes) => match env.byte_array_from_slice(bytes.as_ref()) {{\n"
+                    ));
+                }
+                _ => {
+                    out.push_str(&format!(
+                        "{indent}    Some(bytes) => match env.byte_array_from_slice(&bytes) {{\n"
+                    ));
+                }
+            }
+            out.push_str(&format!(
+                "{indent}        Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            ));
+            out.push_str(&format!("{indent}        Err(_) => std::ptr::null_mut(),\n"));
+            out.push_str(&format!("{indent}    }},\n"));
+            out.push_str(&format!("{indent}}}\n"));
+        }
         TypeRef::Primitive(p) => {
             // Cast the Rust primitive to the corresponding JNI numeric type.
             // This handles mismatches like u16 → jshort (i16), usize → jlong (i64).
@@ -1535,6 +1629,12 @@ fn method_return_type_decl(return_type: &TypeRef) -> String {
             " -> jbyteArray".to_string()
         }
         TypeRef::Bytes => " -> jbyteArray".to_string(),
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Bytes)
+                || matches!(inner.as_ref(), TypeRef::Vec(vec_inner) if matches!(vec_inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8))) =>
+        {
+            " -> jbyteArray".to_string()
+        }
         TypeRef::Primitive(_) => {
             let jni_ty = jni_return_type(return_type);
             format!(" -> {jni_ty}")
@@ -1572,6 +1672,13 @@ fn jni_return_type(ty: &TypeRef) -> &'static str {
         TypeRef::Unit => "()",
         TypeRef::Primitive(p) => jni_primitive_type(p),
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => "jbyteArray",
+        TypeRef::Bytes => "jbyteArray",
+        TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Bytes)
+                || matches!(inner.as_ref(), TypeRef::Vec(vec_inner) if matches!(vec_inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8))) =>
+        {
+            "jbyteArray"
+        }
         // String and complex types cross the boundary as Java objects.
         TypeRef::String | TypeRef::Named(_) | TypeRef::Optional(_) | TypeRef::Vec(_) | TypeRef::Map(_, _) => "jstring",
         // Opaque handles → Long.

@@ -1646,6 +1646,18 @@ fn test_gen_trait_bridges_file_registration_fn_handles_c_error_response() {
         code.contains("handle.Delete()"),
         "registration must delete the cgo.Handle on failure to avoid leaking"
     );
+    assert!(
+        code.contains("C.krz_free_string(cErr)"),
+        "registration/unregistration must free Rust-allocated error strings with the generated FFI free function"
+    );
+    assert!(
+        code.contains("if old, ok := reg.handles[name]; ok {\n\t\told.Delete()\n\t}"),
+        "handle registry must delete any replaced handle on duplicate registration"
+    );
+    assert!(
+        code.contains("if ctx == nil {\n\t\treturn fmt.Errorf(\"[%d] native error\", code)\n\t}"),
+        "lastError must tolerate a nonzero error code with no context pointer"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@
 		msg := "failed to register {{ trait_name }}"
 		if cErr != nil {
 			msg = C.GoString(cErr)
-			C.free(unsafe.Pointer(cErr))
+			C.{{ ffi_prefix }}_free_string(cErr)
 		}
 		handle.Delete()
 		return fmt.Errorf("%s", msg)
