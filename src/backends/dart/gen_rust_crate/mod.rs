@@ -229,7 +229,7 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait)
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.binding_excluded)
     {
         content.push('\n');
         emit_mirror_struct(&mut content, ty, source_crate_name);
@@ -253,15 +253,25 @@ fn emit_lib_rs(
     // referenced in method signatures and emit the corresponding `use` statements.
     let type_paths_for_impls = build_type_path_lookup_for_source(api, source_crate_name);
 
-    // Build the set of mirror type names: non-opaque, non-trait types that receive a
-    // `#[frb(mirror(TypeName))]` struct declaration above. These types are already in
-    // scope under their short name; emitting a `use source_crate::TypeName;` for them
-    // inside impl blocks would cause E0255 "defined multiple times" errors.
+    // Build the set of mirror type names: non-opaque, non-trait types AND enums that
+    // receive a `#[frb(mirror(TypeName))]` declaration above. These types are already
+    // in scope under their short name; emitting a `use source_crate::TypeName;` for
+    // them inside impl blocks would cause E0255 "defined multiple times" errors. The
+    // enum branch also avoids the orphan-rule trap where `use spikard::Method;` at
+    // module scope shadows the local mirror enum, causing `impl From<spikard::Method>
+    // for Method` to be interpreted as `impl … for spikard_http::Method` (both
+    // foreign → E0117).
     let mirror_type_names: HashSet<String> = api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque && !t.binding_excluded)
         .map(|t| t.name.clone())
+        .chain(
+            api.enums
+                .iter()
+                .filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded)
+                .map(|e| e.name.clone()),
+        )
         .collect();
 
     // Collect opaque type names (is_opaque = true, not traits) — these use a wrapper struct
@@ -282,7 +292,7 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.methods.is_empty())
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && t.is_opaque && !t.binding_excluded && !t.methods.is_empty())
     {
         content.push('\n');
         emit_opaque_impl_block(
@@ -303,7 +313,7 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name))
+        .filter(|t| t.is_opaque && !t.is_trait && !exclude_types.contains(&t.name) && !t.binding_excluded)
     {
         if let Some(ctor) = config.client_constructors.get(&ty.name) {
             let ctor_body =
@@ -314,7 +324,7 @@ fn emit_lib_rs(
         }
     }
 
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded) {
         content.push('\n');
         emit_mirror_enum(&mut content, en);
     }
@@ -336,12 +346,12 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque && !t.binding_excluded)
     {
         content.push('\n');
         emit_from_impl_for_struct(&mut content, ty, source_crate_name);
     }
-    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name)) {
+    for en in api.enums.iter().filter(|e| !exclude_types.contains(&e.name) && !e.binding_excluded) {
         content.push('\n');
         emit_from_impl_for_enum(&mut content, en, source_crate_name);
     }
@@ -407,14 +417,14 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| types_needing_from_impl.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| types_needing_from_impl.contains(&t.name) && !t.is_trait && !t.is_opaque && !t.binding_excluded)
     {
         content.push('\n');
         emit_from_mirror_to_core_struct(&mut content, ty, source_crate_name);
     }
     // Emit From<MirrorEnum> for SourceEnum so that enum-typed struct fields
     // can use `.into()` in the mirror-to-core From impls above.
-    for en in api.enums.iter().filter(|e| types_needing_from_impl.contains(&e.name)) {
+    for en in api.enums.iter().filter(|e| types_needing_from_impl.contains(&e.name) && !e.binding_excluded) {
         content.push('\n');
         emit_from_mirror_to_core_enum(&mut content, en, source_crate_name);
     }
@@ -490,7 +500,7 @@ fn emit_lib_rs(
     for ty in api
         .types
         .iter()
-        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque)
+        .filter(|t| !exclude_types.contains(&t.name) && !t.is_trait && !t.is_opaque && !t.binding_excluded)
         // Only types that derive serde::Deserialize on the core side can be deserialized
         // from a JSON string. Internal types like `MergedChunk`, `ResolvedStyle`,
         // `CharShape`, etc. exist in the binding surface as From-converted mirrors but

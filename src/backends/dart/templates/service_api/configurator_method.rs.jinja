@@ -1,12 +1,26 @@
     #[frb(sync)]
     pub fn {{ config_name }}(&mut self{{ method_params }}) -> &mut Self {
         let mut guard = self.inner.blocking_lock();
-        if let Some(inner) = guard.as_mut() {
+        // Take-modify-replace: works for both consume-self builders (returning
+        // `Self`) and `&mut self` builders (returning `&mut Self`). For the
+        // mutate-in-place case the mutated value is the same `inner` we put back;
+        // for the consuming case the new value is the configurator's return.
+        if let Some(inner) = guard.take() {
+{%- if is_owned %}
+            *guard = Some(inner.{{ config_name }}(
+{%- for param in configurator_params %}
+                {{ param.name }}{% if param.is_opaque %}.inner{% elif param.is_named %}.into(){% endif %},
+{%- endfor %}
+            ));
+{%- else %}
+            let mut inner = inner;
             inner.{{ config_name }}(
 {%- for param in configurator_params %}
-                {{ param.name }},
+                {{ param.name }}{% if param.is_opaque %}.inner{% elif param.is_named %}.into(){% endif %},
 {%- endfor %}
             );
+            *guard = Some(inner);
+{%- endif %}
         }
         drop(guard);
         self

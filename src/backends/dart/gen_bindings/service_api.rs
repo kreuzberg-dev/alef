@@ -47,7 +47,25 @@ fn format_dart_comment(text: &str, indent: usize) -> String {
 /// Unit/primitive/string/bytes map to simple Rust types; a `Named` type is representable only
 /// when this surface wraps it. Anything else (e.g. a foreign framework type a `finalize` converts into)
 /// is not representable and the entrypoint is skipped from FRB emission.
-fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &ApiSurface) -> bool {
+///
+/// Additionally, if the entrypoint's source method is marked as `sanitized` (e.g., method returns
+/// an unknown type that was mapped to String), the entrypoint is skipped — the return type cannot
+/// be safely used without the original type information.
+fn entrypoint_return_representable(
+    ep: &crate::core::ir::EntrypointDef,
+    service: &ServiceDef,
+    api: &ApiSurface,
+) -> bool {
+    // Check if the source method is sanitized; if so, the entrypoint is not representable.
+    if let Some(svc_type) = api.types.iter().find(|t| t.name == service.name) {
+        if let Some(method) = svc_type.methods.iter().find(|m| m.name == ep.method) {
+            if method.sanitized {
+                return false;
+            }
+        }
+    }
+
+    // Check if the return type itself is representable.
     match &ep.return_type {
         TypeRef::Unit | TypeRef::String | TypeRef::Char | TypeRef::Primitive(_) | TypeRef::Bytes => true,
         TypeRef::Named(n) => api.types.iter().any(|t| t.name == *n),
@@ -239,6 +257,7 @@ fn gen_service_owner(
     }
 
     // Emit service owner struct
+    out.push('\n');
     out.push_str(&crate::backends::dart::template_env::render(
         "service_api/service_owner_struct.rs.jinja",
         minijinja::context! {
@@ -270,12 +289,26 @@ fn gen_service_owner(
             .params
             .iter()
             .map(|p| {
+                // Named params resolving to opaque mirrors use `.inner`; other Named
+                // params (non-opaque mirrors with derived `From<MirrorT> for SourceT`)
+                // use `.into()`; primitives / strings pass through.
+                let (is_opaque, is_named) = match &p.ty {
+                    TypeRef::Named(n) => {
+                        let opaque = api.types.iter().any(|t| t.name == *n && t.is_opaque);
+                        (opaque, true)
+                    }
+                    _ => (false, false),
+                };
                 minijinja::context! {
                     name => p.name.as_str(),
                     rust_type => typeref_to_rust_type(&p.ty).as_str(),
+                    is_opaque => is_opaque,
+                    is_named => is_named,
                 }
             })
             .collect();
+
+        let is_owned = matches!(config.receiver, Some(crate::core::ir::ReceiverKind::Owned));
 
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/configurator_method.rs.jinja",
@@ -283,6 +316,7 @@ fn gen_service_owner(
                 config_name => config.name.as_str(),
                 method_params => method_params.as_str(),
                 configurator_params => configurator_params,
+                is_owned => is_owned,
             },
         ));
         out.push('\n');
@@ -294,14 +328,34 @@ fn gen_service_owner(
             .metadata_params
             .iter()
             .map(|p| {
+                // Named params resolving to an opaque local mirror need `.inner`
+                // to extract the wrapped core value before being passed to the
+                // inner service method — FRB-opaque wrappers carry the core value
+                // in a field named `inner`. Primitives / strings / non-opaque
+                // mirrors pass through unchanged via `From<MirrorT> for SourceT`.
+                let is_opaque = matches!(&p.ty, TypeRef::Named(n)
+                    if api.types.iter().any(|t| t.name == *n && t.is_opaque));
                 minijinja::context! {
                     name => p.name.as_str(),
                     rust_type => typeref_to_rust_type(&p.ty).as_str(),
+                    is_opaque => is_opaque,
                 }
             })
             .collect();
 
         let bridge_name = format!("DartHandler{}", reg.callback_contract);
+        // Resolve the trait's full Rust path for the `Arc<dyn Trait>` cast in the
+        // registration body. Falls back to the bare trait name when the contract
+        // is missing a rust_path (defensive — the extractor populates it).
+        let trait_path = find_contract(api, &reg.callback_contract)
+            .map(|c| {
+                if c.rust_path.is_empty() {
+                    c.trait_name.clone()
+                } else {
+                    c.rust_path.clone()
+                }
+            })
+            .unwrap_or_else(|| reg.callback_contract.clone());
 
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/registration_method.rs.jinja",
@@ -310,6 +364,7 @@ fn gen_service_owner(
                 callback_param => reg.callback_param.as_str(),
                 metadata_params => metadata_params,
                 bridge_name => bridge_name.as_str(),
+                trait_path => trait_path.as_str(),
             },
         ));
         out.push('\n');
@@ -341,7 +396,7 @@ fn gen_entrypoint_method(
     api: &ApiSurface,
 ) {
     // Skip non-representable finalizers
-    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, api) {
+    if matches!(ep.kind, EntrypointKind::Finalize) && !entrypoint_return_representable(ep, service, api) {
         return;
     }
 
@@ -752,6 +807,113 @@ mod tests {
         assert!(
             !rust.contains("into_router"),
             "should not emit unrepresentable finalize method:\n{rust}"
+        );
+    }
+
+    #[test]
+    fn test_skip_sanitized_finalize() {
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        // Finalize method marked as sanitized (returns an unknown type mapped to String)
+        let finalize_method = MethodDef {
+            name: "into_router".to_owned(),
+            params: vec![],
+            return_type: TypeRef::String, // sanitized from unknown Router type
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::RefMut),
+            sanitized: true, // <-- KEY: method is marked as sanitized
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        // Finalize entrypoint that references the sanitized method
+        let finalize_ep = EntrypointDef {
+            method: "into_router".to_owned(),
+            kind: EntrypointKind::Finalize,
+            is_async: false,
+            params: vec![],
+            return_type: TypeRef::String, // representable as String, but source is sanitized
+            error_type: None,
+            doc: String::new(),
+        };
+
+        // Service type that owns the sanitized method
+        use crate::core::ir::TypeDef;
+        let service_type = TypeDef {
+            name: "TestService".to_owned(),
+            rust_path: "my_crate::TestService".to_owned(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![finalize_method],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        let api = ApiSurface {
+            crate_name: "test_crate".to_owned(),
+            version: "1.0.0".to_owned(),
+            types: vec![service_type],
+            services: vec![ServiceDef {
+                name: "TestService".to_owned(),
+                rust_path: "my_crate::TestService".to_owned(),
+                constructor,
+                configurators: vec![],
+                registrations: vec![],
+                entrypoints: vec![finalize_ep],
+                doc: String::new(),
+                cfg: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rust = gen_service_rust(&api, &config);
+
+        // Verify that the sanitized finalize method is NOT emitted
+        assert!(
+            !rust.contains("into_router"),
+            "should not emit finalize method when source is sanitized:\n{rust}"
         );
     }
 

@@ -5,7 +5,7 @@
 {%- endfor %}
     ) -> Result<{{ return_type }}, String> {
         let mut guard = self.inner.blocking_lock();
-        let mut inner = guard.take().ok_or_else(|| "Service not initialized".to_string())?;
+        let inner = guard.take().ok_or_else(|| "Service not initialized".to_string())?;
         drop(guard);
 
         {%- if is_async %}
@@ -21,7 +21,5 @@
         {%- else %};
         {%- endif %}
 
-        let mut guard = self.inner.blocking_lock();
-        guard.replace(inner);
         result.map_err(|e| e.to_string())
     }
