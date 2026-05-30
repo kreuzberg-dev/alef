@@ -353,7 +353,13 @@ fn emit_trait_methods(trait_def: &TypeDef, imports: &mut BTreeSet<String>, body:
             })
             .collect::<Vec<_>>()
             .join(", ");
+        // Map InternalDocument (trait return type) to ExtractionResult (public API type)
         let return_type = kotlin_type_str_pub(&method.return_type, false, imports);
+        let return_type = if return_type == "InternalDocument" {
+            "ExtractionResult".to_string()
+        } else {
+            return_type
+        };
         if return_type == "Unit" {
             body.push_str(&format!("    {suspend_keyword}fun {method_name}({params})\n"));
         } else {
@@ -1170,6 +1176,14 @@ fn jni_param_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
             PrimitiveType::Usize | PrimitiveType::Isize => "Long",
         },
         TypeRef::String => "String",
+        TypeRef::Bytes => "ByteArray",
+        TypeRef::Vec(inner) => {
+            if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
+                "ByteArray"
+            } else {
+                "String"
+            }
+        }
         _ => "String",
     }
 }
