@@ -181,10 +181,14 @@ pub(crate) fn emit_cargo_toml(
     let futures_util_dep = if has_streaming { "futures-util = \"0.3\"\n" } else { "" };
     // Trait-bridge impls use `tokio::runtime::Handle::current().block_on(...)`
     // and the streaming codegen installs a shared multi-thread runtime via
-    // `OnceLock`. Both paths need tokio — use a single declaration with
-    // `rt-multi-thread` (which transitively includes the `rt` feature).
-    let tokio_dep = if has_streaming || has_trait_bridges {
-        "tokio = { version = \"1\", features = [\"rt-multi-thread\"] }\n"
+    // `OnceLock`. The service-API codegen wraps the inner service owner in a
+    // `tokio::sync::Mutex<Option<…>>` for thread-safe handoff between `#[frb(sync)]`
+    // registration calls and the async `run()` entrypoint. Merge all three needs
+    // into a single declaration: `rt-multi-thread` (transitively includes `rt`)
+    // plus `sync` (for `tokio::sync::Mutex`).
+    let has_services = !api.services.is_empty();
+    let tokio_dep = if has_streaming || has_trait_bridges || has_services {
+        "tokio = { version = \"1\", features = [\"rt-multi-thread\", \"sync\"] }\n"
     } else {
         ""
     };

@@ -6,14 +6,14 @@
 {%- endfor %}
         {{ callback_param }}: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
     ) -> i32 {
-        let bridge = crate::{{ bridge_name }}::new({{ callback_param }});
+        let bridge: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(crate::{{ bridge_name }}::new({{ callback_param }}));
         let mut guard = self.inner.blocking_lock();
         if let Some(inner) = guard.as_mut() {
             inner.{{ method_name }}(
 {%- for param in metadata_params %}
-                {{ param.name }},
+                {{ param.name }}{% if param.is_opaque %}.inner{% endif %},
 {%- endfor %}
-                std::sync::Arc::new(bridge),
+                bridge,
             );
             0
         } else {
