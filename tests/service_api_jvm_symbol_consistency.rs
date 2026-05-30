@@ -50,6 +50,7 @@ fn make_test_surface() -> ApiSurface {
         return_type: TypeRef::Unit,
         error_type: None,
         doc: "Register handler.".to_owned(),
+        variants: vec![],
     };
 
     // Run entrypoint

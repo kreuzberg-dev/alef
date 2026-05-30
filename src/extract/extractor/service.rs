@@ -12,9 +12,10 @@
 //! not emit a second, conflicting binding for them.
 
 use crate::core::config::ResolvedCrateConfig;
-use crate::core::config::service::{HandlerContractConfig, ServiceConfig};
+use crate::core::config::service::{HandlerContractConfig, RegistrationVariantSpec, ServiceConfig};
 use crate::core::ir::{
-    ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, RegistrationDef, ServiceDef,
+    ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef,
+    RegistrationVariant, RegistrationVariantOverride, ServiceDef, TypeRef,
 };
 
 /// Run the service extraction pass in-place on `surface`.
@@ -307,6 +308,8 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
             .cloned()
             .collect();
 
+        let variants = resolve_variants(surface, cfg, reg_spec, &metadata_params)?;
+
         registrations.push(RegistrationDef {
             method: reg_spec.method.clone(),
             callback_param: reg_spec.callback_param.clone(),
@@ -316,6 +319,7 @@ fn build_service_def(surface: &ApiSurface, cfg: &ServiceConfig) -> Result<Servic
             return_type: method.return_type.clone(),
             error_type: method.error_type.clone(),
             doc: method.doc.clone(),
+            variants,
         });
     }
 
@@ -364,6 +368,108 @@ fn parse_entrypoint_kind(s: &str) -> Option<EntrypointKind> {
         "run" => Some(EntrypointKind::Run),
         "finalize" => Some(EntrypointKind::Finalize),
         _ => None,
+    }
+}
+
+/// Resolve the [`RegistrationVariantSpec`] entries declared in `alef.toml` against
+/// the base registration's metadata params.
+///
+/// For each variant:
+/// - Every `fixed` entry's param name must match a base metadata param; otherwise
+///   the resolution fails with a validation error.
+/// - When the matched param's type is an opaque [`TypeRef::Named`] resolving to an
+///   `EnumDef`, the supplied value must be a known variant name; the override's
+///   `value_expr` is set to the fully-qualified Rust path (`<rust_path>::<Variant>`).
+/// - Otherwise the supplied value is preserved verbatim and emitted at the call
+///   site as-is — the library author owns the expression's validity.
+fn resolve_variants(
+    surface: &ApiSurface,
+    svc_cfg: &ServiceConfig,
+    reg_spec: &crate::core::config::service::RegistrationSpec,
+    metadata_params: &[ParamDef],
+) -> Result<Vec<RegistrationVariant>, String> {
+    let mut out = Vec::with_capacity(reg_spec.variants.len());
+    for v_spec in &reg_spec.variants {
+        let overrides = resolve_variant_overrides(surface, svc_cfg, reg_spec, v_spec, metadata_params)?;
+        out.push(RegistrationVariant {
+            name: v_spec.name.clone(),
+            overrides,
+            doc: v_spec.doc.clone(),
+        });
+    }
+    Ok(out)
+}
+
+fn resolve_variant_overrides(
+    surface: &ApiSurface,
+    svc_cfg: &ServiceConfig,
+    reg_spec: &crate::core::config::service::RegistrationSpec,
+    v_spec: &RegistrationVariantSpec,
+    metadata_params: &[ParamDef],
+) -> Result<Vec<RegistrationVariantOverride>, String> {
+    let mut overrides = Vec::with_capacity(v_spec.fixed.len());
+    for (param_name, raw_value) in &v_spec.fixed {
+        let param = metadata_params.iter().find(|p| &p.name == param_name).ok_or_else(|| {
+            format!(
+                "service `{}` registration `{}` variant `{}`: fixed param `{}` not found in base metadata params",
+                svc_cfg.owner_type, reg_spec.method, v_spec.name, param_name
+            )
+        })?;
+
+        let value_expr = match resolve_enum_override(surface, &param.ty, raw_value) {
+            EnumResolution::Resolved(path) => path,
+            EnumResolution::NotAnEnum => raw_value.clone(),
+            EnumResolution::UnknownVariant(enum_name) => {
+                return Err(format!(
+                    "service `{}` registration `{}` variant `{}`: param `{}` of enum `{}` has no variant `{}`",
+                    svc_cfg.owner_type, reg_spec.method, v_spec.name, param_name, enum_name, raw_value
+                ));
+            }
+        };
+
+        overrides.push(RegistrationVariantOverride {
+            param_name: param_name.clone(),
+            value_expr,
+        });
+    }
+    Ok(overrides)
+}
+
+enum EnumResolution {
+    /// The param resolved to an enum and the supplied value matched a variant;
+    /// the resolved Rust path is the inner string.
+    Resolved(String),
+    /// The param's type does not name an [`EnumDef`] — pass the raw value through.
+    NotAnEnum,
+    /// The param resolved to an enum but the supplied value is not a known variant.
+    UnknownVariant(String),
+}
+
+/// Best-effort resolution: if `ty` is a `TypeRef::Named` whose name matches an
+/// `EnumDef` in `surface.enums`, attempt to match `raw_value` against the enum's
+/// variant names and return the fully-qualified Rust path
+/// (`<EnumDef::rust_path>::<Variant>`). Returns `NotAnEnum` for non-enum params.
+fn resolve_enum_override(surface: &ApiSurface, ty: &TypeRef, raw_value: &str) -> EnumResolution {
+    let name = match ty {
+        TypeRef::Named(n) => n,
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => n,
+            _ => return EnumResolution::NotAnEnum,
+        },
+        _ => return EnumResolution::NotAnEnum,
+    };
+    let Some(enum_def) = surface.enums.iter().find(|e| &e.name == name) else {
+        return EnumResolution::NotAnEnum;
+    };
+    if enum_def.variants.iter().any(|v| v.name == raw_value) {
+        let base = if enum_def.rust_path.is_empty() {
+            enum_def.name.clone()
+        } else {
+            enum_def.rust_path.clone()
+        };
+        EnumResolution::Resolved(format!("{base}::{raw_value}"))
+    } else {
+        EnumResolution::UnknownVariant(enum_def.name.clone())
     }
 }
 
@@ -461,6 +567,7 @@ pub trait IntoHandler {}
                     callback_param: "handler".to_string(),
                     callback_bound: "IntoHandler".to_string(),
                     callback_contract: "Handler".to_string(),
+                    variants: vec![],
                 }],
                 entrypoints: vec![
                     EntrypointSpec {

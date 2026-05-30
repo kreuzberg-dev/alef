@@ -365,6 +365,7 @@ mod tests {
             return_type: TypeRef::Unit,
             error_type: Some("HandlerError".to_owned()),
             doc: "Register a request handler.".to_owned(),
+            variants: vec![],
         };
 
         let run_entrypoint = EntrypointDef {

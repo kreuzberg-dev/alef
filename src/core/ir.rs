@@ -120,6 +120,38 @@ pub struct RegistrationDef {
     pub error_type: Option<String>,
     /// Documentation extracted from the method.
     pub doc: String,
+    /// Named shortcuts over this registration with pre-resolved pinned values.
+    /// Empty for registrations declared without `[[registrations.variants]]`.
+    #[serde(default)]
+    pub variants: Vec<RegistrationVariant>,
+}
+
+/// A named shortcut over a [`RegistrationDef`] with one or more pinned
+/// parameter values resolved at extract time.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationVariant {
+    /// Shortcut name as declared in `alef.toml` (e.g. `"get"`).
+    pub name: String,
+    /// Resolved overrides — one per pinned base metadata-param.
+    pub overrides: Vec<RegistrationVariantOverride>,
+    /// Optional documentation for the variant. When absent, backends emit a
+    /// generic docstring referencing the base registration.
+    #[serde(default)]
+    pub doc: Option<String>,
+}
+
+/// A resolved pin: the metadata-param being overridden and the expression to
+/// substitute at the wrapper-construction site.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistrationVariantOverride {
+    /// Name of the base metadata param this override pins (matches a
+    /// [`ParamDef::name`] in [`RegistrationDef::metadata_params`]).
+    pub param_name: String,
+    /// Verbatim expression substituted for the param at the call site. For
+    /// enum overrides this is the fully-qualified Rust path
+    /// (e.g. `"my_crate::Method::GET"`); for other types it is the raw value
+    /// expression supplied by the library author.
+    pub value_expr: String,
 }
 
 /// An entrypoint on a service — either a long-lived async `run` or a consuming `finalize`.
