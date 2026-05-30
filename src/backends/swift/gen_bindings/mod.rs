@@ -326,6 +326,12 @@ impl Backend for SwiftBackend {
         // walks api.functions and detects candidates by signature shape, never by name.
         emit_convenience_wrappers(api, &mut body);
 
+        // Emit JSON-string convenience overloads for functions that take config-like
+        // struct parameters. These allow e2e tests to pass JSON strings for config
+        // objects, automatically decoding them via the `*FromJson` helpers.
+        // Also emit the _loadBytesFromPathOrUtf8 helper for path-or-content resolution.
+        emit_json_string_overloads(api, &mut body);
+
         // Emit public Swift forwarding functions for `*FromJson` helpers.
         // The Rust bridge crate exposes `{type_snake}_from_json` as a swift-bridge
         // free function accessible via `RustBridge.{swiftName}(json)`. Without a
@@ -502,6 +508,26 @@ impl Backend for SwiftBackend {
         let mut exclude_types_with_ir = exclude_types.clone();
         exclude_types_with_ir.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
         for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types_with_ir) {
+            let path = module_dir.join(&filename);
+            files.push(GeneratedFile {
+                path,
+                content,
+                generated_header: false,
+            });
+        }
+
+        // Emit computed-property extensions for swift-bridge-generated Ref types.
+        if let Some((filename, content)) = emit_extraction_result_extensions(api) {
+            let path = module_dir.join(&filename);
+            files.push(GeneratedFile {
+                path,
+                content,
+                generated_header: false,
+            });
+        }
+
+        // Emit bridge registration overloads file (register/unregister convenience functions + stub adapters).
+        if let Some((filename, content)) = trait_bridge::gen_bridge_registration_overloads_file(&trait_bridge_configs) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
                 path,
@@ -2539,6 +2565,155 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
     }
 
     let _ = api;
+}
+
+/// Emit JSON-string convenience overloads for functions with config-like struct parameters.
+///
+/// This emits positional-arg overloads that accept JSON strings for config parameters,
+/// decode them via the corresponding `*FromJson` helpers, and delegate to the typed
+/// base function. Example:
+///
+/// ```swift
+/// public func extractFile(_ path: String, _ mimeType: String?, _ configJson: String) throws -> ExtractionResult {
+///     let config = try extractionConfigFromJson(configJson)
+///     return try extractFile(path: path, mimeType: mimeType, config: config)
+/// }
+/// ```
+///
+/// Also emits the `_loadBytesFromPathOrUtf8` helper that resolves a string argument
+/// as either a file path (checking CWD, KREUZBERG_TEST_DOCUMENTS_DIR env var, and
+/// ancestor `test_documents/` or `fixtures/` directories) or literal UTF-8 content.
+fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
+    use heck::AsSnakeCase;
+
+    // Collect all functions that take a Named typed parameter (potential config struct).
+    let json_overload_candidates: Vec<(&FunctionDef, usize, &str)> = api
+        .functions
+        .iter()
+        .flat_map(|func| {
+            func.params
+                .iter()
+                .enumerate()
+                .filter_map(move |(idx, param)| {
+                    if let TypeRef::Named(type_name) = &param.ty {
+                        // Check if this type is serde-enabled and non-opaque (first-class Swift struct).
+                        if let Some(typ) = api.types.iter().find(|t| &t.name == type_name) {
+                            if typ.has_serde && !typ.is_opaque {
+                                return Some((func, idx, type_name.as_str()));
+                            }
+                        }
+                    }
+                    None
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
+    if json_overload_candidates.is_empty() {
+        return;
+    }
+
+    out.push_str("// MARK: - JSON-String Convenience Overloads\n");
+    out.push_str("// These overloads accept JSON-encoded config parameters and decode them automatically.\n");
+    out.push_str("// Enables e2e tests to pass JSON strings directly without typed config construction.\n\n");
+
+    // Emit _loadBytesFromPathOrUtf8 helper once
+    emit_load_bytes_from_path_or_utf8(out);
+
+    // Emit overloads for each candidate function.
+    // To avoid duplicates, track which function names we've already emitted overloads for.
+    let mut emitted_funcs: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for (func, config_param_idx, config_type_name) in json_overload_candidates {
+        let func_key = format!("{}_{}", func.name, config_param_idx);
+        if !emitted_funcs.insert(func_key) {
+            continue; // Already emitted an overload for this function at this param index
+        }
+
+        // Skip async functions—JSON-string overloads are for sync paths only.
+        if func.is_async {
+            continue;
+        }
+
+        // Generate the function signature.
+        let swift_func_name = swift_ident(&func.name.to_lower_camel_case());
+        let config_type_snake = AsSnakeCase(config_type_name).to_string();
+        let config_from_json_name = format!("{config_type_snake}_from_json").to_lower_camel_case();
+
+        // Build positional parameters for the overload signature.
+        let mut param_strs: Vec<String> = Vec::new();
+        for (i, param) in func.params.iter().enumerate() {
+            let param_name = param.name.to_lower_camel_case();
+            if i == config_param_idx {
+                // Config param becomes a String.
+                param_strs.push(format!("_ {param_name}: String"));
+            } else {
+                let ty_str = if param.optional {
+                    format!("{}?", swift_type_name(&param.ty))
+                } else {
+                    swift_type_name(&param.ty)
+                };
+                param_strs.push(format!("_ {param_name}: {ty_str}"));
+            }
+        }
+
+        let params_sig = param_strs.join(", ");
+        let return_ty = swift_return_type(&func.return_type);
+        let throws_clause = if func.error_type.is_some() { " throws" } else { "" };
+        let return_suffix = swift_return_conversion_suffix(&func.return_type);
+
+        // Build the call to the base function with labeled arguments.
+        let mut call_args: Vec<String> = Vec::new();
+        for (i, param) in func.params.iter().enumerate() {
+            let param_name = param.name.to_lower_camel_case();
+            if i == config_param_idx {
+                call_args.push(format!("config: config"));
+            } else {
+                call_args.push(format!("{param_name}: {param_name}"));
+            }
+        }
+        let call_args_str = call_args.join(", ");
+
+        // Emit the overload function.
+        out.push_str(&format!(
+            "public func {swift_func_name}({params_sig}){throws_clause} -> {return_ty} {{\n"
+        ));
+        out.push_str(&format!("    let config = try {config_from_json_name}({config_type_snake})\n"));
+        out.push_str(&format!(
+            "    return try {swift_func_name}({call_args_str}){return_suffix}\n"
+        ));
+        out.push_str("}\n\n");
+    }
+}
+
+/// Emit the `_loadBytesFromPathOrUtf8` helper function.
+fn emit_load_bytes_from_path_or_utf8(out: &mut String) {
+    out.push_str("/// Resolves a string argument as either a file path or literal UTF-8 content.\n");
+    out.push_str("/// Searches: current working directory, KREUZBERG_TEST_DOCUMENTS_DIR env var,\n");
+    out.push_str("/// and ancestor `test_documents/` or `fixtures/` directories (up to 16 levels).\n");
+    out.push_str("/// If no file is found, treats the string as UTF-8 content and returns its bytes.\n");
+    out.push_str("private func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] {\n");
+    out.push_str("    let fm = FileManager.default\n");
+    out.push_str("    var roots: [String] = [fm.currentDirectoryPath]\n");
+    out.push_str("    if let envRoot = ProcessInfo.processInfo.environment[\"KREUZBERG_TEST_DOCUMENTS_DIR\"] {\n");
+    out.push_str("        roots.append(envRoot)\n");
+    out.push_str("    }\n");
+    out.push_str("    var walker = URL(fileURLWithPath: fm.currentDirectoryPath)\n");
+    out.push_str("    for _ in 0..<16 {\n");
+    out.push_str("        roots.append(walker.appendingPathComponent(\"test_documents\").path)\n");
+    out.push_str("        roots.append(walker.appendingPathComponent(\"fixtures\").path)\n");
+    out.push_str("        let parent = walker.deletingLastPathComponent()\n");
+    out.push_str("        if parent.path == walker.path { break }\n");
+    out.push_str("        walker = parent\n");
+    out.push_str("    }\n");
+    out.push_str("    let candidates = [pathOrContent] + roots.map { ($0 as NSString).appendingPathComponent(pathOrContent) }\n");
+    out.push_str("    for path in candidates {\n");
+    out.push_str("        if fm.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {\n");
+    out.push_str("            return [UInt8](data)\n");
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("    return [UInt8](pathOrContent.utf8)\n");
+    out.push_str("}\n\n");
 }
 
 /// Emit public Swift forwarding functions for every serde-enabled, non-opaque type
@@ -4744,6 +4919,103 @@ fn is_field_unbridgeable_for_init(
     false
 }
 
+/// Generate `ExtractionResultExtensions.swift` with computed-property extensions
+/// for swift-bridge-generated opaque Ref types.
+///
+/// For each non-opaque struct type with methods, emits an extension on the swift-bridge
+/// `{TypeName}Ref` class providing computed-property aliases for zero-arg methods that
+/// return string-like types (e.g., `RustString`).
+///
+/// Example: if a type has `pub fn name(&self) -> String`, the extension will include:
+/// ```swift
+/// extension RustBridge.MyTypeRef {
+///     public var name: String {
+///         self.name().toString()
+///     }
+/// }
+/// ```
+///
+/// Returns `Some((filename, content))` if there are eligible types, `None` otherwise.
+fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String)> {
+    // Collect all non-opaque struct types that have zero-arg string-returning methods.
+    let eligible_types: Vec<_> = api
+        .types
+        .iter()
+        .filter(|t| !t.is_trait && !t.is_opaque && !t.methods.is_empty())
+        .collect();
+
+    if eligible_types.is_empty() {
+        return None;
+    }
+
+    // Build file content by accumulating type extensions
+    let mut content = String::new();
+    content.push_str("import RustBridge\n\n");
+    content.push_str("// MARK: - Property-access ergonomics for e2e tests\n");
+    content.push_str("//\n");
+    content.push_str("// This file provides computed-property aliases for methods on swift-bridge-generated types,\n");
+    content.push_str("// allowing callers to write `result.mimeType` rather than `result.mimeType()`.\n");
+    content.push_str("// These extensions are especially useful in e2e test assertions where the alef\n");
+    content.push_str("// fixture generator emits property-access syntax.\n");
+    content.push_str("//\n");
+    content.push_str("// Although these are primarily for test convenience, they are part of the public API\n");
+    content.push_str("// and can be used in production code for more ergonomic access to extraction results.\n");
+
+    let mut has_any_extensions = false;
+
+    for ty in eligible_types {
+        let mut type_has_extensions = false;
+        let mut type_content = String::new();
+
+        for method in &ty.methods {
+            // Skip if has parameters beyond receiver
+            if !method.params.is_empty() {
+                continue;
+            }
+
+            // Skip if async or static
+            if method.is_async || method.is_static {
+                continue;
+            }
+
+            // Check if return type is string-like (String)
+            let is_string_return = matches!(&method.return_type, TypeRef::String);
+
+            if !is_string_return {
+                continue;
+            }
+
+            if !type_has_extensions {
+                type_content.push_str("\n");
+                type_content.push_str(&format!("extension RustBridge.{}Ref {{\n", ty.name));
+                type_has_extensions = true;
+            }
+
+            // Emit computed property
+            type_content.push_str(&format!("    /// Computed-property alias for `{}()` method.\n", method.name));
+            type_content.push_str(&format!("    public var {}: String {{\n", method.name));
+            type_content.push_str(&format!("        self.{}().toString()\n", method.name));
+            type_content.push_str("    }\n");
+        }
+
+        if type_has_extensions {
+            type_content.push_str("}\n");
+            type_content.push_str(&format!("\n// {}RefMut and {} inherit the extensions automatically\n", ty.name, ty.name));
+            content.push_str(&type_content);
+            has_any_extensions = true;
+        }
+    }
+
+    if has_any_extensions {
+        Some((
+            "ExtractionResultExtensions.swift".to_string(),
+            content,
+        ))
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -4863,5 +5135,13 @@ mod tests {
         let suffix = forwarder_return_conversion_suffix_with_throws(&ty, &known, false);
         assert!(suffix.is_empty(), "non-DTO Named return must not emit any suffix");
         assert!(!return_value_conversion_throws(&ty, &known));
+    }
+
+    /// Extraction result extensions should return None for empty API.
+    #[test]
+    fn emit_extraction_result_extensions_returns_none_for_empty_api() {
+        let api = ApiSurface::default();
+        let result = emit_extraction_result_extensions(&api);
+        assert!(result.is_none(), "should not generate extensions when API is empty");
     }
 }
