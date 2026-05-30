@@ -1,4 +1,7 @@
     /// Create a new service instance.
     public init() {
-        self.inner = RustBridge.{{ service_camel }}New()
+        // swift-bridge generates `class {{ service_name }}` with a `convenience init()`
+        // wrapping `__swift_bridge__${{ service_name }}$new`. Call the constructor directly
+        // instead of looking for a free `{{ service_camel }}New()` module function.
+        self.inner = RustBridge.{{ service_name }}()
     }

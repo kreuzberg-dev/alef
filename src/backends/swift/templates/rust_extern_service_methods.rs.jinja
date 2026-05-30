@@ -1,4 +1,10 @@
     extern "Rust" {
+        // Expose the opaque pointer as a `usize` so the Swift wrapper can hand it
+        // through the @_silgen_name'd extern "C" callback-registration shim. The
+        // swift-bridge generated class stores its raw pointer as an `internal`
+        // field, so the consumer module cannot reach it directly.
+        #[swift_bridge(swift_name = "{{ service_camel }}RawPtr")]
+        fn {{ service_snake }}_raw_ptr(client: &mut {{ service_name }}) -> usize;
 {%- for config in configurators %}
         #[swift_bridge(swift_name = "{{ config.camel }}")]
         fn {{ config.name }}(client: &mut {{ service_name }});

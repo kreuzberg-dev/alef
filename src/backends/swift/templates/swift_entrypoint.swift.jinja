@@ -3,19 +3,16 @@
     public func {{ ep_camel }}({{ param_sig }}){{ throws_kw }} -> {{ return_type }} {
         guard let inner = inner else { throw ServiceError.invalidHandle }
 
-        let result = inner.{{ ep_camel }}({% for ep_param in params %}{{ ep_param.name }}: {{ ep_param.name }}{% if not loop.last %}, {% endif %}{% endfor %})
+        // swift-bridge emits `fn {{ ep_camel }}(client: &mut App) -> String;` as a free
+        // module function — the wrapper class itself does not gain `inner.{{ ep_camel }}()`.
+        let result = RustBridge.{{ ep_camel }}(inner{% for ep_param in params %}, {{ ep_param.name }}{% endfor %}).toString()
 
         {% if has_error %}
-        switch result {
-        {% if has_return_value %}
-        case .success(let value):
-            return value
-        {% else %}
-        case .success:
-            break
-        {% endif %}
-        case .failure(let error):
-            throw ServiceError.runtime(error)
+        // The Rust wrapper flattens `Result<T, E>` into a String envelope:
+        // empty string means success, non-empty carries the formatted error.
+        // swift-bridge 0.1.59 does not bridge native Swift `Result`s.
+        if !result.isEmpty {
+            throw ServiceError.runtime(result)
         }
         {% elif has_return_value %}
         return result

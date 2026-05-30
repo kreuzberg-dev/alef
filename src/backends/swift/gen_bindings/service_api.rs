@@ -217,17 +217,20 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
         },
     );
 
-    // Emit Block 2: Methods with associated_to (only if there are methods to emit)
-    if !configurators.is_empty() || !entrypoints.is_empty() {
-        out.push_str(&crate::backends::swift::template_env::render(
-            "rust_extern_service_methods.rs.jinja",
-            minijinja::context! {
-                service_name => &service.name,
-                configurators => configurators,
-                entrypoints => entrypoints,
-            },
-        ));
-    }
+    // Emit Block 2: Methods with associated_to (always — block 2 also carries the
+    // `<service>_raw_ptr` helper needed by the @_silgen_name registration shims).
+    let service_snake = service.name.to_snake_case();
+    let service_camel = service_snake.to_lower_camel_case();
+    out.push_str(&crate::backends::swift::template_env::render(
+        "rust_extern_service_methods.rs.jinja",
+        minijinja::context! {
+            service_name => &service.name,
+            service_snake => &service_snake,
+            service_camel => &service_camel,
+            configurators => configurators,
+            entrypoints => entrypoints,
+        },
+    ));
 
     out
 }
@@ -320,11 +323,30 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
     let service_snake = class_name.to_snake_case();
     let service_camel = service_snake.to_lower_camel_case();
 
-    // File header with Foundation import
+    // File header with Foundation import.
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_file_header.swift.jinja",
         minijinja::Value::from(()),
     ));
+    // The wrapper references swift-bridge generated opaque types (`RustBridge.App`,
+    // `RouteBuilder`, etc.). Those types live in a sibling Swift target named
+    // `RustBridge`; an explicit `import RustBridge` is required for resolution.
+    out.push_str("import RustBridge\n\n");
+
+    // Error type used by every generated entrypoint / registration method. Defined
+    // once per service file so the wrapper class methods can `throw` it without
+    // forcing a separate shared module on consumers.
+    out.push_str(
+        "/// Errors thrown by service wrapper methods.\n\
+         public enum ServiceError: Error {\n\
+         \x20\x20\x20\x20/// The service handle was already consumed or never initialised.\n\
+         \x20\x20\x20\x20case invalidHandle\n\
+         \x20\x20\x20\x20/// The C-side registration call returned a non-zero status code.\n\
+         \x20\x20\x20\x20case registrationFailed\n\
+         \x20\x20\x20\x20/// The service runtime returned the given error envelope.\n\
+         \x20\x20\x20\x20case runtime(String)\n\
+         }\n\n",
+    );
 
     // Emit @_silgen_name declarations for callback registration functions (defined outside the bridge module).
     for reg in &service.registrations {
@@ -333,9 +355,18 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
             .metadata_params
             .iter()
             .map(|mp| {
+                // The silgen-imported C symbol takes the swift-bridge generated type, which
+                // lives in the `RustBridge` sibling target. Named opaque metadata params
+                // must therefore be referenced as `RustBridge.<Type>` here, even though the
+                // user-facing wrapper class accepts the bridge type directly.
+                let swift_ty = typeref_to_swift_type(&mp.ty);
+                let bridge_ty = match &mp.ty {
+                    TypeRef::Named(n) => format!("RustBridge.{n}"),
+                    _ => swift_ty.clone(),
+                };
                 minijinja::context! {
                     name => &mp.name,
-                    swift_type => typeref_to_swift_type(&mp.ty),
+                    swift_type => bridge_ty,
                 }
             })
             .collect();
@@ -370,6 +401,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
         minijinja::context! {
             service_snake => &service_snake,
             service_camel => &service_camel,
+            service_name => class_name,
         },
     ));
 
@@ -435,12 +467,17 @@ fn gen_registration_method(
     let method_name = &reg.method;
     let method_camel = method_name.to_lower_camel_case();
 
-    // Build metadata param signature (excluding the callback param)
+    // Build metadata param signature (excluding the callback param). Named opaque
+    // metadata params are exposed as their `RustBridge.<Type>` swift-bridge wrapper:
+    // the user obtains the value via the bridge module and passes it straight through.
     let meta_params: Vec<String> = reg
         .metadata_params
         .iter()
         .map(|p| {
-            let swift_type = typeref_to_swift_type(&p.ty);
+            let swift_type = match &p.ty {
+                TypeRef::Named(n) => format!("RustBridge.{n}"),
+                _ => typeref_to_swift_type(&p.ty),
+            };
             format!("{}: {}", p.name, swift_type)
         })
         .collect();
@@ -463,6 +500,7 @@ fn gen_registration_method(
         })
         .collect();
 
+    let service_camel = service_snake.to_lower_camel_case();
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_registration.swift.jinja",
         minijinja::context! {
@@ -470,6 +508,7 @@ fn gen_registration_method(
             method_camel => &method_camel,
             meta_params => &meta_sig,
             service_snake => service_snake,
+            service_camel => &service_camel,
             method_name => method_name,
             metadata_params => metadata_params,
         },
@@ -1072,10 +1111,11 @@ mod tests {
         let service = &api.services[0];
         let output = gen_service_swift(&api, service);
 
-        // Should use RouteBuilder as the type, not String
+        // Should use the swift-bridge wrapper `RustBridge.RouteBuilder` as the type
+        // (Named metadata params are owned by the bridge module and must be qualified).
         assert!(
-            output.contains("path: RouteBuilder"),
-            "expected Named metadata param typed as RouteBuilder, not String:\n{output}"
+            output.contains("path: RustBridge.RouteBuilder"),
+            "expected Named metadata param typed as RustBridge.RouteBuilder, not String:\n{output}"
         );
     }
 

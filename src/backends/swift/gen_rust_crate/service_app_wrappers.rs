@@ -88,12 +88,18 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
         // swift-bridge extern blocks declare these as free fns taking `client: &mut Foo`
         // (see rust_extern_service_methods.rs.jinja). The bridge then expects matching
         // free fns at the parent module scope, which delegate to the wrapper's
-        // inherent methods.
+        // inherent methods. The `_raw_ptr` shim exposes the wrapper's raw address as
+        // a `usize` so the Swift side can reconstitute it into an `OpaquePointer`
+        // for the @_silgen_name'd extern "C" callback registration shim — swift-bridge's
+        // generated `ptr` field is `internal` and unreachable from consumer modules.
+        let service_snake_local = service_name.to_lowercase();
         out.push_str(&format!(
             "/// Free-function shim so the bridge declaration resolves.\n\
              pub fn config(client: &mut {service_name}) {{ client.config() }}\n\n\
              /// Free-function shim so the bridge declaration resolves.\n\
-             pub fn run(client: &mut {service_name}) -> String {{ client.run() }}\n\n"
+             pub fn run(client: &mut {service_name}) -> String {{ client.run() }}\n\n\
+             /// Expose the wrapper's address as a usize for cross-bridge ptr handoff.\n\
+             pub fn {service_snake_local}_raw_ptr(client: &mut {service_name}) -> usize {{ client as *mut {service_name} as usize }}\n\n"
         ));
     }
 

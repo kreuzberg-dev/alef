@@ -2,8 +2,10 @@
 {{ doc }}{%- endif %}
     @discardableResult
     public func {{ config_camel }}() -> Self {
-        guard var inner = inner else { return self }
-        inner.{{ config_camel }}()
-        self.inner = inner
+        guard let inner = inner else { return self }
+        // swift-bridge emits `fn config(client: &mut App);` as a free Swift function
+        // `RustBridge.{{ config_camel }}(_ client: AppRefMut)`; the wrapper class itself
+        // does not gain `inner.config()`. Call through the module function instead.
+        RustBridge.{{ config_camel }}(inner)
         return self
     }

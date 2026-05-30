@@ -27,17 +27,20 @@
             return responsePtr
         }
 
-        guard var inner = inner else { throw ServiceError.invalidHandle }
+        guard let inner = inner else { throw ServiceError.invalidHandle }
 
         // Call the C function via @_silgen_name. The callback registration is defined
-        // OUTSIDE the swift-bridge module as a plain extern "C" function.
-        var innerPtr = inner.inner
+        // OUTSIDE the swift-bridge module as a plain extern "C" function. swift-bridge
+        // hides the wrapper's raw pointer behind an `internal` field, so call through
+        // the alef-emitted `RustBridge.{{ service_camel }}RawPtr` shim which returns
+        // the App address as a `usize` we can reconstitute into an OpaquePointer.
+        let rawAddr = RustBridge.{{ service_camel }}RawPtr(inner)
+        var innerPtr = OpaquePointer(bitPattern: rawAddr)!
         let result = _{{ service_snake }}_{{ method_name }}_via_callback(
             &innerPtr,
             {% for meta_param in metadata_params %}{{ meta_param.name }},
             {% endfor %}contextPtr,
             trampolineFunc
         )
-        self.inner = inner
         guard result == 0 else { throw ServiceError.registrationFailed }
     }
