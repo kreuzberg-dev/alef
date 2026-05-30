@@ -1280,13 +1280,13 @@ mod tests {
             overrides: vec![],
             wrapper_call: Some(crate::core::ir::WrapperConstructorCall {
                 metadata_param: "builder".to_owned(),
-                wrapper_type_path: "spikard::RouteBuilder".to_owned(),
+                wrapper_type_path: "mylib::RouteBuilder".to_owned(),
                 wrapper_type_name: "RouteBuilder".to_owned(),
                 constructor_method: "new".to_owned(),
                 args: vec![
                     crate::core::ir::WrapperConstructorArg::Fixed {
                         param_name: "method".to_owned(),
-                        value_expr: "spikard::Method::GET".to_owned(),
+                        value_expr: "mylib::Method::GET".to_owned(),
                     },
                     crate::core::ir::WrapperConstructorArg::Free {
                         param: ParamDef {

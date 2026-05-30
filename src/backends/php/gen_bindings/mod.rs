@@ -34,6 +34,19 @@ fn sanitize_php_enum_case(name: &str) -> String {
         name.to_string()
     }
 }
+
+fn php_enum_case_value(enum_def: &crate::core::ir::EnumDef, variant: &crate::core::ir::EnumVariant) -> String {
+    variant
+        .serde_rename
+        .clone()
+        .unwrap_or_else(|| match enum_def.serde_rename_all.as_deref() {
+            Some("snake_case") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()),
+            Some("kebab-case") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()),
+            Some("camelCase") => heck::ToLowerCamelCase::to_lower_camel_case(variant.name.as_str()),
+            Some("PascalCase") => heck::ToPascalCase::to_pascal_case(variant.name.as_str()),
+            _ => variant.name.clone(),
+        })
+}
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{
     gen_enum_constants, gen_flat_data_enum, gen_flat_data_enum_from_impls, gen_flat_data_enum_methods, gen_php_struct,
@@ -773,7 +786,7 @@ impl Backend for PhpBackend {
             ));
         }
         // Register the facade class that wraps free functions as static methods.
-        if !api.functions.is_empty() {
+        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) {
             let facade_class_name = extension_name.to_pascal_case();
             class_registrations.push_str(&crate::backends::php::template_env::render(
                 "php_class_registration.jinja",
@@ -1341,6 +1354,13 @@ impl Backend for PhpBackend {
 
         // Determine namespace — delegates to config so [php].namespace overrides are respected.
         let namespace = php_autoload_namespace(config);
+        let php_config = config.php.as_ref();
+        let exclude_functions: AHashSet<String> = php_config
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+        let exclude_types: AHashSet<String> = php_config
+            .map(|c| c.exclude_types.iter().cloned().collect())
+            .unwrap_or_default();
 
         // PSR-12 requires a blank line after the opening `<?php` tag. php-cs-fixer enforces
         // this and would insert it post-write, making `alef verify` see content that differs
@@ -1415,7 +1435,11 @@ impl Backend for PhpBackend {
         // does not see two class declarations for the same fully-qualified name.
 
         // Record / struct types (non-opaque with fields)
-        for typ in api.types.iter().filter(|typ| !typ.is_trait) {
+        for typ in api
+            .types
+            .iter()
+            .filter(|typ| !typ.is_trait && !exclude_types.contains(&typ.name))
+        {
             if typ.is_opaque || typ.fields.is_empty() {
                 continue;
             }
@@ -1550,7 +1574,7 @@ impl Backend for PhpBackend {
                         "php_enum_variant_stub.jinja",
                         context! {
                             variant_name => case_name,
-                            value => &variant.name,
+                            value => &php_enum_case_value(enum_def, variant),
                         },
                     ));
                 }
@@ -1574,7 +1598,7 @@ impl Backend for PhpBackend {
                 "php_api_class_declaration.jinja",
                 context! { class_name => &class_name },
             ));
-            for func in &api.functions {
+            for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
                 let return_type = php_type_fq(&func.return_type, &namespace);
                 let return_phpdoc = php_phpdoc_type_fq(&func.return_type, &namespace);
                 // Visible params exclude bridge params.

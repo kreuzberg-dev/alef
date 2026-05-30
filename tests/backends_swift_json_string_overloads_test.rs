@@ -146,11 +146,11 @@ fn json_string_overloads_emitted_for_serde_config() {
         .generate_bindings(&api, &config)
         .expect("binding generation must succeed");
 
-    // Find the main Kreuzberg.swift file.
+    // Find the main Mylib.swift file.
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("Kreuzberg.swift"))
-        .expect("Kreuzberg.swift must be generated")
+        .find(|f| f.path.to_string_lossy().ends_with("Mylib.swift"))
+        .expect("Mylib.swift must be generated")
         .content
         .clone();
 
@@ -213,8 +213,8 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
 
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("Kreuzberg.swift"))
-        .expect("Kreuzberg.swift must be generated")
+        .find(|f| f.path.to_string_lossy().ends_with("Mylib.swift"))
+        .expect("Mylib.swift must be generated")
         .content
         .clone();
 
@@ -226,8 +226,8 @@ fn load_bytes_from_path_or_utf8_helper_emitted() {
 
     // Verify key logic: environment variable check.
     assert!(
-        content.contains("KREUZBERG_TEST_DOCUMENTS_DIR"),
-        "must check KREUZBERG_TEST_DOCUMENTS_DIR env var. Content:\n{content}"
+        content.contains("ALEF_TEST_DOCUMENTS_DIR"),
+        "must check ALEF_TEST_DOCUMENTS_DIR env var. Content:\n{content}"
     );
 
     // Verify fallback to UTF-8.
@@ -283,8 +283,8 @@ fn json_string_overloads_emitted_for_async_and_sync_functions() {
 
     let content = files
         .iter()
-        .find(|f| f.path.to_string_lossy().ends_with("Kreuzberg.swift"))
-        .expect("Kreuzberg.swift must be generated")
+        .find(|f| f.path.to_string_lossy().ends_with("Mylib.swift"))
+        .expect("Mylib.swift must be generated")
         .content
         .clone();
 

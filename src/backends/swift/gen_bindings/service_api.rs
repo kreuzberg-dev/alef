@@ -557,9 +557,9 @@ fn gen_registration_variant(
                     param_name: _,
                     value_expr,
                 } => {
-                    // value_expr is e.g. "spikard::Method::GET". Convert the
+                    // value_expr is e.g. "mylib::Method::GET". Convert the
                     // Rust enum path to swift-bridge's mirrored access:
-                    // "spikard::Method::GET" → "RustBridge.Method.get".
+                    // "mylib::Method::GET" → "RustBridge.Method.get".
                     if let Some(last_colon) = value_expr.rfind("::") {
                         let enum_variant = &value_expr[last_colon + 2..];
                         let swift_variant = enum_variant.to_lowercase();
