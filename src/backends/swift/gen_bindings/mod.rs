@@ -2678,7 +2678,9 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         out.push_str(&format!(
             "public func {swift_func_name}({params_sig}){throws_clause} -> {return_ty} {{\n"
         ));
-        out.push_str(&format!("    let config = try {config_from_json_name}({config_type_snake})\n"));
+        out.push_str(&format!(
+            "    let config = try {config_from_json_name}({config_type_snake})\n"
+        ));
         out.push_str(&format!(
             "    return try {swift_func_name}({call_args_str}){return_suffix}\n"
         ));
@@ -2706,9 +2708,13 @@ fn emit_load_bytes_from_path_or_utf8(out: &mut String) {
     out.push_str("        if parent.path == walker.path { break }\n");
     out.push_str("        walker = parent\n");
     out.push_str("    }\n");
-    out.push_str("    let candidates = [pathOrContent] + roots.map { ($0 as NSString).appendingPathComponent(pathOrContent) }\n");
+    out.push_str(
+        "    let candidates = [pathOrContent] + roots.map { ($0 as NSString).appendingPathComponent(pathOrContent) }\n",
+    );
     out.push_str("    for path in candidates {\n");
-    out.push_str("        if fm.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {\n");
+    out.push_str(
+        "        if fm.fileExists(atPath: path), let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {\n",
+    );
     out.push_str("            return [UInt8](data)\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
@@ -4995,7 +5001,10 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
             }
 
             // Emit computed property
-            type_content.push_str(&format!("    /// Computed-property alias for `{}()` method.\n", method.name));
+            type_content.push_str(&format!(
+                "    /// Computed-property alias for `{}()` method.\n",
+                method.name
+            ));
             type_content.push_str(&format!("    public var {}: String {{\n", method.name));
             type_content.push_str(&format!("        self.{}().toString()\n", method.name));
             type_content.push_str("    }\n");
@@ -5003,17 +5012,17 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
 
         if type_has_extensions {
             type_content.push_str("}\n");
-            type_content.push_str(&format!("\n// {}RefMut and {} inherit the extensions automatically\n", ty.name, ty.name));
+            type_content.push_str(&format!(
+                "\n// {}RefMut and {} inherit the extensions automatically\n",
+                ty.name, ty.name
+            ));
             content.push_str(&type_content);
             has_any_extensions = true;
         }
     }
 
     if has_any_extensions {
-        Some((
-            "ExtractionResultExtensions.swift".to_string(),
-            content,
-        ))
+        Some(("ExtractionResultExtensions.swift".to_string(), content))
     } else {
         None
     }
