@@ -19,6 +19,7 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
@@ -52,6 +53,71 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+/// Recursively collect `Named` type references into `out`.
+fn collect_named_types(ty: &TypeRef, out: &mut BTreeSet<String>) {
+    match ty {
+        TypeRef::Named(n) => {
+            out.insert(n.clone());
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => collect_named_types(inner, out),
+        TypeRef::Map(k, v) => {
+            collect_named_types(k, out);
+            collect_named_types(v, out);
+        }
+        _ => {}
+    }
+}
+
+/// Walk every `TypeRef` reachable from a service definition's user-facing surface
+/// (constructor, configurators, registration metadata, entrypoints).
+fn collect_service_named_types(service: &ServiceDef, out: &mut BTreeSet<String>) {
+    for p in &service.constructor.params {
+        collect_named_types(&p.ty, out);
+    }
+    for m in &service.configurators {
+        for p in &m.params {
+            collect_named_types(&p.ty, out);
+        }
+    }
+    for r in &service.registrations {
+        for p in &r.metadata_params {
+            collect_named_types(&p.ty, out);
+        }
+    }
+    for e in &service.entrypoints {
+        for p in &e.params {
+            collect_named_types(&p.ty, out);
+        }
+    }
+}
+
+/// Emit a Python docstring at the given column indent. Single-line if `text`
+/// has no newline; otherwise multi-line with the closing `"""` on its own line
+/// and every body line re-indented to match the opening, so the output passes
+/// pydocstyle/ruff `D207`/`D209`.
+fn format_docstring(text: &str, indent: usize) -> String {
+    let trimmed = text.trim();
+    let pad = " ".repeat(indent);
+    if !trimmed.contains('\n') {
+        return format!("{pad}\"\"\"{trimmed}\"\"\"\n");
+    }
+    let mut lines = trimmed.lines();
+    let first = lines.next().unwrap_or("");
+    let mut out = format!("{pad}\"\"\"{first}\n");
+    for line in lines {
+        if line.trim().is_empty() {
+            out.push('\n');
+        } else {
+            out.push_str(&pad);
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    out.push_str(&pad);
+    out.push_str("\"\"\"\n");
+    out
+}
+
 // ─────────────────────────────────────────────────────────── Python output ──
 
 /// Generate the idiomatic Python service class (`service.py`).
@@ -66,12 +132,41 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
 pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
     let mut out = String::new();
 
+    // Aggregate every `Named` type referenced across services' user-facing
+    // surface so we can emit a single TYPE_CHECKING import block.
+    let mut named_types: BTreeSet<String> = BTreeSet::new();
+    for service in &api.services {
+        collect_service_named_types(service, &mut named_types);
+    }
+    let any_registrations = api.services.iter().any(|s| !s.registrations.is_empty());
+
     out.push_str("from __future__ import annotations\n\n");
-    out.push_str("from collections.abc import Callable\n");
-    out.push_str("from typing import Any\n\n");
+    out.push_str("from typing import TYPE_CHECKING, Any\n\n");
     // The native extension is a submodule of the package (e.g. `pkg._pkg`), so import it
     // relatively — a bare `import _pkg` would not resolve at runtime.
-    out.push_str(&format!("from . import {module_name}\n\n"));
+    out.push_str(&format!("from . import {module_name}\n"));
+
+    // Emit a TYPE_CHECKING block for annotation-only imports so the file
+    // passes ruff `F821`, `TC003`, and import-sort checks without paying the
+    // runtime import cost.
+    if any_registrations || !named_types.is_empty() {
+        out.push('\n');
+        out.push_str("if TYPE_CHECKING:\n");
+        // Mirror ruff's import-sort policy: stdlib group, then local group,
+        // separated by a blank line inside the TYPE_CHECKING block.
+        if any_registrations {
+            out.push_str("    from collections.abc import Callable\n");
+            if !named_types.is_empty() {
+                out.push('\n');
+            }
+        }
+        if !named_types.is_empty() {
+            let joined = named_types.iter().cloned().collect::<Vec<_>>().join(", ");
+            out.push_str(&format!("    from .{module_name} import {joined}\n"));
+        }
+    }
+    // Two blank lines before the first class (PEP8 / ruff-format).
+    out.push_str("\n\n");
 
     for service in &api.services {
         gen_service_class(&mut out, service, api, module_name);
@@ -83,14 +178,10 @@ pub(super) fn gen_service_py(api: &ApiSurface, module_name: &str) -> String {
 fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_name: &str) {
     let class_name = &service.name;
 
-    // Class docstring
+    out.push_str(&format!("class {class_name}:\n"));
     if !service.doc.is_empty() {
-        out.push_str(&format!(
-            "class {class_name}:\n    \"\"\"{}\"\"\"\n\n",
-            service.doc.trim()
-        ));
-    } else {
-        out.push_str(&format!("class {class_name}:\n"));
+        out.push_str(&format_docstring(&service.doc, 4));
+        out.push('\n');
     }
 
     // __init__
@@ -111,16 +202,13 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         let param_sig = init_params.join(", ");
         out.push_str(&format!("    def __init__({param_sig}) -> None:\n"));
         if !ctor.doc.is_empty() {
-            out.push_str(&format!("        \"\"\"{}\"\"\"\n", ctor.doc.trim()));
+            out.push_str(&format_docstring(&ctor.doc, 8));
         }
-        // Stored state for registrations
+        // Stored state for registrations — also serves as a non-empty body so
+        // we never need a stray `pass` statement (ruff `PIE790`).
         out.push_str("        self._registrations: list[tuple[Any, ...]] = []\n");
-        // Store constructor args as instance state so `run` can forward them
         for arg in &init_args {
             out.push_str(&format!("        self._{arg} = {arg}\n"));
-        }
-        if init_args.is_empty() {
-            out.push_str("        pass\n");
         }
         out.push('\n');
     }
@@ -138,11 +226,13 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
         }
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        out.push_str(&format!("    def {method_name}({param_sig}) -> \"{class_name}\":\n"));
+        // With `from __future__ import annotations` the return type is a
+        // string at runtime, so we don't need to quote the self-class name
+        // (ruff `UP037`).
+        out.push_str(&format!("    def {method_name}({param_sig}) -> {class_name}:\n"));
         if !method.doc.is_empty() {
-            out.push_str(&format!("        \"\"\"{}\"\"\"\n", method.doc.trim()));
+            out.push_str(&format_docstring(&method.doc, 8));
         }
-        // Store each configurator param as instance state
         for p in &method.params {
             out.push_str(&format!("        self._{} = {}\n", p.name, p.name));
         }
@@ -170,14 +260,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
 
         match ep.kind {
             EntrypointKind::Run => {
-                // The run entrypoint collects all registered (metadata, callable) pairs
-                // and forwards them to the native run function.
                 out.push_str(&format!("    def {ep_name}({param_sig}) -> None:\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("        \"\"\"{}\"\"\"\n", ep.doc.trim()));
+                    out.push_str(&format_docstring(&ep.doc, 8));
                 }
-                // Build the call to the native run function
-                // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
                 out.push_str(&format!("        {module_name}.{native_fn}(self._registrations"));
                 for p in &ep.params {
@@ -188,7 +274,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, m
             EntrypointKind::Finalize => {
                 out.push_str(&format!("    def {ep_name}({param_sig}) -> Any:\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format!("        \"\"\"{}\"\"\"\n", ep.doc.trim()));
+                    out.push_str(&format_docstring(&ep.doc, 8));
                 }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
                 out.push_str(&format!("        return {module_name}.{native_fn}(self._registrations"));
@@ -239,7 +325,7 @@ fn gen_registration_method(
         "    def {method_name}({meta_sig}) -> Callable[[Callable[..., Any]], Callable[..., Any]]:\n"
     ));
     if !reg.doc.is_empty() {
-        out.push_str(&format!("        \"\"\"{}\"\"\"\n", reg.doc.trim()));
+        out.push_str(&format_docstring(&reg.doc, 8));
     }
 
     // Collect metadata param names for the closure
@@ -252,11 +338,15 @@ fn gen_registration_method(
         format!("({})", meta_names.join(", "))
     };
 
+    // PEP8 / ruff-format: nested function definitions inside a method body
+    // get a leading and trailing blank line so they read as a logical block.
+    out.push('\n');
     out.push_str("        def _decorator(fn: Callable[..., Any]) -> Callable[..., Any]:\n");
     out.push_str(&format!(
         "            self._registrations.append((\"{method_name}\", {meta_tuple}, fn))\n"
     ));
     out.push_str("            return fn\n");
+    out.push('\n');
     out.push_str("        return _decorator\n\n");
 
     // Also expose a plain (non-decorator) register variant for direct use:
@@ -265,7 +355,7 @@ fn gen_registration_method(
     if direct_name != *method_name {
         // Only add when the name differs (avoid collision if method is already named "register_*")
         out.push_str(&format!(
-            "    def {direct_name}({meta_sig}, {}: Callable[..., Any]) -> \"{class_name}\":\n",
+            "    def {direct_name}({meta_sig}, {}: Callable[..., Any]) -> {class_name}:\n",
             reg.callback_param,
         ));
         out.push_str(&format!(
