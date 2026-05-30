@@ -517,11 +517,10 @@ fn emit_lib_rs(
         }
     }
 
-    // Emit service-API FRB opaque owners and handler bridges.
-    let service_api_rust = super::gen_bindings::service_api::gen_service_rust(api, config);
-    if !service_api_rust.is_empty() {
-        content.push('\n');
-        content.push_str(&service_api_rust);
+    // Include service-API module if services are present.
+    // The service_api.rs file is generated separately and contains FRB opaque owners and handler bridges.
+    if !api.services.is_empty() {
+        content.push_str("\nmod service_api;\npub use service_api::*;\n");
     }
 
     GeneratedFile {

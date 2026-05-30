@@ -86,6 +86,7 @@ fn typeref_to_swift_type(ty: &TypeRef) -> String {
         }
         TypeRef::Bytes => "Data".to_owned(),
         TypeRef::Unit => "Void".to_owned(),
+        TypeRef::Named(n) => n.clone(),
         _ => "String".to_owned(), // Json, Vec, Map, etc. go through JSON serialization
     }
 }
@@ -114,6 +115,7 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
                 PrimitiveType::Isize => "isize".to_owned(),
             }
         }
+        TypeRef::Named(n) => n.clone(),
         _ => "RustString".to_owned(),
     }
 }
@@ -159,6 +161,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
     // Registration methods — C-callback-based
     for reg in &service.registrations {
         let reg_snake = reg.method.to_snake_case();
+        let reg_camel = reg_snake.to_lower_camel_case();
         let metadata_params: Vec<minijinja::Value> = reg
             .metadata_params
             .iter()
@@ -175,6 +178,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
             minijinja::context! {
                 service_snake => &service_snake,
                 reg_snake => &reg_snake,
+                reg_camel => &reg_camel,
                 service_name => &service.name,
                 metadata_params => metadata_params,
             },
@@ -189,6 +193,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
         }
 
         let ep_snake = ep.method.to_snake_case();
+        let ep_camel = ep_snake.to_lower_camel_case();
         let params: Vec<minijinja::Value> = ep
             .params
             .iter()
@@ -230,6 +235,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, _api: &ApiSurface) -> St
             minijinja::context! {
                 service_snake => &service_snake,
                 ep_snake => &ep_snake,
+                ep_camel => &ep_camel,
                 service_name => &service.name,
                 params => params,
                 return_type => return_type,
@@ -254,6 +260,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
 
     let class_name = &service.name;
     let service_snake = class_name.to_snake_case();
+    let service_camel = service_snake.to_lower_camel_case();
 
     // File header with Foundation import
     out.push_str(&crate::backends::swift::template_env::render(
@@ -280,6 +287,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef) -> Strin
         "swift_init.swift.jinja",
         minijinja::context! {
             service_snake => &service_snake,
+            service_camel => &service_camel,
         },
     ));
 
@@ -353,11 +361,7 @@ fn gen_registration_method(
         })
         .collect();
 
-    let meta_sig = if meta_params.is_empty() {
-        String::new()
-    } else {
-        format!(", {}", meta_params.join(", "))
-    };
+    let meta_sig = meta_params.join(", ");
 
     let doc = if !reg.doc.is_empty() {
         format_swift_comment(&reg.doc, 4)
@@ -731,8 +735,8 @@ mod tests {
             "expected `run` entrypoint method:\n{output}"
         );
         assert!(
-            output.contains("RustBridge.test_service_run"),
-            "expected C run symbol call:\n{output}"
+            output.contains("inner.run("),
+            "expected instance method call to inner.run():\n{output}"
         );
     }
 
@@ -857,6 +861,106 @@ mod tests {
         assert!(
             !output.contains("\"handler\""),
             "expected no hardcoded handler-trait names:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_registration_no_empty_leading_comma() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // Should not have double comma like "(_ handler: ..., , builder: ...)"
+        assert!(
+            !output.contains(", , "),
+            "expected no double comma in registration signature:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_switch_case_on_own_lines() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // switch/case should not collapse onto the same line as preceding code
+        assert!(
+            !output.contains(")        switch"),
+            "expected switch on its own line, not collapsed:\n{output}"
+        );
+        assert!(
+            !output.contains("case .success:            break        case .failure"),
+            "expected each case on its own line:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_instance_method_calls_not_rustbridge() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // Should use inner.run() not RustBridge.test_service_run(...)
+        assert!(
+            output.contains("inner.run("),
+            "expected instance method call to inner.run():\n{output}"
+        );
+        assert!(
+            output.contains("inner.addHandlerViaCallback("),
+            "expected instance method call to inner.addHandlerViaCallback():\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_named_metadata_types_preserved() {
+        let mut api = make_fixture_surface();
+        // Change the metadata param type from String to a Named type
+        api.services[0].registrations[0].metadata_params[0].ty = TypeRef::Named("RouteBuilder".to_owned());
+
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // Should use RouteBuilder as the type, not String
+        assert!(
+            output.contains("path: RouteBuilder"),
+            "expected Named metadata param typed as RouteBuilder, not String:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_skip_non_representable_finalize() {
+        let mut api = make_fixture_surface();
+        // Add a finalize entrypoint with a non-representable return type (Vec<String>)
+        api.services[0].entrypoints.push(crate::core::ir::EntrypointDef {
+            method: "into_router".to_owned(),
+            kind: crate::core::ir::EntrypointKind::Finalize,
+            is_async: false,
+            params: vec![],
+            return_type: TypeRef::Vec(Box::new(TypeRef::String)),
+            error_type: None,
+            doc: "Build the router.".to_owned(),
+        });
+
+        let service = &api.services[0];
+        let output = gen_service_swift(&api, service);
+
+        // Should not contain intoRouter method
+        assert!(
+            !output.contains("func intoRouter"),
+            "expected finalize with non-representable return to be skipped:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_rust_extern_has_swift_bridge_names() {
+        let api = make_fixture_surface();
+        let service = &api.services[0];
+        let output = gen_service_rust_extern_blocks(service, &api);
+
+        // Should have #[swift_bridge(swift_name = ...)] attributes for clarity
+        assert!(
+            output.contains("#[swift_bridge(swift_name ="),
+            "expected swift_bridge swift_name attribute:\n{output}"
         );
     }
 }

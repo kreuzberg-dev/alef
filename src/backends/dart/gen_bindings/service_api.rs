@@ -97,13 +97,6 @@ pub fn gen_service_rust(api: &ApiSurface, config: &ResolvedCrateConfig) -> Strin
         out.push('\n');
     }
 
-    // Emit the shared DartRegistration struct once
-    out.push_str(&crate::backends::dart::template_env::render(
-        "service_api/dart_registration_struct.rs.jinja",
-        minijinja::context! {},
-    ));
-    out.push_str("\n\n");
-
     // Emit one service owner per service definition
     for service in &api.services {
         gen_service_owner(&mut out, service, api, &core_import);
@@ -273,15 +266,23 @@ fn gen_service_owner(
     // Emit configurator methods
     for config in &service.configurators {
         let method_params = format_method_params(config);
-        let configurator_call = format_configurator_call(&config.name, config);
+        let configurator_params: Vec<_> = config
+            .params
+            .iter()
+            .map(|p| {
+                minijinja::context! {
+                    name => p.name.as_str(),
+                    rust_type => typeref_to_rust_type(&p.ty).as_str(),
+                }
+            })
+            .collect();
 
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/configurator_method.rs.jinja",
             minijinja::context! {
                 config_name => config.name.as_str(),
                 method_params => method_params.as_str(),
-                configurator_call => configurator_call.as_str(),
-                method_call_expr => format!("inner.{}(...)", config.name).as_str(),
+                configurator_params => configurator_params,
             },
         ));
         out.push('\n');
@@ -300,12 +301,15 @@ fn gen_service_owner(
             })
             .collect();
 
+        let bridge_name = format!("DartHandler{}", reg.callback_contract);
+
         out.push_str(&crate::backends::dart::template_env::render(
             "service_api/registration_method.rs.jinja",
             minijinja::context! {
                 method_name => reg.method.as_str(),
                 callback_param => reg.callback_param.as_str(),
                 metadata_params => metadata_params,
+                bridge_name => bridge_name.as_str(),
             },
         ));
         out.push('\n');
@@ -420,10 +424,6 @@ fn format_method_params(method: &crate::core::ir::MethodDef) -> String {
     out
 }
 
-/// Format a configurator method call.
-fn format_configurator_call(name: &str, _method: &crate::core::ir::MethodDef) -> String {
-    format!("inner.{}(...)", name)
-}
 
 /// Convert a TypeRef to a Rust type annotation.
 fn typeref_to_rust_type(ty: &TypeRef) -> String {
@@ -623,10 +623,10 @@ mod tests {
             "expected service owner struct in:\n{rust}"
         );
 
-        // Verify registrations field
+        // Verify no registrations field (handlers registered immediately)
         assert!(
-            rust.contains("registrations: tokio::sync::Mutex<Vec<DartRegistration>>"),
-            "expected registrations field in:\n{rust}"
+            !rust.contains("registrations: tokio::sync::Mutex"),
+            "should not have registrations field in:\n{rust}"
         );
     }
 
@@ -780,6 +780,35 @@ mod tests {
         assert!(
             files[0].path.to_string_lossy().ends_with("service_api.rs"),
             "expected service_api.rs file"
+        );
+    }
+
+    #[test]
+    fn test_registration_calls_inner_directly() {
+        let api = make_fixture_surface();
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rust = gen_service_rust(&api, &config);
+
+        // Verify that registration methods call inner.<method_name> directly
+        // (not deferred dispatch logic)
+        assert!(
+            rust.contains("inner.add_handler("),
+            "expected immediate inner.add_handler() call in:\n{rust}"
+        );
+
+        // Verify NO draining logic or match arms in registrations
+        assert!(
+            !rust.contains("for reg in registrations"),
+            "should not have registration draining loop in:\n{rust}"
+        );
+
+        assert!(
+            !rust.contains("match reg.method.as_str()"),
+            "should not have method dispatch match in:\n{rust}"
         );
     }
 }
