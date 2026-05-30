@@ -2,7 +2,14 @@
 #[serde(default)]
 pub struct {{ input_name }} {
 {%- for field in fields %}
+{%- if field.cfg %}
+    #[cfg({{ field.cfg }})]
+{%- endif %}
+{%- if field.is_skipped %}
+    #[serde(skip)]
+{%- else %}
     #[serde(rename = "{{ field.serde_rename }}")]
+{%- endif %}
     pub {{ field.name }}: {{ field.ty }},
 {%- endfor %}
 }
@@ -12,6 +19,9 @@ impl From<{{ input_name }}> for {{ core_path }} {
 {%- if has_default %}
         let mut out = Self::default();
 {%- for field in fields %}
+{%- if field.cfg %}
+        #[cfg({{ field.cfg }})]
+{%- endif %}
         if let Some(v) = val.{{ field.name }} {
             out.{{ field.core_name }} = {{ field.conv }};
         }
@@ -20,6 +30,9 @@ impl From<{{ input_name }}> for {{ core_path }} {
 {%- else %}
         Self {
 {%- for field in fields %}
+{%- if field.cfg %}
+            #[cfg({{ field.cfg }})]
+{%- endif %}
             {{ field.core_name }}: val.{{ field.name }}.map(|v| {{ field.conv }}).unwrap_or_default(),
 {%- endfor %}
         }
