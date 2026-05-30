@@ -1,0 +1,6 @@
+    extern "Rust" {
+        type {{ service_name }};
+        #[swift_bridge(init)]
+        fn new() -> {{ service_name }};
+    }
+

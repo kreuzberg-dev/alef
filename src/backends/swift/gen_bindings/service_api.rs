@@ -138,13 +138,10 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
 /// These are appended to the `#[swift_bridge::bridge] mod ffi { ... }` block in lib.rs.
 /// Registration callbacks are excluded — they go outside the bridge via `generate_rust_callback_c_functions`.
 ///
-/// IMPORTANT: This emits a SINGLE consolidated `extern "Rust"` block containing the opaque type,
-/// constructor, all configurators, and all entrypoints. swift-bridge 0.1.59 requires all methods
-/// on an opaque type to be in a single block; splitting them across multiple blocks causes a
-/// parse error: "expected path".
+/// Split into TWO blocks to work around swift-bridge 0.1.59 parse error ("expected path"):
+/// Block 1: Type declaration + constructor
+/// Block 2: Instance methods (configurators, entrypoints) using `associated_to` attribute
 fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> String {
-    let service_snake = service.name.to_snake_case();
-
     // Build configurator list for the template
     let configurators: Vec<minijinja::Value> = service
         .configurators
@@ -206,16 +203,27 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
         })
         .collect();
 
-    // Emit a single consolidated extern "Rust" block
-    crate::backends::swift::template_env::render(
-        "rust_extern_service_consolidated.rs.jinja",
+    // Emit Block 1: Type declaration + constructor
+    let mut out = crate::backends::swift::template_env::render(
+        "rust_extern_service_type_and_constructor.rs.jinja",
         minijinja::context! {
             service_name => &service.name,
-            service_snake => &service_snake,
-            configurators => configurators,
-            entrypoints => entrypoints,
         },
-    )
+    );
+
+    // Emit Block 2: Methods with associated_to (only if there are methods to emit)
+    if !configurators.is_empty() || !entrypoints.is_empty() {
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_extern_service_methods.rs.jinja",
+            minijinja::context! {
+                service_name => &service.name,
+                configurators => configurators,
+                entrypoints => entrypoints,
+            },
+        ));
+    }
+
+    out
 }
 
 /// Generate plain C functions for callback registration (OUTSIDE the bridge module).
@@ -1046,7 +1054,7 @@ mod tests {
         let service = &api.services[0];
         let output = gen_service_rust_extern_blocks(service, &api);
 
-        // Should have #[swift_bridge(swift_name = ...)] attributes for clarity
+        // Should have #[swift_bridge(swift_name = ...)] attributes in method block
         assert!(
             output.contains("#[swift_bridge(swift_name ="),
             "expected swift_bridge swift_name attribute:\n{output}"

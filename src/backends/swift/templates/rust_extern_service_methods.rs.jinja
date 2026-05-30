@@ -1,0 +1,16 @@
+    extern "Rust" {
+{%- for config in configurators %}
+        #[swift_bridge(swift_name = "{{ config.camel }}")]
+        fn {{ config.name }}(client: &mut {{ service_name }});
+{%- endfor %}
+{%- for ep in entrypoints %}
+        #[swift_bridge(swift_name = "{{ ep.camel }}")]
+        fn {{ ep.snake }}(
+            client: &mut {{ service_name }},
+{%- for param in ep.params %}
+            {{ param.name }}: {{ param.rust_type }},
+{%- endfor %}
+        ) -> {{ ep.return_type }};
+{%- endfor %}
+    }
+
