@@ -515,7 +515,7 @@ fn emit_lib_rs(
         out.push_str(block);
     }
     if !extra_serde_param_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n\n");
+        out.push_str("    extern \"Rust\" {\n");
         for ty in &extra_serde_param_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
@@ -527,7 +527,7 @@ fn emit_lib_rs(
     // The streaming wrapper calls `RustBridge.{itemType}FromJson(json)` on the
     // Swift side to deserialise each JSON chunk into the opaque type.
     if !streaming_item_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n\n");
+        out.push_str("    extern \"Rust\" {\n");
         for ty in &streaming_item_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;
@@ -540,7 +540,7 @@ fn emit_lib_rs(
     // every `RustBridge.{Type}FromJson(json)` call from the Swift userland has a
     // matching link symbol — see the `json_fallback_types` comment above.
     if !json_fallback_types.is_empty() {
-        out.push_str("    extern \"Rust\" {\n\n");
+        out.push_str("    extern \"Rust\" {\n");
         for ty in &json_fallback_types {
             let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
             let type_name = &ty.name;

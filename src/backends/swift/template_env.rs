@@ -474,6 +474,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_extern_service_consolidated.rs.jinja"),
     ),
     (
+        "rust_extern_service_type_and_constructor.rs.jinja",
+        include_str!("templates/rust_extern_service_type_and_constructor.rs.jinja"),
+    ),
+    (
+        "rust_extern_service_methods.rs.jinja",
+        include_str!("templates/rust_extern_service_methods.rs.jinja"),
+    ),
+    (
         "swift_file_header.swift.jinja",
         include_str!("templates/swift_file_header.swift.jinja"),
     ),
