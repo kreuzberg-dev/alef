@@ -1,1 +1,3 @@
-                    _ = {{ ok_binding }}; _ = out_result; unreachable; // complex return: implement manually
+                    _ = {{ ok_binding }};
+                    if (out_result) |ptr| ptr.* = null;
+                    return 1; // complex return: implement this vtable slot manually

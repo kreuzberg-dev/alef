@@ -675,6 +675,95 @@ fn snapshot_jni_byte_array_return() {
     insta::assert_snapshot!("snapshot_jni_byte_array_return_client", client_content);
 }
 
+#[test]
+fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel() {
+    let mut payload = make_param("payload", TypeRef::Bytes);
+    payload.optional = true;
+    payload.is_ref = true;
+    let method = MethodDef {
+        name: "upload".into(),
+        params: vec![payload],
+        return_type: TypeRef::Optional(Box::new(TypeRef::Bytes)),
+        is_async: true,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: None,
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let client_type = TypeDef {
+        name: "DefaultClient".into(),
+        rust_path: "demo::DefaultClient".into(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![method],
+        is_opaque: true,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![client_type],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = KotlinBackend
+        .generate_bindings(&api, &make_jni_config_no_streaming())
+        .unwrap();
+    let bridge_content = &files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with("Bridge.kt")))
+        .expect("bridge file")
+        .content;
+    let client_content = &files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("DefaultClient.kt"))
+        .expect("client file")
+        .content;
+
+    assert!(
+        bridge_content.contains("external fun nativeDefaultClientUpload(handle: Long, payload: ByteArray): ByteArray?"),
+        "JNI bridge must expose binary params/returns as ByteArray, got:\n{bridge_content}"
+    );
+    assert!(
+        client_content.contains("suspend fun upload(payload: ByteArray? = null): ByteArray?"),
+        "public JNI facade must expose nullable ByteArray, got:\n{client_content}"
+    );
+    assert!(
+        client_content.contains("DemoBridge.nativeDefaultClientUpload(handle, payload ?: ByteArray(0))"),
+        "nullable ByteArray must use the empty-array sentinel for JNI, got:\n{client_content}"
+    );
+    assert!(
+        !client_content.contains("writeValueAsString(payload"),
+        "ByteArray params must not be JSON-encoded for direct JNI methods, got:\n{client_content}"
+    );
+}
+
 fn make_api_with_unit_return_method() -> ApiSurface {
     let cancel_method = MethodDef {
         name: "cancel".into(),

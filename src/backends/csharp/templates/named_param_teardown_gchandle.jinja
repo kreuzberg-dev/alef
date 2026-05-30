@@ -1,1 +1,1 @@
-{{ indent }}{{ handle_var }}.Free();
+{{ indent }}if ({{ handle_var }}.IsAllocated) {{ handle_var }}.Free();

@@ -1,6 +1,7 @@
 thread_local! {
     static LAST_ERROR_CODE: RefCell<i32> = const { RefCell::new(0) };
     static LAST_ERROR_CONTEXT: RefCell<Option<CString>> = const { RefCell::new(None) };
+    static LAST_RETURN_LEN: RefCell<usize> = const { RefCell::new(0) };
 }
 
 fn set_last_error(code: i32, message: &str) {
@@ -13,19 +14,27 @@ fn clear_last_error() {
     LAST_ERROR_CONTEXT.with_borrow_mut(|c| *c = None);
 }
 
+fn set_last_return_len(len: usize) {
+    LAST_RETURN_LEN.with_borrow_mut(|c| *c = len);
+}
+
+fn last_return_len() -> usize {
+    LAST_RETURN_LEN.with_borrow(|c| *c)
+}
+
 /// Return the last error code (0 means no error).
 /// # Safety
 /// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
+/// This function does not allocate and returns no owned pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ prefix }}_last_error_code() -> i32 {
     LAST_ERROR_CODE.with_borrow(|c| *c)
 }
 
-/// Return the last error message. The pointer is valid until the next FFI call on this thread.
+/// Return the last error message. The pointer is borrowed and valid until the next FFI call on this thread.
 /// # Safety
 /// Caller must ensure all pointer arguments are valid or null.
-/// Returned pointers must be freed with the appropriate free function.
+/// The returned pointer is borrowed from thread-local storage and must NOT be freed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ prefix }}_last_error_context() -> *const c_char {
     LAST_ERROR_CONTEXT.with_borrow(|ctx| {

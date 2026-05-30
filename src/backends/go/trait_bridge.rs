@@ -214,6 +214,9 @@ pub fn gen_trait_bridges_file(
         out.push_str("func (reg *handleRegistry) store(name string, handle cgo.Handle) {\n");
         out.push_str("\treg.mu.Lock()\n");
         out.push_str("\tdefer reg.mu.Unlock()\n");
+        out.push_str("\tif old, ok := reg.handles[name]; ok {\n");
+        out.push_str("\t\told.Delete()\n");
+        out.push_str("\t}\n");
         out.push_str("\treg.handles[name] = handle\n");
         out.push_str("}\n");
         out.push('\n');
@@ -454,6 +457,7 @@ fn gen_trait_bridge(
         "register_c_call.jinja",
         minijinja::context! {
             c_function => format!("{}_register_{}", ffi_prefix, trait_snake),
+            ffi_prefix => ffi_prefix,
             trait_name => trait_name,
             trait_snake => trait_snake,
         },
@@ -475,6 +479,7 @@ fn gen_trait_bridge(
         "unregister_c_call.jinja",
         minijinja::context! {
             c_function => format!("{}_unregister_{}", ffi_prefix, trait_snake),
+            ffi_prefix => ffi_prefix,
             trait_name => trait_name,
             trait_snake => trait_snake,
         },
@@ -535,6 +540,7 @@ fn gen_unregistration_fn(bridge_cfg: &TraitBridgeConfig, ffi_prefix: &str, trait
         "unregister_c_call.jinja",
         minijinja::context! {
             c_function => c_function,
+            ffi_prefix => ffi_prefix,
             trait_name => trait_name,
         },
     ));

@@ -1,1 +1,1 @@
-{{ indent }}NativeMethods.{{ free_method }}({{ handle_var }});
+{{ indent }}if ({{ handle_var }} != global::System.IntPtr.Zero) NativeMethods.{{ free_method }}({{ handle_var }});

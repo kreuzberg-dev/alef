@@ -900,6 +900,14 @@ ffi = "crates/mylib-ffi/src/"
         code.contains("pub unsafe extern \"C\" fn ml_detect_language_len("),
         "_len companion ml_detect_language_len must be emitted"
     );
+    assert!(
+        code.contains("static LAST_RETURN_LEN: RefCell<usize>"),
+        "FFI module must record the primary C-string return length"
+    );
+    assert!(
+        code.contains("set_last_return_len(cs.as_bytes().len());"),
+        "primary C-string return must record its byte length before into_raw"
+    );
 
     // Locate and inspect the _len companion body
     let len_fn_start = code
@@ -924,10 +932,17 @@ ffi = "crates/mylib-ffi/src/"
         !len_fn_snippet.contains("CString::new"),
         "_len companion must not allocate a CString"
     );
-    // Body must compute string length
     assert!(
-        len_fn_snippet.contains(".len()") || len_fn_snippet.contains("map_or(0"),
-        "_len companion must compute length via .len() or map_or(0, ...)"
+        !len_fn_snippet.contains("mylib::detect_language"),
+        "_len companion must not re-execute the wrapped Rust function"
+    );
+    assert!(
+        !len_fn_snippet.contains("clear_last_error"),
+        "_len companion must not clear the primary call's error state"
+    );
+    assert!(
+        len_fn_snippet.contains("last_return_len()"),
+        "_len companion must read the length recorded by the primary call"
     );
 }
 

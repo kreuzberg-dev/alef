@@ -128,12 +128,12 @@ fn vtable_c_params(method: &MethodDef) -> Vec<(String, String)> {
 ///
 /// # Limitations
 ///
-/// - Methods returning non-unit values through `out_result` use `unreachable` for
-///   the conversion path when the type cannot be expressed as a direct C primitive
-///   (complex types are documented as requiring manual implementation).
+/// - Methods returning non-unit values through `out_result` return an error code
+///   when the type cannot be expressed as a direct C primitive (complex types are
+///   documented as requiring manual implementation).
 /// - Lifecycle slots (`name_fn`, `version_fn`, `initialize_fn`, `shutdown_fn`) are
-///   emitted with `unreachable` bodies as stubs — the consumer overrides the
-///   relevant field in the returned vtable if needed.
+///   emitted as no-op/null-result stubs; consumers override the relevant field
+///   in the returned vtable when needed.
 pub fn emit_make_vtable(
     trait_name: &str,
     has_super_trait: bool,
@@ -259,10 +259,9 @@ pub fn emit_make_vtable(
                     ok_binding => &ok_binding,
                 },
             ));
-            // Write result via out_result pointer — for complex types this is unreachable.
-            // `unreachable` diverges, so any code after it (including `return 0;`) would
-            // be flagged "unreachable code" by zig 0.16+; only emit the trailing return
-            // when the success path actually flows through.
+            // Write result via out_result pointer. Complex result types cannot be
+            // converted without caller-owned allocation context, so that branch
+            // returns an error code and suppresses the trailing success return.
             let mut success_path_diverges = false;
             if has_result_out {
                 match &method.return_type {
@@ -1494,6 +1493,14 @@ mod tests {
         assert!(
             out.contains("doc: [*c]const u8"),
             "thunk param should be C ABI type, not substituted"
+        );
+        assert!(
+            !out.contains("unreachable"),
+            "generated vtable helpers must not use unreachable stubs: {out}"
+        );
+        assert!(
+            out.contains("return 1; // complex return: implement this vtable slot manually"),
+            "complex fallible vtable returns must fail with an error code instead of trapping: {out}"
         );
     }
 }
