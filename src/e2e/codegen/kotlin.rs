@@ -1158,8 +1158,28 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.to_lower_camel_case());
+    // Resolve per-fixture class name: prefer the kotlin_android call override, then
+    // fall back to the global class_name. For trait bridge calls like register_document_extractor,
+    // the override specifies the bridge class (e.g., DocumentExtractorBridge).
+    let effective_class_name = call_overrides
+        .and_then(|o| o.class.as_ref())
+        .cloned()
+        .or_else(|| {
+            // For kotlin_android, also check the kotlin_android override.
+            if kotlin_android_style {
+                call_config
+                    .overrides
+                    .get("kotlin_android")
+                    .and_then(|o| o.class.as_ref())
+                    .cloned()
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| class_name.to_string());
     let effective_result_var = &call_config.result_var;
     let function_name = effective_function_name.as_str();
+    let class_name_for_call = effective_class_name.as_str();
     let result_var = effective_result_var.as_str();
     let args: &[crate::e2e::config::ArgMapping] = fixture.resolved_args(call_config);
     // Resolve per-fixture options_type: prefer the kotlin call override, fall back
@@ -1393,7 +1413,7 @@ fn render_test_method(
             }
             let _ = writeln!(
                 out,
-                "            val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+                "            val client = {class_name_for_call}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
             );
             let _ = writeln!(out, "            {call_expr}");
             let _ = writeln!(out, "            client.close()");
@@ -1412,7 +1432,7 @@ fn render_test_method(
         }
         let _ = writeln!(
             out,
-            "        val client = {class_name}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
+            "        val client = {class_name_for_call}.{factory}(apiKey = \"test-key\", baseUrl = {mock_url_expr})"
         );
         let _ = writeln!(out, "        val {result_var} = client.{function_name}({args_str})");
         if !collect_snippet.is_empty() {
@@ -1449,7 +1469,7 @@ fn render_test_method(
         for line in &setup_lines {
             let _ = writeln!(out, "            {line}");
         }
-        let _ = writeln!(out, "            {class_name}.{function_name}({args_str})");
+        let _ = writeln!(out, "            {class_name_for_call}.{function_name}({args_str})");
         let _ = writeln!(out, "        }}");
         // Trailing Unit — see comment in the client-factory branch above.
         let _ = writeln!(out, "        Unit");
@@ -1463,7 +1483,7 @@ fn render_test_method(
 
     let _ = writeln!(
         out,
-        "        val {result_var} = {class_name}.{function_name}({args_str})"
+        "        val {result_var} = {class_name_for_call}.{function_name}({args_str})"
     );
 
     if !collect_snippet.is_empty() {
