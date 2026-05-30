@@ -17,7 +17,7 @@ public func _loadBytesFromPathOrUtf8(_ pathOrContent: String) throws -> [UInt8] 
     var roots: [String] = [
         fm.currentDirectoryPath,
     ]
-    if let envRoot = ProcessInfo.processInfo.environment["KREUZBERG_TEST_DOCUMENTS_DIR"] {
+    if let envRoot = ProcessInfo.processInfo.environment["ALEF_TEST_DOCUMENTS_DIR"] {
         roots.append(envRoot)
     }
     var walker = URL(fileURLWithPath: fm.currentDirectoryPath)

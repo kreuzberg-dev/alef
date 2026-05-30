@@ -2641,7 +2641,7 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
             let param_name = param.name.to_lower_camel_case();
             if i == config_param_idx {
                 // Config param becomes a String, named configJson to avoid shadowing the local variable.
-                param_strs.push(format!("_ configJson: String"));
+                param_strs.push("_ configJson: String".to_string());
             } else {
                 let ty_str = if param.optional {
                     format!("{}?", swift_type_name(&param.ty))
