@@ -479,8 +479,13 @@ impl Backend for WasmBackend {
                                 && !emitted_input_dtos.contains(name)
                             {
                                 if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
-                                    let (dto_code, _dto_name) =
-                                        functions::gen_input_dto_for_type(name, &core_import, type_def);
+                                    let (dto_code, _dto_name) = functions::gen_input_dto_for_type_with_cfg(
+                                        name,
+                                        &core_import,
+                                        type_def,
+                                        &exclude_types,
+                                        &enabled_features,
+                                    );
                                     if !dto_code.is_empty() {
                                         input_dto_code.push_str(&dto_code);
                                         input_dto_code.push_str("\n\n");
@@ -1084,4 +1089,5 @@ serde = { version = "1", features = ["derive", "rc"] }
             "Unreplaced visitor: Default::default() with 12 spaces still present"
         );
     }
+
 }

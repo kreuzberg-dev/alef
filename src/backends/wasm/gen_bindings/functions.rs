@@ -39,10 +39,27 @@ fn to_camel_case(snake: &str) -> String {
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
 /// Returns (input_dto_code, input_dto_name).
 /// Reads actual struct fields from the `ApiSurface` TypeDef.
+/// Accepts exclude_types and enabled_features to properly gate fields whose types
+/// are not available in the target's feature set.
 pub(super) fn gen_input_dto_for_type(
     type_name: &str,
     core_import: &str,
     type_def: &crate::core::ir::TypeDef,
+) -> (String, String) {
+    // Legacy signature without feature gating info — used by tests and legacy callers.
+    // For actual WASM backend generation, use gen_input_dto_for_type_with_cfg.
+    gen_input_dto_for_type_with_cfg(type_name, core_import, type_def, &[], &[])
+}
+
+/// Generate an Input DTO struct with feature-gate awareness.
+/// exclude_types: list of types that don't compile in the target (e.g., LayoutDetectionConfig on WASM)
+/// enabled_features: list of features enabled in the target's feature set
+pub(super) fn gen_input_dto_for_type_with_cfg(
+    type_name: &str,
+    core_import: &str,
+    type_def: &crate::core::ir::TypeDef,
+    exclude_types: &[String],
+    enabled_features: &[String],
 ) -> (String, String) {
     let input_name = format!("{}Input", type_name);
     let core_path = format!("{}::{}", core_import, type_name);
@@ -54,6 +71,20 @@ pub(super) fn gen_input_dto_for_type(
     // for omitted fields.
     let fields: Vec<_> = crate::codegen::shared::binding_fields(&type_def.fields)
         .map(|f| {
+            let field_references_excluded = super::field_references_excluded_type(&f.ty, exclude_types);
+            let field_cfg = f.cfg.as_deref();
+
+            // Check if this field's cfg condition is satisfied by the enabled features
+            let cfg_satisfied = if let Some(cfg_str) = field_cfg {
+                super::cfg_condition_enabled(cfg_str, enabled_features)
+            } else {
+                true
+            };
+
+            // Fields whose type is excluded OR whose cfg is not satisfied are marked as skipped
+            // so they appear in the DTO struct for symmetry, but are not deserialized from JS
+            let is_skipped = field_references_excluded || !cfg_satisfied;
+
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
             let camel_case_name = to_camel_case(&f.name);
 
@@ -63,11 +94,13 @@ pub(super) fn gen_input_dto_for_type(
                 core_name => &f.name,
                 serde_rename => &camel_case_name,
                 conv => dto_field_conversion(&f.ty, f.sanitized),
+                cfg => field_cfg,
+                is_skipped => is_skipped,
             }
         })
         .collect::<Vec<_>>();
 
-    let code = if !fields.is_empty() {
+    let code = if !fields.is_empty() || !type_def.fields.is_empty() {
         crate::backends::wasm::template_env::render(
             "gen_input_dto",
             minijinja::context! {
@@ -1487,6 +1520,114 @@ mod tests {
         assert!(
             !code.contains("bypass"),
             "binding_excluded field must not appear in input DTO: {code}"
+        );
+    }
+
+    #[test]
+    fn feature_gated_fields_get_cfg_guards() {
+        // Regression test: gen_input_dto_for_type_with_cfg should emit #[cfg(...)]
+        // guards on fields whose type is only available when certain features are enabled.
+        // This prevents generating bindings that reference non-existent types.
+        use crate::core::ir::{CoreWrapper, FieldDef};
+
+        let make_field = |name: &str, ty: TypeRef, cfg: Option<String>| FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: true,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg,
+            typed_default: None,
+            core_wrapper: CoreWrapper::None,
+            vec_inner_core_wrapper: CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        };
+
+        let type_def = crate::core::ir::TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "kreuzberg::ExtractionConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![
+                // Always-enabled field
+                make_field(
+                    "enabled",
+                    TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool),
+                    None,
+                ),
+                // Feature-gated field: only available when "layout" feature is enabled
+                make_field(
+                    "layout_config",
+                    TypeRef::Named("LayoutDetectionConfig".to_string()),
+                    Some("feature = \"layout\"".to_string()),
+                ),
+            ],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        // Generate without the "layout" feature enabled
+        let (code_no_layout, _) = gen_input_dto_for_type_with_cfg(
+            "ExtractionConfig",
+            "kreuzberg",
+            &type_def,
+            &[],                           // No excluded types
+            &["streaming".to_string()],    // Only "streaming" is enabled, NOT "layout"
+        );
+
+        // The layout_config field should have a cfg guard since "layout" is not enabled
+        assert!(
+            code_no_layout.contains("#[cfg(feature = \"layout\")]"),
+            "Feature-gated field should have #[cfg] guard when feature not enabled: {}",
+            code_no_layout
+        );
+        // It should also have #[serde(skip)] since it's not deserializable without the feature
+        assert!(
+            code_no_layout.contains("#[serde(skip)]"),
+            "Feature-gated field should have #[serde(skip)]: {}",
+            code_no_layout
+        );
+
+        // Generate WITH the "layout" feature enabled
+        let (code_with_layout, _) = gen_input_dto_for_type_with_cfg(
+            "ExtractionConfig",
+            "kreuzberg",
+            &type_def,
+            &[],                           // No excluded types
+            &["layout".to_string()],       // "layout" IS enabled
+        );
+
+        // Now the layout_config field should NOT be skipped (cfg is satisfied)
+        assert!(
+            !code_with_layout.contains("layout_config: {{ field.ty }},\n{%- endfor %}"),
+            "When feature is enabled, field should not be skipped: {}",
+            code_with_layout
+        );
+        // It should still have the cfg guard for extra safety
+        assert!(
+            code_with_layout.contains("#[cfg(feature = \"layout\")]"),
+            "Field should still have cfg guard even when enabled: {}",
+            code_with_layout
         );
     }
 }
