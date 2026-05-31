@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rustler elixir public clear_* API functions: restore after aggressive duplicate-suppression fix.**
+  A previous fix (commit cbc276a02) added trait-bridge function names (register_*, unregister_*, clear_*) to
+  `exclude_functions` to suppress what was thought to be duplicate emissions in the Elixir wrapper. However,
+  the trait-bridge delegates are NOT part of `api.functions`, so they only appear once: in the explicit
+  trait-bridge-delegate emission loop (lines 1559–1599 of `gen_elixir_wrapper`). Adding them to `exclude_functions`
+  prevented that single, legitimate emission, causing all `clear_*` public API functions to be missing from
+  the generated `packages/elixir/lib/kreuzberg.ex`. The fix removes the incorrect `exclude_functions.extend(trait_bridge_fn_names)`
+  calls and the now-dead `collect_rustler_trait_bridge_fn_names` function. The trait-bridge delegates are
+  always emitted unconditionally. (`src/backends/rustler/gen_bindings/mod.rs`)
+
 - **pyo3 binding constructor: LEFT side of struct literal now matches python-escaped binding field name.**
   `replace_constructor_with_serde_rename` was emitting `Self { from: from_, ... }` for keyword-escaped
   fields (e.g. `from` → `from_`), but the binding struct's actual Rust field is `from_`, not `from`.
