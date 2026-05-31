@@ -49,6 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   lowercase wire form. E2E codegen now correctly converts fixture string values to
   PascalCase when setting enum-typed properties.
 
+- **csharp trait bridges: convert bool parameters from int at callback boundary.**
+  Bool parameters are marshalled as `int` across the unmanaged ABI boundary (per C#
+  P/Invoke conventions), but the trait interface expects `bool`. The callback now
+  converts `int` to `bool` with `(param != 0)` when marshalling callback parameters,
+  fixing CS1503 compilation errors when passing bool parameters to interface methods.
+  (`src/backends/csharp/trait_bridge.rs`)
+
 - **swift/dart trait bridges: keep internal documents on explicit JSON bridge paths.**
   Swift inbound protocols now map excluded/internal named parameters such as
   `InternalDocument` to JSON `String` values instead of leaking undefined public

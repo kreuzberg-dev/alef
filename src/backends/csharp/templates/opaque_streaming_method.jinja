@@ -15,6 +15,13 @@
     {
         var {{ request_param }}Json = JsonSerializer.Serialize({{ request_param }}, JsonSerializationOptions);
         var {{ request_param }}Handle = NativeMethods.{{ request_from_json }}({{ request_param }}Json);
+        if ({{ request_param }}Handle == IntPtr.Zero)
+        {
+            var ec = NativeMethods.LastErrorCode();
+            var ctxPtr = NativeMethods.LastErrorContext();
+            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ request_from_json }} failed";
+            throw new {{ exception_name }}(ec, msg);
+        }
         var streamHandle = NativeMethods.{{ start_native }}(Handle, {{ request_param }}Handle);
         if (streamHandle == IntPtr.Zero)
         {

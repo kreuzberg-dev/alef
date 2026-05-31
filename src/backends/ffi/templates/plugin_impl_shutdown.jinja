@@ -5,9 +5,13 @@
         let rc = unsafe { fp(self.user_data, &mut _out_error) };
         if rc != 0 {
             let msg = if _out_error.is_null() { format!("shutdown returned {}", rc) } else {
-                // SAFETY: _out_error is a callee-allocated CString; we take ownership.
-                let cs = unsafe { std::ffi::CString::from_raw(_out_error) };
-                cs.to_string_lossy().into_owned()
+                // SAFETY: _out_error is a callee-allocated NUL-terminated string.
+                let msg = unsafe { std::ffi::CStr::from_ptr(_out_error) }.to_string_lossy().into_owned();
+                if let Some(free_fn) = self.vtable.free_string {
+                    // SAFETY: free_fn is the vtable-provided destructor for callback strings.
+                    unsafe { free_fn(_out_error) };
+                }
+                msg
             };
             return Err({{ plugin_error_expr | safe }});
         }

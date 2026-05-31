@@ -1807,8 +1807,9 @@ fn test_napi_visitor_bridge_has_obj_field() {
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
     assert!(
-        code.code.contains("obj: napi::sys::napi_value"),
-        "NAPI visitor bridge must store a raw napi_value in an 'obj' field"
+        code.code
+            .contains("obj_ref: Option<napi::bindgen_prelude::ObjectRef<false>>"),
+        "NAPI visitor bridge must store a persistent ObjectRef"
     );
 }
 
@@ -2050,8 +2051,8 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
 
     assert!(
         content.contains("export interface OcrBackend {")
-            && content.contains("  process_image(content: Uint8Array): string")
-            && content.contains("  warm_up(): void")
+            && content.contains("  processImage(content: Uint8Array): string")
+            && content.contains("  warmUp(): Promise<void>")
             && content.contains("  shutdown?(): void"),
         "trait interface must use runtime method names and JSON-string return contract:\n{content}"
     );

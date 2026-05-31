@@ -27,6 +27,7 @@ import sys
 
 {% for import_name in imports %}
 from {{ import_name }} import {{ app_class }}
+from {{ import_name }} import ServerConfig
 {% if method_enum %}
 from {{ import_name }} import {{ method_enum }}
 {% endif %}
@@ -76,7 +77,9 @@ for fixture_id, fixture in _FIXTURES.items():
     # The framework will handle body validation via the route configuration.
     verb_method(full_route, make_handler(expected_status, expected_body))
 
-# Start the server and block.
+# Configure and start the server.
+_config = ServerConfig(host="{{ host }}", port={{ port }})
+app.config(_config)
 print(f"Harness listening on {{ host }}:{{ port }}")
 sys.stdout.flush()
-app.{{ run_method }}(host="{{ host }}", port={{ port }})
+app.{{ run_method }}()

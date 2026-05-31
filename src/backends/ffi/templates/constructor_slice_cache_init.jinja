@@ -9,8 +9,11 @@
                 &[]
             } else {
                 // SAFETY: out_result was written by the callee as a valid NUL-terminated string.
-                let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
-                let json = cs.to_string_lossy();
+                let json = unsafe { std::ffi::CStr::from_ptr(_out_result) }.to_string_lossy().into_owned();
+                if let Some(free_fn) = vtable.free_string {
+                    // SAFETY: free_fn is the vtable-provided destructor for callback strings.
+                    unsafe { free_fn(_out_result) };
+                }
                 let owned: Vec<String> = serde_json::from_str(&json).unwrap_or_default();
                 // Leak each string into a `'static str`; these live for the process lifetime.
                 // The bridge struct is expected to live for the duration of the program

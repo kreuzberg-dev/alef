@@ -76,6 +76,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
     fn gen_sync_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
+        let js_method_name = to_camel_case(name);
         let has_error = method.error_type.is_some();
 
         // Get the JS function from the object
@@ -116,7 +117,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "sync_method_unit_return.jinja",
                 minijinja::context! {
-                    method_name => name,
+                    method_name => &js_method_name,
                     args_tuple_ty => args_tuple_ty,
                     has_error => has_error,
                     has_default_impl => has_default_impl,
@@ -130,7 +131,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "sync_method_non_unit_return.jinja",
                 minijinja::context! {
-                    method_name => name,
+                    method_name => &js_method_name,
                     args_tuple_ty => args_tuple_ty,
                     has_error => has_error,
                     has_default_impl => has_default_impl,
@@ -147,6 +148,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
 
     fn gen_async_method_body(&self, method: &MethodDef, spec: &TraitBridgeSpec) -> String {
         let name = &method.name;
+        let js_method_name = to_camel_case(name);
 
         // Build the JS function call
         let js_args_exprs = build_napi_args(method, spec.bridge_config);
@@ -184,7 +186,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "async_method_unit_return.jinja",
                 minijinja::context! {
-                    method_name => name,
+                    method_name => &js_method_name,
                     args_tuple_ty => args_tuple_ty,
                     empty_args => empty_args,
                     tuple_args => tuple_args,
@@ -196,7 +198,7 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             crate::backends::napi::template_env::render(
                 "async_method_non_unit_return.jinja",
                 minijinja::context! {
-                    method_name => name,
+                    method_name => &js_method_name,
                     args_tuple_ty => args_tuple_ty,
                     empty_args => empty_args,
                     tuple_args => tuple_args,
@@ -215,8 +217,9 @@ impl TraitBridgeGenerator for NapiBridgeGenerator {
             .required_methods()
             .iter()
             .map(|m| {
+                let js_name = to_camel_case(&m.name);
                 minijinja::context! {
-                    name => &m.name,
+                    name => js_name,
                 }
             })
             .collect::<Vec<_>>();

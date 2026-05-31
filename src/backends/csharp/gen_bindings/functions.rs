@@ -160,6 +160,8 @@ pub(super) fn gen_native_methods(
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+    opaque_param_types.retain(|name| !bridge_type_aliases.contains(name));
+    opaque_return_types.retain(|name| !bridge_type_aliases.contains(name));
 
     // Opaque handle classes own native pointers via SafeHandle, so every true
     // opaque type needs a matching free declaration even if no public wrapper

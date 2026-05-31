@@ -22,10 +22,10 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {% if has_super_trait %}
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int NameFn(IntPtr userData, out IntPtr outName);
+    private delegate int NameFn(IntPtr userData, out IntPtr outName, out IntPtr outError);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-    private delegate int VersionFn(IntPtr userData, out IntPtr outVersion);
+    private delegate int VersionFn(IntPtr userData, out IntPtr outVersion, out IntPtr outError);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate int InitializeFn(IntPtr userData, out IntPtr outError);
@@ -60,6 +60,9 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {% endif %}
 {% endif %}
 {% endfor %}
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    private delegate void FreeStringFn(IntPtr ptr);
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
     private delegate void FreeUserDataFn(IntPtr userData);

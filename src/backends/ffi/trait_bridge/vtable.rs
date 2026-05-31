@@ -316,7 +316,34 @@ mod tests {
         let spec = make_spec(&trait_def, &bridge_cfg);
 
         let out = generator.gen_vtable_struct(&spec);
+        assert!(
+            out.contains("pub free_string:"),
+            "vtable must have callback string destructor"
+        );
         assert!(out.contains("pub free_user_data:"), "vtable must have free_user_data");
+    }
+
+    #[test]
+    fn plugin_string_callbacks_are_status_returning_with_out_error() {
+        let generator = make_generator();
+        let mut bridge_cfg = make_bridge_cfg("Backend");
+        bridge_cfg.super_trait = Some("Plugin".to_string());
+        let trait_def = make_trait_def("Backend", vec![]);
+        let spec = make_spec(&trait_def, &bridge_cfg);
+
+        let out = generator.gen_vtable_struct(&spec);
+        assert!(
+            out.contains(
+                "pub name_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_name: *mut *mut std::ffi::c_char, out_error: *mut *mut std::ffi::c_char) -> i32>"
+            ),
+            "name_fn ABI must include out_error and status return:\n{out}"
+        );
+        assert!(
+            out.contains(
+                "pub version_fn: Option<unsafe extern \"C\" fn(user_data: *const std::ffi::c_void, out_version: *mut *mut std::ffi::c_char, out_error: *mut *mut std::ffi::c_char) -> i32>"
+            ),
+            "version_fn ABI must include out_error and status return:\n{out}"
+        );
     }
 
     #[test]

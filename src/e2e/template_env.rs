@@ -247,6 +247,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/python/http_101_skip.jinja"),
     ),
     (
+        "python/app_harness.py.jinja",
+        include_str!("templates/python/app_harness.py.jinja"),
+    ),
+    (
         "wasm/package.json.jinja",
         include_str!("templates/wasm/package.json.jinja"),
     ),

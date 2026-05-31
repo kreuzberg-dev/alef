@@ -239,7 +239,7 @@ pub(super) fn gen_dts(
                     lines.push("  name(): string".to_string());
                 }
                 for method in &typ.methods {
-                    let js_name = &method.name;
+                    let js_name = to_node_name(&method.name);
                     if trait_bridge_requires_plugin_name(typ, trait_bridges) && method.name == "name" {
                         continue;
                     }

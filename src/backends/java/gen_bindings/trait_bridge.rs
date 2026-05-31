@@ -833,6 +833,40 @@ mod tests {
         assert!(body.contains("ConcurrentHashMap<String, OcrBackendBridge>"));
         assert!(body.contains("OCR_BACKEND_BRIDGES = new ConcurrentHashMap<>()"));
         assert!(body.contains("KRZ_REGISTER_OCR_BACKEND"));
+        assert!(body.contains("private void freeString(MemorySegment ptr)"));
+        assert!(body.contains("FunctionDescriptor.ofVoid(ValueLayout.ADDRESS)"));
+    }
+
+    #[test]
+    fn lifecycle_string_callbacks_use_status_and_out_error() {
+        let trait_def = make_trait("OcrBackend", vec![]);
+        let visible = all_named_visible(&trait_def.methods);
+        let excluded = HashSet::new();
+        let files = gen_trait_bridge_files(
+            &trait_def,
+            "krz",
+            "dev.sample_crate",
+            true,
+            None,
+            None,
+            &visible,
+            &excluded,
+            &[],
+        );
+        let body = files.bridge_content.as_str();
+
+        assert!(body.contains("int handleName(MemorySegment userData, MemorySegment outName, MemorySegment outError)"));
+        assert!(
+            body.contains(
+                "int handleVersion(MemorySegment userData, MemorySegment outVersion, MemorySegment outError)"
+            )
+        );
+        assert!(body.contains(
+            "MethodType.methodType(int.class, MemorySegment.class, MemorySegment.class, MemorySegment.class)"
+        ));
+        assert!(body.contains(
+            "FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS)"
+        ));
     }
 
     #[test]
