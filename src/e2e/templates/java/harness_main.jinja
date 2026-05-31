@@ -1,0 +1,110 @@
+{#- Java HarnessMain for server-pattern e2e tests
+
+   This harness loads fixtures and registers HTTP handlers that return
+   expected responses. It mirrors the Python app_harness.py pattern.
+
+   Context variables:
+   - java_group_id: Java package (e.g., "dev.spikard")
+   - binding_pkg: binding package (e.g., "dev.spikard")
+   - app_class: SUT app class name (e.g., "App")
+   - run_method: serve entrypoint method name (e.g., "run")
+   - register_method: app method to register routes (e.g., "registerAppRoute")
+   - response_body_field: field name in Response for body (e.g., "body")
+   - host: binding host (e.g., "127.0.0.1")
+   - port: binding port (e.g., 8005)
+   - fixtures_json: raw JSON string with all fixtures
+#}
+package {{ java_group_id }}.e2e;
+
+import {{ binding_pkg }}.*;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.*;
+
+public class HarnessMain {
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    public static void main(String[] args) {
+        try {
+            // Parse fixtures from embedded JSON
+            String fixturesJson = """
+{{ fixtures_json }}""";
+            JsonNode fixturesNode = MAPPER.readTree(fixturesJson);
+            Map<String, JsonNode> fixtures = new HashMap<>();
+            fixturesNode.fields().forEachRemaining(entry -> {
+                fixtures.put(entry.getKey(), entry.getValue());
+            });
+
+            // Create and configure the app
+            {{ app_class }} app = new {{ app_class }}();
+
+            // Register a handler for each fixture
+            for (Map.Entry<String, JsonNode> entry : fixtures.entrySet()) {
+                String fixtureId = entry.getKey();
+                JsonNode fixtureNode = entry.getValue();
+                JsonNode httpNode = fixtureNode.get("http");
+                if (httpNode == null) {
+                    continue;
+                }
+
+                JsonNode handlerNode = httpNode.get("handler");
+                String route = handlerNode.get("route").asText("/");
+                String method = handlerNode.get("method").asText("GET").toUpperCase();
+
+                JsonNode expectedNode = httpNode.get("expected_response");
+                int expectedStatus = expectedNode.get("status_code").asInt(200);
+                JsonNode expectedBody = expectedNode.get("body");
+
+                // Build the full route path
+                String fullRoute = "/fixtures/" + fixtureId + route;
+
+                // Create handler lambda that returns expected response
+                Callable handler = (requestJson) -> {
+                    Map<String, Object> responseMap = new HashMap<>();
+                    responseMap.put("status_code", expectedStatus);
+                    responseMap.put("{{ response_body_field }}", expectedBody);
+                    responseMap.put("headers", new HashMap<>());
+                    return MAPPER.writeValueAsString(responseMap);
+                };
+
+                // Register route based on HTTP method
+                switch (method) {
+                    case "GET":
+                        app.get(fullRoute, handler);
+                        break;
+                    case "POST":
+                        app.post(fullRoute, handler);
+                        break;
+                    case "PUT":
+                        app.put(fullRoute, handler);
+                        break;
+                    case "PATCH":
+                        app.patch(fullRoute, handler);
+                        break;
+                    case "DELETE":
+                        app.delete(fullRoute, handler);
+                        break;
+                    case "HEAD":
+                        app.head(fullRoute, handler);
+                        break;
+                    case "OPTIONS":
+                        app.options(fullRoute, handler);
+                        break;
+                    default:
+                        System.err.println("Unsupported HTTP method: " + method);
+                        continue;
+                }
+            }
+
+            // Signal that harness is ready
+            System.out.println("Harness listening on {{ host }}:{{ port }}");
+            System.out.flush();
+
+            // Run the app (blocks indefinitely)
+            app.{{ run_method }}();
+        } catch (Exception e) {
+            e.printStackTrace();
+            System.exit(1);
+        }
+    }
+}
