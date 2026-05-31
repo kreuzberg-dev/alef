@@ -62,7 +62,7 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
         out.push_str(&template_env::render(
             "abstract_class_method_doc_line.jinja",
             minijinja::context! {
-                return_type => dart_return_type_str(&method.return_type, imports),
+                return_type => substitute_internal_document(&dart_return_type_str(&method.return_type, imports)),
                 method_camel => method_camel.as_str(),
             },
         ));

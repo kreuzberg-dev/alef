@@ -329,11 +329,27 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         out.push_str(" = when (value) {\n");
         for (idx, name) in names.iter().enumerate() {
             let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
-            out.push_str(&format!(
-                "            \"{}\" -> {}\n",
-                escape_kotlin_string(&discriminator),
-                name
-            ));
+            let discriminator_lower = discriminator.to_lowercase();
+            if discriminator != discriminator_lower {
+                // Accept both the serde-renamed wire form (e.g. "Angle") and its lowercase
+                // variant (e.g. "angle"). Some core enums implement Serialize/Deserialize
+                // manually via a token normaliser (see UrlEscapeStyle), so the wire form on
+                // the JSON boundary may be lowercase even when alef's IR sees the raw
+                // PascalCase variant name. Matching both keeps the binding robust against
+                // either convention without forcing the core to add #[serde(rename_all)].
+                out.push_str(&format!(
+                    "            \"{}\", \"{}\" -> {}\n",
+                    escape_kotlin_string(&discriminator),
+                    escape_kotlin_string(&discriminator_lower),
+                    name
+                ));
+            } else {
+                out.push_str(&format!(
+                    "            \"{}\" -> {}\n",
+                    escape_kotlin_string(&discriminator),
+                    name
+                ));
+            }
         }
         out.push_str("            else -> throw IllegalArgumentException(\"Unknown ");
         out.push_str(&en.name);

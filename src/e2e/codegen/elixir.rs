@@ -2742,11 +2742,10 @@ pub fn emit_test_backend(
         let _ = writeln!(module_defs, "  def shutdown, do: :ok");
     }
 
-    // Emit required (non-default) methods.
+    // Emit every method the bridge may dispatch, including lifecycle/default
+    // methods. The stub implementations remain no-ops/defaults when Rust would
+    // normally provide a default body.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Build parameter list: skip `self` receiver, emit param names.
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
         let params_str = params.join(", ");
@@ -2814,9 +2813,6 @@ pub fn emit_test_backend(
     let _ = writeln!(module_defs, "  end");
     let _ = writeln!(module_defs);
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         let args = method
             .params
             .iter()

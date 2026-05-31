@@ -224,6 +224,29 @@ pub fn render_test_file(
                         imports.push(elem_type.clone());
                     }
                 }
+                if lang == "node" && arg.arg_type == "json_object" {
+                    let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+                    let val = if field == "input" {
+                        Some(&fixture.input)
+                    } else {
+                        fixture.input.get(field)
+                    };
+                    if val.is_some_and(|v| !v.is_null()) {
+                        if let Some(override_type) = cc
+                            .overrides
+                            .get("node")
+                            .and_then(|o| o.options_type.as_deref())
+                            .or(cc.options_type.as_deref())
+                        {
+                            let type_import = format!("type {}", canonical_ts_type_name(lang, override_type, config));
+                            if !imports.contains(&type_import) {
+                                imports.push(type_import);
+                            }
+                        } else if arg.name == "config" && !imports.iter().any(|i| i == "type ExtractionConfig") {
+                            imports.push("type ExtractionConfig".to_string());
+                        }
+                    }
+                }
             }
         }
 
@@ -1375,7 +1398,7 @@ fn ts_builder_expression_inner(
             // convention) so the alef.toml `enum_fields = { codeBlockStyle = "..." }` style
             // matches fixtures written with snake_case keys.
             if let serde_json::Value::String(s) = val {
-                stmts.push(format!("{var}.{camel_key} = {enum_type}.{};", s));
+                stmts.push(format!("{var}.{camel_key} = {enum_type}.{};", s.to_upper_camel_case()));
             } else {
                 stmts.push(format!("{var}.{camel_key} = {};", json_to_js(val)));
             }

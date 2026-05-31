@@ -34,7 +34,7 @@ from {{ import_name }} import {{ method_enum }}
 
 # Load fixtures from the JSON payload.
 # The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
-_FIXTURES_JSON = """{{ fixtures_json }}"""
+_FIXTURES_JSON = r"""{{ fixtures_json }}"""
 _FIXTURES = json.loads(_FIXTURES_JSON)
 
 # Create and configure the app.

@@ -413,13 +413,13 @@ pub fn emit_trait_bridge(
     if has_super_trait {
         out.push_str("    /// Return the plugin name into `out_name` (heap-allocated, caller frees).\n");
         out.push_str(
-            "    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8) callconv(.c) void = null,\n",
+            "    name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 = null,\n",
         );
         out.push('\n');
 
         out.push_str("    /// Return the plugin version into `out_version` (heap-allocated, caller frees).\n");
         out.push_str(
-            "    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.c) void = null,\n",
+            "    version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 = null,\n",
         );
         out.push('\n');
 
@@ -492,6 +492,11 @@ pub fn emit_trait_bridge(
             },
         ));
     }
+
+    // free_string/free_user_data — always last; Rust calls free_string for callback-owned strings.
+    out.push_str("    /// Called by the Rust runtime to release strings returned by callbacks.\n");
+    out.push_str("    free_string: ?*const fn (ptr: [*c]u8) callconv(.c) void = null,\n");
+    out.push('\n');
 
     // free_user_data — always last; called by Rust Drop to release the Zig-side handle.
     out.push_str("    /// Called by the Rust runtime when the bridge is dropped.\n");

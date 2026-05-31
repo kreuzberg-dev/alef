@@ -542,7 +542,10 @@ fn dts_param(p: &ParamDef, prefix: &str, is_optional: bool, allow_question_optio
 }
 
 fn param_is_optional(p: &ParamDef, default_types: &ahash::AHashSet<String>) -> bool {
-    p.optional || matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
+    p.optional
+        || p.default.is_some()
+        || p.typed_default.is_some()
+        || matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
 }
 
 fn required_after_optional(params: &[ParamDef], default_types: &ahash::AHashSet<String>) -> Vec<bool> {
@@ -700,6 +703,17 @@ mod tests {
         let params = vec![make_param("a", false), make_param("b", false), make_param("c", false)];
         let result = dts_params(&params, "Js", &ahash::AHashSet::new());
         assert_eq!(result, "a: string, b: string, c: string");
+    }
+
+    #[test]
+    fn dts_params_treats_defaulted_params_as_optional() {
+        let mut params = vec![make_param("path", false), make_param("config", false)];
+        params[1].default = Some("Default::default()".to_string());
+        let result = dts_params(&params, "Js", &ahash::AHashSet::new());
+        assert_eq!(
+            result, "path: string, config?: string | undefined | null",
+            "defaulted params must be optional in generated declarations"
+        );
     }
 
     #[test]

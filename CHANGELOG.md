@@ -23,6 +23,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **wasm e2e: emit enum constants in PascalCase.** TypeScript enum constants generated
+  by wasm-bindgen use PascalCase (e.g., `WasmUrlEscapeStyle.Percent`), not the
+  lowercase wire form. E2E codegen now correctly converts fixture string values to
+  PascalCase when setting enum-typed properties.
+
+- **swift/dart trait bridges: keep internal documents on explicit JSON bridge paths.**
+  Swift inbound protocols now map excluded/internal named parameters such as
+  `InternalDocument` to JSON `String` values instead of leaking undefined public
+  Swift types or routing through missing `fromJson` helpers. Dart trait bridges
+  now preserve the `InternalDocumentBridge` callback contract and propagate JSON
+  encode/decode failures for `Result`-returning methods instead of panicking.
+  (`src/backends/swift/gen_bindings/mod.rs`,
+  `src/backends/dart/gen_bindings/dart_traits.rs`,
+  `src/backends/dart/gen_rust_crate/trait_bridge.rs`)
+
 - **php e2e: route `result_is_simple` array assertions through the array
   branch.** When `result_is_simple = true` AND `result_is_array = true` (e.g.
   `get_extensions_for_mime` returns `Vec<String>` as the entire result), the

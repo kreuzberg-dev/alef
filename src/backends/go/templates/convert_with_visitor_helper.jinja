@@ -14,6 +14,12 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 		optionsJSON := C.CString(string(optionsBytes))
 		defer C.free(unsafe.Pointer(optionsJSON))
 		cOptions = C.{{ fn_options_from_json }}(optionsJSON)
+		if cOptions == nil {
+			if err := lastError(); err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("failed to decode conversion options")
+		}
 		defer C.{{ fn_options_free }}(cOptions)
 	}
 	if cOptions == nil {
@@ -21,6 +27,12 @@ func convertWithVisitorHelper(html string, options *ConversionOptions, visitor V
 		defaultJSON := C.CString("{}")
 		cOptions = C.{{ fn_options_from_json }}(defaultJSON)
 		C.free(unsafe.Pointer(defaultJSON))
+		if cOptions == nil {
+			if err := lastError(); err != nil {
+				return nil, err
+			}
+			return nil, fmt.Errorf("failed to create default conversion options")
+		}
 		defer C.{{ fn_options_free }}(cOptions)
 	}
 

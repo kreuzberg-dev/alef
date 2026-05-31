@@ -2582,8 +2582,8 @@ fn mime_from_extension(path: &str) -> Option<&'static str> {
         "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rb"
         | "php" | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cs" | "scala" | "ex" | "exs" | "erl"
         | "hrl" | "elm" | "ml" | "mli" | "fs" | "fsx" | "hs" | "lhs" | "lua" | "pl" | "pm" | "r" | "R" | "sh"
-        | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "dart" | "groovy" | "gd" | "nim" | "zig"
-        | "v" | "vhdl" | "sv" | "svh" => Some("text/x-source-code"),
+        | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "dart" | "groovy" | "gd" | "nim" | "zig" | "v"
+        | "vhdl" | "sv" | "svh" => Some("text/x-source-code"),
         _ => None,
     }
 }

@@ -29,7 +29,7 @@ public final class {{ bridge_class }} implements AutoCloseable {
     private static final ConcurrentHashMap<String, {{ bridge_class }}>
             {{ registry_field }} = new ConcurrentHashMap<>();
 
-    // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_user_data)
+    // C vtable: {{ num_vtable_fields }} fields ({{ num_super_slots }} plugin methods + {{ num_methods }} trait methods + free_string + free_user_data)
     private static final MemoryLayout VTABLE_LAYOUT = MemoryLayout.structLayout({{ vtable_layout_fields }});
     private static final long VTABLE_SIZE = VTABLE_LAYOUT.byteSize();
 
@@ -48,7 +48,10 @@ public final class {{ bridge_class }} implements AutoCloseable {
 {% for stub in stubs %}
             var {{ stub.var_name }} = LINKER.upcallStub(LOOKUP.bind(this, "{{ stub.handle_name }}",
                 MethodType.methodType({{ stub.return_type }}, {{ stub.method_type_params }})),
+{% if stub.returns_void %}                FunctionDescriptor.ofVoid({{ stub.descriptor_params }}),
+{% else %}
                 FunctionDescriptor.of({{ stub.descriptor_return }}, {{ stub.descriptor_params }}),
+{% endif %}
                 arena);
             vtable.set(ValueLayout.ADDRESS, offset, {{ stub.var_name }});
             offset += ValueLayout.ADDRESS.byteSize();
@@ -104,6 +107,10 @@ public final class {{ bridge_class }} implements AutoCloseable {
     private void writeError(MemorySegment outError, Throwable e) {
         try { outError.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(e.getClass().getSimpleName() + ": " + e.getMessage())); }
         catch (Throwable ignored) { /* swallow */ }
+    }
+
+    private void freeString(MemorySegment ptr) {
+        // Strings returned by Java callbacks are arena-owned and released when this bridge closes.
     }
 
     /** Read a NUL-terminated native C string safely without unbounded reinterpret. */

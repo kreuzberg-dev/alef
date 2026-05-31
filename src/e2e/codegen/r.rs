@@ -722,8 +722,8 @@ fn render_bytes_value(raw: &str) -> String {
 }
 
 /// Map the extractor argument name onto its R `*Config$default()` constructor.
-/// Falls back to `list()` for unknown names — the extendr binding will error
-/// with a clear message, which is preferable to silently passing a wrong type.
+/// Falls back to `NULL` for unknown names so optional/default config slots stay
+/// absent instead of passing a plain R list to an ExternalPtr-backed DTO.
 ///
 /// When `options_type` is provided (via a per-call language override pinning
 /// the typed config, e.g. `EmbeddingConfig` for `embed_texts`), it takes
@@ -741,7 +741,7 @@ fn r_default_for_config_arg(arg_name: &str, options_type: Option<&str>) -> Strin
         "ocr" => "OcrConfig$default()".to_string(),
         "image" | "images" => "ImageExtractionConfig$default()".to_string(),
         "language_detection" => "LanguageDetectionConfig$default()".to_string(),
-        _ => "list()".to_string(),
+        _ => "NULL".to_string(),
     }
 }
 

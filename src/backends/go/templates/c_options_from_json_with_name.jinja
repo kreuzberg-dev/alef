@@ -1,1 +1,9 @@
 		cOptions = C.{{ ffi_prefix }}_conversion_options_from_json(tmpStr)
+		if cOptions == nil {
+			if err := lastError(); err != nil {
+				C.free(unsafe.Pointer(tmpStr))
+				return nil, err
+			}
+			C.free(unsafe.Pointer(tmpStr))
+			return nil, fmt.Errorf("failed to decode conversion options")
+		}
