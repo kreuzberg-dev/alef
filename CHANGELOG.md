@@ -21,6 +21,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C# bindings: emit correct enum types instead of JsonElement for struct fields with enum type.**
+  The extractor's impl block handler was not checking for enums when resolving type names,
+  causing regular enums like `HeadingStyle`, `CodeBlockStyle`, and `UrlEscapeStyle` to be
+  marked with `binding_excluded=true` when they had impl blocks attached. This resulted in
+  C# struct fields mapping to `JsonElement?` instead of the correct enum type, causing
+  compilation errors. The fix adds enum detection in both the `type_is_opaque` check and
+  impl block resolution, ensuring enums are preserved in the binding surface while skipping
+  their impl block methods gracefully (enums don't support attached methods in bindings).
+  (`src/extract/extractor/functions.rs`: lines 171-173, 245-251)
+
 - **Swift async wrapper: apply `.map` conversion to `Vec<Named>` returns regardless of DTO status.**
   The async function forwarder template checked if the element type was in `known_dto_names`
   before applying the RustVec→Array conversion `.map` suffix. This caused async functions
