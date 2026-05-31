@@ -1091,10 +1091,13 @@ fn render_test_method(
     let field_resolver = &call_field_resolver;
     let call_overrides = call_config.overrides.get(lang);
     let has_override = call_overrides.is_some_and(|o| o.function.is_some());
-    // Per-call result_is_simple override wins over the language-level default,
-    // so calls like `speech` (returns Vec<u8>) can be marked simple even if
-    // chat/embed are not.
-    let result_is_simple = call_overrides.is_some_and(|o| o.result_is_simple) || result_is_simple;
+    // `result_is_simple` is a Rust-side property of the call's return type and
+    // applies identically to every binding. Read it from the call-level field
+    // first (preferred), and fall back to the per-call language override or the
+    // file-level language default for backwards compatibility.
+    let result_is_simple = call_config.result_is_simple
+        || call_overrides.is_some_and(|o| o.result_is_simple)
+        || result_is_simple;
     let mut function_name = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()

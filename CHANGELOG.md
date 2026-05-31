@@ -17,6 +17,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **python/php e2e: honour the call-level `result_is_simple` flag.** The python
+  and php test_function codegen only consulted the per-language override for
+  `result_is_simple`, so fixtures that declared it at the call level (e.g.
+  `[crates.e2e.calls.detect_mime_type_from_bytes]` with
+  `result_is_simple = true`) still generated `result.result` /
+  `$result->getResult()` accessors against scalar return values. Tests then
+  failed at runtime with `AttributeError: 'str' object has no attribute
+  'result'` (python) or `Call to a member function getResult() on string`
+  (php). Both codegen sites now read the call-level value first and only
+  fall back to the per-language override for backwards compatibility, as
+  documented on `CallConfig::result_is_simple` in `core::config::e2e`.
+  (`src/e2e/codegen/python/test_function.rs`, `src/e2e/codegen/php.rs`)
+
 - **dart e2e: route source-code file fixtures through the path-based extract
   facade.** `extract_file_sync(path: "code/hello.py", config: { tree_sitter: ... })`
   fixtures previously remapped to `extractBytesSync(readBytes(path), 'application/octet-stream', cfg)`,
