@@ -615,9 +615,14 @@ impl Backend for RustlerBackend {
         let crate_name = config.name.replace('-', "_");
 
         let elixir_config = config.elixir.as_ref();
-        let exclude_functions: AHashSet<&str> = elixir_config
-            .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
+        let mut exclude_functions: AHashSet<String> = elixir_config
+            .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
+
+        // Collect trait bridge function names to avoid duplicate emissions
+        // (trait bridge generates register/unregister/clear functions; the wrapper loop must skip them)
+        let trait_bridge_fn_names = collect_rustler_trait_bridge_fn_names(config);
+        exclude_functions.extend(trait_bridge_fn_names);
         // Skip binding-excluded types (service owners / handler-contract traits) — they are
         // emitted/exported by the service-API codegen, not the generic public-API listing.
         let binding_excluded_names: Vec<String> = api

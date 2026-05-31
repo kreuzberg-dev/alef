@@ -15,7 +15,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 use super::E2eCodegen;
-use config::{render_file_setup, render_global_setup, render_package_json, render_tsconfig, render_vitest_config};
+use config::{render_app_harness, render_file_setup, render_global_setup, render_package_json, render_tsconfig, render_vitest_config};
 pub use test_file::render_test_file;
 use test_file::resolve_node_function_name;
 
@@ -68,7 +68,16 @@ impl E2eCodegen for TypeScriptCodegen {
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
 
-        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.is_http_test());
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+
+        // Emit app_harness for server-pattern HTTP fixtures (requires harness config)
+        if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
+            files.push(GeneratedFile {
+                path: output_base.join("app_harness.mjs"),
+                content: render_app_harness(e2e_config, groups),
+                generated_header: true,
+            });
+        }
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
             let cc = e2e_config.resolve_call_for_fixture(
@@ -152,10 +161,11 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: true,
         });
 
+        let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty();
         if needs_global_setup {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(),
+                content: render_global_setup(use_server_pattern),
                 generated_header: true,
             });
         }

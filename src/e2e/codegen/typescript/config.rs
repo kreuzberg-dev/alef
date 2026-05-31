@@ -117,11 +117,76 @@ pub(super) fn render_file_setup(test_documents_dir: &str) -> String {
     )
 }
 
-pub(super) fn render_global_setup() -> String {
+pub(super) fn render_app_harness(e2e_config: &crate::e2e::config::E2eConfig, groups: &[crate::e2e::fixture::FixtureGroup]) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            // Convert the fixture to JSON for the harness to load.
+            // We only need the http field, handler, request, and expected_response.
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
     let header = hash::header(CommentStyle::DoubleSlash);
 
+    let imports = &e2e_config.harness.imports;
+    let app_class = &e2e_config.harness.app_class;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+
     crate::e2e::template_env::render(
-        "typescript/globalSetup.ts.jinja",
+        "typescript/app_harness.mjs.jinja",
+        context! {
+            header => header,
+            host => host,
+            port => port,
+            response_body_field => e2e_config.harness.response_body_field.as_str(),
+            fixtures_json => fixtures_json,
+            imports => imports,
+            app_class => app_class.as_deref().unwrap_or("App"),
+            method_enum => method_enum.as_deref().unwrap_or("Method"),
+            run_method => run_method.as_deref().unwrap_or("run"),
+        },
+    )
+}
+
+pub(super) fn render_global_setup(use_server_pattern: bool) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    let template = if use_server_pattern {
+        "typescript/globalSetup_server.ts.jinja"
+    } else {
+        "typescript/globalSetup.ts.jinja"
+    };
+
+    crate::e2e::template_env::render(
+        template,
         context! {
             header => header,
         },
@@ -230,8 +295,8 @@ mod tests {
     }
 
     #[test]
-    fn render_global_setup_waits_for_mock_server_shutdown() {
-        let out = render_global_setup();
+    fn render_global_setup_mock_server_waits_for_mock_server_shutdown() {
+        let out = render_global_setup(false);
         assert!(out.contains("clearTimeout(startupTimeout)"), "got: {out}");
         assert!(out.contains("serverProcess.stdout.off('data', onData)"), "got: {out}");
         assert!(out.contains("await new Promise<void>"), "got: {out}");
@@ -240,8 +305,8 @@ mod tests {
     }
 
     #[test]
-    fn render_global_setup_honors_preset_mock_server_url() {
-        let out = render_global_setup();
+    fn render_global_setup_mock_server_honors_preset_mock_server_url() {
+        let out = render_global_setup(false);
         // When MOCK_SERVER_URL is pre-set by the test runner, reuse it and skip
         // spawning the local binary. The early return must precede the spawn().
         assert!(
@@ -254,5 +319,13 @@ mod tests {
             guard < spawn,
             "the pre-set MOCK_SERVER_URL guard must come before the spawn() call, got: {out}"
         );
+    }
+
+    #[test]
+    fn render_global_setup_server_pattern_polls_for_tcp_readiness() {
+        let out = render_global_setup(true);
+        assert!(out.contains("SUT_URL"), "server-pattern should use SUT_URL");
+        assert!(out.contains("app_harness.mjs"), "server-pattern should spawn app_harness.mjs");
+        assert!(out.contains("createConnection"), "server-pattern should check TCP readiness");
     }
 }
