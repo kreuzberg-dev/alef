@@ -23,12 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   were passing through unchanged instead of applying `.map(Into::into)` (binding→core)
   or `.map(|p| p.to_string_lossy().to_string())` (core→binding). This affected all
   tagged data enums with Option<PathBuf> fields in WASM bindings. (`src/backends/wasm/gen_bindings/enums.rs`)
-- **constructor field name mangling: use original Rust field name on left side of struct literal.**
-  Fixed a bug where field renaming for reserved words (e.g., `from` → `from_`) was applied to
-  the left side of struct literal assignments in generated constructors. The left side must
-  always use the original Rust field name, while the right side uses the mangled parameter
-  name. This affected all languages that use constructor field assignment (PyO3, PHP, NAPI,
-  Magnus, Rustler, etc.) when struct fields matched reserved words. (`src/codegen/shared.rs`)
+- **constructor field name mangling: self-constructor uses binding field name, From-impl uses core field name.**
+  Refined the previous fix to correctly distinguish self-constructor vs From-impl code paths.
+  In self-constructors (e.g., `pub fn new(...) -> Self { Self { ... } }`), the struct literal
+  LEFT side must use the **binding field name** (mangled for keyword escaping, e.g., `from_`);
+  the RIGHT side is the parameter value (also mangled in PyO3 signatures). In From-impls
+  (e.g., `impl From<Binding> for Core { fn from(val) { Self { core_field: val.binding_field } } }`),
+  the LEFT side uses the **target struct's field name** (core field for `From<Binding>`, binding
+  field for `From<Core>`), and the RIGHT side uses the source type's field. The previous commit
+  flipped assignments globally, breaking From-impls. This refinement keeps self-constructors
+  correct while preserving From-impl integrity across all languages. (`src/codegen/shared.rs`)
 - **kotlin-android JNI: emit external fun declarations for all opaque client methods.**
   Removed `!m.sanitized` filter from `emit_method_jni_external_funs` so that opaque
   types with sanitized instance methods (e.g., Document.tablePageNumbers) still get
