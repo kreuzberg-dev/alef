@@ -372,6 +372,7 @@ impl FfiBridgeGenerator {
                 "ffi_vtable_error_check.jinja",
                 minijinja::context! {
                     name => name,
+                    vtable_expr => "self.vtable",
                     error_return => &error_return,
                 },
             ));
@@ -387,7 +388,7 @@ impl FfiBridgeGenerator {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_decode_string_result.jinja",
-                        minijinja::context! {},
+                        minijinja::context! { vtable_expr => "self.vtable" },
                     ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -407,15 +408,14 @@ impl FfiBridgeGenerator {
                         "}
 ",
                     );
-                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid NUL-terminated string.\n");
                     out.push_str(
-                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
-",
+                        "let json = unsafe { std::ffi::CStr::from_ptr(_out_result) }.to_string_lossy().into_owned();\n",
                     );
-                    out.push_str(
-                        "let json = cs.to_string_lossy();
-",
-                    );
+                    out.push_str("if let Some(free_fn) = self.vtable.free_string {\n");
+                    out.push_str("    // SAFETY: free_fn is the vtable-provided destructor for callback strings.\n");
+                    out.push_str("    unsafe { free_fn(_out_result) };\n");
+                    out.push_str("}\n");
                     if inside_closure {
                         // Inside the _SendFn closure the return type is Box<dyn Error>
                         out.push_str(&crate::backends::ffi::template_env::render(
@@ -459,7 +459,7 @@ impl FfiBridgeGenerator {
                 TypeRef::String | TypeRef::Char | TypeRef::Path => {
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_decode_string_value.jinja",
-                        minijinja::context! {},
+                        minijinja::context! { vtable_expr => "self.vtable" },
                     ));
                 }
                 TypeRef::Named(_) | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
@@ -476,15 +476,14 @@ impl FfiBridgeGenerator {
                         "}
 ",
                     );
-                    out.push_str("// SAFETY: out_result was written by the callee as a valid CString.\n");
+                    out.push_str("// SAFETY: out_result was written by the callee as a valid NUL-terminated string.\n");
                     out.push_str(
-                        "let cs = unsafe { std::ffi::CString::from_raw(_out_result) };
-",
+                        "let json = unsafe { std::ffi::CStr::from_ptr(_out_result) }.to_string_lossy().into_owned();\n",
                     );
-                    out.push_str(
-                        "let json = cs.to_string_lossy();
-",
-                    );
+                    out.push_str("if let Some(free_fn) = self.vtable.free_string {\n");
+                    out.push_str("    // SAFETY: free_fn is the vtable-provided destructor for callback strings.\n");
+                    out.push_str("    unsafe { free_fn(_out_result) };\n");
+                    out.push_str("}\n");
                     out.push_str(&crate::backends::ffi::template_env::render(
                         "ffi_serde_from_str_default.jinja",
                         minijinja::context! {

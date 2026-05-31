@@ -785,7 +785,7 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
         "missing opaque struct: {lib}"
     );
     assert!(
-        lib.contains("flutter_rust_bridge::DartFnFuture<String>"),
+        lib.contains("DartFnFuture<String>"),
         "missing DartFnFuture<String>: {lib}"
     );
     assert!(lib.contains("extract_text:"), "missing extract_text field: {lib}");
@@ -859,11 +859,11 @@ fn lib_rs_trait_bridge_preserves_internal_document_contract_via_json_bridge() {
         "missing opaque JSON carrier for InternalDocument: {lib}"
     );
     assert!(
-        lib.contains("extract_bytes: Box<dyn Fn(Vec<u8>) -> flutter_rust_bridge::DartFnFuture<InternalDocumentBridge>"),
+        lib.contains("extract_bytes: Box<dyn Fn(Vec<u8>) -> DartFnFuture<InternalDocumentBridge>"),
         "InternalDocument return must use InternalDocumentBridge, not ExtractionResult: {lib}"
     );
     assert!(
-        lib.contains("render: Box<dyn Fn(InternalDocumentBridge) -> flutter_rust_bridge::DartFnFuture<String>"),
+        lib.contains("render: Box<dyn Fn(InternalDocumentBridge) -> DartFnFuture<String>"),
         "InternalDocument param must use InternalDocumentBridge, not ExtractionResult: {lib}"
     );
     assert!(

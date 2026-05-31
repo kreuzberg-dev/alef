@@ -442,6 +442,10 @@ fn gen_trait_bridge(
         },
     ));
 
+    out.push_str(&format!(
+        "\t\tfree_string: (*[0]byte)(unsafe.Pointer(C.go{trait_pascal}FreeString)),\n"
+    ));
+
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
     out.push_str(&crate::backends::go::template_env::render(
         "vtable_free_user_data_field.jinja",
@@ -915,6 +919,19 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
     ));
     out.push('\n');
     out.push_str("\t// No-op to avoid cleanup-queue panics. Handles cleaned in Unregister().\n");
+    out.push_str("}\n");
+    out.push('\n');
+
+    out.push_str(&crate::backends::go::template_env::render(
+        "export_marker.jinja",
+        minijinja::context! {
+            name => format!("go{trait_pascal}FreeString"),
+        },
+    ));
+    out.push_str(&format!("func go{trait_pascal}FreeString(ptr *C.char) {{\n"));
+    out.push_str("\tif ptr != nil {\n");
+    out.push_str("\t\tC.free(unsafe.Pointer(ptr))\n");
+    out.push_str("\t}\n");
     out.push_str("}\n");
     out.push('\n');
 }
@@ -1527,6 +1544,66 @@ mod tests {
             sig.contains("size_t payload_len"),
             "C preamble sig must include `size_t payload_len`;\nactual:\n{sig}"
         );
+    }
+
+    #[test]
+    fn trait_bridge_vtable_includes_free_string_callback() {
+        let trait_def = TypeDef {
+            name: "OcrBackend".to_string(),
+            rust_path: "sample_crate::OcrBackend".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "OcrBackend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: None,
+            register_fn: Some("register_ocr_backend".to_string()),
+            unregister_fn: None,
+            clear_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: crate::core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+            ffi_skip_methods: Vec::new(),
+        };
+        let mut out = String::new();
+        let excluded = HashSet::new();
+
+        gen_trait_bridge(
+            &mut out,
+            &trait_def,
+            &bridge_cfg,
+            "sample_crate",
+            "sample_crate",
+            &excluded,
+            "ocr_backend",
+        );
+
+        assert!(out.contains("free_string: (*[0]byte)(unsafe.Pointer(C.goOcrBackendFreeString))"));
+        assert!(out.contains("func goOcrBackendFreeString(ptr *C.char)"));
+        assert!(out.contains("C.free(unsafe.Pointer(ptr))"));
     }
 
     #[test]

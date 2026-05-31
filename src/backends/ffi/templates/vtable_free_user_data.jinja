@@ -1,3 +1,5 @@
+    /// Optional string destructor: called for strings returned by vtable callbacks.
+    pub free_string: Option<unsafe extern "C" fn(*mut std::ffi::c_char)>,
     /// Optional destructor: called once with `user_data` when the bridge is dropped.
     pub free_user_data: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
 }

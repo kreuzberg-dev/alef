@@ -23,3 +23,7 @@ pub unsafe extern "C" fn {{ full_register_name }}(
         ffi_set_out_error(out_error, "name must not be null");
         return 1;
     }
+    if vtable.free_string.is_none() {
+        ffi_set_out_error(out_error, "vtable.free_string must not be null");
+        return 1;
+    }

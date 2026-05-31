@@ -870,6 +870,26 @@ mod tests {
     }
 
     #[test]
+    fn trait_vtable_includes_free_string_and_status_lifecycle_callbacks() {
+        let trait_def = make_trait_def("Backend", vec![make_method("run", vec![], TypeRef::Unit, None)]);
+        let bridge_cfg = make_bridge_cfg("Backend", Some("Plugin"));
+        let mut out = String::new();
+
+        emit_trait_bridge(
+            "sample",
+            "SampleError",
+            &bridge_cfg,
+            &trait_def,
+            &std::collections::HashSet::new(),
+            &mut out,
+        );
+
+        assert!(out.contains("free_string: ?*const fn (ptr: [*c]u8) callconv(.c) void = null"));
+        assert!(out.contains("name_fn: ?*const fn (user_data: ?*anyopaque, out_name: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 = null"));
+        assert!(out.contains("version_fn: ?*const fn (user_data: ?*anyopaque, out_version: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 = null"));
+    }
+
+    #[test]
     fn single_method_trait_emits_vtable_and_register() {
         let trait_def = make_trait_def(
             "Validator",

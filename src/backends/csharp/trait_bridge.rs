@@ -55,6 +55,7 @@ fn csharp_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> Stri
 /// Managed types (arrays, classes, strings) become IntPtr; primitives remain as-is.
 fn csharp_unmanaged_type(ty: &TypeRef) -> String {
     match ty {
+        TypeRef::Primitive(PrimitiveType::Bool) => "int".to_string(),
         TypeRef::Primitive(_) => csharp_type(ty).to_string(),
         TypeRef::Unit => csharp_type(ty).to_string(),
         // All managed types (String, Bytes, Vec, Optional containing managed, Named classes, etc.) become IntPtr
@@ -228,7 +229,7 @@ fn gen_single_trait_bridge(
     // --- Bridge Class ---
     let num_methods = trait_def.methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
-    let num_vtable_fields = num_super_slots + num_methods + 1;
+    let num_vtable_fields = num_super_slots + num_methods + 2;
     let is_options_field = bridge_cfg.bind_via == BridgeBinding::OptionsField;
 
     // Build method data for template
@@ -380,6 +381,23 @@ fn gen_single_trait_bridge(
         offset += 1;
     }
 
+    // free_string slot
+    vtable_slots.push_str(&render(
+        "vtable_slot_comment.jinja",
+        minijinja::context! { slot_idx => offset, slot_name => "free_string" },
+    ));
+    vtable_slots.push_str("        var freeStringFn = new FreeStringFn(FreeStringCallback);\n");
+    vtable_slots.push_str(&render(
+        "vtable_slot_assign.jinja",
+        minijinja::context! { slot_idx => offset, fn_var => "freeString" },
+    ));
+    vtable_slots.push_str(&render(
+        "vtable_write_intptr.jinja",
+        minijinja::context! { byte_offset => offset * ptr_size, fn_var => "freeString" },
+    ));
+    vtable_slots.push('\n');
+    offset += 1;
+
     // free_user_data slot
     vtable_slots.push_str(&render(
         "vtable_slot_comment.jinja",
@@ -400,8 +418,10 @@ fn gen_single_trait_bridge(
 
     // Plugin lifecycle callbacks
     if has_super_trait {
-        callbacks.push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName) {\n");
+        callbacks
+            .push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName, out IntPtr outError) {\n");
         callbacks.push_str("        try {\n");
+        callbacks.push_str("            outError = IntPtr.Zero;\n");
         callbacks.push_str("            string _name = null!;\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!(
@@ -417,15 +437,19 @@ fn gen_single_trait_bridge(
             "            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_name);\n",
         );
         callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch {\n");
+        callbacks.push_str("        } catch (Exception ex) {\n");
         callbacks.push_str("            outName = IntPtr.Zero;\n");
+        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
         callbacks.push_str("            return 1;\n");
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
         callbacks.push('\n');
 
-        callbacks.push_str("    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion) {\n");
+        callbacks.push_str(
+            "    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion, out IntPtr outError) {\n",
+        );
         callbacks.push_str("        try {\n");
+        callbacks.push_str("            outError = IntPtr.Zero;\n");
         callbacks.push_str("            string _version = null!;\n");
         callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
         callbacks.push_str(&format!(
@@ -441,8 +465,9 @@ fn gen_single_trait_bridge(
             "            outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_version);\n",
         );
         callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch {\n");
+        callbacks.push_str("        } catch (Exception ex) {\n");
         callbacks.push_str("            outVersion = IntPtr.Zero;\n");
+        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
         callbacks.push_str("            return 1;\n");
         callbacks.push_str("        }\n");
         callbacks.push_str("    }\n");
@@ -621,8 +646,12 @@ fn gen_single_trait_bridge(
             let is_non_api = matches!(&param.ty, TypeRef::Named(n) if !visible_type_names.contains(n.as_str()));
 
             match &param.ty {
+                TypeRef::Primitive(PrimitiveType::Bool) => {
+                    // Bool comes from unmanaged side as int; convert to bool
+                    param_call_parts.push(format!("({} != 0)", param_name));
+                }
                 TypeRef::Primitive(_) | TypeRef::Unit => {
-                    // Primitives don't need conversion
+                    // Other primitives don't need conversion
                     param_call_parts.push(param_name);
                 }
                 TypeRef::String | TypeRef::Char => {
@@ -770,6 +799,14 @@ fn gen_single_trait_bridge(
         callbacks.push('\n');
     }
 
+    // free_string callback
+    callbacks.push_str("    private void FreeStringCallback(IntPtr ptr) {\n");
+    callbacks.push_str("        if (ptr != IntPtr.Zero) {\n");
+    callbacks.push_str("            global::System.Runtime.InteropServices.Marshal.FreeCoTaskMem(ptr);\n");
+    callbacks.push_str("        }\n");
+    callbacks.push_str("    }\n");
+    callbacks.push('\n');
+
     // free_user_data callback
     callbacks.push_str("    private void FreeUserDataCallback(IntPtr userData) {\n");
     callbacks.push_str("        if (userData != IntPtr.Zero) {\n");
@@ -903,6 +940,51 @@ mod tests {
         let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
 
         assert!(content.contains("public sealed class OcrBackendBridge : IDisposable"));
+        assert!(content.contains("private delegate void FreeStringFn(IntPtr ptr);"));
+        assert!(content.contains("FreeStringCallback"));
+        assert!(content.contains("Marshal.FreeCoTaskMem(ptr);"));
+    }
+
+    #[test]
+    fn test_bool_callback_param_uses_int_boundary_type() {
+        let mut trait_def = make_trait_def("Checker");
+        trait_def.methods = vec![crate::core::ir::MethodDef {
+            name: "check".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "enabled".to_string(),
+                ty: TypeRef::Primitive(PrimitiveType::Bool),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }];
+        let bridge_cfg = make_bridge_cfg("Checker", None);
+        let bridges = vec![("Checker".to_string(), &bridge_cfg, &trait_def)];
+        let visible_types: HashSet<&str> = vec!["Checker"].into_iter().collect();
+        let (_filename, content) = gen_trait_bridges_file("SampleCrate", "sample_crate", &bridges, &visible_types);
+
+        assert!(content.contains("private delegate int CheckFn(IntPtr userData, int enabled);"));
     }
 
     #[test]

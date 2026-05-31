@@ -1246,8 +1246,12 @@ fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
     let traits = find_traits_src(&files).expect("traits.dart should be emitted");
 
     assert!(
-        traits.contains("final class InternalDocumentBridge"),
-        "traits.dart must expose the explicit InternalDocument bridge: {traits}"
+        traits.contains("import 'demo_crate_bridge_generated/lib.dart';"),
+        "traits.dart must import the FRB public bridge types: {traits}"
+    );
+    assert!(
+        !traits.contains("final class InternalDocumentBridge"),
+        "traits.dart must not redeclare the FRB-owned InternalDocumentBridge type: {traits}"
     );
     assert!(
         traits.contains("Future<InternalDocumentBridge> extractBytes"),
