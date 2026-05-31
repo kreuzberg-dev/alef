@@ -1008,7 +1008,7 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
     // Helper function for list access
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
-    code.push_str("    let names = list.names().ok()?;\n");
+    code.push_str("    let names = list.names().ok();\n");
     code.push_str("    names\n");
     code.push_str("        .iter()\n");
     code.push_str("        .zip(list.iter())\n");
@@ -1147,14 +1147,38 @@ fn gen_preprocessing_decoder(code: &mut String) {
     code.push_str("}\n\n");
 }
 
+/// Map a core type to its binding type for the R extendr backend.
+/// This applies the type transformations used in the binding layer:
+/// - u64, i64, usize, isize -> f64
+/// - Other primitives stay the same
+/// - Optional wrapping is preserved
+fn map_type_to_binding(ty: &crate::core::ir::TypeRef) -> crate::core::ir::TypeRef {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+
+    match ty {
+        TypeRef::Primitive(_prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize)) => {
+            // These are mapped to f64 in the binding layer
+            TypeRef::Primitive(PrimitiveType::F64)
+        }
+        TypeRef::Optional(inner) => {
+            // Recursively map the inner type and re-wrap in Optional
+            TypeRef::Optional(Box::new(map_type_to_binding(inner)))
+        }
+        other => other.clone(),
+    }
+}
+
 /// Generate field decoding logic for a single field.
 fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
     use crate::core::ir::{PrimitiveType, TypeRef};
 
+    // Map the core field type to the binding type before generating decoder logic
+    let binding_ty = map_type_to_binding(&field.ty);
+
     let field_name = &field.name;
     let field_name_trim = field_name.trim_start_matches('_');
 
-    match &field.ty {
+    match &binding_ty {
         TypeRef::Primitive(PrimitiveType::Bool) => {
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
@@ -1178,20 +1202,15 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str("    }\n");
         }
         TypeRef::Char => {
+            // In the binding layer, char is mapped to String, so just assign the string directly
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
-            code.push_str("        let s = String::try_from(&v).map_err(|e| format!(\"");
-            code.push_str(field_name_trim);
-            code.push_str(": {e}\"))?;\n");
-            code.push_str("        if s.len() != 1 {\n");
-            code.push_str("            return Err(\"");
-            code.push_str(field_name_trim);
-            code.push_str(": must be a single character string\".to_string());\n");
-            code.push_str("        }\n");
             code.push_str("        opts.");
             code.push_str(field_name);
-            code.push_str(" = s.chars().next().unwrap();\n");
+            code.push_str(" = String::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(field_name_trim);
+            code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Primitive(
@@ -1224,29 +1243,21 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             code.push_str("    }\n");
         }
         TypeRef::Primitive(
-            prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
+            _prim @ (PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize),
         ) => {
-            let ty = match prim {
-                PrimitiveType::U64 => "u64",
-                PrimitiveType::I64 => "i64",
-                PrimitiveType::Usize => "usize",
-                PrimitiveType::Isize => "isize",
-                _ => unreachable!(),
-            };
+            // R maps these types to f64 in the binding layer
             code.push_str("    if let Some(v) = list_get(&list, \"");
             code.push_str(field_name_trim);
             code.push_str("\") {\n");
             code.push_str("        opts.");
             code.push_str(field_name);
-            code.push_str(" = ");
-            code.push_str(ty);
-            code.push_str("::try_from(&v).map_err(|e| format!(\"");
+            code.push_str(" = f64::try_from(&v).map_err(|e| format!(\"");
             code.push_str(field_name_trim);
             code.push_str(": {e}\"))?;\n");
             code.push_str("    }\n");
         }
         TypeRef::Primitive(PrimitiveType::F32 | PrimitiveType::F64) => {
-            let ty = match &field.ty {
+            let ty = match &binding_ty {
                 TypeRef::Primitive(PrimitiveType::F32) => "f32",
                 _ => "f64",
             };
@@ -1272,7 +1283,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str(": {e}\"))?;\n");
                 code.push_str("        let vec: Vec<String> = strings\n");
                 code.push_str("            .iter()\n");
-                code.push_str("            .map(String::from)\n");
+                code.push_str("            .map(|s| s.to_string())\n");
                 code.push_str("            .collect();\n");
                 code.push_str("        opts.");
                 code.push_str(field_name);
@@ -1314,25 +1325,33 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                     code.push_str(" = decode_preprocessing_options(v)?;\n");
                     code.push_str("    }\n");
                 }
-                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
-                    // max_depth is Option<usize>
-                    let ty = match prim {
-                        PrimitiveType::U64 => "u64",
-                        PrimitiveType::Usize => "usize",
-                        _ => unreachable!(),
-                    };
+                TypeRef::Primitive(_prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
+                    // R maps these types to Option<f64> in the binding layer
                     code.push_str("    if let Some(v) = list_get(&list, \"");
                     code.push_str(field_name_trim);
                     code.push_str("\") {\n");
                     code.push_str("        if !v.is_null() {\n");
-                    code.push_str("            let val = ");
-                    code.push_str(ty);
-                    code.push_str("::try_from(&v).map_err(|e| format!(\"");
+                    code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
                     code.push_str(field_name_trim);
                     code.push_str(": {e}\"))?;\n");
                     code.push_str("            opts.");
                     code.push_str(field_name);
-                    code.push_str(" = Some(val);\n");
+                    code.push_str(" = Some(f64_val);\n");
+                    code.push_str("        }\n");
+                    code.push_str("    }\n");
+                }
+                TypeRef::Primitive(PrimitiveType::F64) => {
+                    // Option<f64> is used as-is in the binding layer
+                    code.push_str("    if let Some(v) = list_get(&list, \"");
+                    code.push_str(field_name_trim);
+                    code.push_str("\") {\n");
+                    code.push_str("        if !v.is_null() {\n");
+                    code.push_str("            let f64_val = f64::try_from(&v).map_err(|e| format!(\"");
+                    code.push_str(field_name_trim);
+                    code.push_str(": {e}\"))?;\n");
+                    code.push_str("            opts.");
+                    code.push_str(field_name);
+                    code.push_str(" = Some(f64_val);\n");
                     code.push_str("        }\n");
                     code.push_str("    }\n");
                 }

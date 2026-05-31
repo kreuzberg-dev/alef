@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift async wrapper: apply `.map` conversion to `Vec<Named>` returns regardless of DTO status.**
+  The async function forwarder template checked if the element type was in `known_dto_names`
+  before applying the RustVec→Array conversion `.map` suffix. This caused async functions
+  returning `Vec<T>` (e.g., `batchExtractBytes`) to fail at runtime when T had complex
+  dependencies not yet in the first-class DTO set. The check is now removed — all `Vec<Named>`
+  returns get the conversion, matching the sync forwarder behavior.
+  (`src/backends/swift/gen_bindings/mod.rs::emit_async_free_function_forwarder`)
+
 - **C# e2e test stubs: emit typed enum returns post-Wave-2.**
   After enum visibility re-enabled in commit f08a205be, generated trait bridge interfaces
   declared typed enum return methods (e.g., `OcrBackendType BackendType()`, `ProcessingStage ProcessingStage()`).

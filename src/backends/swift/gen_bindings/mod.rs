@@ -3907,9 +3907,10 @@ fn emit_async_free_function_forwarder(
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
         out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
-    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name)))
+    } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)))
     {
-        // Vec<Named> return: apply the .map conversion suffix
+        // Vec<Named> return: apply the .map conversion suffix (applies even if Named is not
+        // in known_dto_names, because swift-bridge bridges the whole RustVec<T> regardless)
         let suffix = forwarder_return_conversion_suffix_with_throws(
             &func.return_type,
             known_dto_names,
