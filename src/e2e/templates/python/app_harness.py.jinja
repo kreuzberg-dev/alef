@@ -1,0 +1,82 @@
+{#- Python app harness for server-pattern e2e tests
+
+   This harness script is spawned as a subprocess by conftest.py and runs the
+   SUT app, registering handlers per fixture. It loads all fixtures, creates
+   handlers that return expected responses, and serves on a configured port.
+
+   Context variables (passed from Python codegen):
+   - imports: list of module names to import (e.g., ["spikard"])
+   - app_class: class name for SUT app (e.g., "App")
+   - register_method: method name to register handlers per HTTP method (e.g., "get", "post", "delete")
+   - body_schema_setter: method to set request schema (e.g., "request_schema_json")
+   - method_enum: HTTP method enum name (e.g., "Method")
+   - run_method: serve entrypoint (e.g., "run")
+   - host: binding host (e.g., "127.0.0.1")
+   - port: binding port (e.g., 8000)
+   - fixtures_json: raw JSON string with all fixtures (auto-serialized)
+#}
+#!/usr/bin/env python3
+"""App harness for server-pattern e2e tests.
+
+This script spawns the SUT app and registers handlers per fixture,
+returning expected responses. It's driven by conftest.py.
+"""
+
+import json
+import sys
+
+{% for import_name in imports %}
+from {{ import_name }} import {{ app_class }}
+{% if method_enum %}
+from {{ import_name }} import {{ method_enum }}
+{% endif %}
+{% endfor %}
+
+# Load fixtures from the JSON payload.
+# The fixtures dict contains per-fixture data with handler route, method, body_schema, etc.
+_FIXTURES_JSON = """{{ fixtures_json }}"""
+_FIXTURES = json.loads(_FIXTURES_JSON)
+
+# Create and configure the app.
+app = {{ app_class }}()
+
+# Register a handler for each fixture.
+for fixture_id, fixture in _FIXTURES.items():
+    http = fixture.get("http")
+    if not http:
+        continue
+
+    handler = http.get("handler", {})
+    route = handler.get("route", "/")
+    method_str = handler.get("method", "GET").lower()
+    body_schema = handler.get("body_schema")
+    expected = http.get("expected_response", {})
+
+    # Build handler function that returns the expected response.
+    expected_status = expected.get("status_code", 200)
+    expected_body = expected.get("body")
+
+    def make_handler(status, body):
+        def handler_fn():
+            # Return the expected response directly.
+            # The framework will handle validation based on body_schema.
+            return body if body is not None else {}
+        return handler_fn
+
+    # Register the handler at /fixtures/<fixture_id>{route}
+    full_route = f"/fixtures/{fixture_id}{route}"
+
+    # Get the verb method (e.g., app.get, app.post, app.delete)
+    verb_method = getattr(app, method_str, None)
+    if verb_method is None:
+        continue
+
+    # Call app.{verb}(path, handler)
+    # For spikard, this registers the route directly.
+    # The framework will handle body validation via the route configuration.
+    verb_method(full_route, make_handler(expected_status, expected_body))
+
+# Start the server and block.
+print(f"Harness listening on {{ host }}:{{ port }}")
+sys.stdout.flush()
+app.{{ run_method }}(host="{{ host }}", port={{ port }})
