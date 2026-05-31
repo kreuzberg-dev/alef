@@ -1,0 +1,83 @@
+#!/usr/bin/env ruby
+{#- Ruby app harness for server-pattern e2e tests
+
+   This harness script is spawned as a subprocess by spec_helper.rb and runs the
+   SUT app, registering handlers per fixture. It loads all fixtures, creates
+   handlers that return expected responses, and serves on a configured port.
+
+   Context variables (passed from Ruby codegen):
+   - imports: list of module names to import (e.g., ["spikard"])
+   - app_class: class name for SUT app (e.g., "Spikard::App")
+   - method_enum_module: module path for Method enum (e.g., "Spikard::Method")
+   - register_route_method: app method to register routes (e.g., "register_route")
+   - run_method: serve entrypoint (e.g., "run")
+   - host: binding host (e.g., "127.0.0.1")
+   - port: binding port (e.g., 8002)
+   - fixtures_json: raw JSON string with all fixtures (auto-serialized)
+#}
+# frozen_string_literal: true
+
+require "json"
+require "{{ imports[0] }}"
+
+module AppHarness
+  # Load fixtures from the JSON payload.
+  FIXTURES_JSON = %({{ fixtures_json }})
+  FIXTURES = JSON.parse(FIXTURES_JSON, symbolize_names: true)
+
+  # Create and configure the app.
+  APP = {{ app_class }}.new
+
+  # Register a handler for each fixture.
+  FIXTURES.each do |fixture_id, fixture|
+    http = fixture[:http]
+    next unless http
+
+    handler_config = http[:handler] || {}
+    route = handler_config[:route] || "/"
+    method_str = (handler_config[:method] || "GET").upcase
+    body_schema = handler_config[:body_schema]
+    expected = http[:expected_response] || {}
+
+    expected_status = expected[:status_code] || 200
+    expected_body = expected[:body]
+    expected_headers = expected[:headers] || {}
+
+    # Build the handler closure that returns the expected response.
+    handler_fn = lambda do |*_args, **_kwargs|
+      # Return the expected response wrapped in the framework's response shape.
+      # The body field name ({{ response_body_field }}) is configurable via
+      # `[crates.e2e.harness].response_body_field` so the wrapper matches the
+      # SUT's Response deserialization layout.
+      {
+        status_code: expected_status,
+        "{{ response_body_field }}": expected_body,
+        headers: expected_headers
+      }
+    end
+
+    # Register the handler at /fixtures/<fixture_id>{route}
+    full_route = "/fixtures/#{fixture_id}#{route}"
+
+    # Get the Method enum value for this HTTP method.
+    method_enum_val = {{ method_enum_module }}.const_get(method_str, false)
+    next unless method_enum_val
+
+    # Build the RouteBuilder with the method and path.
+    builder = {{ route_builder_class }}.new(method_enum_val, full_route)
+
+    # If there's a body schema, attach it to the builder.
+    if body_schema
+      builder = builder.{{ route_builder_schema_setter }}(JSON.dump(body_schema))
+    end
+
+    # Register the route with the handler.
+    APP.{{ register_route_method }}(builder, handler_fn)
+  end
+
+  # Configure and start the server.
+  APP.config(Spikard::ServerConfig.new(host: "{{ host }}", port: {{ port }}))
+  puts "Harness listening on {{ host }}:{{ port }}"
+  STDOUT.flush
+  APP.{{ run_method }}
+end

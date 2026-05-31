@@ -159,14 +159,18 @@ pub(crate) fn extract_impl_block(
     // a hand-written `new` returning `Self` is their only constructor and must be preserved. For
     // field-based (data-class) types the derived field constructor supersedes such a `new`, so it
     // is dropped (below). Unknown types are treated as opaque to keep the constructor.
+    // Enums are always treated as opaque since they have no field-based constructor.
     //
     // A constructor on a *generic* impl block (e.g. `impl<T> ValueDependency<T>`) cannot be lowered
     // to a concrete binding — there is no single `T` — so such constructors are never preserved.
     let type_is_opaque = item.generics.params.is_empty()
-        && type_index
+        && (type_index
             .get(&type_name)
             .map(|&idx| surface.types[idx].is_opaque)
-            .unwrap_or(true);
+            .unwrap_or(false)
+            || surface.enums.iter().any(|e| e.name == type_name)
+            || surface.errors.iter().any(|e| e.name == type_name)
+            || !type_index.contains_key(&type_name));
 
     let methods: Vec<MethodDef> = item
         .items
@@ -213,7 +217,7 @@ pub(crate) fn extract_impl_block(
         return;
     }
 
-    // Use index for O(1) lookup; if not found, create opaque type
+    // Use index for O(1) lookup; if not found, check errors and skip enums
     if let Some(&idx) = type_index.get(&type_name) {
         // Dedup: skip methods whose name already exists on the type
         for method in methods {
@@ -238,6 +242,13 @@ pub(crate) fn extract_impl_block(
                 error_def.methods.push(method);
             }
         }
+    } else if surface.enums.iter().any(|e| e.name == type_name) {
+        // This is an impl block on a regular enum (not an error enum).
+        // Regular enums don't support attached methods in bindings — they exist as pure data
+        // with variants only. Methods on enums (like `parse()` helper methods) are skipped.
+        // This is the expected behavior: the enum type is already known and emitted, but its
+        // impl block methods don't affect the binding surface.
+        return;
     } else {
         // The impl is for a type we haven't seen as a `pub` struct — create an opaque
         // entry, but flag it `binding_excluded` because the struct's own visibility
