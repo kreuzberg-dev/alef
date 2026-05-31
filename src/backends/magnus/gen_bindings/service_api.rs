@@ -1359,15 +1359,22 @@ mod tests {
         );
     }
 
-    /// `gen_service_rs` emits GVL handling via Ruby::with_gvl.
+    /// `gen_service_rs` emits GVL handling via Ruby::get() for #[magnus::function] callbacks
+    /// and rb_sys for async handler bridge contexts.
     #[test]
     fn rust_output_contains_gvl_handling() {
         let surface = make_fixture_surface();
         let config = make_test_config();
         let output = gen_service_rs(&surface, &config);
+        // Check for Ruby::get() in the main function (runs on Ruby thread)
         assert!(
-            output.contains("Ruby::with_gvl"),
-            "expected `Ruby::with_gvl` for GVL handling:\n{output}"
+            output.contains("Ruby::get()"),
+            "expected `Ruby::get()` for main function GVL handling:\n{output}"
+        );
+        // Check for rb_sys in the handler bridge (runs from async context)
+        assert!(
+            output.contains("rb_sys::rb_thread_call_with_gvl"),
+            "expected `rb_sys::rb_thread_call_with_gvl` for handler bridge GVL:\n{output}"
         );
     }
 
