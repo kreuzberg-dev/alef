@@ -262,11 +262,10 @@ pub fn emit_test_backend(
         let _ = writeln!(setup, "  name(): string {{ return \"{escaped}\"; }}");
     }
 
-    // Required methods only.
+    // Emit all methods the high-level binding interface may call. Methods with
+    // Rust default impls are optional in user code, but generated e2e stubs
+    // provide no-op/default implementations for lifecycle probes.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Skip Plugin::name if we already emitted it.
         if trait_bridge.super_trait.is_some() && method.name == "name" {
             continue;
@@ -591,7 +590,7 @@ result_var = "result"
     }
 
     #[test]
-    fn emit_test_backend_ts_skips_default_impl_methods() {
+    fn emit_test_backend_ts_emits_default_impl_noops() {
         use crate::core::config::TraitBridgeConfig;
         use crate::core::ir::TypeRef;
 
@@ -612,8 +611,8 @@ result_var = "result"
             "required method should be emitted"
         );
         assert!(
-            !emission.setup_block.contains("mayImplement("),
-            "optional method should be skipped"
+            emission.setup_block.contains("mayImplement("),
+            "default-impl method should be emitted as a no-op stub"
         );
     }
 }

@@ -1,6 +1,8 @@
         .version_fn = struct {
-            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8) callconv(.c) void {
+            fn thunk(user_data: ?*anyopaque, out_version: ?*?[*c]u8, out_error: ?*?[*c]u8) callconv(.c) i32 {
                 _ = user_data;
+                _ = out_error;
                 if (out_version) |slot| slot.* = null;
+                return 0;
             }
         }.thunk,

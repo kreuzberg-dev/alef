@@ -353,7 +353,7 @@ impl Backend for SwiftBackend {
         //   - A factory func `make{TraitCamel}Handle(...)`.
         // NOTE: The `Swift{Trait}Box` class is emitted into Sources/RustBridge/ (separate file)
         // because it is referenced by the swift-bridge generated @_cdecl shims there.
-        emit_inbound_protocols(api, config, &mut body);
+        emit_inbound_protocols(api, config, &exclude_types, &mut body);
 
         // Emit top-level public forwarders for every free function in `api.functions`
         // that is not already covered by the bytes/path convenience wrappers or
@@ -3350,7 +3350,12 @@ fn emit_swift_bridge_files(
 ///
 /// NOTE: `Swift{Trait}Box` (with RustString-typed methods) is emitted into `Sources/RustBridge/`
 /// by `emit_inbound_box_files` because the swift-bridge @_cdecl shims reference it there.
-fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &mut String) {
+fn emit_inbound_protocols(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    exclude_types: &std::collections::HashSet<String>,
+    out: &mut String,
+) {
     for bridge_cfg in &config.trait_bridges {
         if bridge_cfg.bind_via != BridgeBinding::OptionsField {
             continue;
@@ -3391,7 +3396,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
-            let params = swift_protocol_params(method);
+            let params = swift_protocol_params(method, exclude_types);
             out.push_str(&format!("    func {method_camel}({params}) -> {result_type_name}\n"));
         }
         out.push_str("}\n\n");
@@ -3416,7 +3421,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
             let method_camel = method_snake.to_lower_camel_case();
-            let underscore_params = swift_protocol_underscore_params(method);
+            let underscore_params = swift_protocol_underscore_params(method, exclude_types);
             out.push_str(&format!(
                 "    func {method_camel}({underscore_params}) -> {result_type_name} {{ return .{default_case} }}\n"
             ));
@@ -3440,7 +3445,7 @@ fn emit_inbound_protocols(api: &ApiSurface, config: &ResolvedCrateConfig, out: &
             let method_camel = method_snake.to_lower_camel_case();
             let delegate_method = swift_ident(&method_camel);
             let delegate_params = swift_box_params(method); // RustString-typed
-            let (conversion_lines, call_args) = swift_adapter_conversions(method);
+            let (conversion_lines, call_args) = swift_adapter_conversions(method, exclude_types);
             // Adapter implements the delegate protocol: method name must match the
             // protocol's lowerCamelCase declaration emitted in `emit_inbound_box_files`.
             out.push_str(&format!("    func {delegate_method}({delegate_params}) -> String {{\n"));
@@ -4607,7 +4612,10 @@ fn swift_box_params_keyword(method: &crate::core::ir::MethodDef) -> String {
 ///
 /// Returns `(setup_lines, call_args)` — the setup_lines are inserted before the
 /// `inner.{methodCamel}(...)` invocation (currently used for Named JSON decode).
-fn swift_adapter_conversions(method: &crate::core::ir::MethodDef) -> (Vec<String>, String) {
+fn swift_adapter_conversions(
+    method: &crate::core::ir::MethodDef,
+    exclude_types: &std::collections::HashSet<String>,
+) -> (Vec<String>, String) {
     use crate::core::ir::PrimitiveType;
     let mut setup_lines: Vec<String> = Vec::new();
     let call_args: Vec<String> = method
@@ -4620,6 +4628,13 @@ fn swift_adapter_conversions(method: &crate::core::ir::MethodDef) -> (Vec<String
             // escape produced by `swift_ident`.
             let snake = swift_ident(&p.name.to_lower_camel_case());
             match &p.ty {
+                TypeRef::Named(name) if exclude_types.contains(name) => {
+                    if p.optional {
+                        format!("{snake}?.toString()")
+                    } else {
+                        format!("{snake}.toString()")
+                    }
+                }
                 TypeRef::Named(name) => {
                     let from_json = format!("{name}FromJson").to_lower_camel_case();
                     let local = format!("{snake}Decoded");
@@ -4642,6 +4657,9 @@ fn swift_adapter_conversions(method: &crate::core::ir::MethodDef) -> (Vec<String
                     }
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
+                    TypeRef::Named(name) if exclude_types.contains(name) => {
+                        format!("{snake}?.toString()")
+                    }
                     TypeRef::Named(name) => {
                         let from_json = format!("{name}FromJson").to_lower_camel_case();
                         let local = format!("{snake}Decoded");
@@ -4678,13 +4696,16 @@ fn swift_box_delegate_call_args(method: &crate::core::ir::MethodDef) -> String {
         .join(", ")
 }
 
-fn swift_protocol_params(method: &crate::core::ir::MethodDef) -> String {
+fn swift_protocol_params(
+    method: &crate::core::ir::MethodDef,
+    exclude_types: &std::collections::HashSet<String>,
+) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let name = p.name.to_lower_camel_case();
-            let ty = swift_inbound_type(&p.ty, p.optional);
+            let ty = swift_inbound_type(&p.ty, p.optional, exclude_types);
             format!("_ {name}: {ty}")
         })
         .collect();
@@ -4692,13 +4713,16 @@ fn swift_protocol_params(method: &crate::core::ir::MethodDef) -> String {
 }
 
 /// Protocol parameters with every argument prefixed by `_` (for the default extension impl).
-fn swift_protocol_underscore_params(method: &crate::core::ir::MethodDef) -> String {
+fn swift_protocol_underscore_params(
+    method: &crate::core::ir::MethodDef,
+    exclude_types: &std::collections::HashSet<String>,
+) -> String {
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let name = p.name.to_lower_camel_case();
-            let ty = swift_inbound_type(&p.ty, p.optional);
+            let ty = swift_inbound_type(&p.ty, p.optional, exclude_types);
             format!("_ _{name}: {ty}")
         })
         .collect();
@@ -4726,9 +4750,10 @@ fn swift_shim_call_args(method: &crate::core::ir::MethodDef) -> String {
 ///   u32 → UInt32
 ///   usize → Int
 ///   String → String
-fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
+fn swift_inbound_type(ty: &TypeRef, optional: bool, exclude_types: &std::collections::HashSet<String>) -> String {
     use crate::core::ir::PrimitiveType;
     let inner = match ty {
+        TypeRef::Named(name) if exclude_types.contains(name) => "String".to_string(),
         TypeRef::Named(name) => name.clone(),
         TypeRef::String => "String".to_string(),
         TypeRef::Primitive(PrimitiveType::Bool) => "Bool".to_string(),
@@ -4747,7 +4772,7 @@ fn swift_inbound_type(ty: &TypeRef, optional: bool) -> String {
         // Vec elements use the FFI type (RustString not String) because swift-bridge
         // sends RustVec<RustString> from the @_cdecl shim — the protocol must match.
         TypeRef::Vec(inner) => format!("RustVec<{}>", swift_box_ffi_type(inner, false)),
-        TypeRef::Optional(inner) => return format!("{}?", swift_inbound_type(inner, false)),
+        TypeRef::Optional(inner) => return format!("{}?", swift_inbound_type(inner, false, exclude_types)),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Bytes => "RustVec<UInt8>".to_string(),
         TypeRef::Char => "Character".to_string(),
@@ -5153,6 +5178,48 @@ mod tests {
         let suffix = forwarder_return_conversion_suffix_with_throws(&ty, &known, false);
         assert!(suffix.is_empty(), "non-DTO Named return must not emit any suffix");
         assert!(!return_value_conversion_throws(&ty, &known));
+    }
+
+    #[test]
+    fn inbound_protocol_maps_excluded_named_params_to_json_string() {
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("InternalDocument".to_string());
+        let method = MethodDef {
+            name: "process".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "document".to_string(),
+                ty: TypeRef::Named("InternalDocument".to_string()),
+                optional: false,
+                is_mut: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+
+        assert_eq!(
+            swift_protocol_params(&method, &excluded),
+            "_ document: String",
+            "public inbound protocols must not expose excluded InternalDocument types",
+        );
+        let (setup, args) = swift_adapter_conversions(&method, &excluded);
+        assert!(
+            setup.is_empty(),
+            "excluded JSON strings must not route through missing fromJson helpers"
+        );
+        assert_eq!(args, "document.toString()");
     }
 
     /// Extraction result extensions should return None for empty API.

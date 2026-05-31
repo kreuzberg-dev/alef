@@ -1,3 +1,8 @@
+        .free_string = struct {
+            fn thunk(ptr: [*c]u8) callconv(.c) void {
+                _ = ptr;
+            }
+        }.thunk,
         .free_user_data = struct {
             fn thunk(user_data: ?*anyopaque) callconv(.c) void {
                 _ = user_data;

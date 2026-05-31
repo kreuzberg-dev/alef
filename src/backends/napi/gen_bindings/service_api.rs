@@ -622,12 +622,7 @@ fn gen_run_napi_function(
         }
     }
 
-    out.push_str("            _ => {\n");
-    out.push_str(
-        "                return Err(napi::Error::new(\n                    napi::Status::InvalidArg,\n                    \
-         format!(\"unknown registration method: {method_name}\"),\n                ));\n",
-    );
-    out.push_str("            }\n");
+    out.push_str("            _ => {}\n");
     out.push_str("        }\n");
     out.push_str("    }\n\n");
 

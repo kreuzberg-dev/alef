@@ -62,8 +62,7 @@ pub(super) fn render_test_function(
     // applies identically to every binding. Read it from the call-level field
     // first (preferred), and only fall back to the per-language override for
     // backwards compatibility with fixtures that still declare it there.
-    let result_is_simple = call_config.result_is_simple
-        || python_override.is_some_and(|o| o.result_is_simple);
+    let result_is_simple = call_config.result_is_simple || python_override.is_some_and(|o| o.result_is_simple);
 
     // options_type: prefer per-call override, fall back to file-level python override, then call parameter.
     let top_level_options_type = e2e_config

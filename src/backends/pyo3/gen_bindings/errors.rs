@@ -116,7 +116,7 @@ pub(super) fn gen_init_py(
     out.push_str(&hash::header(CommentStyle::Hash));
     out.push_str(&crate::backends::pyo3::template_env::render(
         "init_header.jinja",
-        minijinja::context! { version => version },
+        minijinja::context! { module_name => module_name, version => version },
     ));
     // ruff format: blank line required after module docstring before first import.
     out.push('\n');

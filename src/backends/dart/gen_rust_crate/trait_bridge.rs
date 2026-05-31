@@ -754,8 +754,20 @@ fn emit_trait_bridge_method(
             if is_internal_document {
                 let local = format!("__{}_local", p.name);
                 let expr = if p.optional {
+                    if method.error_type.is_some() {
+                        format!(
+                            "{name}.map(|v| serde_json::to_string(&v).map(|json| InternalDocumentBridge {{ json }})).transpose().map_err(|e| e.to_string())?",
+                            name = p.name,
+                        )
+                    } else {
+                        format!(
+                            "{name}.map(|v| InternalDocumentBridge {{ json: serde_json::to_string(&v).expect(\"serialize InternalDocument for Dart trait bridge\") }})",
+                            name = p.name,
+                        )
+                    }
+                } else if method.error_type.is_some() {
                     format!(
-                        "{name}.map(|v| InternalDocumentBridge {{ json: serde_json::to_string(&v).expect(\"serialize InternalDocument for Dart trait bridge\") }})",
+                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name}).map_err(|e| e.to_string())? }}",
                         name = p.name,
                     )
                 } else {
@@ -796,13 +808,23 @@ fn emit_trait_bridge_method(
     if returns_internal_document {
         let core_path = internal_document_core_path(&method.return_type, source_crate_name, excluded_type_paths);
         if method.is_async {
-            out.push_str(&format!(
-                "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
-                 \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
-                 \x20           .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
-                call_expr = call_expr,
-                core_path = core_path,
-            ));
+            if method.error_type.is_some() {
+                out.push_str(&format!(
+                    "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
+                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
+                     \x20           .map_err(|e| e.to_string())?;\n",
+                    call_expr = call_expr,
+                    core_path = core_path,
+                ));
+            } else {
+                out.push_str(&format!(
+                    "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
+                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
+                     \x20           .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                    call_expr = call_expr,
+                    core_path = core_path,
+                ));
+            }
         } else {
             out.push_str("        let __ret_bridge = ::tokio::runtime::Builder::new_current_thread()\n            .build()\n            .expect(\"build alef visitor tokio runtime\")\n");
             out.push_str(&crate::backends::dart::template_env::render(
@@ -811,10 +833,17 @@ fn emit_trait_bridge_method(
                     call_expr => call_expr.as_str(),
                 },
             ));
-            out.push_str(&format!(
-                "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
-                core_path = core_path,
-            ));
+            if method.error_type.is_some() {
+                out.push_str(&format!(
+                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .map_err(|e| e.to_string())?;\n",
+                    core_path = core_path,
+                ));
+            } else {
+                out.push_str(&format!(
+                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                    core_path = core_path,
+                ));
+            }
         }
         if method.error_type.is_some() {
             out.push_str("        Ok(__ret)\n");
@@ -1018,7 +1047,7 @@ pub(crate) fn return_type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bo
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
+    use crate::core::ir::{ApiSurface, ReceiverKind, TypeDef, TypeRef};
 
     fn empty_type_def(name: &str, is_trait: bool) -> TypeDef {
         TypeDef {
@@ -1102,5 +1131,89 @@ mod tests {
         let api = api_surface(vec![empty_type_def("MyStruct", false)], vec![], vec![]);
         let ret = TypeRef::Optional(Box::new(TypeRef::Named("MyStruct".into())));
         assert!(!return_type_references_trait(&ret, &api));
+    }
+
+    #[test]
+    fn internal_document_result_return_deserializes_with_error_mapping() {
+        let method = MethodDef {
+            name: "extract".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("InternalDocument".to_string()),
+            is_async: true,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let mut out = String::new();
+        let type_paths = std::collections::HashMap::from([(
+            "InternalDocument".to_string(),
+            "demo::types::internal::InternalDocument".to_string(),
+        )]);
+        let excluded_type_paths = type_paths.clone();
+
+        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
+
+        assert!(
+            out.contains("serde_json::from_str(&__ret_bridge.json)\n            .map_err(|e| e.to_string())?;"),
+            "Result-returning InternalDocument methods must propagate JSON decode errors, got:\n{out}",
+        );
+        assert!(
+            !out.contains("expect(\"deserialize InternalDocument from Dart trait bridge\")"),
+            "Result-returning InternalDocument methods must not panic on JSON decode, got:\n{out}",
+        );
+    }
+
+    #[test]
+    fn internal_document_result_param_serializes_with_error_mapping() {
+        let method = MethodDef {
+            name: "render".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "document".to_string(),
+                ty: TypeRef::Named("InternalDocument".to_string()),
+                optional: false,
+                is_ref: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let mut out = String::new();
+        let type_paths = std::collections::HashMap::from([(
+            "InternalDocument".to_string(),
+            "demo::types::internal::InternalDocument".to_string(),
+        )]);
+        let excluded_type_paths = type_paths.clone();
+
+        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
+
+        assert!(
+            out.contains("serde_json::to_string(&document).map_err(|e| e.to_string())?"),
+            "Result-returning InternalDocument params must propagate JSON encode errors, got:\n{out}",
+        );
+        assert!(
+            !out.contains("expect(\"serialize InternalDocument for Dart trait bridge\")"),
+            "Result-returning InternalDocument params must not panic on JSON encode, got:\n{out}",
+        );
     }
 }

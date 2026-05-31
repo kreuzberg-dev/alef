@@ -350,18 +350,18 @@ fn gen_bridge_file(
     let lifecycle_methods: Vec<Value> = if has_super_trait {
         vec![
             minijinja::context! {
-                signature => "MemorySegment handleName(MemorySegment userData)",
-                body => "arena.allocateFrom(impl.name())",
-                error_return => "MemorySegment.NULL",
-                void_call => false,
-                success_return => "",
+                signature => "int handleName(MemorySegment userData, MemorySegment outName, MemorySegment outError)",
+                body => "outName.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(impl.name()))",
+                error_return => "1",
+                void_call => true,
+                success_return => "0",
             },
             minijinja::context! {
-                signature => "MemorySegment handleVersion(MemorySegment userData)",
-                body => "arena.allocateFrom(impl.version())",
-                error_return => "MemorySegment.NULL",
-                void_call => false,
-                success_return => "",
+                signature => "int handleVersion(MemorySegment userData, MemorySegment outVersion, MemorySegment outError)",
+                body => "outVersion.set(ValueLayout.ADDRESS, 0, arena.allocateFrom(impl.version()))",
+                error_return => "1",
+                void_call => true,
+                success_return => "0",
             },
             minijinja::context! {
                 signature => "int handleInitialize(MemorySegment userData, MemorySegment outError)",
@@ -386,8 +386,18 @@ fn gen_bridge_file(
     let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
         let lifecycle_stubs = vec![
-            ("Name", "MemorySegment.class", "ValueLayout.ADDRESS", ""),
-            ("Version", "MemorySegment.class", "ValueLayout.ADDRESS", ""),
+            (
+                "Name",
+                "int.class",
+                "ValueLayout.JAVA_INT",
+                ", MemorySegment.class, MemorySegment.class",
+            ),
+            (
+                "Version",
+                "int.class",
+                "ValueLayout.JAVA_INT",
+                ", MemorySegment.class, MemorySegment.class",
+            ),
             (
                 "Initialize",
                 "int.class",
@@ -399,7 +409,9 @@ fn gen_bridge_file(
         for (pascal, return_type, descriptor_return, extra_param) in lifecycle_stubs {
             let handle = format!("handle{pascal}");
             let var_name = format!("stub{pascal}");
-            let extra_descriptor = if pascal == "Initialize" || pascal == "Shutdown" {
+            let extra_descriptor = if pascal == "Name" || pascal == "Version" {
+                ", ValueLayout.ADDRESS, ValueLayout.ADDRESS"
+            } else if pascal == "Initialize" || pascal == "Shutdown" {
                 ", ValueLayout.ADDRESS"
             } else {
                 ""
@@ -411,6 +423,7 @@ fn gen_bridge_file(
                 method_type_params => format!("MemorySegment.class{extra_param}"),
                 descriptor_return => descriptor_return,
                 descriptor_params => format!("ValueLayout.ADDRESS{extra_descriptor}"),
+                returns_void => false,
             });
         }
     }
@@ -462,6 +475,7 @@ fn gen_bridge_file(
             method_type_params => method_type_params.join(", "),
             descriptor_return => "ValueLayout.JAVA_INT",
             descriptor_params => func_desc_params.join(", "),
+            returns_void => false,
         });
     }
 
@@ -557,7 +571,17 @@ fn gen_bridge_file(
 
     let num_methods = bridge_methods.len();
     let num_super_slots = if has_super_trait { 4usize } else { 0usize };
-    let num_vtable_fields = num_super_slots + num_methods + 1;
+    stubs.push(minijinja::context! {
+        var_name => "stubFreeString",
+        handle_name => "freeString",
+        return_type => "void.class",
+        method_type_params => "MemorySegment.class",
+        descriptor_return => "ValueLayout.ADDRESS",
+        descriptor_params => "ValueLayout.ADDRESS",
+        returns_void => true,
+    });
+
+    let num_vtable_fields = num_super_slots + num_methods + 2;
     let register_takes_name = has_super_trait;
 
     let trait_snake_upper = trait_snake.to_uppercase();

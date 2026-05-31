@@ -1044,6 +1044,13 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
             }
         }
 
+        // Runtime classes/enums can also be used as types. Keep type-only
+        // exports disjoint from value exports so the wrapper barrel never emits
+        // the same name in both export groups.
+        for name in &value_names {
+            type_names.remove(name);
+        }
+
         // Collect functions (with snake_case → camelCase conversion for JS naming)
         let exclude_functions: ahash::AHashSet<String> = config
             .node
