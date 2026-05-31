@@ -77,12 +77,8 @@ impl E2eCodegen for KotlinE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
         let kotlin_pkg_id = config.kotlin_package();
 
-        // Detect whether any fixture needs the mock-server (HTTP fixtures or
-        // fixtures with a mock_response/mock_responses). When present, emit a
-        // JUnit Platform LauncherSessionListener that spawns the mock-server
-        // before any test runs and a META-INF/services SPI manifest registering
-        // it. Mirrors the Java e2e pattern exactly.
-        let needs_mock_server = groups
+        // Detect whether any fixture has HTTP requests (server-pattern SUT).
+        let has_http_fixtures = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
             .any(|f| f.needs_mock_server());
@@ -95,7 +91,7 @@ impl E2eCodegen for KotlinE2eCodegen {
                 &kotlin_pkg_id,
                 &kotlin_version,
                 e2e_config.dep_mode,
-                needs_mock_server,
+                has_http_fixtures,
             ),
             generated_header: false,
         });
@@ -109,22 +105,13 @@ impl E2eCodegen for KotlinE2eCodegen {
         }
         let test_base = test_base.join("e2e");
 
-        if needs_mock_server {
+        // Generate test setup for server-pattern tests.
+        // The SUT server is assumed to be running via SUT_URL env var or system property.
+        if has_http_fixtures {
             files.push(GeneratedFile {
-                path: test_base.join("MockServerListener.kt"),
-                content: render_mock_server_listener_kt(&kotlin_pkg_id),
+                path: test_base.join("SutServerSetup.kt"),
+                content: render_sut_server_setup_kt(&kotlin_pkg_id),
                 generated_header: true,
-            });
-            files.push(GeneratedFile {
-                path: output_base
-                    .join("src")
-                    .join("test")
-                    .join("resources")
-                    .join("META-INF")
-                    .join("services")
-                    .join("org.junit.platform.launcher.LauncherSessionListener"),
-                content: format!("{kotlin_pkg_id}.e2e.MockServerListener\n"),
-                generated_header: false,
             });
         }
 
@@ -223,7 +210,7 @@ pub(crate) fn render_build_gradle(
     kotlin_pkg_id: &str,
     pkg_version: &str,
     dep_mode: crate::e2e::config::DependencyMode,
-    needs_mock_server: bool,
+    _has_http_fixtures: bool,
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -270,11 +257,6 @@ pub(crate) fn render_build_gradle(
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
     let jvm_target = toolchain::KOTLIN_JVM_TARGET;
-    let launcher_dep = if needs_mock_server {
-        format!(r#"    testImplementation("org.junit.platform:junit-platform-launcher:{junit}")"#)
-    } else {
-        String::new()
-    };
     format!(
         r#"import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
@@ -305,7 +287,6 @@ dependencies {{
 {dep_block}
     testImplementation("org.junit.jupiter:junit-jupiter-api:{junit}")
     testImplementation("org.junit.jupiter:junit-jupiter-engine:{junit}")
-{launcher_dep}
     testImplementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     testImplementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
     testImplementation(kotlin("test"))
@@ -866,8 +847,9 @@ impl client::TestClientRenderer for KotlinTestClientRenderer {
 
         let _ = writeln!(
             out,
-            "        val baseUrl = System.getProperty(\"mockServerUrl\") ?: System.getenv(\"MOCK_SERVER_URL\") ?: \"http://localhost:8080\""
+            "        val baseUrl = System.getenv(\"SUT_URL\") ?: \"http://127.0.0.1:8007\""
         );
+        // fixture_path is already namespaced like /fixtures/delete_remove_resource from http_call
         let _ = writeln!(out, "        val uri = java.net.URI.create(\"$baseUrl{fixture_path}\")");
 
         let body_publisher = if let Some(body) = ctx.body {
@@ -3030,4 +3012,42 @@ mod tests {
             "expected local jar reference, got:\n{out}"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// Server-pattern test setup (real SUT)
+// ---------------------------------------------------------------------------
+
+/// Render SutServerSetup.kt with JUnit 5 @BeforeAll fixture to set SUT_URL.
+fn render_sut_server_setup_kt(kotlin_pkg_id: &str) -> String {
+    let header = hash::header(CommentStyle::DoubleSlash);
+
+    let mut out = String::new();
+    let _ = writeln!(out, "{}", header);
+    let _ = writeln!(out, "package {}.e2e", kotlin_pkg_id);
+    let _ = writeln!(out);
+    let _ = writeln!(out, "import org.junit.jupiter.api.BeforeAll");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "/**");
+    let _ = writeln!(out, " * JUnit 5 setup that ensures SUT_URL is set before tests run.");
+    let _ = writeln!(out, " * Defaults to http://127.0.0.1:8007 if not already set.");
+    let _ = writeln!(out, " */");
+    let _ = writeln!(out, "class SutServerSetup {{");
+    let _ = writeln!(out, "    companion object {{");
+    let _ = writeln!(out, "        @BeforeAll");
+    let _ = writeln!(out, "        @JvmStatic");
+    let _ = writeln!(out, "        fun setupSutServer() {{");
+    let _ = writeln!(out, "            val existing = System.getenv(\"SUT_URL\") ?: System.getProperty(\"SUT_URL\")");
+    let _ = writeln!(out, "            val url = if (!existing.isNullOrEmpty()) {{");
+    let _ = writeln!(out, "                existing");
+    let _ = writeln!(out, "            }} else {{");
+    let _ = writeln!(out, "                \"http://127.0.0.1:8007\"");
+    let _ = writeln!(out, "            }}");
+    let _ = writeln!(out, "            System.setProperty(\"SUT_URL\", url)");
+    let _ = writeln!(out, "            println(\"Tests will use SUT at: $url\")");
+    let _ = writeln!(out, "        }}");
+    let _ = writeln!(out, "    }}");
+    let _ = writeln!(out, "}}");
+
+    out
 }
