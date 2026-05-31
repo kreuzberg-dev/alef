@@ -76,11 +76,6 @@ impl Backend for RustlerBackend {
             .map(|c| c.cpu_bound_functions.iter().cloned().collect())
             .unwrap_or_default();
 
-        // Collect trait bridge function names to avoid duplicate emissions
-        // (trait bridge generates register/unregister/clear functions; free-function pass must skip them)
-        let trait_bridge_fn_names = collect_rustler_trait_bridge_fn_names(config);
-        exclude_functions.extend(trait_bridge_fn_names);
-
         // For options_field bridges, the bridge field (e.g. "visitor") is handled at the
         // Elixir layer via Map.pop — it must not appear as a typed struct field in the NIF
         // bindings because VisitorHandle (Rc<RefCell<dyn Trait>>) cannot implement
@@ -619,10 +614,6 @@ impl Backend for RustlerBackend {
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
 
-        // Collect trait bridge function names to avoid duplicate emissions
-        // (trait bridge generates register/unregister/clear functions; the wrapper loop must skip them)
-        let trait_bridge_fn_names = collect_rustler_trait_bridge_fn_names(config);
-        exclude_functions.extend(trait_bridge_fn_names);
         // Skip binding-excluded types (service owners / handler-contract traits) — they are
         // emitted/exported by the service-API codegen, not the generic public-API listing.
         let binding_excluded_names: Vec<String> = api
@@ -1582,20 +1573,17 @@ impl Backend for RustlerBackend {
                 content.push_str("  end\n\n");
             }
 
-            // Emit clear_* delegate only if not already in api.functions (would create duplicate clauses).
-            // If the function is in api.functions, it's already emitted from the main loop.
+            // Emit clear_* delegate
             if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                 let fn_name = clear_fn.to_snake_case();
-                if !exclude_functions.contains(fn_name.as_str()) {
-                    content.push_str(&format!(
-                        "  @doc \"Clear all {} plugins from the global registry.\"\n",
-                        bridge_cfg.trait_name
-                    ));
-                    content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
-                    content.push_str(&format!("  def {fn_name} do\n"));
-                    content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
-                    content.push_str("  end\n\n");
-                }
+                content.push_str(&format!(
+                    "  @doc \"Clear all {} plugins from the global registry.\"\n",
+                    bridge_cfg.trait_name
+                ));
+                content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
+                content.push_str(&format!("  def {fn_name} do\n"));
+                content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
+                content.push_str("  end\n\n");
             }
         }
 
@@ -1694,31 +1682,6 @@ fn gen_from_json_nif(typ: &crate::core::ir::TypeDef, core_import: &str) -> Strin
         .map({type_name}::from)\n        \
         .map_err(|e| e.to_string())\n}}\n"
     )
-}
-
-/// Collect trait bridge function names (register/unregister/clear) to avoid duplicates.
-/// Mirrors the approach in alef-backend-extendr::collect_trait_bridge_fn_names.
-fn collect_rustler_trait_bridge_fn_names(config: &ResolvedCrateConfig) -> AHashSet<String> {
-    let mut names = AHashSet::new();
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .iter()
-            .any(|l| l == "elixir" || l == "rustler")
-        {
-            continue;
-        }
-        if let Some(name) = bridge_cfg.register_fn.as_deref() {
-            names.insert(name.to_string());
-        }
-        if let Some(name) = bridge_cfg.unregister_fn.as_deref() {
-            names.insert(name.to_string());
-        }
-        if let Some(name) = bridge_cfg.clear_fn.as_deref() {
-            names.insert(name.to_string());
-        }
-    }
-    names
 }
 
 /// Generate the rustler::init! macro invocation.
