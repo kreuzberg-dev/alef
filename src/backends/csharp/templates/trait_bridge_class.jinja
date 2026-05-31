@@ -71,7 +71,9 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
         _impl = impl ?? throw new ArgumentNullException(nameof(impl));
         _implHandle = GCHandle.Alloc(impl, GCHandleType.Pinned);
         _delegates = new object[{{ num_vtable_fields }}];
-        _delegatesHandle = GCHandle.Alloc(_delegates, GCHandleType.Normal);
+        // Pin the delegates array to prevent GC during callback round-trips.
+        // Must use Pinned, not Normal, to keep array address stable across managed→unmanaged→managed calls.
+        _delegatesHandle = GCHandle.Alloc(_delegates, GCHandleType.Pinned);
         _vtable = IntPtr.Zero;
         _disposed = false;
         // Allocate unique bridge ID for registry lookup during callbacks
@@ -88,15 +90,8 @@ public sealed class {{ trait_pascal }}Bridge : IDisposable {
 {{ vtable_slots }}
     }
 
-    private static readonly JsonSerializerOptions FfiJsonOptions = new()
-    {
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,
-        NumberHandling = JsonNumberHandling.AllowReadingFromString
-    };
-
     private static string ToJsonString<T>(T value) {
-        return JsonSerializer.Serialize(value);
+        return JsonSerializer.Serialize(value, FfiJsonExtensions.FfiJsonOptions);
     }
 
     /// <summary>Called by Rust via FreeUserDataCallback when done with this bridge</summary>
