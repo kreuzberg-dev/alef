@@ -3,6 +3,7 @@
 use crate::core::hash::{self, CommentStyle};
 use crate::e2e::config::{DependencyMode, E2eConfig};
 use crate::e2e::fixture::FixtureGroup;
+use serde_json::json;
 
 use super::helpers::resolve_module;
 
@@ -120,12 +121,84 @@ ini_options.timeout = 300
 }
 
 // ---------------------------------------------------------------------------
+// app_harness.py (server-pattern harness)
+// ---------------------------------------------------------------------------
+
+/// Render the app harness script for server-pattern HTTP fixtures.
+///
+/// The harness spawns the SUT app and registers handlers per fixture,
+/// returning canned expected responses. It's driven by conftest.py's
+/// subprocess launcher.
+pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
+    // Collect all HTTP fixtures from all groups.
+    let mut fixtures_map = serde_json::Map::new();
+
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            // Convert the fixture to JSON for the harness to load.
+            // We only need the http field, handler, and expected_response.
+            let http_data = &fixture.http.as_ref().unwrap();
+            let fixture_json = json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let imports = &e2e_config.harness.imports;
+    let app_class = &e2e_config.harness.app_class;
+    let register_method = &e2e_config.harness.register_method;
+    let body_schema_setter = &e2e_config.harness.body_schema_setter;
+    let method_enum = &e2e_config.harness.method_enum;
+    let run_method = &e2e_config.harness.run_method;
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+
+    let header = hash::header(CommentStyle::Hash);
+
+    let ctx = minijinja::context! {
+        header => header,
+        imports => imports,
+        app_class => app_class.as_deref().unwrap_or("App"),
+        register_method => register_method.as_deref().unwrap_or("route"),
+        body_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
+        method_enum => method_enum.as_deref().unwrap_or("Method"),
+        run_method => run_method.as_deref().unwrap_or("run"),
+        host => host,
+        port => port,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("python/app_harness.py.jinja", ctx)
+}
+
+// ---------------------------------------------------------------------------
 // conftest.py
 // ---------------------------------------------------------------------------
 
 pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
-    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
+
+    // Check for server-pattern HTTP fixtures (require harness).
+    let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+    let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
+
+    let has_mock_server_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
         if f.needs_mock_server() {
             return true;
         }
@@ -147,7 +220,104 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     });
 
     let header = hash::header(CommentStyle::Hash);
-    if has_http_fixtures {
+
+    if uses_harness {
+        // Server-pattern harness: spawn app_harness.py subprocess
+        let host = &e2e_config.harness.host;
+        let port = e2e_config.harness.port;
+        format!(
+            r#"{header}"""Pytest configuration for e2e tests."""
+from __future__ import annotations
+
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+from typing import Generator
+
+import pytest
+
+# Ensure the package is importable.
+# The {module} package is expected to be installed in the current environment.
+
+_HERE = Path(__file__).parent
+_E2E_DIR = _HERE.parent
+_APP_HARNESS = _E2E_DIR / "app_harness.py"
+
+
+@pytest.fixture(scope="session", autouse=True)
+def sut_server() -> Generator[str, None, None]:
+    """Spawn the app harness and set SUT_URL.
+
+    If SUT_URL is already set, a parent process started a shared harness.
+    Use it as-is and do NOT spawn our own.
+    """
+    existing = os.environ.get("SUT_URL")
+    if existing:
+        yield existing
+        return
+
+    # Spawn the harness script as a subprocess.
+    proc = subprocess.Popen(
+        [sys.executable, str(_APP_HARNESS)],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+    )
+
+    # Wait for the harness to start and emit the listening message.
+    url = f"http://{host}:{port}"
+    assert proc.stdout is not None
+    for _ in range(50):  # ~5 second timeout
+        raw_line = proc.stdout.readline()
+        if not raw_line:
+            break
+        line = raw_line.decode().strip()
+        if "Harness listening" in line:
+            break
+        time.sleep(0.1)
+
+    os.environ["SUT_URL"] = url
+    yield url
+
+    # Cleanup
+    if proc.stdin:
+        proc.stdin.close()
+    proc.terminate()
+    proc.wait(timeout=5)
+
+
+@pytest.fixture(scope="session")
+def app(sut_server: str) -> object:
+    """Return a simple HTTP helper bound to the SUT server URL."""
+
+    class _App:
+        def request(self, path: str, **kwargs: object) -> object:
+            import urllib.request  # noqa: PLC0415
+            method = str(kwargs.pop("method", "GET"))
+            url = f"{{sut_server}}{{path}}"
+            data = kwargs.pop("json", None)
+            if data is not None:
+                import json  # noqa: PLC0415
+                body = json.dumps(data).encode()
+                headers = dict(kwargs.pop("headers", {{}}))
+                headers.setdefault("Content-Type", "application/json")
+                req = urllib.request.Request(url, data=body, headers=headers, method=method.upper())
+            else:
+                headers = dict(kwargs.pop("headers", {{}}))
+                req = urllib.request.Request(url, headers=headers, method=method.upper())
+            try:
+                with urllib.request.urlopen(req) as resp:  # noqa: S310
+                    return resp
+            except urllib.error.HTTPError as exc:
+                return exc
+
+    return _App()
+"#
+        )
+    } else if has_mock_server_fixtures {
+        // Mock-server pattern (non-HTTP fixtures)
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
 from __future__ import annotations
