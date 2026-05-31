@@ -487,25 +487,28 @@ impl Backend for PhpBackend {
             // Emit trait-bridge registration functions as static methods
             for bridge_cfg in &config.trait_bridges {
                 if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+                    let php_name = register_fn.to_lower_camel_case();
                     method_items.push(format!(
-                        "pub fn {}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        "#[php(name = \"{php_name}\")]\n\
+                        pub fn {register_fn}(backend: &mut ext_php_rs::types::ZendObject) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
                         crate::{}(backend)\n}}",
-                        register_fn,
                         register_fn
                     ));
                 }
                 if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+                    let php_name = unregister_fn.to_lower_camel_case();
                     method_items.push(format!(
-                        "pub fn {}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        crate::{}(name)\n}}",
-                        unregister_fn, unregister_fn
+                        "#[php(name = \"{php_name}\")]\n\
+                        pub fn {unregister_fn}(name: String) -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        crate::{unregister_fn}(name)\n}}",
                     ));
                 }
                 if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+                    let php_name = clear_fn.to_lower_camel_case();
                     method_items.push(format!(
-                        "pub fn {}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
-                        crate::{}()\n}}",
-                        clear_fn, clear_fn
+                        "#[php(name = \"{php_name}\")]\n\
+                        pub fn {clear_fn}() -> ext_php_rs::prelude::PhpResult<()> {{\n    \
+                        crate::{clear_fn}()\n}}",
                     ));
                 }
             }
@@ -805,7 +808,7 @@ impl Backend for PhpBackend {
             ));
         }
         // Register the facade class that wraps free functions as static methods.
-        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) {
+        if api.functions.iter().any(|f| !exclude_functions.contains(&f.name)) || !config.trait_bridges.is_empty() {
             let facade_class_name = extension_name.to_pascal_case();
             class_registrations.push_str(&crate::backends::php::template_env::render(
                 "php_class_registration.jinja",
@@ -1213,7 +1216,7 @@ impl Backend for PhpBackend {
                     "php_method_signature_start.jinja",
                     context! { method_name => &method_name },
                 ));
-                content.push_str(&format!("{} $backend = null) : void\n    {{\n", interface_name));
+                content.push_str(&format!("?{} $backend = null) : void\n    {{\n", interface_name));
                 let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($backend)");
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_method_call_statement.jinja",
@@ -1698,6 +1701,46 @@ impl Backend for PhpBackend {
                         stub_body => &stub_body,
                     },
                 ));
+            }
+            for bridge_cfg in &config.trait_bridges {
+                if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
+                    let method_name = register_fn.to_lower_camel_case();
+                    let interface_name = php_type_fq(&TypeRef::Named(bridge_cfg.trait_name.clone()), &namespace);
+                    let params = format!("?{interface_name} $backend = null");
+                    content.push_str(&crate::backends::php::template_env::render(
+                        "php_static_method_stub.jinja",
+                        context! {
+                            method_name => &method_name,
+                            params => &params,
+                            return_type => "void",
+                            stub_body => "{ }",
+                        },
+                    ));
+                }
+                if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
+                    let method_name = unregister_fn.to_lower_camel_case();
+                    content.push_str(&crate::backends::php::template_env::render(
+                        "php_static_method_stub.jinja",
+                        context! {
+                            method_name => &method_name,
+                            params => "string $name",
+                            return_type => "void",
+                            stub_body => "{ }",
+                        },
+                    ));
+                }
+                if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
+                    let method_name = clear_fn.to_lower_camel_case();
+                    content.push_str(&crate::backends::php::template_env::render(
+                        "php_static_method_stub.jinja",
+                        context! {
+                            method_name => &method_name,
+                            params => "",
+                            return_type => "void",
+                            stub_body => "{ }",
+                        },
+                    ));
+                }
             }
             content.push_str("}\n\n");
         }

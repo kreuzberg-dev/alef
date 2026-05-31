@@ -1987,6 +1987,74 @@ fn test_napi_async_method_body_uses_box_pin() {
     );
 }
 
+#[test]
+fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
+    let backend = NapiBackend;
+    let mut config = make_config();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        ..Default::default()
+    }];
+
+    let mut process = make_method_napi("process_image", TypeRef::Named("ExtractionResult".to_string()), true, false);
+    process.params = vec![ParamDef {
+        name: "content".to_string(),
+        ty: TypeRef::Bytes,
+        ..Default::default()
+    }];
+    let mut shutdown = make_method_napi("shutdown", TypeRef::Unit, true, false);
+    shutdown.has_default_impl = true;
+    let api = ApiSurface {
+        types: vec![
+            make_trait_def_napi("OcrBackend", vec![process, make_async_method_napi("warm_up", TypeRef::Unit), shutdown]),
+            TypeDef {
+                name: "ExtractionResult".to_string(),
+                rust_path: "my_lib::ExtractionResult".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: true,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: true,
+                serde_rename_all: None,
+                has_serde: true,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+            },
+        ],
+        ..make_api_napi()
+    };
+
+    let content = backend.generate_type_stubs(&api, &config).unwrap()[0].content.clone();
+
+    assert!(
+        content.contains("export interface OcrBackend {\n  process_image?(content: Array<number>): string\n  warm_up?(): void"),
+        "trait interface must use runtime method names and JSON-string return contract:\n{content}"
+    );
+    assert!(
+        content.contains("export declare function registerOcrBackend(impl: OcrBackend): void;"),
+        "registration parameter must use the generated trait interface:\n{content}"
+    );
+    assert!(
+        content.contains("export declare function unregisterOcrBackend(name: string): void;")
+            && content.contains("export declare function clearOcrBackends(): void;"),
+        "lifecycle functions must use runtime public names:\n{content}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // capsule_types end-to-end: External<T> + __parser passthrough
 // ---------------------------------------------------------------------------

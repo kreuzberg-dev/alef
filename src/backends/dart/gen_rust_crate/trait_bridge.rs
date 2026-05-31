@@ -84,24 +84,35 @@ pub(crate) fn emit_trait_bridge(
     // code — so the FRB-opaque-callback limitation does not bite.
     let uses_type_alias = bridge_config.type_alias.is_some();
 
-    // --- 1. Impl struct holding Dart callbacks ---
+    // The closure-bearing struct is ALWAYS private. FRB v2 walks `#[frb(opaque)]`
+    // struct fields and silently drops the surrounding factory if it finds
+    // `Box<dyn Fn(...)>` closures it cannot bridge. In the type-alias path the
+    // wrapper is the configured `type_alias` (e.g. `VisitorHandle`); in the
+    // non-type-alias plugin path the wrapper is a synthesised
+    // `#[frb(opaque)] pub struct {Trait}DartImpl(pub Arc<dyn Trait + Send + Sync>)`
+    // emitted after the trait impls (see section 3b below).
+    let callbacks_struct_name = if uses_type_alias {
+        struct_name.clone()
+    } else {
+        format!("{trait_name}DartCallbacks")
+    };
+
+    // --- 1. Impl struct holding Dart callbacks (private) ---
     if uses_type_alias {
         out.push_str("/// Internal Rust-side storage for Dart-provided visitor callbacks.\n");
         out.push_str("/// Not exposed via FRB (private to the bridge crate); the public factory\n");
         out.push_str("/// `create_{trait_snake}(...)` wraps this in the trait's configured `type_alias`\n");
         out.push_str("/// (e.g. `VisitorHandle`) which FRB does expose as opaque.\n");
-        out.push_str(&format!("struct {struct_name} {{\n"));
     } else {
-        out.push_str("/// FRB opaque handle holding Dart callbacks for each trait method.\n");
-        out.push_str("/// Dart-side: register callbacks via `create_{snake}_dart_impl(...)` factory.\n");
-        out.push_str("#[frb(opaque)]\n");
-        out.push_str(&crate::backends::dart::template_env::render(
-            "rust_mirror_struct_open.jinja",
-            minijinja::context! {
-                name => struct_name.as_str(),
-            },
-        ));
+        out.push_str("/// Internal Rust-side storage for Dart-provided plugin callbacks.\n");
+        out.push_str("/// Not exposed via FRB (private to the bridge crate). The public factory\n");
+        out.push_str("/// `create_{trait_snake}_dart_impl(...)` wraps an `Arc<dyn Trait + Send + Sync>`\n");
+        out.push_str("/// of this struct in the public opaque `{Trait}DartImpl` newtype. Hiding the\n");
+        out.push_str("/// closure fields behind the wrapper keeps FRB from walking them and silently\n");
+        out.push_str("/// dropping the factory (FRB v2 cannot generate callable Dart classes for\n");
+        out.push_str("/// `Box<dyn Fn(...)>` opaque-struct fields).\n");
     }
+    out.push_str(&format!("struct {callbacks_struct_name} {{\n"));
     // Plugin fields for name/version (required by Plugin super-trait).
     if has_plugin_super {
         out.push_str("    /// Plugin name used by the Plugin super-trait impl.\n");
@@ -128,7 +139,7 @@ pub(crate) fn emit_trait_bridge(
     // (e.g. `pub trait HtmlVisitor: Debug + Send`). Closure fields are not Debug;
     // we use `finish_non_exhaustive()` to produce a valid but opaque representation.
     out.push_str(&format!(
-        "impl ::std::fmt::Debug for {struct_name} {{\n    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n        f.debug_struct(\"{struct_name}\").finish_non_exhaustive()\n    }}\n}}\n"
+        "impl ::std::fmt::Debug for {callbacks_struct_name} {{\n    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n        f.debug_struct(\"{callbacks_struct_name}\").finish_non_exhaustive()\n    }}\n}}\n"
     ));
     out.push('\n');
 
@@ -146,7 +157,7 @@ pub(crate) fn emit_trait_bridge(
             "rust_plugin_impl_open.jinja",
             minijinja::context! {
                 plugin_path => plugin_path.as_str(),
-                struct_name => struct_name.as_str(),
+                struct_name => callbacks_struct_name.as_str(),
             },
         ));
         out.push_str("    fn name(&self) -> &str {\n");
@@ -188,7 +199,7 @@ pub(crate) fn emit_trait_bridge(
         "rust_trait_impl_open.jinja",
         minijinja::context! {
             trait_path => trait_path.as_str(),
-            struct_name => struct_name.as_str(),
+            struct_name => callbacks_struct_name.as_str(),
         },
     ));
     for method in &own_methods {
@@ -197,6 +208,28 @@ pub(crate) fn emit_trait_bridge(
     }
     out.push_str("}\n");
     out.push('\n');
+
+    // --- 3b. Public opaque wrapper (non-type-alias path only) ---
+    // FRB sees ONLY this single-field tuple struct: an `Arc<dyn Trait + Send + Sync>`
+    // already constructed by the factory. The closure-bearing struct above stays
+    // invisible to FRB. The wrapper is what Dart user code holds and what the
+    // register forwarder consumes.
+    if !uses_type_alias {
+        out.push_str(&format!(
+            "/// Public opaque handle returned by `create_{trait_snake}_dart_impl(...)`.\n"
+        ));
+        out.push_str(&format!(
+            "/// Wraps an `Arc<dyn {trait_path} + Send + Sync>` whose backing object carries the\n"
+        ));
+        out.push_str("/// Dart-side callbacks (private to this crate). The wrapper has no closure\n");
+        out.push_str("/// fields itself, so FRB can bridge it as an opaque type without seeing the\n");
+        out.push_str("/// callbacks.\n");
+        out.push_str("#[frb(opaque)]\n");
+        out.push_str(&format!(
+            "pub struct {struct_name}(pub std::sync::Arc<dyn {trait_path} + Send + Sync>);\n"
+        ));
+        out.push('\n');
+    }
 
     // --- 4. Factory function ---
     // Two emission shapes:
@@ -320,20 +353,36 @@ pub(crate) fn emit_trait_bridge(
             }
         }
     } else {
-        out.push_str(&crate::backends::dart::template_env::render(
-            "rust_trait_factory_doc.jinja",
-            minijinja::context! {
-                struct_name => struct_name.as_str(),
-            },
+        // Non-type-alias plugin factory: same `impl Fn` parameter shape as the
+        // type-alias path so FRB can synthesise Dart-callable function types for
+        // each closure parameter. Returns the `pub struct {Trait}DartImpl(Arc<dyn …>)`
+        // wrapper emitted in section 3b.
+        out.push_str(&format!(
+            "/// Construct a `{struct_name}` from Dart callback closures.\n"
         ));
+        out.push_str(
+            "/// FRB synthesises a Dart-callable function type for each closure parameter,\n",
+        );
+        out.push_str(
+            "/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n",
+        );
+        out.push_str(
+            "/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an opaque\n",
+        );
+        out.push_str(
+            "/// struct (FRB v2 silently drops factories that return opaque structs whose fields\n",
+        );
+        out.push_str(
+            "/// it cannot bridge). The returned wrapper holds an `Arc<dyn Trait + Send + Sync>`\n",
+        );
+        out.push_str("/// whose backing object carries the supplied callbacks privately.\n");
         if has_plugin_super {
-            out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
+            out.push_str(
+                "/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n",
+            );
         }
-        out.push_str(&crate::backends::dart::template_env::render(
-            "rust_trait_factory_fn.jinja",
-            minijinja::context! {
-                trait_snake => trait_snake.as_str(),
-            },
+        out.push_str(&format!(
+            "pub fn create_{trait_snake}_dart_impl(\n"
         ));
         if has_plugin_super {
             out.push_str("    plugin_name: String,\n");
@@ -341,41 +390,35 @@ pub(crate) fn emit_trait_bridge(
         }
         for method in &own_methods {
             let param_name = &method.name;
-            let callback_ty =
-                dart_fn_future_callback_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_factory_param.jinja",
-                minijinja::context! {
-                    param_name => param_name.as_str(),
-                    callback_ty => callback_ty,
-                },
+            let params: Vec<String> = method
+                .params
+                .iter()
+                .map(|p| frb_rust_type_excluded_aware(&p.ty, p.optional, &api.excluded_type_paths))
+                .collect();
+            let ret = frb_rust_type_excluded_aware(&method.return_type, false, &api.excluded_type_paths);
+            let params_str = params.join(", ");
+            out.push_str(&format!(
+                "    {param_name}: impl Fn({params_str}) -> DartFnFuture<{ret}> + Send + Sync + 'static,\n"
             ));
         }
-        out.push_str(&crate::backends::dart::template_env::render(
-            "rust_trait_factory_return.jinja",
-            minijinja::context! {
-                struct_name => struct_name.as_str(),
-            },
-        ));
-        out.push_str(&crate::backends::dart::template_env::render(
-            "rust_trait_factory_struct_init.jinja",
-            minijinja::context! {
-                struct_name => struct_name.as_str(),
-            },
+        out.push_str(&format!(") -> {struct_name} {{\n"));
+        out.push_str(&format!(
+            "    let __impl = {callbacks_struct_name} {{\n"
         ));
         if has_plugin_super {
             out.push_str("        plugin_name,\n");
             out.push_str("        plugin_version,\n");
         }
         for method in &own_methods {
-            out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_factory_method_init.jinja",
-                minijinja::context! {
-                    param_name => method.name.as_str(),
-                },
+            out.push_str(&format!(
+                "        {name}: Box::new({name}),\n",
+                name = method.name
             ));
         }
-        out.push_str("    }\n");
+        out.push_str("    };\n");
+        out.push_str(&format!(
+            "    {struct_name}(std::sync::Arc::new(__impl))\n"
+        ));
         out.push_str("}\n");
     }
 
@@ -478,31 +521,25 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
     ));
 }
 
-/// Substitute all forms of `InternalDocument` with the **unqualified** `ExtractionResult`
-/// token in binding-facing closure types.
+/// Substitute all forms of `InternalDocument` with the JSON-backed bridge type used
+/// in binding-facing closure types.
 ///
-/// The unqualified form matches the locally-emitted `#[frb(mirror(ExtractionResult))]`
-/// struct in the same lib.rs file. FRB's macro generates factory wrappers that pass the
-/// local mirror struct (unqualified) into the factory function, so the closure parameter
-/// type **must** also be unqualified or FRB-generated and hand-emitted code disagree
-/// (rustc reports a mismatch between the source-crate type and local mirror type).
+/// `InternalDocument` is a Rust-internal contract type. Mapping it to the public
+/// `ExtractionResult` loses the trait semantics, so Dart receives an opaque JSON
+/// envelope instead. Rust serializes/deserializes at the bridge edge and keeps the
+/// actual trait impl signature on the original `InternalDocument` type.
 ///
-/// Call-site conversions (`.into()`) are emitted separately to bridge between the local
-/// mirror and the canonical source-crate `InternalDocument` used by the trait signature.
-///
-/// `source_crate_name` is used to strip the crate qualifier; the function is otherwise
-/// project-agnostic.
 fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name: &str) -> String {
     // Strip fully qualified `{crate}::types::internal::InternalDocument`
     let fully_qualified_internal = format!("{}::types::internal::InternalDocument", source_crate_name);
     if rust_type.contains(&fully_qualified_internal) {
-        return rust_type.replace(&fully_qualified_internal, "ExtractionResult");
+        return rust_type.replace(&fully_qualified_internal, "InternalDocumentBridge");
     }
 
     // Strip partially qualified `{crate}::InternalDocument`
     let partial_qualified_internal = format!("{}::InternalDocument", source_crate_name);
     if rust_type.contains(&partial_qualified_internal) {
-        return rust_type.replace(&partial_qualified_internal, "ExtractionResult");
+        return rust_type.replace(&partial_qualified_internal, "InternalDocumentBridge");
     }
 
     // Handle plain `InternalDocument` token (word-boundary aware: skip InternalDocumentBuilder etc.)
@@ -519,7 +556,7 @@ fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name:
                         result.is_empty() || !result.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
                     let after_ok = chars.peek().is_none_or(|&c| !c.is_alphanumeric() && c != '_');
                     if before_ok && after_ok {
-                        result.push_str("ExtractionResult");
+                        result.push_str("InternalDocumentBridge");
                         continue;
                     } else {
                         result.push_str(&remaining);
@@ -544,19 +581,18 @@ fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name:
 /// decodes arguments as mirror types, not source-crate types). Returns a
 /// `DartFnFuture<T>` wrapping the FRB-friendly mirror return type.
 ///
-/// For excluded types like `InternalDocument`, substitutes the binding-facing name
-/// `ExtractionResult` so that FRB generates matching factory parameter types
-/// (e.g. `BoxFn...DartFnFutureExtractionResult` not `...InternalDocument`).
+/// For excluded types like `InternalDocument`, substitutes the JSON-backed bridge
+/// type so FRB generates a constructible Dart object without exposing the internal
+/// Rust document struct as a public DTO.
 ///
-/// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<ExtractionResult> + Send + Sync>`
+/// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<InternalDocumentBridge> + Send + Sync>`
 fn dart_fn_future_callback_type(
     method: &MethodDef,
     source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    let (params_str, dart_fn_ret) =
-        dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
+    let (params_str, dart_fn_ret) = dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
     format!("Box<dyn Fn({params_str}) -> {dart_fn_ret} + Send + Sync>")
 }
 
@@ -569,15 +605,14 @@ fn dart_fn_future_callback_type(
 /// stay `Box<dyn Fn(...)>` (see `dart_fn_future_callback_type`); the factory
 /// boxes each `impl Fn` argument as it stores it.
 ///
-/// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<ExtractionResult> + Send + Sync + 'static`
+/// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<InternalDocumentBridge> + Send + Sync + 'static`
 fn dart_fn_future_factory_param_type(
     method: &MethodDef,
     source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    let (params_str, dart_fn_ret) =
-        dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
+    let (params_str, dart_fn_ret) = dart_fn_future_params_and_ret(method, source_crate_name, excluded_type_paths);
     format!("impl Fn({params_str}) -> {dart_fn_ret} + Send + Sync + 'static")
 }
 
@@ -594,7 +629,7 @@ fn dart_fn_future_params_and_ret(
         .iter()
         .map(|p| {
             let ty = frb_rust_type_excluded_aware(&p.ty, p.optional, excluded_type_paths);
-            // Substitute InternalDocument with ExtractionResult for binding-facing signature.
+            // Substitute InternalDocument with an opaque JSON bridge for binding-facing signature.
             substitute_internal_document_in_rust_type(&ty, source_crate_name)
         })
         .collect();
@@ -699,12 +734,9 @@ fn emit_trait_bridge_method(
 
     // Build call-site arg list (use the local owned var names).
     //
-    // For params whose original type was the excluded `InternalDocument`, the dart-facing
-    // closure was substituted to receive the local FRB mirror `ExtractionResult`. The Rust
-    // trait method itself still receives the source-crate `InternalDocument`. Two `From` hops
-    // are required to convert: `InternalDocument → source-crate ExtractionResult → local
-    // mirror ExtractionResult`. Inline `.into()` only does one step and Rust cannot infer
-    // the intermediate type, so we emit pre-bindings before the closure call.
+    // For params whose original type was the excluded `InternalDocument`, the Dart-facing
+    // closure receives an opaque JSON bridge. The Rust trait method itself still receives
+    // the source-crate `InternalDocument`, so serialize at the bridge edge explicitly.
     let mut pre_bindings = String::new();
     let call_args: Vec<String> = method
         .params
@@ -716,14 +748,20 @@ fn emit_trait_bridge_method(
             };
             if is_internal_document {
                 let local = format!("__{}_local", p.name);
+                let expr = if p.optional {
+                    format!(
+                        "{name}.map(|v| InternalDocumentBridge {{ json: serde_json::to_string(&v).expect(\"serialize InternalDocument for Dart trait bridge\") }})",
+                        name = p.name,
+                    )
+                } else {
+                    format!(
+                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name}).expect(\"serialize InternalDocument for Dart trait bridge\") }}",
+                        name = p.name,
+                    )
+                };
                 let _ = std::fmt::Write::write_fmt(
                     &mut pre_bindings,
-                    format_args!(
-                        "        let __{name}_src: {src}::ExtractionResult = {name}.into();\n        let {local}: ExtractionResult = __{name}_src.into();\n",
-                        name = p.name,
-                        src = source_crate_name,
-                        local = local,
-                    ),
+                    format_args!("        let {local} = {expr};\n", local = local, expr = expr),
                 );
                 local
             } else {
@@ -744,23 +782,41 @@ fn emit_trait_bridge_method(
     let named_return_default = ret_conv == "__NAMED_RETURN_DEFAULT__";
 
     // Special case: the return type was the excluded `InternalDocument`, substituted to
-    // the local mirror `ExtractionResult` in the closure signature. Single `.into()` only
-    // crosses one of the two From-impl hops (local mirror → source crate ExtractionResult,
-    // then source crate ExtractionResult → source crate InternalDocument). Emit explicit
-    // two-step conversion via type-annotated intermediates so type inference resolves both.
+    // the JSON-backed `InternalDocumentBridge` in the closure signature. Deserialize
+    // explicitly to the source trait's exact return type.
     let returns_internal_document = match &method.return_type {
         TypeRef::Named(name) => name.ends_with("InternalDocument"),
         _ => false,
     };
-    if returns_internal_document && method.error_type.is_some() && method.is_async {
-        out.push_str(&format!(
-            "        let __ret_local: ExtractionResult = {call_expr}.await;\n\
-             \x20       let __ret_src: {src}::ExtractionResult = __ret_local.into();\n\
-             \x20       Ok(__ret_src.into())\n\
-             \x20   }}\n",
-            call_expr = call_expr,
-            src = source_crate_name,
-        ));
+    if returns_internal_document {
+        let core_path = internal_document_core_path(&method.return_type, source_crate_name, excluded_type_paths);
+        if method.is_async {
+            out.push_str(&format!(
+                "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
+                 \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
+                 \x20           .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                call_expr = call_expr,
+                core_path = core_path,
+            ));
+        } else {
+            out.push_str("        let __ret_bridge = ::tokio::runtime::Builder::new_current_thread()\n            .build()\n            .expect(\"build alef visitor tokio runtime\")\n");
+            out.push_str(&crate::backends::dart::template_env::render(
+                "rust_trait_method_block_on.jinja",
+                minijinja::context! {
+                    call_expr => call_expr.as_str(),
+                },
+            ));
+            out.push_str(&format!(
+                "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                core_path = core_path,
+            ));
+        }
+        if method.error_type.is_some() {
+            out.push_str("        Ok(__ret)\n");
+        } else {
+            out.push_str("        __ret\n");
+        }
+        out.push_str("    }\n");
         return;
     }
 
@@ -887,6 +943,42 @@ fn emit_trait_bridge_method(
         }
     }
     out.push_str("    }\n");
+}
+
+pub(crate) fn needs_internal_document_bridge(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(name) => name.ends_with("InternalDocument"),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => needs_internal_document_bridge(inner),
+        TypeRef::Map(k, v) => needs_internal_document_bridge(k) || needs_internal_document_bridge(v),
+        _ => false,
+    }
+}
+
+pub(crate) fn emit_internal_document_bridge_type(out: &mut String) {
+    out.push_str(
+        "\n/// Opaque JSON carrier for Rust's internal `InternalDocument` trait contract.\n\
+         /// Dart code should pass this value back to Alef-generated bridge APIs rather\n\
+         /// than treating it as the public `ExtractionResult` DTO.\n\
+         #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]\n\
+         pub struct InternalDocumentBridge {\n\
+         \x20   pub json: String,\n\
+         }\n",
+    );
+}
+
+fn internal_document_core_path(
+    ty: &TypeRef,
+    source_crate_name: &str,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    match ty {
+        TypeRef::Named(name) => excluded_type_paths
+            .get(name)
+            .filter(|p| !p.is_empty())
+            .map(|p| p.replace('-', "_"))
+            .unwrap_or_else(|| format!("{source_crate_name}::{name}")),
+        _ => format!("{source_crate_name}::types::internal::InternalDocument"),
+    }
 }
 
 /// Returns true if `ty` references a `Named(name)` at any depth where `name` resolves

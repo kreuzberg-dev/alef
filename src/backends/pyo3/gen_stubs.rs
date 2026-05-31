@@ -248,6 +248,17 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
             &streaming_return_types,
         ));
     }
+    for bridge in trait_bridges {
+        if let Some(register_fn) = bridge.register_fn.as_deref() {
+            body_lines.push(format!("def {register_fn}(backend: object) -> None: ..."));
+        }
+        if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
+            body_lines.push(format!("def {unregister_fn}(name: str) -> None: ..."));
+        }
+        if let Some(clear_fn) = bridge.clear_fn.as_deref() {
+            body_lines.push(format!("def {clear_fn}() -> None: ..."));
+        }
+    }
 
     // Build the `from typing import …` line based on names actually referenced in the body,
     // so unused-import lint (F401) stays clean even when a particular API surface doesn't

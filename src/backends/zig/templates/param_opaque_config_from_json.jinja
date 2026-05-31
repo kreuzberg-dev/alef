@@ -1,4 +1,8 @@
     const {{ name }}_config_z: ?[:0]u8 = if ({{ name }}) |v| try std.fmt.allocPrintSentinel(
         std.heap.c_allocator, "{s}", .{v}, 0) else null;
     const {{ name }}_config_handle = if ({{ name }}_config_z) |z| c.{{ prefix }}_{{ config_snake }}_from_json(z) else null;
+    if ({{ name }}_config_z != null and {{ name }}_config_handle == null) {{ json_error_return }}
+    defer if ({{ name }}_config_handle) |h| c.{{ prefix }}_{{ config_snake }}_free(h);
     const {{ name }}_handle = c.{{ prefix }}_{{ creator_fn }}({{ name }}_config_handle);
+    if ({{ name }}_handle == null) {{ json_error_return }}
+    defer c.{{ prefix }}_{{ name_snake }}_free({{ name }}_handle);

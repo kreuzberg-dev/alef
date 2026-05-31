@@ -2614,9 +2614,11 @@ fn r_wrapper_params_signature(params: &[ParamDef], api: &ApiSurface) -> String {
     params
         .iter()
         .map(|p| {
-            let is_default_type = matches!(&p.ty, TypeRef::Named(name) if default_types.contains(name.as_str()))
-                || matches!(&p.ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(name) if default_types.contains(name.as_str())));
-            if p.optional || matches!(p.ty, TypeRef::Optional(_)) || is_default_type {
+            if let TypeRef::Named(name) = &p.ty
+                && default_types.contains(name.as_str())
+            {
+                format!("{} = {}$default()", p.name, name)
+            } else if p.optional || matches!(p.ty, TypeRef::Optional(_)) {
                 format!("{} = NULL", p.name)
             } else {
                 p.name.clone()

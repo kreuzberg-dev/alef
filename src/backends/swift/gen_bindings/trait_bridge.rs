@@ -875,6 +875,14 @@ mod tests {
             content.contains("public func unregisterMyLib(name: String) throws"),
             "missing unregister overload"
         );
+        assert!(
+            content.contains("try RustBridge.unregisterMyLib(name)"),
+            "unregister label overload must delegate to the RustBridge function, not itself"
+        );
+        assert!(
+            !content.contains("try unregisterMyLib(name)\n"),
+            "unregister label overload must not recursively call itself"
+        );
 
         // Check for register overload
         assert!(

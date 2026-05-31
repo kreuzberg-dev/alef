@@ -1,5 +1,6 @@
 use crate::backends::magnus::type_map::rbs_type;
 use crate::codegen::shared::binding_fields;
+use crate::core::config::TraitBridgeConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, MethodDef, TypeDef};
 
@@ -8,6 +9,7 @@ pub fn gen_stubs(
     gem_name: &str,
     emit_docstrings: bool,
     streaming_method_names: &ahash::AHashSet<String>,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut lines: Vec<String> = header.lines().map(str::to_string).collect();
@@ -46,6 +48,20 @@ pub fn gen_stubs(
     for func in &api.functions {
         lines.push(gen_function_stub(func, streaming_method_names));
         lines.push("".to_string());
+    }
+    for bridge in trait_bridges {
+        if let Some(register_fn) = bridge.register_fn.as_deref() {
+            lines.push(format!("  def self.{register_fn}: (untyped backend, String name) -> nil"));
+            lines.push("".to_string());
+        }
+        if let Some(unregister_fn) = bridge.unregister_fn.as_deref() {
+            lines.push(format!("  def self.{unregister_fn}: (String name) -> nil"));
+            lines.push("".to_string());
+        }
+        if let Some(clear_fn) = bridge.clear_fn.as_deref() {
+            lines.push(format!("  def self.{clear_fn}: () -> nil"));
+            lines.push("".to_string());
+        }
     }
 
     // Generate error info class stubs for errors with introspection methods.

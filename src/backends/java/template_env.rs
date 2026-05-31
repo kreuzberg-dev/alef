@@ -155,6 +155,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/method_handle_from_json.jinja"),
     ),
     (
+        "method_handle_len.jinja",
+        include_str!("templates/method_handle_len.jinja"),
+    ),
+    (
         "method_handle_register.jinja",
         include_str!("templates/method_handle_register.jinja"),
     ),

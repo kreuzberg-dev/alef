@@ -23,6 +23,15 @@ fn method_param_needs_alloc(p: &ParamDef) -> bool {
     )
 }
 
+fn method_param_needs_from_json(p: &ParamDef, struct_names: &HashSet<String>) -> bool {
+    match &p.ty {
+        TypeRef::Named(n) if struct_names.contains(n) => true,
+        TypeRef::Named(n) if p.optional && struct_names.contains(n) => true,
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if struct_names.contains(n)),
+        _ => false,
+    }
+}
+
 /// Map a Rust FFI type string to the corresponding Zig type.
 ///
 /// Only the types actually used in `client_constructors` configs are handled here.
@@ -245,10 +254,16 @@ fn emit_opaque_static_method(
             TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) | TypeRef::Named(_)
         )
     });
+    let body_needs_invalid_json = method.params.iter().any(|p| method_param_needs_from_json(p, struct_names));
 
     // Static constructors return the opaque type; if body uses try, wrap in error union.
-    let return_ty = if body_needs_try {
-        format!("error{{OutOfMemory}}!{}", ty.name)
+    let return_ty = if body_needs_try || body_needs_invalid_json {
+        let err_set = if body_needs_invalid_json {
+            "error{OutOfMemory,InvalidJson}"
+        } else {
+            "error{OutOfMemory}"
+        };
+        format!("{err_set}!{}", ty.name)
     } else {
         ty.name.clone()
     };
@@ -356,6 +371,8 @@ fn emit_static_method_param_conversion(
                 out,
                 "    const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
             );
+            let _ = writeln!(out, "    if ({name}_handle == null) return error.InvalidJson;");
+            let _ = writeln!(out, "    defer c.{prefix}_{snake}_free({name}_handle);");
             return;
         }
     }
@@ -374,6 +391,8 @@ fn emit_static_method_param_conversion(
                     out,
                     "    const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
                 );
+                let _ = writeln!(out, "    if ({name}_z != null and {name}_handle == null) return error.InvalidJson;");
+                let _ = writeln!(out, "    defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
             }
         }
     }
@@ -708,12 +727,20 @@ fn emit_opaque_method(
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _)
         )
         || matches!(&method.return_type, TypeRef::Named(name) if struct_names.contains(name));
+    let body_needs_invalid_json = effective_params
+        .iter()
+        .any(|p| method_param_needs_from_json(p, struct_names));
 
     let ret_ty_inner = zig_return_type(&method.return_type, struct_names);
     let return_ty = if let Some(ref err_ty) = zig_error_type {
         format!("({}||error{{OutOfMemory}})!{}", err_ty, ret_ty_inner)
-    } else if body_needs_try {
-        format!("error{{OutOfMemory}}!{}", ret_ty_inner)
+    } else if body_needs_try || body_needs_invalid_json {
+        let err_set = if body_needs_invalid_json {
+            "error{OutOfMemory,InvalidJson}"
+        } else {
+            "error{OutOfMemory}"
+        };
+        format!("{err_set}!{}", ret_ty_inner)
     } else {
         ret_ty_inner
     };
@@ -727,8 +754,13 @@ fn emit_opaque_method(
     );
 
     // Emit param conversions (string alloc, struct JSON handle creation, enum conversion).
+    let json_error_return = zig_error_type
+        .as_ref()
+        .map_or("return error.InvalidJson;".to_string(), |err| {
+            format!("return _first_error({err});")
+        });
     for p in effective_params {
-        emit_method_param_conversion(p, prefix, struct_names, enum_names, out);
+        emit_method_param_conversion(p, prefix, struct_names, enum_names, &json_error_return, out);
     }
 
     // Detect Bytes return: the C FFI uses a multi-out-parameter convention
@@ -851,6 +883,7 @@ fn emit_method_param_conversion(
     prefix: &str,
     struct_names: &std::collections::HashSet<String>,
     enum_names: &std::collections::HashSet<String>,
+    json_error_return: &str,
     out: &mut String,
 ) {
     let name = &p.name;
@@ -911,6 +944,8 @@ fn emit_method_param_conversion(
             out,
             "        const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
         );
+        let _ = writeln!(out, "        if ({name}_z != null and {name}_handle == null) {json_error_return}");
+        let _ = writeln!(out, "        defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
         return;
     }
 
@@ -940,6 +975,8 @@ fn emit_method_param_conversion(
                 out,
                 "        const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
             );
+            let _ = writeln!(out, "        if ({name}_handle == null) {json_error_return}");
+            let _ = writeln!(out, "        defer c.{prefix}_{snake}_free({name}_handle);");
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
@@ -957,11 +994,12 @@ fn emit_method_param_conversion(
 /// Free allocations made in `emit_method_param_conversion`.
 fn emit_method_param_free(
     p: &crate::core::ir::ParamDef,
-    prefix: &str,
+    _prefix: &str,
     struct_names: &std::collections::HashSet<String>,
-    out: &mut String,
+    _out: &mut String,
 ) {
     let name = &p.name;
+    let _ = name;
     let is_optional_string = p.optional
         || matches!(
             &p.ty,
@@ -997,12 +1035,7 @@ fn emit_method_param_free(
         _ => None,
     };
     if let Some(n) = optional_named {
-        let snake = AsSnakeCase(n).to_string();
-        // _z freed by defer; only the opaque handle needs an explicit free.
-        let _ = writeln!(
-            out,
-            "        if ({name}_handle != null) c.{prefix}_{snake}_free({name}_handle);"
-        );
+        let _ = n;
         return;
     }
 
@@ -1010,9 +1043,7 @@ fn emit_method_param_free(
         // String/Path/Vec/Map: freed by defer in emit_method_param_conversion.
         TypeRef::String | TypeRef::Path | TypeRef::Vec(_) | TypeRef::Map(_, _) => {}
         TypeRef::Named(n) if struct_names.contains(n) => {
-            // _z freed by defer; only the opaque handle needs an explicit free.
-            let snake = AsSnakeCase(n).to_string();
-            let _ = writeln!(out, "        c.{prefix}_{snake}_free({name}_handle);");
+            let _ = n;
         }
         // Optional Vec/Map: freed by defer in emit_method_param_conversion.
         TypeRef::Optional(inner) => {

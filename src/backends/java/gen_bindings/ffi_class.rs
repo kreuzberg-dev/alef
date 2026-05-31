@@ -7,7 +7,7 @@ use ahash::{AHashMap, AHashSet};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
 
-use super::helpers::{emit_javadoc, is_bridge_param_java};
+use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java};
 use super::marshal::{
     ffi_param_args, gen_helper_methods, is_bytes_result, is_ffi_string_return, java_ffi_return_cast,
     marshal_param_to_ffi,
@@ -164,7 +164,7 @@ pub(crate) fn gen_sync_function_method(
     let exception_class_name = format!("{}Exception", class_name);
     // Free-function rustdoc renders above the static-method signature so the
     // raw-FFI class doubles as a documented public surface.
-    emit_javadoc(out, &func.doc, "    ");
+    emit_javadoc_with_throws(out, &func.doc, "    ", &exception_class_name);
     let method_sig = crate::backends::java::template_env::render(
         "ffi_method_signature.jinja",
         minijinja::context! {
@@ -377,7 +377,13 @@ pub(crate) fn gen_sync_function_method(
                 optional => is_optional_return,
             },
         ));
-        out.push_str("            String str = resultPtr.reinterpret(Long.MAX_VALUE).getString(0);\n");
+        let len_handle = format!("NativeLib.{}_{}_LEN", prefix.to_uppercase(), func.name.to_uppercase());
+        out.push_str("            long resultLen = (long) ");
+        out.push_str(&len_handle);
+        out.push_str(".invoke(");
+        out.push_str(&call_args.join(", "));
+        out.push_str(");\n");
+        out.push_str("            String str = readCString(resultPtr, resultLen);\n");
         out.push_str(&crate::backends::java::template_env::render(
             "ffi_invoke_free.jinja",
             minijinja::context! {

@@ -1,6 +1,6 @@
-    private static String readCString(MemorySegment ptr) {
+    private static String readCString(MemorySegment ptr, long byteLen) {
         if (ptr == null || ptr.address() == 0) {
             return null;
         }
-        return ptr.getUtf8String(0);
+        return ptr.reinterpret(byteLen + 1).getString(0);
     }

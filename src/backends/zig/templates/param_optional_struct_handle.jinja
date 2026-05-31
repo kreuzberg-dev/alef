@@ -1,1 +1,3 @@
     const {{ name }}_handle = if ({{ name }}_z) |z| c.{{ prefix }}_{{ snake }}_from_json(z) else null;
+    if ({{ name }}_z != null and {{ name }}_handle == null) {{ json_error_return }}
+    defer if ({{ name }}_handle) |h| c.{{ prefix }}_{{ snake }}_free(h);

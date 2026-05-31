@@ -173,6 +173,194 @@ fn trait_bridge_string_return_is_not_json_quoted() {
 }
 
 #[test]
+fn string_return_uses_len_companion_and_bounded_decode() {
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "describe".to_string(),
+            rust_path: "test_lib::describe".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "topic".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("TestError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .unwrap();
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.ends_with("NativeLib.java"))
+        .expect("NativeLib.java")
+        .content
+        .as_str();
+    let main = files
+        .iter()
+        .find(|f| f.path.ends_with("TestLib.java"))
+        .expect("TestLib.java")
+        .content
+        .as_str();
+
+    assert!(
+        native_lib.contains("TEST_DESCRIBE_LEN"),
+        "NativeLib must bind the _len companion: {native_lib}"
+    );
+    assert!(
+        main.contains("long resultLen = (long) NativeLib.TEST_DESCRIBE_LEN.invoke(cTopic);"),
+        "Java wrapper must call _len with the same args: {main}"
+    );
+    assert!(
+        main.contains("String str = readCString(resultPtr, resultLen);"),
+        "Java wrapper must decode through bounded helper: {main}"
+    );
+    assert!(
+        main.contains("return ptr.reinterpret(byteLen + 1).getString(0);"),
+        "readCString must bound the segment before decoding: {main}"
+    );
+    assert!(
+        !main.contains("resultPtr.reinterpret(Long.MAX_VALUE).getString(0)"),
+        "string return path must not decode with Long.MAX_VALUE: {main}"
+    );
+}
+
+#[test]
+fn named_param_from_json_is_checked_before_primary_call() {
+    let config_type = TypeDef {
+        name: "Config".to_string(),
+        rust_path: "test_lib::Config".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![FieldDef {
+            name: "name".to_string(),
+            ty: TypeRef::String,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: alef::core::ir::CoreWrapper::None,
+            vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            original_type: None,
+        }],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+    };
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![config_type],
+        functions: vec![FunctionDef {
+            name: "configure".to_string(),
+            rust_path: "test_lib::configure".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("Config".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: Some("TestError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .unwrap();
+    let main = files
+        .iter()
+        .find(|f| f.path.ends_with("TestLib.java"))
+        .expect("TestLib.java")
+        .content
+        .as_str();
+    let check_pos = main.find("if (cConfigJson != null && cConfig.equals(MemorySegment.NULL))").unwrap();
+    let call_pos = main.find("NativeLib.TEST_CONFIGURE.invoke(cConfig)").unwrap();
+
+    assert!(check_pos < call_pos, "_from_json failure must be checked before primary call: {main}");
+    assert!(
+        main[check_pos..call_pos].contains("checkLastError();"),
+        "_from_json null check must preserve and throw the real last_error: {main}"
+    );
+}
+
+#[test]
 fn test_basic_generation() {
     let backend = JavaBackend;
 

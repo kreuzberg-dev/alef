@@ -103,7 +103,7 @@ pub(super) fn gen_dts(
         // register_{trait_name_lower}
         if let Some(register) = &bridge.register_fn {
             let js_name = crate::codegen::naming::to_node_name(register);
-            trait_bridge_fns.push((js_name, "impl: object".to_string(), "void".to_string()));
+            trait_bridge_fns.push((js_name, format!("impl: {}", bridge.trait_name), "void".to_string()));
         }
         // unregister_{trait_name_lower}
         if let Some(unregister) = &bridge.unregister_fn {
@@ -236,14 +236,9 @@ pub(super) fn gen_dts(
                 lines.extend(format_jsdoc(&typ.doc, ""));
                 lines.push(format!("export interface {} {{", typ.name));
                 for method in &typ.methods {
-                    let js_name = to_node_name(&method.name);
+                    let js_name = &method.name;
                     let params = dts_params(&method.params, no_prefix, default_types);
-                    let ret = dts_return_type(
-                        &method.return_type,
-                        method.error_type.is_some(),
-                        method.is_async,
-                        no_prefix,
-                    );
+                    let ret = trait_bridge_dts_return_type(&method.return_type);
                     lines.extend(format_jsdoc(&method.doc, "  "));
                     // Visitor methods are all optional callbacks
                     lines.push(format!("  {js_name}?({params}): {ret}"));
@@ -384,6 +379,14 @@ pub(super) fn gen_dts(
 
     lines.push(String::new());
     lines.join("\n")
+}
+
+fn trait_bridge_dts_return_type(return_type: &TypeRef) -> &'static str {
+    if matches!(return_type, TypeRef::Unit) {
+        "void"
+    } else {
+        "string"
+    }
 }
 
 /// Format a rustdoc string as JSDoc comment lines with the given `indent` prefix.

@@ -947,6 +947,52 @@ ffi = "crates/mylib-ffi/src/"
     );
 }
 
+#[test]
+fn test_error_and_clear_paths_reset_last_return_len() {
+    let config = resolved_one(
+        r#"
+[workspace]
+languages = ["ffi"]
+
+[[crates]]
+name = "mylib"
+sources = ["src/lib.rs"]
+
+[crates.ffi]
+prefix = "ml"
+
+[crates.output]
+ffi = "crates/mylib-ffi/src/"
+"#,
+    );
+
+    let api = make_empty_api();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+    let code = &lib_rs.content;
+
+    let set_error = code
+        .split("fn set_last_error(code: i32, message: &str) {")
+        .nth(1)
+        .and_then(|s| s.split("\n}").next())
+        .expect("set_last_error body");
+    assert!(
+        set_error.contains("LAST_RETURN_LEN.with_borrow_mut(|c| *c = 0);"),
+        "set_last_error must clear stale C-string success length: {set_error}"
+    );
+
+    let clear_error = code
+        .split("fn clear_last_error() {")
+        .nth(1)
+        .and_then(|s| s.split("\n}").next())
+        .expect("clear_last_error body");
+    assert!(
+        clear_error.contains("LAST_RETURN_LEN.with_borrow_mut(|c| *c = 0);"),
+        "clear_last_error must clear stale C-string success length: {clear_error}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // clippy::manual_unwrap_or regression
 // ---------------------------------------------------------------------------

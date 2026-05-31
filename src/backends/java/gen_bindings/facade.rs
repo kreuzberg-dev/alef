@@ -4,7 +4,7 @@ use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, PrimitiveType, TypeRef};
 use std::collections::HashSet;
 
-use super::helpers::{emit_javadoc, is_bridge_param_java};
+use super::helpers::{emit_javadoc_with_throws, is_bridge_param_java};
 
 /// Helper to emit @Nullable annotation for optional types that are not primitives.
 fn nullable_prefix(ty: &TypeRef) -> &'static str {
@@ -71,7 +71,8 @@ pub(crate) fn gen_facade_class(
             let java_name = to_java_name(&func.name);
 
             let mut javadoc = String::new();
-            emit_javadoc(&mut javadoc, &func.doc, "    ");
+            let exception_class = format!("{raw_class}Exception");
+            emit_javadoc_with_throws(&mut javadoc, &func.doc, "    ", &exception_class);
 
             let null_checks: Vec<String> = func
                 .params
