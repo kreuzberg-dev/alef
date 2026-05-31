@@ -756,7 +756,7 @@ fn emit_trait_bridge_method(
                 let expr = if p.optional {
                     if method.error_type.is_some() {
                         format!(
-                            "{name}.map(|v| serde_json::to_string(&v).map(|json| InternalDocumentBridge {{ json }})).transpose().map_err(|e| e.to_string())?",
+                            "{name}.map(|v| serde_json::to_string(&v).map(|json| InternalDocumentBridge {{ json }})).transpose()?",
                             name = p.name,
                         )
                     } else {
@@ -767,7 +767,7 @@ fn emit_trait_bridge_method(
                     }
                 } else if method.error_type.is_some() {
                     format!(
-                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name}).map_err(|e| e.to_string())? }}",
+                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name})? }}",
                         name = p.name,
                     )
                 } else {
@@ -811,8 +811,7 @@ fn emit_trait_bridge_method(
             if method.error_type.is_some() {
                 out.push_str(&format!(
                     "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
-                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
-                     \x20           .map_err(|e| e.to_string())?;\n",
+                     \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)?;\n",
                     call_expr = call_expr,
                     core_path = core_path,
                 ));
@@ -835,7 +834,7 @@ fn emit_trait_bridge_method(
             ));
             if method.error_type.is_some() {
                 out.push_str(&format!(
-                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .map_err(|e| e.to_string())?;\n",
+                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)?;\n",
                     core_path = core_path,
                 ));
             } else {
@@ -1163,7 +1162,7 @@ mod tests {
         emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
 
         assert!(
-            out.contains("serde_json::from_str(&__ret_bridge.json)\n            .map_err(|e| e.to_string())?;"),
+            out.contains("serde_json::from_str(&__ret_bridge.json)?;"),
             "Result-returning InternalDocument methods must propagate JSON decode errors, got:\n{out}",
         );
         assert!(
@@ -1208,7 +1207,7 @@ mod tests {
         emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
 
         assert!(
-            out.contains("serde_json::to_string(&document).map_err(|e| e.to_string())?"),
+            out.contains("serde_json::to_string(&document)?"),
             "Result-returning InternalDocument params must propagate JSON encode errors, got:\n{out}",
         );
         assert!(

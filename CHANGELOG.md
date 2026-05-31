@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart trait bridge: drop redundant `.map_err(|e| e.to_string())` that broke `?` conversion to `KreuzbergError`.**
+  The Dart trait-bridge code generator was emitting `.map_err(|e| e.to_string())` on `serde_json` operations,
+  converting `serde_json::Error` → `String`. When the method returned `Result<T, KreuzbergError>`, the `?`
+  operator would fail because there is no `From<String> for KreuzbergError` impl (only `From<serde_json::Error>`
+  exists). Removed the redundant `.map_err(...)` from InternalDocument serialization/deserialization sites
+  (param serialization, return value deserialization) in trait bridge methods. The `?` operator now uses the
+  direct `From<serde_json::Error>` impl. (`src/backends/dart/gen_rust_crate/trait_bridge.rs`)
 - **wasm: tagged-enum field conversions for `Option<PathBuf>` fields.**
   Added explicit `TypeRef::Path` matching in `tagged_enum_binding_to_core_expr` and
   `tagged_enum_core_to_binding_expr` to handle PathBuf↔String conversions. Previously,
