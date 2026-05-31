@@ -575,12 +575,12 @@ fn gen_variant_match_arm(
     let variant_name = &variant.name;
     let base_method = &base_reg.method;
 
-    out.push_str(&format!("                \"{variant_name}\" => {{\n"));
+    out.push_str(&format!("            \"{variant_name}\" => {{\n"));
     out.push_str(&format!(
-        "                    let bridge = {bridge_name}::new(Opaque::new(proc_value));\n"
+        "                let bridge = {bridge_name}::new(proc_value.into());\n"
     ));
     out.push_str(&format!(
-        "                    let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+        "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
     ));
 
     // Extract metadata and build wrapper constructor call if needed
@@ -594,9 +594,12 @@ fn gen_variant_match_arm(
         }
 
         if !free_params.is_empty() {
-            out.push_str("                    let meta_array = RArray::try_convert(entry_array.get::<Value>(1)\n");
-            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?)\n");
-            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
+            out.push_str("                let meta_array = RArray::try_convert(\n");
+            out.push_str("                    entry_array\n");
+            out.push_str("                        .entry::<Value>(1 as isize)\n");
+            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
+            out.push_str("                )\n");
+            out.push_str("                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
 
             for (i, param) in free_params.iter().enumerate() {
                 let rust_ty = typeref_to_rust_type(&param.ty, core_import);
@@ -613,10 +616,10 @@ fn gen_variant_match_arm(
                     _ => "Value".to_owned(),
                 };
                 out.push_str(&format!(
-                    "                    let {}: {} = meta_array.get::<{}>({})\n",
-                    param.name, rust_ty, extract_ty, i
+                    "                let {}: {} = meta_array.entry::<{}>({})\n",
+                    param.name, rust_ty, extract_ty, i as isize
                 ));
-                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
             }
         }
 
@@ -642,28 +645,28 @@ fn gen_variant_match_arm(
             call_args.join(", ")
         );
         out.push_str(&format!(
-            "                    let {}: {} = {};\n",
+            "                let {}: {} = {};\n",
             wc.metadata_param, wc.wrapper_type_path, call_expr
         ));
         out.push_str(&format!(
-            "                    owner.{base_method}({}, handler)",
+            "                owner.{base_method}({}, handler)",
             wc.metadata_param
         ));
     } else {
         // No wrapper call; use override values directly
         // For now, just call the base method with handler only
-        out.push_str(&format!("                    owner.{base_method}(handler)"));
+        out.push_str(&format!("                owner.{base_method}(handler)"));
     }
 
     // Handle error if the registration is fallible
     if base_reg.error_type.is_some() {
         out.push_str(
-            "\n                        .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
+            "\n                    .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
         );
     } else {
         out.push_str(";\n");
     }
-    out.push_str("                }\n");
+    out.push_str("            }\n");
 }
 
 /// Emit the `#[magnus::function]` entry point for one service × entrypoint.
