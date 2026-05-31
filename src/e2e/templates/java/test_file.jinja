@@ -8,6 +8,7 @@
    - imports: list of import strings (pre-formatted)
    - needs_object_mapper: boolean
    - fixtures_body: string containing all rendered test methods
+   - uses_harness: boolean, true if server-pattern harness is active
 #}
 {{ header }}
 package {{ java_group_id }}.e2e;
@@ -17,12 +18,82 @@ package {{ java_group_id }}.e2e;
 {{ imp }}
 {% endfor %}
 {% endif %}
+{%- if uses_harness %}
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.AfterAll;
+import java.io.IOException;
+import java.net.Socket;
+import java.time.Instant;
+{%- endif %}
 
 /** E2e tests for category: {{ category }}. */
 class {{ test_class_name }} {
 {%- if needs_object_mapper %}
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+{%- endif %}
+{%- if uses_harness %}
+
+    private static Process harnessProcess;
+    private static String sutUrl;
+
+    @BeforeAll
+    static void startHarness() throws Exception {
+        String preset = System.getenv("SUT_URL");
+        if (preset != null && !preset.isEmpty()) {
+            sutUrl = preset;
+            return;
+        }
+
+        String javaHome = System.getProperty("java.home");
+        ProcessBuilder pb = new ProcessBuilder(
+            javaHome + "/bin/java",
+            "-cp", System.getProperty("java.class.path"),
+            "{{ java_group_id }}.e2e.HarnessMain"
+        );
+        pb.redirectErrorStream(false);
+        harnessProcess = pb.start();
+
+        String host = "127.0.0.1";
+        int port = 8005;
+        sutUrl = "http://" + host + ":" + port;
+
+        // Poll until the harness accepts TCP connections
+        long deadline = System.currentTimeMillis() + 15_000;
+        boolean ready = false;
+        while (System.currentTimeMillis() < deadline) {
+            if (harnessProcess.isAlive() == false) {
+                // Process died early
+                break;
+            }
+            try (Socket socket = new Socket(host, port)) {
+                ready = true;
+                break;
+            } catch (IOException e) {
+                // Not ready yet, sleep and retry
+                Thread.sleep(100);
+            }
+        }
+
+        if (!ready) {
+            if (harnessProcess != null) {
+                harnessProcess.destroyForcibly();
+            }
+            throw new RuntimeException("Harness did not become reachable on " + host + ":" + port + " within 15s");
+        }
+
+        System.setProperty("SUT_URL", sutUrl);
+    }
+
+    @AfterAll
+    static void stopHarness() throws Exception {
+        if (harnessProcess != null && harnessProcess.isAlive()) {
+            harnessProcess.destroy();
+            if (!harnessProcess.waitFor(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                harnessProcess.destroyForcibly();
+            }
+        }
+    }
 {%- endif %}
 
 {{ fixtures_body }}

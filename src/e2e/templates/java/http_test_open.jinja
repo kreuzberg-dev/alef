@@ -1,4 +1,4 @@
-{#- Java HTTP test method header
+{#- Java HTTP test method header for server-pattern e2e tests
 
    Context variables:
    - fn_name: sanitized function name (UpperCamelCase)
@@ -13,9 +13,6 @@
 {%- else %}
     void test{{ fn_name }}() throws Exception {
         // {{ description }}
-        // MockServerListener spawns the mock-server and publishes its URL as the
-        // `mockServerUrl` system property (the JVM cannot set its own env vars); prefer it,
-        // then an externally exported MOCK_SERVER_URL, then the default dev port.
-        String baseUrl = System.getProperty("mockServerUrl", System.getenv("MOCK_SERVER_URL"));
-        if (baseUrl == null) baseUrl = "http://localhost:8080";
+        String baseUrl = System.getenv("SUT_URL");
+        if (baseUrl == null) baseUrl = "http://localhost:8005";
 {%- endif %}

@@ -117,17 +117,9 @@ impl E2eCodegen for JavaCodegen {
             generated_header: false,
         });
 
-        // Detect whether any fixture needs the mock-server (HTTP fixtures or
-        // fixtures with a `mock_response`). When present, emit a
-        // JUnit Platform LauncherSessionListener that spawns the mock-server
-        // before any test runs and a META-INF/services SPI manifest registering
-        // it. Without this, every fixture-bound test failed with
-        // `SampleLlmRsException: error sending request for url` because
-        // `System.getenv("MOCK_SERVER_URL")` was null.
-        let needs_mock_server = groups
-            .iter()
-            .flat_map(|g| g.fixtures.iter())
-            .any(|f| f.needs_mock_server());
+        // Check if there are HTTP fixtures that need server-pattern harness
+        let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
+        let uses_harness = has_http_fixtures && !e2e_config.harness.imports.is_empty();
 
         // Generate test files per category. Path mirrors the configured Java
         // package — `dev.myorg` becomes `dev/myorg`, etc. — so the package
@@ -138,22 +130,12 @@ impl E2eCodegen for JavaCodegen {
         }
         let test_base = test_base.join("e2e");
 
-        if needs_mock_server {
+        // Emit HarnessMain.java if server-pattern harness is needed
+        if uses_harness {
             files.push(GeneratedFile {
-                path: test_base.join("MockServerListener.java"),
-                content: render_mock_server_listener(&java_group_id),
+                path: test_base.join("HarnessMain.java"),
+                content: render_harness_main(e2e_config, groups, &java_group_id, &binding_pkg),
                 generated_header: true,
-            });
-            files.push(GeneratedFile {
-                path: output_base
-                    .join("src")
-                    .join("test")
-                    .join("resources")
-                    .join("META-INF")
-                    .join("services")
-                    .join("org.junit.platform.launcher.LauncherSessionListener"),
-                content: format!("{java_group_id}.e2e.MockServerListener\n"),
-                generated_header: false,
             });
         }
 
@@ -235,6 +217,7 @@ impl E2eCodegen for JavaCodegen {
                 &config.adapters,
                 config,
                 type_defs,
+                uses_harness,
             );
             files.push(GeneratedFile {
                 path: test_base.join(class_file_name),
@@ -311,6 +294,68 @@ fn render_pom_xml(
             include_native_lib_path => include_native_lib_path,
         },
     )
+}
+
+/// Render HarnessMain.java for server-pattern e2e tests.
+///
+/// This harness loads fixtures, registers handlers via the app binding, and serves
+/// on a configured port. Tests hit the real SUT at /fixtures/<fixture_id>{path}.
+fn render_harness_main(
+    e2e_config: &E2eConfig,
+    groups: &[FixtureGroup],
+    java_group_id: &str,
+    binding_pkg: &str,
+) -> String {
+    // Collect all HTTP fixtures into a JSON map
+    let mut fixtures_map = serde_json::Map::new();
+    for group in groups {
+        for fixture in &group.fixtures {
+            if fixture.http.is_none() {
+                continue;
+            }
+            let http_data = fixture.http.as_ref().unwrap();
+            let fixture_json = serde_json::json!({
+                "http": {
+                    "handler": {
+                        "route": &http_data.handler.route,
+                        "method": &http_data.handler.method,
+                        "body_schema": http_data.handler.body_schema.clone(),
+                    },
+                    "request": {
+                        "path": &http_data.request.path,
+                    },
+                    "expected_response": {
+                        "status_code": http_data.expected_response.status_code,
+                        "body": &http_data.expected_response.body,
+                        "headers": &http_data.expected_response.headers,
+                    }
+                }
+            });
+            fixtures_map.insert(fixture.id.clone(), fixture_json);
+        }
+    }
+    let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_default();
+
+    let host = &e2e_config.harness.host;
+    let port = e2e_config.harness.port;
+    let app_class = e2e_config.harness.app_class.as_deref().unwrap_or("App");
+    let run_method = e2e_config.harness.run_method.as_deref().unwrap_or("run");
+    let register_method = e2e_config.harness.register_method.as_deref().unwrap_or("registerAppRoute");
+    let body_field = &e2e_config.harness.response_body_field;
+
+    let ctx = minijinja::context! {
+        java_group_id => java_group_id,
+        binding_pkg => binding_pkg,
+        app_class => app_class,
+        run_method => run_method,
+        register_method => register_method,
+        response_body_field => body_field.as_str(),
+        host => host,
+        port => port,
+        fixtures_json => fixtures_json,
+    };
+
+    crate::e2e::template_env::render("java/harness_main.jinja", ctx)
 }
 
 /// Render the JUnit Platform LauncherSessionListener that spawns the
@@ -575,6 +620,7 @@ fn render_test_file(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    uses_harness: bool,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let test_class_name = format!("{}Test", sanitize_filename(category).to_upper_camel_case());
@@ -824,6 +870,7 @@ fn render_test_file(
             imports => imports,
             needs_object_mapper => needs_object_mapper,
             fixtures_body => fixtures_body,
+            uses_harness => uses_harness,
         },
     )
 }
