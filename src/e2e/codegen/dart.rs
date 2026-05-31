@@ -2560,6 +2560,17 @@ fn mime_from_extension(path: &str) -> Option<&'static str> {
         "epub" => Some("application/epub+zip"),
         "msg" => Some("application/vnd.ms-outlook"),
         "eml" => Some("message/rfc822"),
+        // Source-code extensions: the kreuzberg tree-sitter extractor registers under
+        // the internal `text/x-source-code` MIME, so route any recognised code file
+        // there directly. The `application/octet-stream` fallback only triggers
+        // tree-sitter's content-based language detection for shebang scripts, so
+        // non-shebang files (`hello.py`, `lib.rs`, …) need this explicit extension
+        // → source-code mapping to reach the CodeExtractor.
+        "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rb"
+        | "php" | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cs" | "scala" | "ex" | "exs" | "erl"
+        | "hrl" | "elm" | "ml" | "mli" | "fs" | "fsx" | "hs" | "lhs" | "lua" | "pl" | "pm" | "r" | "R" | "sh"
+        | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "dart" | "groovy" | "gd" | "nim" | "zig"
+        | "v" | "vhdl" | "sv" | "svh" => Some("text/x-source-code"),
         _ => None,
     }
 }

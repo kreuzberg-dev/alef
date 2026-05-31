@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php `Option<&T>` config bridges: drop spurious `.as_ref()` before clone+into.**
+  The `php_serde_ref_named_optional_let_binding` template emitted
+  `pname.as_ref().map(|v| v.clone().into())` for parameters of type
+  `Option<&T>`. Calling `.as_ref()` on `Option<&T>` produces `Option<&&T>`, so
+  `v.clone()` resolves to `<&T as Clone>::clone` and returns `&T` (not `T`).
+  That fails `.into()` with `the trait From<&ExtractionConfig> is not
+  implemented for kreuzberg::ExtractionConfig` for every `extract_bytes` /
+  `extract_file` variant — ten compile errors in `kreuzberg-php` alone.
+  Dropping the unnecessary `.as_ref()` keeps the borrow at `&T` so
+  `v.clone()` calls `<T as Clone>::clone` and returns the owned `T` that the
+  `From` impl expects.
+  (`src/backends/php/templates/php_serde_ref_named_optional_let_binding.jinja`)
+
+- **dart e2e `mime_from_extension`: recognise source-code file extensions.**
+  Fixtures that supply `extract_file_sync(path: "code/hello.py", config: {
+  ...tree_sitter: {...}})` route through the dart `extractBytesSync` facade
+  (dart cannot pass OS-level file paths over FRB), and the inferred MIME
+  previously fell back to `application/octet-stream`. The kreuzberg core
+  tree-sitter MIME upgrade only triggers `text/x-source-code` for shebang
+  scripts via `detect_language_from_content`, so non-shebang files like
+  `hello.py` stayed as `text/plain` and broke the tree-sitter round-trip
+  contract test. The generator now maps common source-code extensions
+  (`py`, `rs`, `go`, `ts`, `js`, `kt`, `swift`, …) directly to
+  `text/x-source-code`, routing the bytes to the CodeExtractor without
+  relying on shebang detection. (`src/e2e/codegen/dart.rs`)
+
 - **php string-to-enum match: accept both serde-renamed and lowercase wire
   forms.** The generated PHP `From<BindingOpts> for CoreOpts` impl matched
   enum string fields against the variant name produced by the IR's
