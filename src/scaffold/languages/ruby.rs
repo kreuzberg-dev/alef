@@ -34,6 +34,8 @@ pub(crate) fn scaffold_ruby_cargo(
     // ahash is needed when any function takes an AHashMap<Cow, _> param — the generated
     // Magnus wrapper emits a `let __<name>_ahash: ahash::AHashMap<...>` pre-call binding.
     let needs_ahash = api.functions.iter().any(|f| f.params.iter().any(|p| p.map_is_ahash));
+    // Services require rb-sys for GVL acquisition from non-GVL tokio workers
+    let has_services = !api.services.is_empty();
     let lib_name = format!("{}_rb", core_crate_dir.replace('-', "_"));
 
     // Collect all [dependencies] entries then sort alphabetically so the emitted
@@ -61,6 +63,9 @@ pub(crate) fn scaffold_ruby_cargo(
     }
     if has_streaming_adapter && !dep_lines.iter().any(|l| l.starts_with("futures")) {
         dep_lines.push("futures = \"0.3\"".to_owned());
+    }
+    if has_services && !dep_lines.iter().any(|l| l.starts_with("rb-sys")) {
+        dep_lines.push("rb-sys = \"0.9\"".to_owned());
     }
     for line in extra_deps.lines() {
         let trimmed = line.trim();
@@ -94,6 +99,9 @@ pub(crate) fn scaffold_ruby_cargo(
     }
     if needs_ahash {
         machete_ignored.push("ahash");
+    }
+    if has_services {
+        machete_ignored.push("rb-sys");
     }
     // cargo-sort places `[package.metadata.*]` immediately after `[package]`,
     // before `[lib]` / `[dependencies]`.
