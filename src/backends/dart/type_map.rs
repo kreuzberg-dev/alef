@@ -1,5 +1,5 @@
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::PrimitiveType;
+use crate::core::ir::{PrimitiveType, TypeRef};
 use std::borrow::Cow;
 
 /// TypeMapper for Dart bindings.
@@ -65,10 +65,64 @@ impl TypeMapper for DartMapper {
         format!("Map<{key}, {value}>")
     }
 
+    /// Override the default Vec dispatch so `Vec<T>` with a primitive `T`
+    /// maps to the matching `dart:typed_data` typed list — matches FRB's
+    /// automatic Rust → Dart mapping (`Vec<f64>` → `Float64List`,
+    /// `Vec<u8>` → `Uint8List`, …). User trait implementations and e2e
+    /// fixture stubs must surface these typed names to satisfy the
+    /// FRB-generated `create_*_dart_impl` factory signatures.
+    fn map_type(&self, ty: &TypeRef) -> String {
+        if let TypeRef::Vec(inner) = ty {
+            if let Some(typed) = dart_typed_list_for(inner) {
+                return typed.to_string();
+            }
+        }
+        // Fallback to default trait dispatch for everything else.
+        match ty {
+            TypeRef::Primitive(p) => self.primitive(p).into_owned(),
+            TypeRef::String | TypeRef::Char => self.string().into_owned(),
+            TypeRef::Bytes => self.bytes().into_owned(),
+            TypeRef::Path => self.path().into_owned(),
+            TypeRef::Json => self.json().into_owned(),
+            TypeRef::Unit => self.unit().into_owned(),
+            TypeRef::Optional(inner) => self.optional(&self.map_type(inner)),
+            TypeRef::Vec(inner) => self.vec(&self.map_type(inner)),
+            TypeRef::Map(k, v) => self.map(&self.map_type(k), &self.map_type(v)),
+            TypeRef::Named(name) => self.named(name).into_owned(),
+            TypeRef::Duration => self.duration().into_owned(),
+        }
+    }
+
     fn error_wrapper(&self) -> &str {
         // Dart has no native `Result` type; Stage 2B emits a sealed-class
         // `Result<T, E>` (Ok/Err freezed-style variants) and replaces this placeholder.
         "Result"
+    }
+}
+
+/// Map `Vec<primitive>` to the matching `dart:typed_data` typed list, mirroring
+/// the FRB widening alef applies in `gen_rust_crate`: every Rust integer is
+/// widened to `i64` (→ `Int64List`) and every float to `f64` (→ `Float64List`).
+/// `Vec<u8>` is special-cased to `Uint8List` because alef preserves byte arrays
+/// for FRB's binary fast path. Non-primitive elements fall back to `List<T>`.
+fn dart_typed_list_for(inner: &TypeRef) -> Option<&'static str> {
+    if let TypeRef::Primitive(p) = inner {
+        match p {
+            PrimitiveType::U8 => Some("Uint8List"),
+            PrimitiveType::I8
+            | PrimitiveType::U16
+            | PrimitiveType::I16
+            | PrimitiveType::U32
+            | PrimitiveType::I32
+            | PrimitiveType::U64
+            | PrimitiveType::I64
+            | PrimitiveType::Usize
+            | PrimitiveType::Isize => Some("Int64List"),
+            PrimitiveType::F32 | PrimitiveType::F64 => Some("Float64List"),
+            _ => None,
+        }
+    } else {
+        None
     }
 }
 
