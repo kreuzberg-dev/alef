@@ -3072,14 +3072,14 @@ fn emit_dart_default_for_type(
     };
 
     // For named types that are enums (OcrBackendType, ProcessingStage, etc.), emit a default enum variant.
+    // Variant names must match the FRB-generated Dart enum (camelCase mirror of the Rust variant).
     if let TypeRef::Named(name) = &effective_ty {
         if name.ends_with("Type") || name.ends_with("Stage") {
-            // Assume the enum has a default variant like .standard or .pending
-            // Fallback to a safe generic form if not recognized.
             if name == "OcrBackendType" {
                 return "OcrBackendType.tesseract".to_string();
             } else if name == "ProcessingStage" {
-                return "ProcessingStage.preProcessing".to_string();
+                // Rust variants: Early, Middle, Late → FRB Dart: early, middle, late_
+                return "ProcessingStage.early".to_string();
             }
         }
         // Any other Named class: avoid `T()` default because the FRB-generated class
@@ -3088,6 +3088,16 @@ fn emit_dart_default_for_type(
         // so a `throw UnimplementedError()` body is type-safe (Never assignable to T)
         // and semantically correct.
         return "throw UnimplementedError()".to_string();
+    }
+    // Integer primitives default to `1` (not `0`) so plugin registration validation
+    // (e.g. `EmbeddingBackend::dimensions() > 0`) accepts the stub. Floats stay at
+    // `0.0`; booleans stay at `false`. Mirrors the python e2e generator policy.
+    if let TypeRef::Primitive(p) = &effective_ty {
+        use crate::core::ir::PrimitiveType;
+        match p {
+            PrimitiveType::Bool | PrimitiveType::F32 | PrimitiveType::F64 => {}
+            _ => return "1".to_string(),
+        }
     }
     defaults.emit_default(&effective_ty).to_string()
 }

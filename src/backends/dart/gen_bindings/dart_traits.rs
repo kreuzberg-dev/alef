@@ -181,23 +181,15 @@ fn substitute_internal_document(rendered: &str) -> String {
 
 /// Emit trait bridge stub types required by e2e test fixtures.
 ///
-/// These types (OcrBackendType, ProcessingStage, SyncExtractor) are used by
-/// test stub implementations to satisfy trait method signatures. `InternalDocument`
-/// is surfaced as an opaque JSON bridge instead of the public `ExtractionResult`
-/// DTO so Dart callbacks preserve the Rust trait contract.
+/// `InternalDocumentBridge`, `OcrBackendType`, `ProcessingStage` are now surfaced
+/// directly by the generated FRB bridge (they appear in trait method signatures),
+/// so traits.dart must NOT redeclare them — doing so collides with the bridge
+/// re-export when both files are exported from the package root.
+///
+/// `SyncExtractor` stays here because the Rust type is annotated with
+/// `#[cfg_attr(alef, alef(skip))]` and is therefore NOT emitted by the bridge,
+/// yet e2e plugin_api stubs still need a Dart symbol with that name.
 fn emit_trait_stub_types(out: &mut String) {
-    out.push('\n');
-    out.push_str("/// Opaque JSON carrier for Rust's internal InternalDocument trait contract.\n");
-    out.push_str("final class InternalDocumentBridge {\n");
-    out.push_str("  const InternalDocumentBridge({required this.json});\n");
-    out.push_str("  final String json;\n");
-    out.push_str("}\n");
-    out.push('\n');
-    out.push_str("/// OCR backend type identifier — used by e2e test plugin_api stubs.\n");
-    out.push_str("enum OcrBackendType { tesseract, easyocr, paddleocr, rapidocr }\n");
-    out.push('\n');
-    out.push_str("/// Processing stage for post-processors — used by e2e test plugin_api stubs.\n");
-    out.push_str("enum ProcessingStage { preProcessing, processing, postProcessing }\n");
     out.push('\n');
     out.push_str("/// Synchronous extractor trait stub — used by e2e test plugin_api stubs.\n");
     out.push_str("abstract class SyncExtractor {}\n");

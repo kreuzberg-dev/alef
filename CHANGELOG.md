@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart traits.dart: drop duplicate stub declarations of bridge-exposed types.**
+  `InternalDocumentBridge`, `OcrBackendType`, and `ProcessingStage` are now surfaced by
+  the generated FRB bridge (they appear in trait method signatures, so FRB walks them
+  out of opaque struct fields). `traits.dart` was still emitting its own copies of these
+  types, producing dart compile errors like `'OcrBackendType' is exported from both
+  'package:.../kreuzberg_bridge_generated/lib.dart' and 'package:.../traits.dart'`
+  whenever both files are re-exported from the package root. Only `SyncExtractor` stays
+  in the stub block because its Rust source carries `#[cfg_attr(alef, alef(skip))]` and
+  is therefore NOT emitted by the bridge. (`src/backends/dart/gen_bindings/dart_traits.rs`)
+
+- **dart type_map: map `Vec<primitive>` to FRB-aligned typed lists.** Trait abstract
+  method signatures and e2e plugin stub fixtures rendered `Vec<f32>`/`Vec<f64>`/integers
+  as `List<double>`/`List<int>`, but FRB widens every Rust integer to `i64` and every
+  float to `f64` in the FRB-facing mirror crate and then maps those to `Int64List` and
+  `Float64List` in Dart. The user-facing factory parameters therefore expected
+  `FutureOr<List<Float64List>>` while the abstract method declared
+  `Future<List<List<double>>>` — a type-incompatible signature the dart compiler
+  rejects (`A value of type 'Future<List<List<double>>>' can't be returned from a
+  function with return type 'FutureOr<List<Float64List>>'`). `DartMapper::map_type` and
+  `render_type` now mirror alef's FRB-widening: integer primitives → `Int64List`, float
+  primitives → `Float64List`, `Vec<u8>` → `Uint8List`. (`src/backends/dart/type_map.rs`,
+  `src/backends/dart/gen_bindings/render_type.rs`)
+
+- **dart e2e stub defaults: emit `1` for integer returns and use the real
+  `ProcessingStage` variant.** `EmbeddingBackend::dimensions()` registration validation
+  rejects backends reporting `dimensions() == 0`, so the e2e plugin stubs failed at
+  registration time when integer methods defaulted to `0`. Integer primitives now
+  default to `1` (matching the python e2e generator policy). The hardcoded
+  `ProcessingStage` default was also stale (`preProcessing` from the old in-traits stub
+  enum); the Rust enum is `Early | Middle | Late` so the variant must be `early` to
+  match the FRB-generated Dart enum mirror. (`src/e2e/codegen/dart.rs`)
+
 - **java native_lib: wrap wide vtable `MemoryLayout.structLayout(...)` across multiple
   lines.** Visitor and plugin trait bridges with more than four vtable slots produced a
   single inline `LINKER.downcallHandle(s, FunctionDescriptor.of(..., MemoryLayout.structLayout(VL.ADDRESS, VL.ADDRESS, ...)))`
