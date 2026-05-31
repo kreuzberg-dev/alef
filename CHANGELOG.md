@@ -42,6 +42,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fixed `body` key.
   (`src/e2e/codegen/python/config.rs`, `src/e2e/templates/python/app_harness.py.jinja`)
 
+- **C# trait bridge: pin GCHandle delegates array to prevent null references during managed-callback round-trips.**
+  Trait bridge vtable delegates were stored in a `_delegates` array allocated with `GCHandleType.Normal`,
+  which does not prevent relocation. During callback round-trips (managed→native→managed), the GC could
+  move the array, invalidating stored delegate pointers. This caused `GCHandle.Target` to return null
+  and raised `NullReferenceException`. Changed to `GCHandleType.Pinned` to keep the array address
+  stable across the FFI boundary. The pinned array is freed in `Dispose()` when the bridge is destroyed.
+  (`src/backends/csharp/templates/trait_bridge_class.jinja`)
+
+- **C# FFI JSON deserialization: accept numeric strings in parsed DTO fields.**
+  Numeric fields in deserialized DTOs were arriving as JSON strings on the wire (e.g., `"123"` instead
+  of `123`) but `JsonSerializer.Deserialize<T>()` was not configured to accept string-encoded numbers.
+  This caused 6 e2e test failures in `metadata` and `code_intelligence` DTOs with fields like `page_count: "1"`.
+  Centralized `JsonSerializerOptions` with `JsonNumberHandling.AllowReadingFromString` in a shared
+  `FfiJsonExtensions.FfiJsonOptions` constant, used by both trait bridges and callback deserialization.
+  (`src/backends/csharp/templates/trait_bridge_class.jinja`, `src/backends/csharp/templates/ffi_json_extensions.jinja`)
+
 ### Fixed
 
 - **C# bindings: emit correct enum types instead of JsonElement for struct fields with enum type.**
