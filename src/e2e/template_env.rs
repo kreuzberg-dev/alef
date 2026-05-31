@@ -239,6 +239,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/typescript/http_test_skip_101.jinja"),
     ),
     (
+        "typescript/app_harness.mjs.jinja",
+        include_str!("templates/typescript/app_harness.mjs.jinja"),
+    ),
+    (
+        "typescript/globalSetup_server.ts.jinja",
+        include_str!("templates/typescript/globalSetup_server.ts.jinja"),
+    ),
+    (
         "python/http_test.jinja",
         include_str!("templates/python/http_test.jinja"),
     ),

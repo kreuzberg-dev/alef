@@ -112,7 +112,7 @@ pub(super) fn gen_native_ex(
     app_module: &str,
     _crate_name: &str,
     config: &ResolvedCrateConfig,
-    exclude_functions: &AHashSet<&str>,
+    exclude_functions: &AHashSet<String>,
     exclude_types: &AHashSet<&str>,
 ) -> String {
     let mut out = String::with_capacity(1024);

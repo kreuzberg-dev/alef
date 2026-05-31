@@ -1,0 +1,85 @@
+{{ header }}
+/**
+ * App harness for server-pattern e2e tests
+ *
+ * This harness is spawned as a subprocess and runs the SUT app,
+ * registering handlers per fixture. It loads all fixtures, creates
+ * handlers that return expected responses, and serves on a configured port.
+ */
+
+{% for import_name in imports %}
+import { {{ app_class }}, {{ method_enum }}, ServerConfig } from '{{ import_name }}';
+{% endfor %}
+
+// Load fixtures from the inline JSON payload.
+const _FIXTURES = {{fixtures_json}};
+
+// Create and configure the app
+const app = new {{ app_class }}();
+
+// Register a handler for each fixture
+for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
+  const http = fixture.http;
+  if (!http) continue;
+
+  const handler = http.handler || {};
+  const route = handler.route || '/';
+  const methodStr = (handler.method || 'GET').toUpperCase();
+  const expected = http.expected_response || {};
+
+  const expectedStatus = expected.status_code || 200;
+  const expectedBody = expected.body;
+  const expectedHeaders = expected.headers || {};
+
+  // Map method string to Method enum
+  const methodEnumValue = {{ method_enum }}[methodStr] ?? {{ method_enum }}.GET;
+
+  // Build handler function that returns the expected response
+  const handlerFn = (request) => {
+    return {
+      status_code: expectedStatus,
+      {{ response_body_field }}: expectedBody,
+      headers: { ...expectedHeaders }
+    };
+  };
+
+  // Register the handler at /fixtures/<fixture_id>{route}
+  const fullRoute = `/fixtures/${fixtureId}${route}`;
+
+  // Register route based on method
+  switch (methodEnumValue) {
+    case {{ method_enum }}.GET:
+      app.get(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.POST:
+      app.post(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.PUT:
+      app.put(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.PATCH:
+      app.patch(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.DELETE:
+      app.delete(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.HEAD:
+      app.head(fullRoute, handlerFn);
+      break;
+    case {{ method_enum }}.OPTIONS:
+      app.options(fullRoute, handlerFn);
+      break;
+    default:
+      // Fallback to GET for unmapped methods
+      app.get(fullRoute, handlerFn);
+  }
+}
+
+// Configure and start the server
+const config = new ServerConfig();
+config.host = '{{ host }}';
+config.port = {{ port }};
+app.config(config);
+
+console.log(`Harness listening on {{ host }}:{{ port }}`);
+await app.{{ run_method }}();
