@@ -23,7 +23,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use crate::backends::php::naming::php_autoload_namespace;
-use functions::{gen_async_function_as_static_method, gen_function_as_static_method};
+use functions::{PhpParamTypeSets, gen_async_function_as_static_method, gen_function_as_static_method};
 
 /// PHP 8.1 enum cases cannot use case-insensitive `class` (reserved for
 /// `EnumName::class` syntax). Append a trailing underscore for those cases.
@@ -360,6 +360,13 @@ impl Backend for PhpBackend {
                     let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[php_method]");
                     let ctor_impl = format!("#[php_impl]\nimpl {} {{\n{}}}", typ.name, ctor_body);
                     builder.add_item(&ctor_impl);
+                // Variant-wrapper constructor — emit a #[php(constructor)] impl so PHP callers
+                // can instantiate the wrapper with `new TypeName(args)` constructor syntax, as
+                // produced by variant bodies. `client_constructors` takes priority above.
+                } else if typ.is_variant_wrapper {
+                    if let Some(ctor) = php_variant_wrapper_constructor(typ, &mapper, &core_import) {
+                        builder.add_item(&ctor);
+                    }
                 }
             } else {
                 // gen_php_struct emits an explicit delegating `impl Default for BindingType`
@@ -437,8 +444,10 @@ impl Backend for PhpBackend {
                     method_items.push(gen_async_function_as_static_method(
                         func,
                         &mapper,
-                        &opaque_types,
-                        &default_types,
+                        PhpParamTypeSets {
+                            opaque: &opaque_types,
+                            default: &default_types,
+                        },
                         &core_import,
                         &config.trait_bridges,
                         &mutex_types,
@@ -447,8 +456,10 @@ impl Backend for PhpBackend {
                     method_items.push(gen_function_as_static_method(
                         func,
                         &mapper,
-                        &opaque_types,
-                        &default_types,
+                        PhpParamTypeSets {
+                            opaque: &opaque_types,
+                            default: &default_types,
+                        },
                         &core_import,
                         &config.trait_bridges,
                         has_serde,
@@ -2113,6 +2124,55 @@ fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
     out.push_str(&format!("{indent} * @var {var_type}\n"));
     out.push_str(&format!("{indent} */\n"));
     out
+}
+
+/// Emit a `#[php_impl]` constructor block for a variant-wrapper opaque type.
+///
+/// When `TypeDef.is_variant_wrapper` is set and no `client_constructors` entry overrides it,
+/// this emits:
+///
+/// ```rust,ignore
+/// #[php_impl]
+/// impl TypeName {
+///     #[php(constructor)]
+///     pub fn new(sig_params) -> Self {
+///         Self { inner: Arc::new(CoreType::new(call_args)) }
+///     }
+/// }
+/// ```
+///
+/// This mirrors the `client_constructors` path but drives from the IR's static `new` method
+/// rather than a hand-written body template.
+fn php_variant_wrapper_constructor(
+    typ: &crate::core::ir::TypeDef,
+    mapper: &crate::backends::php::type_map::PhpMapper,
+    core_import: &str,
+) -> Option<String> {
+    use crate::codegen::type_mapper::TypeMapper as _;
+    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
+    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
+    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
+    let call_args = ctor
+        .params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
+    let body = if call_args.is_empty() {
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new()) }}")
+    } else {
+        format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
+    };
+    let fn_sig = if sig_params.is_empty() {
+        "pub fn new() -> Self".to_string()
+    } else {
+        format!("pub fn new({sig_params}) -> Self")
+    };
+    Some(format!(
+        "#[php_impl]\nimpl {name} {{\n    #[php(constructor)]\n    {fn_sig} {{\n        {body}\n    }}\n}}\n",
+        name = typ.name,
+    ))
 }
 
 /// Generate config.m4 for PIE (PHP Installer for Extensions) to enable building Rust-based PHP extensions.
