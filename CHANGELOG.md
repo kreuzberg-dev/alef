@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **kotlin: enum `fromWire` accepts both PascalCase and lowercase wire forms.** Some
+  core enums (e.g., `UrlEscapeStyle`) implement custom `Serialize`/`Deserialize`
+  logic that accepts lowercase wire forms (`"angle"`, `"percent"`) in addition to
+  PascalCase. The Kotlin binding's enum deserialization now matches both forms,
+  improving robustness against core enums that bypass standard serde rename rules.
+
 - **wasm e2e: emit enum constants in PascalCase.** TypeScript enum constants generated
   by wasm-bindgen use PascalCase (e.g., `WasmUrlEscapeStyle.Percent`), not the
   lowercase wire form. E2E codegen now correctly converts fixture string values to
