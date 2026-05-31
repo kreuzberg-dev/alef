@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **go: scan emitted body for runtime import detection.** The Go codegen was unconditionally
+  adding a `runtime` import whenever ANY function or method had a `TypeRef::Bytes` parameter,
+  but `runtime.Pinner` is only actually emitted by the `bytes_to_c_pointer.jinja` template
+  during FFI parameter conversion. The fix refactors `gen_go_file` to a 2-pass approach:
+  generate the body first, then scan it for `runtime.` usage to conditionally emit the import.
+  This fixes "imported and not used" Go compiler errors. (`src/backends/go/gen_bindings/mod.rs`)
+
 - **java Panama trait bridges: match the C vtable ABI.** Registration downcalls now pass
   the vtable as a by-value struct, callback slots use the FFI-owned method set, and C
   ABI booleans use `i32` layouts with Java-side boolean conversion.
