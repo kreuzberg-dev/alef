@@ -69,6 +69,14 @@ fn needs_alloc_param(p: &ParamDef) -> bool {
     )
 }
 
+fn needs_from_json_param(
+    p: &ParamDef,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+) -> bool {
+    get_opaque_named(&p.ty, opaque_creator_map).is_some() || is_struct_named(&p.ty, struct_names)
+}
+
 pub(crate) fn emit_function(
     f: &FunctionDef,
     prefix: &str,
@@ -122,14 +130,23 @@ pub(crate) fn emit_function(
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Bytes | TypeRef::Vec(_) | TypeRef::Map(_, _)
         )
         || matches!(&f.return_type, TypeRef::Named(name) if struct_names.contains(name));
+    let body_needs_invalid_json = f
+        .params
+        .iter()
+        .any(|p| needs_from_json_param(p, struct_names, opaque_creator_map));
 
     let return_ty = if let Some(error_type) = &zig_error_type {
         // OutOfMemory is already a member of every declared error set, so we can
         // use the single error set directly instead of the verbose double union concat
         // `(ErrorSet||error{OutOfMemory})!T`.
         format!("{}!{}", error_type, zig_return_type(&f.return_type, struct_names))
-    } else if body_needs_try {
-        format!("error{{OutOfMemory}}!{}", zig_return_type(&f.return_type, struct_names))
+    } else if body_needs_try || body_needs_invalid_json {
+        let err_set = if body_needs_invalid_json {
+            "error{OutOfMemory,InvalidJson}"
+        } else {
+            "error{OutOfMemory}"
+        };
+        format!("{err_set}!{}", zig_return_type(&f.return_type, struct_names))
     } else {
         zig_return_type(&f.return_type, struct_names)
     };
@@ -144,8 +161,13 @@ pub(crate) fn emit_function(
     ));
 
     // Emit allocation/conversion boilerplate for each parameter.
+    let json_error_return = zig_error_type
+        .as_ref()
+        .map_or("return error.InvalidJson;".to_string(), |err| {
+            format!("return _first_error({err});")
+        });
     for p in &f.params {
-        emit_param_conversion(p, prefix, struct_names, opaque_creator_map, out);
+        emit_param_conversion(p, prefix, struct_names, opaque_creator_map, &json_error_return, out);
     }
 
     // Detect Bytes return: the C FFI uses a multi-out-parameter convention
@@ -351,6 +373,7 @@ fn emit_param_conversion(
     prefix: &str,
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+    json_error_return: &str,
     out: &mut String,
 ) {
     let name = &p.name;
@@ -366,6 +389,8 @@ fn emit_param_conversion(
                     prefix => prefix,
                     creator_fn => creator_fn,
                     config_snake => config_snake,
+                    name_snake => &snake_case(opaque_name),
+                    json_error_return => json_error_return,
                 },
             ));
         }
@@ -391,6 +416,7 @@ fn emit_param_conversion(
                         name => name,
                         prefix => prefix,
                         snake => &snake,
+                        json_error_return => json_error_return,
                     },
                 ));
             } else {
@@ -408,6 +434,7 @@ fn emit_param_conversion(
                         name => name,
                         prefix => prefix,
                         snake => &snake,
+                        json_error_return => json_error_return,
                     },
                 ));
             }
@@ -515,7 +542,7 @@ pub(super) fn optional_int_sentinel(prim: &PrimitiveType) -> Option<&'static str
 /// allocations are always freed even when an error is returned.
 fn emit_param_free(
     p: &ParamDef,
-    prefix: &str,
+    _prefix: &str,
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
     out: &mut String,
@@ -525,7 +552,6 @@ fn emit_param_free(
     // Opaque handle: free config_z, config_handle, and the handle itself.
     if let Some(opaque_name) = get_opaque_named(&p.ty, opaque_creator_map) {
         if let Some((_, config_snake)) = opaque_creator_map.get(opaque_name) {
-            let opaque_snake = snake_case(opaque_name);
             let config_name = format!("{name}_config");
             out.push_str(&crate::backends::zig::template_env::render(
                 "param_optional_free.jinja",
@@ -533,37 +559,14 @@ fn emit_param_free(
                     name => &config_name,
                 },
             ));
-            out.push_str(&crate::backends::zig::template_env::render(
-                "param_struct_handle_free.jinja",
-                minijinja::context! {
-                    name => &config_name,
-                    prefix => prefix,
-                    snake => config_snake,
-                },
-            ));
-            out.push_str(&crate::backends::zig::template_env::render(
-                "param_struct_handle_free.jinja",
-                minijinja::context! {
-                    name => name,
-                    prefix => prefix,
-                    snake => &opaque_snake,
-                },
-            ));
+            let _ = config_snake;
         }
         return;
     }
 
     if let Some(inner_name) = struct_named_inner(&p.ty) {
         if struct_names.contains(inner_name) {
-            let snake = snake_case(inner_name);
-            out.push_str(&crate::backends::zig::template_env::render(
-                "param_struct_handle_free.jinja",
-                minijinja::context! {
-                    name => name,
-                    prefix => prefix,
-                    snake => &snake,
-                },
-            ));
+            let _ = inner_name;
         }
     }
     // String/Path/Vec/Map and optional-String/Path are freed via `defer` emitted

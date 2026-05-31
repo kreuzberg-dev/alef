@@ -608,15 +608,15 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("        let json_mod = match ruby.eval::<Value>(\"JSON\") {\n");
     out.push_str("            Ok(m) => m,\n");
     out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
     out.push_str("                return std::ptr::null_mut();\n");
     out.push_str("            }\n");
     out.push_str("        };\n");
     out.push_str("        \n");
-    out.push_str("        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (&state.req_json,)) {\n");
+    out.push_str("        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (state.req_json.as_str(),)) {\n");
     out.push_str("            Ok(h) => h,\n");
     out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
     out.push_str("                return std::ptr::null_mut();\n");
     out.push_str("            }\n");
     out.push_str("        };\n");
@@ -625,7 +625,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("        let result = match proc_value.funcall::<_, _, Value>(\"call\", (req_hash,)) {\n");
     out.push_str("            Ok(r) => r,\n");
     out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
     out.push_str("                return std::ptr::null_mut();\n");
     out.push_str("            }\n");
     out.push_str("        };\n");
@@ -636,7 +636,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     out.push_str("                state.result = Some(Ok(resp_json_str));\n");
     out.push_str("            }\n");
     out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>));\n");
+    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
     out.push_str("            }\n");
     out.push_str("        }\n");
     out.push_str("    }\n");
@@ -688,23 +688,55 @@ fn gen_variant_match_arm(
 
             for (i, param) in free_params.iter().enumerate() {
                 let rust_ty = typeref_to_rust_type(&param.ty, core_import);
-                let extract_ty = match &param.ty {
-                    TypeRef::String | TypeRef::Char => "String".to_owned(),
+                match &param.ty {
+                    TypeRef::String | TypeRef::Char => {
+                        out.push_str(&format!(
+                            "                let {}: {} = meta_array.entry::<String>({})\n",
+                            param.name, rust_ty, i as isize
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                    }
                     TypeRef::Primitive(p) => {
                         use crate::core::ir::PrimitiveType;
-                        match p {
-                            PrimitiveType::Bool => "bool".to_owned(),
-                            PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_owned(),
-                            _ => "i64".to_owned(),
-                        }
+                        let extract_ty = match p {
+                            PrimitiveType::Bool => "bool",
+                            PrimitiveType::F32 | PrimitiveType::F64 => "f64",
+                            _ => "i64",
+                        };
+                        out.push_str(&format!(
+                            "                let {}: {} = meta_array.entry::<{}>({})\n",
+                            param.name, rust_ty, extract_ty, i as isize
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                     }
-                    _ => "Value".to_owned(),
-                };
-                out.push_str(&format!(
-                    "                let {}: {} = meta_array.entry::<{}>({})\n",
-                    param.name, rust_ty, extract_ty, i as isize
-                ));
-                out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                    TypeRef::Named(_) => {
+                        // For named types (wrapper types), extract as Value and convert via try_convert
+                        out.push_str(&format!(
+                            "                let {} = meta_array.entry::<Value>({})\n",
+                            param.name, i as isize
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                        out.push_str(&format!(
+                            "                    .try_convert::<&{}>()\n",
+                            rust_ty
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                        out.push_str("                    .clone();\n");
+                    }
+                    _ => {
+                        // Fallback for other types
+                        out.push_str(&format!(
+                            "                let {}: {} = meta_array.entry::<Value>({})\n",
+                            param.name, rust_ty, i as isize
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                        out.push_str(&format!(
+                            "                    .try_convert::<{}>()\n",
+                            rust_ty
+                        ));
+                        out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                    }
+                }
             }
         }
 
@@ -790,8 +822,7 @@ fn gen_run_function(
          /// registers all handlers (acquiring GVL for each Ruby proc call), then invokes\n\
          /// the entrypoint.\n\
          ///\n\
-         /// This function runs on a Ruby thread (via #[magnus::function]), so the GVL is already held.\n\
-         #[magnus::function]\n\
+         /// This function runs on a Ruby thread (entered via function! macro from init), so the GVL is already held.\n\
          pub fn {fn_name}({fn_param_sig}) -> magnus::error::Result<()> {{\n"
     ));
 
@@ -849,23 +880,55 @@ fn gen_run_function(
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                    let extract_ty = match &meta_param.ty {
-                        TypeRef::String | TypeRef::Char => "String".to_owned(),
+                    match &meta_param.ty {
+                        TypeRef::String | TypeRef::Char => {
+                            out.push_str(&format!(
+                                "                let {}: {} = meta_array.entry::<String>({})\n",
+                                meta_param.name, rust_ty, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                        }
                         TypeRef::Primitive(p) => {
                             use crate::core::ir::PrimitiveType;
-                            match p {
-                                PrimitiveType::Bool => "bool".to_owned(),
-                                PrimitiveType::F32 | PrimitiveType::F64 => "f64".to_owned(),
-                                _ => "i64".to_owned(),
-                            }
+                            let extract_ty = match p {
+                                PrimitiveType::Bool => "bool",
+                                PrimitiveType::F32 | PrimitiveType::F64 => "f64",
+                                _ => "i64",
+                            };
+                            out.push_str(&format!(
+                                "                let {}: {} = meta_array.entry::<{}>({})\n",
+                                meta_param.name, rust_ty, extract_ty, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
                         }
-                        _ => "Value".to_owned(),
-                    };
-                    out.push_str(&format!(
-                        "                let {}: {} = meta_array.entry::<{}>({})\n",
-                        meta_param.name, rust_ty, extract_ty, i as isize
-                    ));
-                    out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                        TypeRef::Named(_) => {
+                            // For named types (wrapper types), extract as Value and convert via try_convert
+                            out.push_str(&format!(
+                                "                let {} = meta_array.entry::<Value>({})\n",
+                                meta_param.name, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                            out.push_str(&format!(
+                                "                    .try_convert::<&{}>()\n",
+                                rust_ty
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                            out.push_str("                    .clone();\n");
+                        }
+                        _ => {
+                            // Fallback for other types
+                            out.push_str(&format!(
+                                "                let {}: {} = meta_array.entry::<Value>({})\n",
+                                meta_param.name, rust_ty, i as isize
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?\n");
+                            out.push_str(&format!(
+                                "                    .try_convert::<{}>()\n",
+                                rust_ty
+                            ));
+                            out.push_str("                    .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
+                        }
+                    }
                 }
 
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
@@ -933,13 +996,13 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef, _co
         format!(
             "    tokio::runtime::Handle::current()\n        \
              .block_on(owner.{ep_method}({args_str}))\n        \
-             .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n"
+             .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n"
         )
     } else {
         if ep.error_type.is_some() {
             format!(
                 "    owner.{ep_method}({args_str})\n        \
-                 .map_err(|e| magnus::Error::new(magnus::exception::runtime_error(), e.to_string()))?;\n"
+                 .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n"
             )
         } else {
             format!("    owner.{ep_method}({args_str});\n")

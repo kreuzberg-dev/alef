@@ -2375,6 +2375,13 @@ fn test_scaffold_swift() {
         "In-tree Package.swift must include unsafeFlags for local development; got: {}",
         package_swift.content
     );
+    assert!(
+        package_swift
+            .content
+            .contains("Run `cargo build -p my-lib-swift` and then rerun `alef generate`"),
+        "Package.swift must document the Alef materialization step; got: {}",
+        package_swift.content
+    );
 
     let gitignore = files
         .iter()
@@ -2415,6 +2422,15 @@ fn test_scaffold_swift() {
     assert!(
         readme.unwrap().content.contains("swift build"),
         "README.md must document build process"
+    );
+    let readme_content = &readme.unwrap().content;
+    assert!(
+        readme_content.contains("alef generate --lang swift"),
+        "README.md must tell users to rerun Alef instead of manually copying swift-bridge output: {readme_content}"
+    );
+    assert!(
+        !readme_content.contains("cat \"$OUT/SwiftBridgeCore.h\""),
+        "README.md must not imply manual copied bridge output is the generated-package contract: {readme_content}"
     );
     // .editorconfig and .swiftformat must both declare 2-space indent to match
     // `swift-format` defaults, so editors and the formatter stay in sync.

@@ -1941,6 +1941,64 @@ fn test_php_plugin_bridge_generates_registration_fn_with_php_function_attribute(
 }
 
 #[test]
+fn test_php_trait_registry_methods_use_matching_native_facade_and_stub_names() {
+    let backend = PhpBackend;
+    let mut config = make_config();
+    config.trait_bridges = vec![alef::core::config::TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("Plugin".to_string()),
+        registry_getter: Some("my_lib::get_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: Some("clear_ocr_backends".to_string()),
+        ..Default::default()
+    }];
+    let api = ApiSurface {
+        types: vec![make_trait_def_php(
+            "OcrBackend",
+            vec![make_method_php("process", TypeRef::String, true, false)],
+        )],
+        ..make_api_php()
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("lib.rs"))
+        .expect("lib.rs generated");
+    assert!(
+        lib.content.contains("#[php(name = \"registerOcrBackend\")]\n    pub fn register_ocr_backend(")
+            && lib
+                .content
+                .contains("#[php(name = \"unregisterOcrBackend\")]\n    pub fn unregister_ocr_backend(")
+            && lib
+                .content
+                .contains("#[php(name = \"clearOcrBackends\")]\n    pub fn clear_ocr_backends("),
+        "native Api class methods must expose the same camelCase names used by the facade:\n{}",
+        lib.content
+    );
+
+    let public = backend.generate_public_api(&api, &config).unwrap();
+    let facade = &public[0].content;
+    assert!(
+        facade.contains("public static function registerOcrBackend(?OcrBackend $backend = null) : void")
+            && facade.contains("\\Test\\Lib\\TestLibApi::registerOcrBackend($backend)")
+            && facade.contains("\\Test\\Lib\\TestLibApi::unregisterOcrBackend($name)")
+            && facade.contains("\\Test\\Lib\\TestLibApi::clearOcrBackends()"),
+        "facade methods must call the native Api class public names:\n{facade}"
+    );
+
+    let stubs = backend.generate_type_stubs(&api, &config).unwrap();
+    let stub = &stubs[0].content;
+    assert!(
+        stub.contains("public static function registerOcrBackend(?\\Test\\Lib\\OcrBackend $backend = null): void")
+            && stub.contains("public static function unregisterOcrBackend(string $name): void")
+            && stub.contains("public static function clearOcrBackends(): void"),
+        "extension stubs must expose registry methods on the native Api class:\n{stub}"
+    );
+}
+
+#[test]
 fn test_php_plugin_bridge_validates_required_methods() {
     use alef::backends::php::trait_bridge::gen_trait_bridge;
 

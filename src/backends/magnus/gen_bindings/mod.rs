@@ -612,8 +612,13 @@ impl Backend for MagnusBackend {
             .collect();
         let streaming_method_names: AHashSet<String> = streaming_adapters.iter().map(|a| a.name.to_string()).collect();
 
-        let content =
-            crate::backends::magnus::gen_stubs::gen_stubs(api, &gem_name, emit_docstrings, &streaming_method_names);
+        let content = crate::backends::magnus::gen_stubs::gen_stubs(
+            api,
+            &gem_name,
+            emit_docstrings,
+            &streaming_method_names,
+            &config.trait_bridges,
+        );
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),

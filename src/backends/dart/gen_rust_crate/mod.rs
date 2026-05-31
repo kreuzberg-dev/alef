@@ -17,7 +17,7 @@ mod trait_types;
 use bridge_fn::emit_bridge_fn;
 use cargo::{emit_build_rs, emit_cargo_toml, emit_frb_yaml};
 use mirror::{emit_mirror_enum, emit_mirror_error, emit_mirror_struct};
-use trait_bridge::emit_trait_bridge;
+use trait_bridge::{emit_internal_document_bridge_type, emit_trait_bridge, needs_internal_document_bridge};
 
 /// Emit the Rust-side flutter_rust_bridge bridge crate for the given API surface.
 ///
@@ -107,6 +107,21 @@ fn emit_lib_rs(
     // DartFnFuture is re-exported so frb_generated.rs (which does `use crate::*`)
     // can reference it by bare name in the generated closure types.
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
+
+    let has_internal_document_trait_bridge = config
+        .trait_bridges
+        .iter()
+        .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
+        .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
+        .flat_map(|trait_def| trait_def.methods.iter())
+        .filter(|m| m.trait_source.is_none())
+        .any(|m| {
+            needs_internal_document_bridge(&m.return_type)
+                || m.params.iter().any(|p| needs_internal_document_bridge(&p.ty))
+        });
+    if has_internal_document_trait_bridge {
+        emit_internal_document_bridge_type(&mut content);
+    }
 
     // FRB strips module paths from `frb_generated.rs` when it serializes closure
     // signatures, leaving bare type names that resolve against `use crate::*`.

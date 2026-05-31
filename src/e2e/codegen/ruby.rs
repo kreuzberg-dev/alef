@@ -114,6 +114,8 @@ impl E2eCodegen for RubyCodegen {
                     has_file_fixtures,
                     has_http_fixtures,
                     &e2e_config.test_documents_relative_from(1),
+                    &gem_name,
+                    &module_path,
                 ),
                 generated_header: true,
             });
@@ -218,30 +220,37 @@ fn render_gemfile(
     )
 }
 
-fn render_spec_helper(has_file_fixtures: bool, has_http_fixtures: bool, test_documents_path: &str) -> String {
+fn render_spec_helper(
+    has_file_fixtures: bool,
+    has_http_fixtures: bool,
+    test_documents_path: &str,
+    gem_name: &str,
+    module_path: &str,
+) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
+    let module_name = ruby_module_name(module_path);
 
     // Add RSpec hooks to isolate plugin registry state between tests.
     // This mirrors the Python conftest.py pattern to prevent test pollution.
-    out.push_str(
+    let registry_cleanup = format!(
         r#"
 # RSpec hooks to isolate plugin registry state between tests.
 # Unregisters any test-prefixed backends (test-*, test_*) after each test
 # to prevent pollution from one test affecting subsequent tests.
 begin
-  require 'sample_crate'
+  require '{gem_name}'
   RSpec.configure do |config|
     # Track initial registry state before each test
     config.before(:each) do
       begin
-        @_initial_ocr_backends = SampleCrate.list_ocr_backends.to_set rescue Set.new
-        @_initial_embedding_backends = SampleCrate.list_embedding_backends.to_set rescue Set.new
-        @_initial_document_extractors = SampleCrate.list_document_extractors.to_set rescue Set.new
-        @_initial_renderers = SampleCrate.list_renderers.to_set rescue Set.new
-        @_initial_validators = SampleCrate.list_validators.to_set rescue Set.new
-        @_initial_post_processors = SampleCrate.list_post_processors.to_set rescue Set.new
+        @_initial_ocr_backends = {module_name}.list_ocr_backends.to_set rescue Set.new
+        @_initial_embedding_backends = {module_name}.list_embedding_backends.to_set rescue Set.new
+        @_initial_document_extractors = {module_name}.list_document_extractors.to_set rescue Set.new
+        @_initial_renderers = {module_name}.list_renderers.to_set rescue Set.new
+        @_initial_validators = {module_name}.list_validators.to_set rescue Set.new
+        @_initial_post_processors = {module_name}.list_post_processors.to_set rescue Set.new
       rescue
         # If registry functions aren't available, skip cleanup
       end
@@ -250,34 +259,34 @@ begin
     # Clean up test-prefixed backends after each test
     config.after(:each) do
       begin
-        current_ocr = SampleCrate.list_ocr_backends.to_set rescue Set.new
+        current_ocr = {module_name}.list_ocr_backends.to_set rescue Set.new
         (current_ocr - @_initial_ocr_backends).each do |name|
-          SampleCrate.unregister_ocr_backend(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_ocr_backend(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_embedding = SampleCrate.list_embedding_backends.to_set rescue Set.new
+        current_embedding = {module_name}.list_embedding_backends.to_set rescue Set.new
         (current_embedding - @_initial_embedding_backends).each do |name|
-          SampleCrate.unregister_embedding_backend(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_embedding_backend(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_extractors = SampleCrate.list_document_extractors.to_set rescue Set.new
+        current_extractors = {module_name}.list_document_extractors.to_set rescue Set.new
         (current_extractors - @_initial_document_extractors).each do |name|
-          SampleCrate.unregister_document_extractor(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_document_extractor(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_renderers = SampleCrate.list_renderers.to_set rescue Set.new
+        current_renderers = {module_name}.list_renderers.to_set rescue Set.new
         (current_renderers - @_initial_renderers).each do |name|
-          SampleCrate.unregister_renderer(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_renderer(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_validators = SampleCrate.list_validators.to_set rescue Set.new
+        current_validators = {module_name}.list_validators.to_set rescue Set.new
         (current_validators - @_initial_validators).each do |name|
-          SampleCrate.unregister_validator(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_validator(name) if name.to_s.start_with?('test-', 'test_')
         end
 
-        current_processors = SampleCrate.list_post_processors.to_set rescue Set.new
+        current_processors = {module_name}.list_post_processors.to_set rescue Set.new
         (current_processors - @_initial_post_processors).each do |name|
-          SampleCrate.unregister_post_processor(name) if name.to_s.start_with?('test-', 'test_')
+          {module_name}.unregister_post_processor(name) if name.to_s.start_with?('test-', 'test_')
         end
       rescue
         # Cleanup failures are non-fatal; continue silently
@@ -285,10 +294,11 @@ begin
     end
   end
 rescue LoadError
-  # SampleCrate not available; skip registry cleanup
+  # {module_name} not available; skip registry cleanup
 end
 "#,
     );
+    out.push_str(&registry_cleanup);
 
     if has_file_fixtures {
         let _ = writeln!(out);

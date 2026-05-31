@@ -166,25 +166,32 @@ fn dart_return_type_str(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String 
     }
 }
 
-/// Substitute the internal Rust type `InternalDocument` with the binding-facing
-/// type `ExtractionResult`. The Rust trait signatures (e.g.
+/// Substitute the internal Rust type `InternalDocument` with an explicit
+/// JSON-backed bridge type. The Rust trait signatures (e.g.
 /// `DocumentExtractor::extract_bytes -> Result<InternalDocument>`,
 /// `Renderer::render(&InternalDocument)`) reference an internal type, but the
-/// public Dart binding surfaces this as `ExtractionResult` — so the trait
-/// declarations and the test-stub overrides must agree on the public name.
+/// Dart trait bridge must not silently collapse that contract to the public
+/// `ExtractionResult` DTO. The generated bridge serializes/deserializes this
+/// opaque carrier at the Rust edge.
 /// Other backends (gleam, go, zig) handle this via explicit excluded-types
 /// substitution; dart applies it directly to the rendered type string.
 fn substitute_internal_document(rendered: &str) -> String {
-    rendered.replace("InternalDocument", "ExtractionResult")
+    rendered.replace("InternalDocument", "InternalDocumentBridge")
 }
 
 /// Emit trait bridge stub types required by e2e test fixtures.
 ///
 /// These types (OcrBackendType, ProcessingStage, SyncExtractor) are used by
 /// test stub implementations to satisfy trait method signatures. `InternalDocument`
-/// is intentionally not emitted as a placeholder — the trait emitter substitutes
-/// it with `ExtractionResult` so the public binding surface is consistent.
+/// is surfaced as an opaque JSON bridge instead of the public `ExtractionResult`
+/// DTO so Dart callbacks preserve the Rust trait contract.
 fn emit_trait_stub_types(out: &mut String) {
+    out.push('\n');
+    out.push_str("/// Opaque JSON carrier for Rust's internal InternalDocument trait contract.\n");
+    out.push_str("final class InternalDocumentBridge {\n");
+    out.push_str("  const InternalDocumentBridge({required this.json});\n");
+    out.push_str("  final String json;\n");
+    out.push_str("}\n");
     out.push('\n');
     out.push_str("/// OCR backend type identifier — used by e2e test plugin_api stubs.\n");
     out.push_str("enum OcrBackendType { tesseract, easyocr, paddleocr, rapidocr }\n");

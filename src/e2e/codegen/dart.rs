@@ -3042,17 +3042,18 @@ pub fn emit_test_backend(
     }
 }
 
-/// Map a Dart type, with fallback to public public types for internal-only types.
-/// For example, InternalDocument (not a public export) maps to ExtractionResult.
+/// Map a Dart type, with an explicit bridge carrier for internal-only types.
+/// For example, InternalDocument maps to InternalDocumentBridge so tests preserve
+/// the Rust trait contract instead of substituting the public ExtractionResult DTO.
 fn map_dart_type_with_fallback(
     mapper: &crate::backends::dart::type_map::DartMapper,
     ty: &crate::core::ir::TypeRef,
 ) -> String {
     use crate::codegen::type_mapper::TypeMapper as _;
     let mapped = mapper.map_type(ty);
-    // If the type is an unpublished internal type (contains "Internal"), use ExtractionResult as fallback.
+    // If the type is an unpublished internal type, use the generated opaque JSON bridge.
     if mapped.contains("Internal") {
-        return "ExtractionResult".to_string();
+        return "InternalDocumentBridge".to_string();
     }
     mapped.to_string()
 }
@@ -3064,12 +3065,9 @@ fn emit_dart_default_for_type(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    // Map internal-only types to public types for default generation
+    // Map internal-only types to the opaque bridge carrier for default generation.
     let effective_ty = match ty {
-        TypeRef::Named(name) if name.contains("Internal") => {
-            // Internal types like InternalDocument should be mapped to public equivalents
-            TypeRef::Named("ExtractionResult".to_string())
-        }
+        TypeRef::Named(name) if name.contains("Internal") => TypeRef::Named("InternalDocumentBridge".to_string()),
         _ => ty.clone(),
     };
 

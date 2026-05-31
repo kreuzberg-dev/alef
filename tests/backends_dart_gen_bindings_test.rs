@@ -1202,6 +1202,67 @@ fn find_dart_src(files: &[alef::core::backend::GeneratedFile]) -> Option<&str> {
         .map(|f| f.content.as_str())
 }
 
+fn find_traits_src(files: &[alef::core::backend::GeneratedFile]) -> Option<&str> {
+    files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("traits.dart"))
+        .map(|f| f.content.as_str())
+}
+
+#[test]
+fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
+    let trait_def = make_trait(
+        "DocumentExtractor",
+        "demo_crate::DocumentExtractor",
+        vec![
+            make_method(
+                "extract_bytes",
+                vec![make_param("content", TypeRef::Bytes)],
+                TypeRef::Named("InternalDocument".to_string()),
+                true,
+            ),
+            make_method(
+                "render",
+                vec![make_param("doc", TypeRef::Named("InternalDocument".to_string()))],
+                TypeRef::String,
+                true,
+            ),
+        ],
+    );
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![trait_def],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let config = make_config_with_bridge("DocumentExtractor");
+    let files = DartBackend.generate_bindings(&api, &config).unwrap();
+    let traits = find_traits_src(&files).expect("traits.dart should be emitted");
+
+    assert!(
+        traits.contains("final class InternalDocumentBridge"),
+        "traits.dart must expose the explicit InternalDocument bridge: {traits}"
+    );
+    assert!(
+        traits.contains("Future<InternalDocumentBridge> extractBytes"),
+        "InternalDocument return must not be surfaced as ExtractionResult: {traits}"
+    );
+    assert!(
+        traits.contains("Future<String> render(InternalDocumentBridge doc);"),
+        "InternalDocument params must use the bridge type: {traits}"
+    );
+    assert!(
+        !traits.contains("Future<ExtractionResult> extractBytes"),
+        "InternalDocument must not be substituted to ExtractionResult: {traits}"
+    );
+}
+
 /// When `register_fn`, `unregister_fn`, and `clear_fn` are all set, the generated Dart
 /// wrapper class must contain matching static methods delegating to the FRB free functions.
 #[test]

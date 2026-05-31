@@ -226,9 +226,9 @@ pub(crate) fn gen_exception_class(package: &str, class_name: &str) -> String {
 /// `emit_javadoc`, which would need to wrap code in `<pre>{@code ...}</pre>`.
 /// The current Java emitter does not yet emit examples; doing so safely
 /// requires a JavaDoc-specific HTML escape that's not done here.
-fn transform_rustdoc_for_java(doc: &str) -> String {
+fn transform_rustdoc_for_java(doc: &str, throws_class: &str) -> String {
     let sections = crate::codegen::doc_emission::parse_rustdoc_sections(doc);
-    let rendered = crate::codegen::doc_emission::render_javadoc_sections(&sections, "SampleCrateRsException");
+    let rendered = crate::codegen::doc_emission::render_javadoc_sections(&sections, throws_class);
     if rendered.trim().is_empty() {
         // Fallback: when no recognised sections present, sanitize Rust idioms and remove intra-doc links
         // to preserve backward compatibility for prose that has no Markdown headings.
@@ -239,10 +239,14 @@ fn transform_rustdoc_for_java(doc: &str) -> String {
 }
 
 pub(crate) fn emit_javadoc(out: &mut String, doc: &str, indent: &str) {
+    emit_javadoc_with_throws(out, doc, indent, "Exception");
+}
+
+pub(crate) fn emit_javadoc_with_throws(out: &mut String, doc: &str, indent: &str, throws_class: &str) {
     if doc.is_empty() {
         return;
     }
-    let transformed = transform_rustdoc_for_java(doc);
+    let transformed = transform_rustdoc_for_java(doc, throws_class);
     if transformed.is_empty() {
         return;
     }

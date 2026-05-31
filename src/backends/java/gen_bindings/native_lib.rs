@@ -4,7 +4,7 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToSnakeCase;
 
-use super::marshal::{gen_ffi_layout_with_enums, gen_function_descriptor, is_bytes_result};
+use super::marshal::{gen_ffi_layout_with_enums, gen_function_descriptor, is_bytes_result, is_ffi_string_return};
 
 /// Detection mirroring `is_bytes_result` for `MethodDef` — `Result<Vec<u8>>`-returning
 /// methods use the (out_ptr, out_len, out_cap) triple FFI ABI.
@@ -170,6 +170,20 @@ pub(crate) fn gen_native_lib(
             )
         };
         function_handles.push(handle_code);
+
+        if is_ffi_string_return(&func.return_type) {
+            let len_handle_name = format!("{}_{}_LEN", prefix.to_uppercase(), func.name.to_uppercase());
+            let len_ffi_name = format!("{}_{}_len", prefix, func.name.to_lowercase());
+            let len_layout = gen_function_descriptor("ValueLayout.JAVA_LONG", &param_layouts);
+            function_handles.push(crate::backends::java::template_env::render(
+                "method_handle_len.jinja",
+                minijinja::context! {
+                    handle_name => len_handle_name,
+                    ffi_name => len_ffi_name,
+                    layout => len_layout,
+                },
+            ));
+        }
     }
 
     // free_string handle for releasing FFI-allocated strings
