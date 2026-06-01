@@ -611,10 +611,11 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], pkg_path:
 
     let header = hash::header(CommentStyle::DoubleSlash);
 
-    // Derive route_builder_import: for spikard, imports[0] = "spikard" → namespace Spikard\Php
+    // Derive route_builder_import from imports[0] → PHP namespace.
+    // E.g. imports[0] = "my_pkg" → namespace MyPkg\Php
     let route_builder_import = if !imports.is_empty() {
         let module_name = &imports[0];
-        // Normalize module name to PHP namespace (spikard → Spikard, sample_core → SampleCore)
+        // Normalize module name to PHP namespace (my_pkg → MyPkg, sample_core → SampleCore)
         module_name
             .split('_')
             .map(|p| {

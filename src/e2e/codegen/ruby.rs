@@ -260,14 +260,27 @@ fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String
 
     let header = hash::header(CommentStyle::Hash);
 
-    // For Ruby, derive the Method enum from the method_enum config or use Spikard::Method
-    let method_enum_module = method_enum.as_deref().unwrap_or("Spikard::Method").to_string();
+    // Derive Ruby-namespaced class names from imports[0] when explicit values are not configured.
+    // E.g. imports[0] = "my_pkg" → module prefix "MyPkg::" → "MyPkg::Method", "MyPkg::App", etc.
+    let module_prefix = if !imports.is_empty() {
+        format!("{}::", ruby_module_name(&imports[0]))
+    } else {
+        String::new()
+    };
+    let method_enum_module = method_enum
+        .as_deref()
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{module_prefix}Method"));
+    let derived_app_class = format!("{module_prefix}App");
+    let derived_route_builder_class = format!("{module_prefix}RouteBuilder");
+    let derived_server_config_class = format!("{module_prefix}ServerConfig");
 
     let ctx = minijinja::context! {
         header => header,
         imports => imports,
-        app_class => app_class.as_deref().unwrap_or("Spikard::App"),
-        route_builder_class => "Spikard::RouteBuilder",
+        app_class => app_class.as_deref().unwrap_or(derived_app_class.as_str()),
+        route_builder_class => derived_route_builder_class.as_str(),
+        server_config_class => derived_server_config_class.as_str(),
         route_builder_schema_setter => body_schema_setter.as_deref().unwrap_or("request_schema_json"),
         method_enum_module => method_enum_module,
         register_route_method => register_route_method.as_deref().unwrap_or("register_route"),

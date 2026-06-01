@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **WASM: propagate JSON deserialization errors in no-error-path method bodies.**
+  Fixed 4 sites in `gen_sync_method_body.jinja` (lines 77, 86) and `gen_async_method_body.jinja`
+  (lines 83, 91) where `.ok())` silently swallowed deserialization errors, returning
+  `Default::default()` instead. Now uses `.map_err(|_| {{ error_deser }}))` so decoding failures
+  surface during testing, while preserving the outer `.unwrap_or_default()` for the no-error
+  return contract.
+
 - **e2e/python: send raw `application/x-www-form-urlencoded` bodies as bytes instead of JSON-encoding them.**
   When a fixture's `request.headers["Content-Type"]` is `application/x-www-form-urlencoded` and the
   fixture body is a JSON string (the canonical fixture shape for form payloads), the generator now
