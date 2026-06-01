@@ -757,30 +757,50 @@ fn emit_first_class_struct(
             // untagged enums, so calling `try {Name}(rb.{field}())` produces a compile error
             // ("missing argument label 'from:'" / "RustString does not conform to Decoder").
             // Decode via JSONDecoder from the JSON payload instead.
+            //
+            // The accessor is `Optional<RustString>` only when the source field itself is
+            // `Option<T>` — for non-optional fields, the bridge returns plain `RustString`
+            // and applying `?.toString()` produces the inverse compile error
+            // ("cannot use optional chaining on non-optional value of type 'RustString'").
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
             } else {
                 swift_ty
             };
+            let accessor_with_chain = if is_optional {
+                format!("rb.{rust_accessor}()?.toString() ?? \"null\"")
+            } else {
+                format!("rb.{rust_accessor}().toString()")
+            };
             format!(
                 "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
-                 ((rb.{rust_accessor}()?.toString() ?? \"null\").data(using: .utf8) ?? Data(\"null\".utf8)))"
+                 (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
             )
         } else if needs_json_bridge_for_swift(&field.ty) {
             // Field is bridged as a JSON string at the Rust boundary — the getter
-            // returns a non-optional `RustString` whose contents are the JSON-
-            // encoded value (`"null"` when the source field was None). Decode
-            // through JSONDecoder so the Swift property receives the typed value.
+            // returns a `RustString` whose contents are the JSON-encoded value
+            // (`"null"` when the source field was None). Decode through JSONDecoder
+            // so the Swift property receives the typed value.
+            //
+            // The accessor is `Optional<RustString>` only when the source field
+            // itself is `Option<T>` (swift-bridge follows the Rust shape). For
+            // non-optional fields the accessor returns plain `RustString` and
+            // optional-chaining on it is a compile error.
             let swift_ty = mapper.map_type(&field.ty);
             let swift_ty_with_opt = if is_optional && !matches!(&field.ty, TypeRef::Optional(_)) {
                 format!("{swift_ty}?")
             } else {
                 swift_ty
             };
+            let accessor_with_chain = if is_optional {
+                format!("rb.{rust_accessor}()?.toString() ?? \"null\"")
+            } else {
+                format!("rb.{rust_accessor}().toString()")
+            };
             format!(
                 "try JSONDecoder().decode({swift_ty_with_opt}.self, from: \
-                 ((rb.{rust_accessor}()?.toString() ?? \"null\").data(using: .utf8) ?? Data(\"null\".utf8)))"
+                 (({accessor_with_chain}).data(using: .utf8) ?? Data(\"null\".utf8)))"
             )
         } else {
             swift_ffi_read_expr(
@@ -3908,15 +3928,46 @@ fn emit_async_free_function_forwarder(
         out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
-        // Vec<Named> return: apply the .map conversion suffix (applies even if Named is not
-        // in known_dto_names, because swift-bridge bridges the whole RustVec<T> regardless)
-        let suffix = forwarder_return_conversion_suffix_with_throws(
-            &func.return_type,
-            known_dto_names,
-            func.error_type.is_some(),
-        );
+        // Vec<Named> return: when the function is throwing, we can't use .map with a throwing closure.
+        // Instead, use a for loop that collects into an array, which allows try expressions.
         out.push_str(&format!("        let result = {bridge_call}\n"));
-        out.push_str(&format!("        return result{suffix}\n"));
+        if func.error_type.is_some() {
+            // Throwing path: use for loop to handle try expressions
+            if let TypeRef::Vec(inner) = &func.return_type {
+                if let TypeRef::Named(name) = inner.as_ref() {
+                    let struct_name = swift_ident(name);
+                    out.push_str("        var items: [");
+                    out.push_str(&forwarder_return_type(&func.return_type));
+                    out.push_str("] = []\n");
+                    out.push_str("        for ref in result {\n");
+                    if known_dto_names.contains(name) {
+                        out.push_str(&format!("            var item = try {struct_name}(ref)\n"));
+                    } else {
+                        out.push_str(&format!("            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"));
+                    }
+                    out.push_str("            item.isOwned = false\n");
+                    out.push_str("            items.append(item)\n");
+                    out.push_str("        }\n");
+                    out.push_str("        return items\n");
+                } else {
+                    // Fallback: use the suffix (shouldn't reach here)
+                    let suffix = forwarder_return_conversion_suffix_with_throws(
+                        &func.return_type,
+                        known_dto_names,
+                        true,
+                    );
+                    out.push_str(&format!("        return result{suffix}\n"));
+                }
+            }
+        } else {
+            // Non-throwing path: use .map suffix
+            let suffix = forwarder_return_conversion_suffix_with_throws(
+                &func.return_type,
+                known_dto_names,
+                false,
+            );
+            out.push_str(&format!("        return result{suffix}\n"));
+        }
     } else {
         out.push_str(&format!("        let result = {bridge_call}\n"));
         out.push_str(&format!("{return_stmt}\n"));
@@ -4666,7 +4717,10 @@ fn swift_adapter_conversions(
                 }
                 TypeRef::Optional(inner) => match inner.as_ref() {
                     TypeRef::Named(name) if exclude_types.contains(name) => {
-                        format!("{snake}?.toString()")
+                        // Excluded types like RustString are non-optional structs.
+                        // The Optional wrapper is at the parameter level, handled by .flatMap.
+                        // Use optional chaining on the parameter, but toString() is non-optional.
+                        format!("{snake}.flatMap {{ $0.toString() }}")
                     }
                     TypeRef::Named(name) => {
                         let from_json = format!("{name}FromJson").to_lower_camel_case();

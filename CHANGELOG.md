@@ -18,6 +18,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift: fix `.map { try ... }` throwing closure for batch-extract operations.**
+  When a function returns `Vec<Named>` and throws, the previous codegen emitted
+  `return result.map { ref in ... try ... }` which fails because the closure passed to `.map`
+  is non-throwing but contains `try` expressions. Replaced with a `for ... in` loop that
+  collects into an array, allowing `try` expressions in the throwing function context.
+  (`src/backends/swift/gen_bindings/mod.rs`)
+
+- **swift: fix optional chaining on non-optional RustString in trait bridge parameters.**
+  Excluded types like RustString are non-optional structs from swift-bridge. When
+  a parameter type is `Optional<RustString>`, the previous code emitted `param?.toString()`,
+  which is a type error (cannot optional-chain on non-optional value). Fixed to emit
+  `param.flatMap { $0.toString() }` which properly handles the optional parameter wrapper
+  while correctly invoking non-optional `toString()`.
+  (`src/backends/swift/gen_bindings/mod.rs`)
+
 - **typescript e2e harness: use default-import + destructure for CommonJS interop.**
   napi-rs ships CommonJS by default; named ESM imports (`import { App } from '@spikard/node'`)
   fail at module load with `SyntaxError: Named export 'App' not found`. The harness now imports
