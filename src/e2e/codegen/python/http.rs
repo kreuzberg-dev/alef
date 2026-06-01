@@ -48,19 +48,49 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
     // Detect content-type so the renderer can decide between JSON-encoded and
-    // raw (form-urlencoded / plain text) body emission.
+    // raw (form-urlencoded / multipart / plain text) body emission.
     let content_type_lower = http
         .request
         .headers
         .iter()
         .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
         .map(|(_, v)| v.to_ascii_lowercase())
-        .unwrap_or_default();
+        .unwrap_or_else(|| {
+            http.request
+                .content_type
+                .as_ref()
+                .map(|ct| ct.to_ascii_lowercase())
+                .unwrap_or_default()
+        });
     let is_form_body = content_type_lower
         .split(';')
         .next()
         .map(str::trim)
         .is_some_and(|t| t.eq_ignore_ascii_case("application/x-www-form-urlencoded"));
+    let is_multipart = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("multipart/form-data"));
+
+    // Synthesize multipart body if content-type is multipart/form-data and there is no explicit body
+    let multipart_body_py = if is_multipart && http.request.body.is_none() {
+        if let Some(schema) = &http.handler.body_schema {
+            if schema.get("type").and_then(|t| t.as_str()) == Some("object") {
+                if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+                    synthesize_multipart_body(props)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
 
     // Determine body context. For form-urlencoded payloads the fixture body is a
     // pre-encoded string literal that must be sent as-is (UTF-8 bytes); for JSON
@@ -69,6 +99,8 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         let py_body = json_to_python_literal(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
         (true, py_body, body_is_string)
+    } else if is_multipart && !multipart_body_py.is_empty() {
+        (true, multipart_body_py.clone(), true)
     } else {
         (false, String::new(), false)
     };
@@ -171,6 +203,7 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         has_body => has_body,
         body_py => body_py,
         is_form_body => is_form_body,
+        is_multipart => is_multipart,
         body_is_string => body_is_string,
         expected_status => http.expected_response.status_code,
         has_text_body => has_text_body,
@@ -185,6 +218,36 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     };
     let rendered = crate::e2e::template_env::render("python/http_test.jinja", ctx);
     out.push_str(&rendered);
+}
+
+/// Synthesize a multipart/form-data body from a JSON Schema object with properties.
+/// For text properties, emits "sample". For binary (format: binary), emits a file part.
+fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    const BOUNDARY: &str = "----alef-boundary";
+    let mut body = String::new();
+
+    for (prop_name, prop_schema) in props {
+        let is_binary = prop_schema
+            .get("format")
+            .and_then(|f| f.as_str())
+            .is_some_and(|f| f == "binary");
+
+        body.push_str(&format!("{}--\r\nContent-Disposition: form-data; name=\"{}\"", BOUNDARY, escape_python(prop_name)));
+
+        if is_binary {
+            body.push_str(&format!("; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n", escape_python(prop_name)));
+            body.push_str("placeholder content");
+        } else {
+            body.push_str("\r\n\r\nsample");
+        }
+
+        body.push_str("\r\n");
+    }
+
+    body.push_str(&format!("{}--\r\n", BOUNDARY));
+
+    // Escape as Python raw bytes literal
+    format!("b\"{}\"", escape_python(&body))
 }
 
 // ---------------------------------------------------------------------------
