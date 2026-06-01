@@ -641,16 +641,28 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
     /// The fixture path follows the mock-server convention `/fixtures/<id>`.
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = to_csharp_http_method(ctx.method);
-        let path = escape_csharp(ctx.path);
+
+        // Extract path parameter names from placeholders like {id}, {date}, etc.
+        // These will be declared as placeholder variables (empty strings for now)
+        let path_param_names = extract_path_param_names(ctx.path);
 
         out.push_str("        var baseUrl = Environment.GetEnvironmentVariable(\"MOCK_SERVER_URL\") ?? \"http://localhost:8080\";\n");
+
+        // Emit declarations for any path parameters found in the URL pattern
+        // These are placeholders like {id}, {date} that will be interpolated into the path
+        for param_name in &path_param_names {
+            out.push_str(&format!("        var {param_name} = \"\";\n"));
+        }
+
         // Disable auto-follow so redirect-status fixtures (3xx) can assert the
         // server's status code rather than the followed-target's status.
         out.push_str(
             "        using var handler = new System.Net.Http.HttpClientHandler { AllowAutoRedirect = false };\n",
         );
         out.push_str("        using var client = new System.Net.Http.HttpClient(handler);\n");
-        out.push_str(&format!("        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{path}\");\n"));
+        // Don't escape the path - it contains {param} placeholders that need to be preserved
+        // for C# string interpolation
+        out.push_str(&format!("        var request = new System.Net.Http.HttpRequestMessage(System.Net.Http.HttpMethod.{method}, $\"{{baseUrl}}{}\");\n", ctx.path));
 
         // Set body + Content-Type when a request body is present.
         if let Some(body) = ctx.body {
@@ -793,6 +805,36 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
 /// driver via [`CSharpTestClientRenderer`].
 fn render_http_test_method(out: &mut String, fixture: &Fixture, _http: &HttpFixture) {
     client::http_call::render_http_test(out, &CSharpTestClientRenderer, fixture);
+}
+
+/// Extract path parameter names from a URL pattern like `/fixtures/{id}/items/{item_id}`.
+/// Returns parameter names such as `["id", "item_id"]`.
+fn extract_path_param_names(path: &str) -> Vec<String> {
+    let mut params = Vec::new();
+    let mut in_param = false;
+    let mut current_param = String::new();
+
+    for ch in path.chars() {
+        match ch {
+            '{' => {
+                in_param = true;
+                current_param.clear();
+            }
+            '}' => {
+                if in_param && !current_param.is_empty() {
+                    params.push(current_param.clone());
+                }
+                in_param = false;
+                current_param.clear();
+            }
+            _ if in_param => {
+                current_param.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    params
 }
 
 #[allow(clippy::too_many_arguments)]
