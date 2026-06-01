@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java: gate JsonNode marshalling to excluded types only, preserve polymorphic Object fields.**
+  `TypeRef::Json` now maps to `Object` instead of `JsonNode` in Java type declarations. Polymorphic JSON fields
+  (like `Option<serde_json::Value>` in Rust) correctly remain as `Object` type, preventing API regression on
+  kreuzcrawl's `ActionResult.data` and similar fields. Excluded types (from `resolve_field_type`) are handled
+  by the existing `Object` type, with no special JsonNode marshalling needed since Object is passed through
+  directly at the FFI boundary.
+
 - **Swift: SwiftPluginBridge `name` is now a `var` property instead of a method.**
   Plugin implementations (TestStub in e2e, user bridges) can now conform by declaring `var name: String { ... }`
   instead of `func name() -> String`. Box classes updated to access `bridge.name` as a property.
