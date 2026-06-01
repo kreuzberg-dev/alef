@@ -1237,11 +1237,8 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(cname);
             }
             TypeRef::Json => {
-                out.push_str(&crate::backends::java::template_env::render(
-                    "stream_method_json_param.jinja",
-                    minijinja::context! { c_name => cname, param_name => pname },
-                ));
-                call_args.push(cname);
+                // Object (polymorphic JSON) passed directly without marshalling.
+                call_args.push(pname);
             }
             TypeRef::Path => {
                 // Path → C string requires `.toString()` because Java's SegmentAllocator.allocateFrom
@@ -1261,11 +1258,8 @@ fn gen_instance_method(out: &mut String, method: &MethodDef, prefix: &str, owner
                 call_args.push(cname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Json) => {
-                out.push_str(&crate::backends::java::template_env::render(
-                    "stream_method_optional_json_param.jinja",
-                    minijinja::context! { c_name => cname, param_name => pname },
-                ));
-                call_args.push(cname);
+                // Optional<Object> (polymorphic JSON) passed directly without marshalling.
+                call_args.push(pname);
             }
             TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Path) => {
                 // Optional Path also needs `.toString()` — reuse marshal_optional_path
@@ -1583,11 +1577,8 @@ fn gen_static_factory_method(
                 call_args.push(cname);
             }
             TypeRef::Json => {
-                out.push_str(&crate::backends::java::template_env::render(
-                    "stream_method_json_param.jinja",
-                    minijinja::context! { c_name => cname, param_name => pname },
-                ));
-                call_args.push(cname);
+                // Object (polymorphic JSON) passed directly without marshalling.
+                call_args.push(pname);
             }
             TypeRef::Path => {
                 out.push_str(&crate::backends::java::template_env::render(
