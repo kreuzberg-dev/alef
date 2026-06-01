@@ -47,9 +47,9 @@ pub fn render_test_file(
     let (needs_cache_isolation, has_configure) = detect_cache_isolation_needs(fixtures, e2e_config);
 
     let import_vitest = if needs_cache_isolation && has_configure {
-        "import { describe, expect, it, beforeAll, afterAll } from 'vitest';"
+        "import { describe, expect, it, beforeAll, afterAll } from \"vitest\";"
     } else {
-        "import { describe, expect, it } from 'vitest';"
+        "import { describe, expect, it } from \"vitest\";"
     };
 
     let has_non_http_fixtures = fixtures.iter().any(|f| !f.is_http_test() && !f.assertions.is_empty());
@@ -323,10 +323,10 @@ pub fn render_test_file(
         }
 
         let imports_str = imports.join(", ");
-        import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
+        import_modules = format!("import {{ {imports_str} }} from \"{pkg_name}\";");
 
         if needs_cache_isolation && has_configure {
-            import_node_fs = "import { mkdtempSync, rmSync } from 'node:fs';\nimport { join } from 'node:path';\nimport { tmpdir } from 'node:os';".to_string();
+            import_node_fs = "import { mkdtempSync, rmSync } from \"node:fs\";\nimport { join } from \"node:path\";\nimport { tmpdir } from \"node:os\";".to_string();
         }
     }
 
@@ -357,7 +357,7 @@ pub fn render_test_file(
         if !additional_imports.is_empty() {
             if import_modules.is_empty() {
                 let imports_str = additional_imports.join(", ");
-                import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
+                import_modules = format!("import {{ {imports_str} }} from \"{pkg_name}\";");
             } else {
                 // Append to existing imports
                 let existing_import_start = "import { ".len();
@@ -368,7 +368,7 @@ pub fn render_test_file(
                     all_imports.push(imp);
                 }
                 let imports_str = all_imports.join(", ");
-                import_modules = format!("import {{ {imports_str} }} from '{pkg_name}';");
+                import_modules = format!("import {{ {imports_str} }} from \"{pkg_name}\";");
             }
         }
     }

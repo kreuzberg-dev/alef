@@ -12,18 +12,23 @@
 #}
 {{ header }}
 {{ import_vitest }}
-{%- if import_modules %}
+{% if import_modules %}
 {{ import_modules }}
-{%- endif %}
-{%- if import_node_fs %}
+{% endif %}
+{% if import_node_fs %}
 {{ import_node_fs }}
-{%- endif %}
+{% endif %}
+{% if helper_functions %}
 
 {{ helper_functions }}
+{% endif %}
 
-describe('{{ category }}', () => {
-{%- if cache_isolation_setup %}
+describe("{{ category }}", () => {
+{% if cache_isolation_setup %}
 {{ cache_isolation_setup }}
-{%- endif %}
+{% endif %}
+{% if fixtures_body %}
+
 {{ fixtures_body }}
+{% endif %}
 });
