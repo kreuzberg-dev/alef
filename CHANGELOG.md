@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dart: fix FRB handler executor calls in generated build.rs.** FRB generates
+  code that calls `handler.executeSync()` and `handler.executeNormal()` on raw
+  callback function parameters, but these methods don't exist on function types.
+  The generated build.rs now includes a post-processing step that replaces these
+  calls with `generalizedFrbRustBinding.executeSync()` and `.executeNormal()`,
+  which are the correct entry points after FRB code generation completes.
+
 - **Elixir e2e: pass `-pa ebin` code paths when spawning the app harness.** The
   test helper was spawning the harness subprocess without the compiled library's
   beam paths on the code search path, causing module-not-found errors at runtime.
