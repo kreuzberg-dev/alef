@@ -3888,9 +3888,6 @@ fn emit_async_free_function_forwarder(
     out.push_str(&format!(
         "public func {swift_name}({sig}) async{throws_clause}{return_clause} {{\n"
     ));
-    for line in &conversion_lines {
-        out.push_str(&format!("    {line}\n"));
-    }
 
     let effective_try = if func.error_type.is_some() || return_conversion_throws {
         "try "
@@ -3906,6 +3903,9 @@ fn emit_async_free_function_forwarder(
     // For first-class DTOs, convert RustBridge.T -> T inside the closure so Swift's type
     // inference can correctly determine the closure's return type.
     // For JSON-bridged types (Vec<Vec<_>>, Map, etc.), decode the JSON-serialized result.
+    //
+    // Move parameter conversion lines (e.g., RustVec materialisation) inside the closure
+    // to avoid capturing non-Sendable types into the closure parameter in Swift 6.
     let (bridge_call, return_stmt) = match &func.return_type {
         TypeRef::Named(name) if known_dto_names.contains(name) => {
             let struct_name = swift_ident(name);
@@ -3932,6 +3932,11 @@ fn emit_async_free_function_forwarder(
     out.push_str(&format!(
         "    return {effective_try}await Task.detached(priority: .userInitiated) {{\n"
     ));
+
+    // Emit conversion lines inside the closure to avoid capturing non-Sendable RustVec objects
+    for line in &conversion_lines {
+        out.push_str(&format!("        {line}\n"));
+    }
 
     if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
         out.push_str(&format!("        let _rb_obj = {bridge_call}\n"));

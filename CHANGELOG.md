@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: move parameter conversions inside Task.detached closure to fix Swift 6 strict-concurrency sending warning.**
+  Async forwarders (e.g., `batchExtractFiles`) were materializing RustVec<T> objects outside the Task.detached
+  closure, causing them to be captured into the `sending` closure parameter. Under Swift 6 strict concurrency,
+  the compiler rejects capturing non-Sendable types (like RustVec). Fix: move all parameter conversion lines
+  (including RustVec materialization) inside the closure body. The closure still captures the original Swift
+  input parameters (which are Sendable), but the RustVec is now created inside the closure and never crossed
+  the sending boundary.
+
 - **C# e2e: strip type syntax from path parameter names.** `extract_path_param_names`
   now splits on `:` so patterns like `{id:uuid}` produce a valid C# identifier `id`
   instead of `id:uuid`. Follow-up to the variable-emission fix.
