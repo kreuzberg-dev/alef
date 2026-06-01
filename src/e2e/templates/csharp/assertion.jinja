@@ -88,7 +88,11 @@
 {% elif assertion_type == "count_min" -%}
         Assert.True({{ field_expr }}.Count >= {{ n }}, "expected at least {{ n }} elements");
 {% elif assertion_type == "count_equals" -%}
+{% if n == 0 -%}
+        Assert.Empty({{ field_expr }});
+{% else -%}
         Assert.Equal({{ n }}, {{ field_expr }}.Count);
+{% endif -%}
 {% elif assertion_type == "is_true" -%}
         Assert.True({{ field_expr }});
 {% elif assertion_type == "is_false" -%}

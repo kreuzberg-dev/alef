@@ -67,7 +67,19 @@
 {% if is_trait_bridge %}
         // Trait bridge registration: Bridge.Register() is self-contained and already
         // performs native registration internally — invoke it directly, discard the result.
-        {{ call_expr }};
+        // Wrap in try/finally so the bridge unregister always runs and the per-test
+        // registration does not leak into subsequent tests (e.g. displacing the host's
+        // default backend impl in suites that depend on it).
+        try
+        {
+            {{ call_expr }};
+        }
+        finally
+        {
+{% for line in teardown_lines %}
+            {{ line }}
+{% endfor %}
+        }
 {% elif is_streaming %}
         await foreach (var item in {{ call_target }}.{{ call_expr }})
         {
