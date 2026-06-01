@@ -27,7 +27,9 @@ def test_{{ fn_name }}() -> None:
     url = f"{base}{{ path }}"
     _headers = {{ headers_py }}
 {% if has_body %}
-{% if is_form_body and body_is_string %}
+{% if is_multipart %}
+    _body = {{ body_py }}
+{% elif is_form_body and body_is_string %}
     _body = ({{ body_py }}).encode()
 {% else %}
     import json  # noqa: PLC0415
