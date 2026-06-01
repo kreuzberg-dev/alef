@@ -248,6 +248,28 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
             &streaming_return_types,
         ));
     }
+
+    // Service entrypoints are registered as `service::{service_snake}_{method}`
+    // pyfunctions by methods.rs at module-init time. Their stubs are not in
+    // `api.functions` because they're emitted from `api.services`, so declare
+    // them here so mypy can resolve the `_native.{name}` call sites that the
+    // generated service.py wrapper produces.
+    {
+        use heck::ToSnakeCase as _;
+        for service in &api.services {
+            let service_snake = service.name.to_snake_case();
+            for ep in &service.entrypoints {
+                let func_name = format!("{service_snake}_{}", ep.method);
+                let return_annot = match &ep.return_type {
+                    TypeRef::Unit => "None".to_string(),
+                    _ => "Any".to_string(),
+                };
+                body_lines.push(format!(
+                    "def {func_name}(registrations: list[Any]) -> {return_annot}: ..."
+                ));
+            }
+        }
+    }
     for bridge in trait_bridges {
         if let Some(register_fn) = bridge.register_fn.as_deref() {
             body_lines.push(format!("def {register_fn}(backend: object) -> None: ..."));
