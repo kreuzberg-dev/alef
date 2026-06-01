@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Swift: emit `Swift{Trait}Box` classes for FunctionParam bridges + `SwiftPluginHelpers.swift`.**
+  Alef now generates one `Swift{Trait}Box.swift` file per FunctionParam plugin trait in
+  `Sources/RustBridge/`, plus a shared `SwiftPluginHelpers.swift` containing the JSON
+  envelope helpers (`InboundEnvelope`, `encodeOkVoidEnvelope`, `encodeOkEnvelope`,
+  `encodeErrEnvelope`, `decodeJson`). Each Box wraps `any Swift{Trait}Bridge` and exposes
+  `alef_*` FFI shim methods (both trait-specific and Plugin super-trait: `name`, `version`,
+  `initialize`, `shutdown`) using the Phase B `swift_shim_*` helpers for precise per-type
+  marshaling. Replaces the previously hand-authored `Plugins.swift` in kreuzberg's swift binding.
+
 ### Fixed
 
 - **e2e/python: thread fixture `handler.middleware.{name}` through app_harness as `RouteBuilder.{name}()` calls.** Generic middleware passthrough — no per-middleware special-casing. `build_middleware_value` normalises CORS field names (`allow_*` → `allowed_*`) to match the binding's `CorsConfig.from_json()` contract; other middleware pass through unchanged. The harness template walks the `middleware` dict and dispatches each entry via a name→(ConfigClass, builder_method) table.
