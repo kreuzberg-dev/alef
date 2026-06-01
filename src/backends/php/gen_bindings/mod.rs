@@ -1960,12 +1960,17 @@ fn gen_php_opaque_class_file(
             .iter()
             .enumerate()
             .map(|(idx, p)| {
-                // Check if this parameter is a handler contract with a generic type.
-                // If so, use the concrete handler contract name instead.
-                let ptype = if let Some(contract_name) =
-                    handler_contract_map.get(&(typ.name.clone(), method_name.clone(), p.name.clone()))
+                // PHP has no first-class function-type declarations, so a handler
+                // contract that resolves to a callback at the host-language layer
+                // can't be referenced by a Rust-side class name (ext-php-rs accepts
+                // `callable` for closures passed through Zval). Emit `callable`
+                // whenever the handler-contract map identifies this parameter as a
+                // contract; phpstan would otherwise flag the phantom class as
+                // `class.notFound`.
+                let ptype = if handler_contract_map
+                    .contains_key(&(typ.name.clone(), method_name.clone(), p.name.clone()))
                 {
-                    contract_name.clone()
+                    "callable".to_owned()
                 } else {
                     php_type(&p.ty)
                 };
