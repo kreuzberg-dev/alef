@@ -18,6 +18,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/python: send raw `application/x-www-form-urlencoded` bodies as bytes instead of JSON-encoding them.**
+  When a fixture's `request.headers["Content-Type"]` is `application/x-www-form-urlencoded` and the
+  fixture body is a JSON string (the canonical fixture shape for form payloads), the generator now
+  emits `_body = ("…").encode()` rather than `_body = json.dumps("…").encode()` (which produced a
+  JSON-quoted string body the server could not decode). JSON-bodied fixtures continue to use
+  `json.dumps` with the `application/json` content-type default.
+  (`src/e2e/codegen/python/http.rs`, `src/e2e/templates/python/http_test.jinja`)
+
 - **e2e/client `render_http_test` unit test: stop double-namespacing the fixture path.**
   The shared HTTP-test driver prefixes `/fixtures/{fixture.id}` onto `handler.route` already, so
   the test fixture must supply an empty (relative) handler route. Previously the test pre-populated
