@@ -479,9 +479,34 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
     }
 
+    // Detect content-type so the renderer can decide between JSON-encoded and
+    // raw (form-urlencoded / multipart) body emission.
+    let content_type_lower = http
+        .request
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.to_ascii_lowercase())
+        .unwrap_or_default();
+    let is_form_body = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| {
+            t.eq_ignore_ascii_case("application/x-www-form-urlencoded")
+                || t.eq_ignore_ascii_case("multipart/form-data")
+        });
+
     if let Some(body) = &http.request.body {
         let js_body = json_to_js(body);
-        init_entries.push(format!("body: JSON.stringify({js_body})"));
+        let body_is_string = matches!(body, serde_json::Value::String(_));
+        if is_form_body && body_is_string {
+            // For form-encoded payloads, emit the raw string without JSON.stringify.
+            init_entries.push(format!("body: {js_body}"));
+        } else {
+            // For JSON payloads, wrap in JSON.stringify.
+            init_entries.push(format!("body: JSON.stringify({js_body})"));
+        }
     }
 
     let init_str = init_entries.join(", ");
