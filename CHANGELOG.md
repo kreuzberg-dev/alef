@@ -18,6 +18,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e: register 4 unbundled harness templates in `template_env.rs`.**
+  `csharp/app_harness.cs.jinja`, `java/harness_main.jinja`, `elixir/test_helper_server.exs.jinja`,
+  and `php/app_harness.php.jinja` had been added to the templates directory but never bundled
+  into the renderer registry, causing `template <lang>/<file> not found` panics at e2e generation
+  time for downstream consumers. (`src/e2e/template_env.rs`)
+
 - **Codegen: make `TypeRef::Json` opaque-delegatable so value-parsing setters auto-route.**
   `is_opaque_delegatable_type` previously returned `false` for `TypeRef::Json`, forcing methods
   whose core signature is `fn(&self, value: serde_json::Value) -> Self` to fall through to the

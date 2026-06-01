@@ -122,6 +122,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "php/synthetic_assertion.jinja",
         include_str!("templates/php/synthetic_assertion.jinja"),
     ),
+    (
+        "php/app_harness.php.jinja",
+        include_str!("templates/php/app_harness.php.jinja"),
+    ),
     ("csharp/csproj.jinja", include_str!("templates/csharp/csproj.jinja")),
     (
         "csharp/assertion.jinja",
@@ -154,6 +158,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "csharp/http_test_body.jinja",
         include_str!("templates/csharp/http_test_body.jinja"),
+    ),
+    (
+        "csharp/app_harness.cs.jinja",
+        include_str!("templates/csharp/app_harness.cs.jinja"),
     ),
     ("java/pom.xml.jinja", include_str!("templates/java/pom.xml.jinja")),
     ("java/test_file.jinja", include_str!("templates/java/test_file.jinja")),
@@ -189,6 +197,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "java/synthetic_assertion.jinja",
         include_str!("templates/java/synthetic_assertion.jinja"),
+    ),
+    (
+        "java/harness_main.jinja",
+        include_str!("templates/java/harness_main.jinja"),
     ),
     (
         "typescript/package.json.jinja",
@@ -269,6 +281,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "elixir/app_harness.exs.jinja",
         include_str!("templates/elixir/app_harness.exs.jinja"),
+    ),
+    (
+        "elixir/test_helper_server.exs.jinja",
+        include_str!("templates/elixir/test_helper_server.exs.jinja"),
     ),
     (
         "dart/app_harness.dart.jinja",
