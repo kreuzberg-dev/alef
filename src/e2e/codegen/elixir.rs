@@ -794,7 +794,7 @@ impl<'a> client::TestClientRenderer for ElixirTestClientRenderer<'a> {
         let fixture_id = escape_elixir(self.fixture_id);
         // Use SUT_URL if available (server-pattern), else fall back to mock_server_url() (mock-pattern)
         let sut_url_expr = "System.get_env(\"SUT_URL\") || mock_server_url()";
-        let url_expr = format!("({{ {sut_url_expr} }}) <> \"/fixtures/{fixture_id}\"");
+        let url_expr = format!("({sut_url_expr}) <> \"/fixtures/{fixture_id}\"");
 
         if REQ_CONVENIENCE_METHODS.contains(&method.as_str()) {
             // `opts` always carries at least the HTTP/1 protocol option.
