@@ -3549,15 +3549,12 @@ pub fn emit_test_backend(
             _ => defaults.emit_default(&method.return_type),
         };
 
-        if method.is_async && method.error_type.is_some() {
+        // NOTE: Swift trait bridge methods are always sync (no async), even if the Rust trait
+        // declares async. The adapter/bridge layer handles async-to-sync conversion.
+        if method.error_type.is_some() {
             let _ = writeln!(
                 setup,
-                "    func {method_name}({params_str}) async throws -> {return_type} {{ {default_val} }}"
-            );
-        } else if method.is_async {
-            let _ = writeln!(
-                setup,
-                "    func {method_name}({params_str}) async -> {return_type} {{ {default_val} }}"
+                "    func {method_name}({params_str}) throws -> {return_type} {{ {default_val} }}"
             );
         } else {
             let _ = writeln!(
