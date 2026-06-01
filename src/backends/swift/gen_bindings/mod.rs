@@ -483,7 +483,15 @@ impl Backend for SwiftBackend {
         }
 
         // Emit Swift{Trait}Box.swift and SwiftPluginHelpers.swift for every FunctionParam bridge.
-        for box_file in emit_function_param_box_files(api, config, &rust_bridge_sources) {
+        // Need the augmented excluded-types set so Box methods passthrough excluded Named types
+        // (e.g. InternalDocument) as String instead of trying to JSONDecode them.
+        let mut box_exclude_types = exclude_types.clone();
+        box_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+        // Also: trait_bridge.rs hard-excludes ExtractionResult + InternalDocument in bridge
+        // protocols. Mirror that here so the Box agrees with the bridge protocol signature.
+        box_exclude_types.insert("ExtractionResult".to_string());
+        box_exclude_types.insert("InternalDocument".to_string());
+        for box_file in emit_function_param_box_files(api, config, &rust_bridge_sources, &box_exclude_types) {
             files.push(box_file);
         }
 
@@ -4596,6 +4604,7 @@ fn emit_function_param_box_files(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     rust_bridge_dir: &std::path::Path,
+    excluded_types: &std::collections::HashSet<String>,
 ) -> Vec<GeneratedFile> {
     use crate::backends::swift::gen_bindings::plugin_marshal::{
         swift_shim_param_ffi_type, swift_shim_param_decode, swift_shim_return_ffi_type,
@@ -4615,7 +4624,10 @@ import RustBridgeC
 
 /// JSON envelope for Box method returns. Carries `Ok(T)` as `{"ok": <serialised T>}`
 /// and `Err(String)` as `{"err": "<message>"}`.
-private enum InboundEnvelope<T: Encodable>: Encodable {
+///
+/// Visibility is `internal` (default) — sibling Box files in the same `RustBridge` SwiftPM
+/// target call these helpers. `private` would scope them file-local and break that.
+enum InboundEnvelope<T: Encodable>: Encodable {
   case ok(T)
   case err(String)
 
@@ -4631,12 +4643,12 @@ private enum InboundEnvelope<T: Encodable>: Encodable {
 }
 
 /// Encode a successful `()` result as `{"ok":null}`.
-private func encodeOkVoidEnvelope() -> RustString {
+func encodeOkVoidEnvelope() -> RustString {
   return RustString("{\"ok\":null}")
 }
 
 /// Encode a successful `T: Encodable` result as `{"ok": <T>}`.
-private func encodeOkEnvelope<T: Encodable>(_ value: T) -> RustString {
+func encodeOkEnvelope<T: Encodable>(_ value: T) -> RustString {
   do {
     let payload = InboundEnvelope.ok(value)
     let data = try JSONEncoder().encode(payload)
@@ -4648,14 +4660,14 @@ private func encodeOkEnvelope<T: Encodable>(_ value: T) -> RustString {
 }
 
 /// Encode a failure as `{"err": "<message>"}`.
-private func encodeErrEnvelope(_ message: String) -> RustString {
+func encodeErrEnvelope(_ message: String) -> RustString {
   let escaped = message.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(
     of: "\"", with: "\\\"")
   return RustString("{\"err\":\"\(escaped)\"}")
 }
 
 /// Decode a JSON-encoded payload into a `Decodable` type.
-private func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
+func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
   let data = json.data(using: .utf8) ?? Data()
   return try JSONDecoder().decode(type, from: data)
 }
@@ -4766,7 +4778,7 @@ private func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws ->
 
             for param in &method.params {
                 let param_camel = swift_ident(&param.name.to_lower_camel_case());
-                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional);
+                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional, excluded_types);
                 setup_lines.extend(decode.setup);
                 call_args.push(format!("{}: {}", param.name.to_lower_camel_case(), decode.expr));
             }
@@ -5129,7 +5141,7 @@ fn append_rust_string_ref_to_string_extension(content: &str) -> String {
 }
 
 /// Promote `var ptr: UnsafeMutableRawPointer` to `public var ptr:` on swift-bridge-emitted
-/// `Ref` classes so cross-module callers (alef-emitted `Sources/Kreuzberg/Kreuzberg.swift`)
+/// `Ref` classes so cross-module callers (alef-emitted `Sources/<Module>/<Module>.swift`)
 /// can read `ref.ptr` when round-tripping opaque handles through `RustBridge.<T>(ptr:)`.
 /// swift-bridge defaults `ptr` to internal access, which works only within the same SwiftPM
 /// target; alef splits the binding across `RustBridge` and the user-facing module, so the

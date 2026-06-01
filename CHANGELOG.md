@@ -20,6 +20,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: passthrough excluded `Named` types in plugin Box decode + drop `private` on
+  envelope helpers.** Two follow-up fixes for the FunctionParam Box generation that surfaced
+  on the first kreuzberg regen:
+    1. `swift_shim_param_decode` now takes an `excluded_types: &HashSet<String>` set. When a
+       `TypeRef::Named(T)` parameter is in the excluded set (e.g. `InternalDocument`,
+       `ExtractionResult`), the helper emits a passthrough `param.toString()` instead of a
+       `try JSONDecoder().decode(T.self, ...)` — matching the bridge protocol, which exposes
+       excluded types as `String` at the boundary. Otherwise the generated Box failed to
+       compile (`InternalDocument` is not Decodable).
+    2. `SwiftPluginHelpers.swift` helpers (`InboundEnvelope`, `encodeOkVoidEnvelope`,
+       `encodeOkEnvelope<T>`, `encodeErrEnvelope`, `decodeJson<T>`) now emit as `internal`
+       (default visibility) instead of `private`. `private` is file-scoped in Swift; sibling
+       Box files in the same `RustBridge` SwiftPM target need at least module-level visibility
+       to call them.
+
+- **napi: emit `service.js` alongside `service.ts` + add post-build patch hooks for `.d.ts` formatting.**
+  The Node binding's native `JsApp` class has only a static factory `new()` (no `#[napi(constructor)]`),
+  so JavaScript callers doing `new App()` previously crashed with `Class contains no constructor`.
+  The richer wrapper at `service.ts` (constructor + 8 verb decorators + `run` wiring) was orphaned —
+  index.js exported the native `App` directly. The napi service generator now emits a pre-transpiled
+  `service.js` next to `index.js` so downstream consumers can ship an `index-wrapper.js` re-exporting
+  the wrapper. (`src/backends/napi/gen_bindings/mod.rs`, `service_api.rs`)
+
+- **pyo3: qualify free-function return types with `_rust.` when `is_return_type`.** Native-module-resident
+  types must be annotated `_rust.{Type}` in `.pyi` stubs because they live in the native binding,
+  not the userland `options.py`. Without the prefix, mypy reports `Name "Type" is not defined`
+  on the generated `packages/python/spikard/api.py` for `schema_query_only()`, `schema_query_mutation()`,
+  `schema_full()` and similar accessors. Handles both `TypeRef::Named` and `TypeRef::Optional<Named>`
+  return shapes. (`src/backends/pyo3/gen_bindings/functions.rs`)
+
+- **php: thread service handler contract names into opaque stub generation.** Builds a
+  `(service_owner, method, callback_param) → callback_contract` map in `Backend::generate_bindings`
+  and threads it into the opaque-stub emitter so service handler parameters with generic type
+  names (e.g. `H`) resolve to their concrete callback contract types. Required for the userland
+  stubs to type-check independently of the native extension at install time.
+  (`src/backends/php/gen_bindings/mod.rs`)
+
 - **Swift: emit `public` access on swift-bridge `Ref` class `ptr` property.** New
   `make_swift_bridge_ref_ptr_public` post-processor in `emit_swift_bridge_files` promotes
   `var ptr: UnsafeMutableRawPointer` to `public var ptr:` on every emitted `Ref` class. Required
