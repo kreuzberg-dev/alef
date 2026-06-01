@@ -17,46 +17,52 @@
    - skip_reason: optional string reason for skipping the test
 #}
 {%- if skip_reason %}
-  it.skip('{{ test_name }}: {{ description }}', () => {
-    // {{ skip_reason }}
-  });
+	it.skip("{{ test_name }}: {{ description }}", () => {
+		// {{ skip_reason }}
+	});
 {%- elif expects_error %}
-  it('{{ test_name }}: {{ description }}', async () => {
-{%- if client_setup %}
-    {{ client_setup }}
-{%- endif %}
-    await expect(async () => {
-{%- for line in setup_lines %}
-      {{ line }}
-{%- endfor %}
-{%- if is_streaming_error_call %}
-      const _stream = await {{ call_expr }};
-{%- if lang == "wasm" %}
-      while (true) { const _ = await _stream.next(); if (_ == null) break; /* drain to surface HTTP errors */ }
+	it("{{ test_name }}: {{ description }}", async () => {
+{% if client_setup %}
+		{{ client_setup }}
+{% endif %}
+		await expect(async () => {
+{% for line in setup_lines %}
+			{{ line }}
+{% endfor %}
+{% if is_streaming_error_call %}
+			const _stream = await {{ call_expr }};
+{% if lang == "wasm" %}
+			while (true) {
+				const _ = await _stream.next();
+				if (_ == null) break;
+				/* drain to surface HTTP errors */
+			}
+{% else %}
+			for await (const _ of _stream) {
+				/* drain to surface HTTP errors */
+			}
+{% endif %}
+{% else %}
+			await {{ call_expr }};
+{% endif %}
+		}).rejects.toThrow();
+	}, {{ timeout_ms }});
 {%- else %}
-      for await (const _ of _stream) { /* drain to surface HTTP errors */ }
-{%- endif %}
-{%- else %}
-      await {{ call_expr }};
-{%- endif %}
-    }).rejects.toThrow();
-  }, {{ timeout_ms }});
-{%- else %}
-  it('{{ test_name }}: {{ description }}', {{ async_kw }}() => {
-{%- if client_setup %}
-    {{ client_setup }}
-{%- endif %}
-{%- for line in setup_lines %}
-    {{ line }}
-{%- endfor %}
-{%- if has_usable_assertion %}
-    const {{ result_var }} = {{ await_kw }}{{ call_expr }};
-{%- else %}
-    {{ await_kw }}{{ call_expr }};
-{%- endif %}
-{%- if collect_snippet %}
-    {{ collect_snippet }}
-{%- endif %}
+	it("{{ test_name }}: {{ description }}", {{ async_kw }}() => {
+{% if client_setup %}
+		{{ client_setup }}
+{% endif %}
+{% for line in setup_lines %}
+		{{ line }}
+{% endfor %}
+{% if has_usable_assertion %}
+		const {{ result_var }} = {{ await_kw }}{{ call_expr }};
+{% else %}
+		{{ await_kw }}{{ call_expr }};
+{% endif %}
+{% if collect_snippet %}
+		{{ collect_snippet }}
+{% endif %}
 {{ assertions_body }}
-  }, {{ timeout_ms }});
+	}, {{ timeout_ms }});
 {%- endif %}

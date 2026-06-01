@@ -109,7 +109,10 @@ fn wasm_codegen_emits_extract_file_call_for_non_http_fixture() {
         "expected import from wasm package 'mylib-wasm', got:\n{body}"
     );
     // describe() block is for the right category and contains the fixture id.
-    assert!(body.contains("describe('smoke'"), "missing describe block");
+    assert!(
+        body.contains("describe('smoke'") || body.contains("describe(\"smoke\""),
+        "missing describe block"
+    );
     assert!(body.contains("smoke_basic"), "missing fixture id");
 }
 
@@ -134,7 +137,8 @@ fn wasm_codegen_emits_setup_ts_when_file_path_args_are_used() {
         .find(|f| f.path.ends_with("vitest.config.ts"))
         .expect("vitest config emitted");
     assert!(
-        vitest.content.contains("setupFiles: ['./setup.ts']"),
+        vitest.content.contains("setupFiles: ['./setup.ts']")
+            || vitest.content.contains("setupFiles: [\"./setup.ts\"]"),
         "vitest.config.ts must wire setupFiles when setup.ts is generated, got:\n{}",
         vitest.content
     );
