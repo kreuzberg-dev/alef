@@ -18,6 +18,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java: map `TypeRef::Json` to `com.fasterxml.jackson.databind.JsonNode`.**
+  `serde_json::Value` fields (like `code_intelligence` and `structured_output`) were typed as `String`,
+  causing Jackson to fail deserializing JSON objects. Now correctly typed as `JsonNode` so Jackson
+  deserializes the raw JSON string into a proper DOM structure. Applies to both unboxed and boxed
+  type mappers.
+  (`src/backends/java/type_map.rs`)
+
 - **swift: fix `.map { try ... }` throwing closure for batch-extract operations.**
   When a function returns `Vec<Named>` and throws, the previous codegen emitted
   `return result.map { ref in ... try ... }` which fails because the closure passed to `.map`
