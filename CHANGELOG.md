@@ -31,11 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the unit test fail despite the file generator behaving correctly.
   (`src/backends/swift/gen_bindings/trait_bridge.rs`)
 
-- **java: map `TypeRef::Json` to `com.fasterxml.jackson.databind.JsonNode`.**
+- **java: map `TypeRef::Json` to `JsonNode` with correct import strategy.**
   `serde_json::Value` fields (like `code_intelligence` and `structured_output`) were typed as `String`,
   causing Jackson to fail deserializing JSON objects. Now correctly typed as `JsonNode` so Jackson
-  deserializes the raw JSON string into a proper DOM structure. Applies to both unboxed and boxed
-  type mappers.
+  deserializes the raw JSON string into a proper DOM structure. Use unqualified `JsonNode` instead of
+  fully-qualified `com.fasterxml.jackson.databind.JsonNode` so that `@Nullable` annotations appear
+  before the type name (not between package and class), which checkstyle's import linter correctly
+  recognizes as a use of the imported `JsonNode` class. Applies to both unboxed and boxed type mappers.
   (`src/backends/java/type_map.rs`)
 
 - **swift: fix `.map { try ... }` throwing closure for batch-extract operations.**
