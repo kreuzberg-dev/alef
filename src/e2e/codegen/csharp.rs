@@ -1030,6 +1030,7 @@ fn render_test_method(
         }
     }
 
+    let mut teardown_lines: Vec<String> = Vec::new();
     let (mut setup_lines, mut args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1043,6 +1044,7 @@ fn render_test_method(
         config,
         type_defs,
         visitor_class_decls,
+        &mut teardown_lines,
     );
 
     // For streaming methods with mock_url_list (batch_crawl_stream), wrap the URL list
@@ -1289,6 +1291,7 @@ fn render_test_method(
         assertions_body => assertions_body,
         is_streaming => _is_streaming,
         is_trait_bridge => is_trait_bridge_registration,
+        teardown_lines => teardown_lines.clone(),
     };
 
     let rendered = crate::e2e::template_env::render("csharp/test_method.jinja", ctx);
@@ -1366,6 +1369,7 @@ fn render_chat_stream_test_method(
         .and_then(|a| a.request_type.as_deref())
         .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
     let mut _chat_stream_class_decls: Vec<String> = Vec::new();
+    let mut _chat_stream_teardown_lines: Vec<String> = Vec::new();
     let (setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1379,6 +1383,7 @@ fn render_chat_stream_test_method(
         config,
         type_defs,
         &mut _chat_stream_class_decls,
+        &mut _chat_stream_teardown_lines,
     );
 
     let client_factory = cs_overrides.and_then(|o| o.client_factory.as_deref()).or_else(|| {
@@ -1695,6 +1700,7 @@ fn build_args_and_setup(
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
     class_decls: &mut Vec<String>,
+    teardown_lines: &mut Vec<String>,
 ) -> (Vec<String>, String) {
     let fixture_id = &fixture.id;
     if args.is_empty() {
@@ -1859,6 +1865,9 @@ fn build_args_and_setup(
                     // scope in C#, not inside the method body.
                     class_decls.push(emission.setup_block);
                     parts.push(emission.arg_expr);
+                    if !emission.teardown_block.is_empty() {
+                        teardown_lines.push(emission.teardown_block);
+                    }
                     continue;
                 }
             }
@@ -3937,11 +3946,21 @@ pub fn emit_test_backend(
     // overloads (derived from reg_fn name) return IntPtr and are not the public API.
     let arg_expr = format!("{}Bridge.Register(new {}())", trait_pascal, stub_class);
 
+    // Teardown: each trait-bridge registration leaks into the kreuzberg-core registry
+    // and pollutes subsequent tests in the same xUnit test run (e.g. registering an
+    // OCR backend named "register_ocr_backend_trait_bridge" displaces the default
+    // tesseract backend used by SmokeTests). Emit a cleanup unregister keyed by the
+    // stub's Name property — same value we wrote into the stub above.
+    let escaped_plugin_name = plugin_name.replace('\\', "\\\\").replace('"', "\\\"");
+    let teardown_block = format!(
+        "KreuzbergLib.Unregister{trait_pascal}(\"{escaped_plugin_name}\");"
+    );
+
     super::TestBackendEmission {
         setup_block: setup,
         arg_expr,
         type_imports: Vec::new(),
-        teardown_block: String::new(),
+        teardown_block,
     }
 }
 

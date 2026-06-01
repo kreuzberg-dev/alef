@@ -557,17 +557,18 @@ fn gen_registration_variant(
                     param_name: _,
                     value_expr,
                 } => {
-                    // value_expr is e.g. "mylib::Method::GET". Convert the
+                    // value_expr is e.g. "mylib::Method::Connect". Convert the
                     // Rust enum path to swift-bridge's mirrored access:
-                    // "mylib::Method::GET" → "RustBridge.Method.get".
+                    // "mylib::Method::Connect" → "RustBridge.Method.Connect".
+                    // The variant case is preserved (not lowercased) because
+                    // swift-bridge mirrors enum variants with their original Rust case.
                     if let Some(last_colon) = value_expr.rfind("::") {
                         let enum_variant = &value_expr[last_colon + 2..];
-                        let swift_variant = enum_variant.to_lowercase();
                         if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
                             let type_name = &value_expr[second_colon + 2..last_colon];
-                            format!("RustBridge.{type_name}.{swift_variant}")
+                            format!("RustBridge.{type_name}.{enum_variant}")
                         } else {
-                            format!("RustBridge.{swift_variant}")
+                            format!("RustBridge.{enum_variant}")
                         }
                     } else {
                         value_expr.clone()
