@@ -162,14 +162,8 @@ pub(crate) fn marshal_param_to_ffi(
             ));
         }
         TypeRef::Json => {
-            let cname = "c".to_string() + name;
-            out.push_str(&crate::backends::java::template_env::render(
-                "marshal_json.jinja",
-                minijinja::context! {
-                    cname => &cname,
-                    name => name,
-                },
-            ));
+            // Object (polymorphic JSON) does not require marshalling.
+            // Pass through directly.
         }
         TypeRef::Path => {
             let cname = "c".to_string() + name;
@@ -231,14 +225,8 @@ pub(crate) fn marshal_param_to_ffi(
                     ));
                 }
                 TypeRef::Json => {
-                    let cname = "c".to_string() + name;
-                    out.push_str(&crate::backends::java::template_env::render(
-                        "marshal_optional_json.jinja",
-                        minijinja::context! {
-                            cname => &cname,
-                            name => name,
-                        },
-                    ));
+                    // Optional<Object> (polymorphic JSON) does not require marshalling.
+                    // Pass through directly.
                 }
                 TypeRef::Path => {
                     let cname = "c".to_string() + name;
@@ -376,12 +364,20 @@ pub(crate) fn ffi_param_args(name: &str, ty: &TypeRef, _opaque_types: &AHashSet<
             let cname = "c".to_string() + name;
             vec![cname.clone(), format!("{}Len", cname)]
         }
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => vec!["c".to_string() + name],
+        TypeRef::String | TypeRef::Char | TypeRef::Path => vec!["c".to_string() + name],
+        TypeRef::Json => {
+            // Object (polymorphic JSON) passed directly without marshalling.
+            vec![name.to_string()]
+        }
         TypeRef::Named(_) => vec!["c".to_string() + name],
         TypeRef::Vec(_) | TypeRef::Map(_, _) => vec!["c".to_string() + name],
         TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json | TypeRef::Named(_) => {
+            TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Named(_) => {
                 vec!["c".to_string() + name]
+            }
+            TypeRef::Json => {
+                // Optional<Object> passed directly without marshalling.
+                vec![name.to_string()]
             }
             // Optional primitives are unwrapped via a `c<Name>` local that coerces null → 0/false
             // (see marshal_param_to_ffi). Reference that local instead of the raw boxed parameter
