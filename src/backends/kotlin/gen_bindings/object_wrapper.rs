@@ -291,34 +291,50 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
             // when the Rust source uses `#[serde(rename_all = "snake_case")]`
             // or per-variant `#[serde(rename = "...")]`.
             let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            let comma = if idx + 1 == names.len() { ";" } else { "," };
+
             if discriminator != *name {
-                out.push_str(&format!(
-                    "    @com.fasterxml.jackson.annotation.JsonProperty(\"{}\")\n",
+                // Format: annotation + variant, optionally on a single line if it fits
+                let annotation = format!(
+                    "@com.fasterxml.jackson.annotation.JsonProperty(\"{}\")",
                     escape_kotlin_string(&discriminator)
+                );
+                let variant_line = format!("{}{}", name, comma);
+                let total_length = 4 + annotation.len() + 1 + variant_line.len(); // 4 indent, space sep
+
+                if total_length <= KTFMT_LINE_WIDTH {
+                    // Fit on single line: "    @annotation VariantName,"
+                    out.push_str(&format!("    {} {}\n", annotation, variant_line));
+                } else {
+                    // Multi-line: annotation on one line, variant on the next
+                    out.push_str(&format!("    {}\n", annotation));
+                    out.push_str(&format!("    {}\n", variant_line));
+                }
+            } else {
+                out.push_str(&crate::backends::kotlin::template_env::render(
+                    "enum_variant.jinja",
+                    minijinja::context! {
+                        name => name,
+                        comma => comma,
+                    },
                 ));
             }
-            let comma = if idx + 1 == names.len() { ";" } else { "," };
-            out.push_str(&crate::backends::kotlin::template_env::render(
-                "enum_variant.jinja",
-                minijinja::context! {
-                    name => name,
-                    comma => comma,
-                },
-            ));
         }
 
         // Emit @JsonValue method for serialization
+        // ktfmt wants "when" on a new line for expression-bodied functions, even if it would fit
         out.push_str("\n    @com.fasterxml.jackson.annotation.JsonValue\n");
-        out.push_str("    fun toWire(): String = when (this) {\n");
+        out.push_str("    fun toWire(): String =\n");
+        out.push_str("        when (this) {\n");
         for (idx, name) in names.iter().enumerate() {
             let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
             out.push_str(&format!(
-                "        {} -> \"{}\"\n",
+                "            {} -> \"{}\"\n",
                 name,
                 escape_kotlin_string(&discriminator)
             ));
         }
-        out.push_str("    }\n");
+        out.push_str("        }\n");
 
         // Emit @JsonCreator companion object method for deserialization
         out.push_str("\n    companion object {\n");
@@ -326,7 +342,8 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         out.push_str("        @JvmStatic\n");
         out.push_str("        fun fromWire(value: String): ");
         out.push_str(&en.name);
-        out.push_str(" = when (value) {\n");
+        out.push_str(" =\n");
+        out.push_str("            when (value) {\n");
         for (idx, name) in names.iter().enumerate() {
             let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
             let discriminator_lower = discriminator.to_lowercase();
@@ -337,24 +354,28 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
                 // the JSON boundary may be lowercase even when alef's IR sees the raw
                 // PascalCase variant name. Matching both keeps the binding robust against
                 // either convention without forcing the core to add #[serde(rename_all)].
+                // Emit each match value on its own line per ktfmt's multi-value arm formatting
                 out.push_str(&format!(
-                    "            \"{}\", \"{}\" -> {}\n",
-                    escape_kotlin_string(&discriminator),
+                    "                \"{}\",\n",
+                    escape_kotlin_string(&discriminator)
+                ));
+                out.push_str(&format!(
+                    "                \"{}\" -> {}\n",
                     escape_kotlin_string(&discriminator_lower),
                     name
                 ));
             } else {
                 out.push_str(&format!(
-                    "            \"{}\" -> {}\n",
+                    "                \"{}\" -> {}\n",
                     escape_kotlin_string(&discriminator),
                     name
                 ));
             }
         }
-        out.push_str("            else -> throw IllegalArgumentException(\"Unknown ");
+        out.push_str("                else -> throw IllegalArgumentException(\"Unknown ");
         out.push_str(&en.name);
         out.push_str(" value: $value\")\n");
-        out.push_str("        }\n");
+        out.push_str("            }\n");
         out.push_str("    }\n");
 
         out.push_str("}\n");

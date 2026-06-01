@@ -30,25 +30,27 @@ package dev.sample_crate
 /** Processing status. */
 enum class Status {
     /** Active state. */
-    @com.fasterxml.jackson.annotation.JsonProperty("Active")
-    ACTIVE,
+    @com.fasterxml.jackson.annotation.JsonProperty("Active") ACTIVE,
     /** Inactive state. */
-    @com.fasterxml.jackson.annotation.JsonProperty("Inactive")
-    INACTIVE;
+    @com.fasterxml.jackson.annotation.JsonProperty("Inactive") INACTIVE;
 
     @com.fasterxml.jackson.annotation.JsonValue
-    fun toWire(): String = when (this) {
-        ACTIVE -> "Active"
-        INACTIVE -> "Inactive"
-    }
+    fun toWire(): String =
+        when (this) {
+            ACTIVE -> "Active"
+            INACTIVE -> "Inactive"
+        }
 
     companion object {
         @com.fasterxml.jackson.annotation.JsonCreator
         @JvmStatic
-        fun fromWire(value: String): Status = when (value) {
-            "Active", "active" -> ACTIVE
-            "Inactive", "inactive" -> INACTIVE
-            else -> throw IllegalArgumentException("Unknown Status value: $value")
-        }
+        fun fromWire(value: String): Status =
+            when (value) {
+                "Active",
+                "active" -> ACTIVE
+                "Inactive",
+                "inactive" -> INACTIVE
+                else -> throw IllegalArgumentException("Unknown Status value: $value")
+            }
     }
 }
