@@ -105,8 +105,11 @@ fn test_trait_bridge_sync_method() {
     let bridges = vec![("DocumentExtractor".to_string(), &bridge_cfg, &trait_def)];
     let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
-    assert_eq!(files.len(), 1);
-    let (filename, content) = &files[0];
+    // Two files now: the `SwiftPluginBridge.swift` super-protocol and the
+    // per-trait bridge file (commit 23a58ff9e — drop async from trait bridge).
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].0, "SwiftPluginBridge.swift");
+    let (filename, content) = &files[1];
 
     assert_eq!(filename, "SwiftDocumentExtractorBridge.swift");
     assert!(content.contains("protocol SwiftDocumentExtractorBridge"));
@@ -132,8 +135,9 @@ fn test_trait_bridge_async_method() {
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
     let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
-    assert_eq!(files.len(), 1);
-    let (filename, content) = &files[0];
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].0, "SwiftPluginBridge.swift");
+    let (filename, content) = &files[1];
 
     assert_eq!(filename, "SwiftOcrBackendBridge.swift");
     assert!(content.contains("protocol SwiftOcrBackendBridge"));
@@ -168,8 +172,9 @@ fn test_trait_bridge_multiple_methods() {
     let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];
     let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
-    assert_eq!(files.len(), 1);
-    let (filename, content) = &files[0];
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].0, "SwiftPluginBridge.swift");
+    let (filename, content) = &files[1];
 
     assert_eq!(filename, "SwiftPostProcessorBridge.swift");
     assert!(content.contains("func process"));
@@ -229,8 +234,9 @@ fn test_trait_bridge_primitive_params() {
     let bridges = vec![("Renderer".to_string(), &bridge_cfg, &trait_def)];
     let files = gen_trait_bridge_files(&bridges, &std::collections::HashSet::new());
 
-    assert_eq!(files.len(), 1);
-    let (_filename, content) = &files[0];
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].0, "SwiftPluginBridge.swift");
+    let (_filename, content) = &files[1];
 
     // Check that primitive types are properly declared in method signature
     assert!(content.contains("count: Int32"));
@@ -256,8 +262,9 @@ fn test_trait_bridge_excluded_type_return() {
     let bridges = vec![("OcrBackend".to_string(), &bridge_cfg, &trait_def)];
     let files = gen_trait_bridge_files(&bridges, &exclude_types);
 
-    assert_eq!(files.len(), 1);
-    let (_filename, content) = &files[0];
+    assert_eq!(files.len(), 2);
+    assert_eq!(files[0].0, "SwiftPluginBridge.swift");
+    let (_filename, content) = &files[1];
 
     // Protocol marshals an excluded return type as a JSON String — the native
     // struct is not visible to the Swift side, so the conformer returns JSON.
