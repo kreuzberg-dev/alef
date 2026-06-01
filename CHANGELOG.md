@@ -40,7 +40,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `shutdown() throws`). Each `Swift{Trait}Bridge` now inherits from `SwiftPluginBridge` instead of
   `AnyObject`, so implementers must provide the four lifecycle methods alongside their
   trait-specific methods. Foundation for full alef-generated `Plugins.swift` — eliminates the need
-  for a separately hand-authored Plugin super-protocol on the Swift side.
+  for a separately hand-authored Plugin super-protocol on the Swift side. Snapshot tests in
+  `tests/backends_swift_trait_bridge_snapshot.rs` updated to expect 2 files per trait bridge
+  invocation (the super-protocol + the per-trait protocol).
 
 - **Swift: drop `async` from trait bridge protocols and make them fully synchronous.**
   The `Swift{Trait}Bridge` protocol methods no longer carry `async` keywords. This aligns the bridge
