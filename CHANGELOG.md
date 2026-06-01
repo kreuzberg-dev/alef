@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **TypeScript e2e: do not wrap form-encoded request bodies in JSON.stringify.**
+  When fixture `content-type` is `application/x-www-form-urlencoded` or
+  `multipart/form-data`, emit the request body as a raw string without JSON
+  encoding. Only JSON-typed bodies receive `JSON.stringify` wrapping.
+
 - **R/extendr: JSON-bridge bare Named extendr-incompatible struct params.** Bare
   `Named` types listed in `extendr_incompatible_types` have no `#[extendr]` impl
   and therefore no `TryFrom<&Robj>` conversion — they can be neither owned nor
