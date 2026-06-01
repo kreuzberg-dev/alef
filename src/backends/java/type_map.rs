@@ -37,7 +37,8 @@ impl TypeMapper for JavaMapper {
 
     fn json(&self) -> Cow<'static, str> {
         // Raw JSON crosses the FFI as a JSON string; Jackson deserializes it into a JsonNode DOM.
-        Cow::Borrowed("com.fasterxml.jackson.databind.JsonNode")
+        // Use unqualified name so @Nullable can be placed before it (not between package and class).
+        Cow::Borrowed("JsonNode")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -126,7 +127,8 @@ impl TypeMapper for JavaBoxedMapper {
 
     fn json(&self) -> Cow<'static, str> {
         // Raw JSON is a JSON string over the FFI; Jackson deserializes it into a JsonNode DOM.
-        Cow::Borrowed("com.fasterxml.jackson.databind.JsonNode")
+        // Use unqualified name so @Nullable can be placed before it (not between package and class).
+        Cow::Borrowed("JsonNode")
     }
 
     fn unit(&self) -> Cow<'static, str> {
@@ -245,7 +247,7 @@ mod tests {
 
     #[test]
     fn java_type_json() {
-        assert_eq!(java_type(&TypeRef::Json), "com.fasterxml.jackson.databind.JsonNode");
+        assert_eq!(java_type(&TypeRef::Json), "JsonNode");
     }
 
     #[test]
