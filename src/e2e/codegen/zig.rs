@@ -861,6 +861,8 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
     fn render_call(&self, out: &mut String, ctx: &client::CallCtx<'_>) {
         let method = ctx.method.to_uppercase();
         let fixture_id = ctx.path.trim_start_matches("/fixtures/");
+        // Escape curly braces in fixture_id so they don't get interpreted as format specs by bufPrint.
+        let escaped_fixture_id = fixture_id.replace('{', "{{").replace('}', "}}");
 
         let _ = writeln!(out, "    var gpa: std.heap.DebugAllocator(.{{}}) = .init;");
         let _ = writeln!(out, "    defer _ = gpa.deinit();");
@@ -869,7 +871,7 @@ impl client::TestClientRenderer for ZigTestClientRenderer {
         let _ = writeln!(out, "    var url_buf: [512]u8 = undefined;");
         let _ = writeln!(
             out,
-            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
+            "    const url = try std.fmt.bufPrint(&url_buf, \"{{s}}/fixtures/{escaped_fixture_id}\", .{{if (std.c.getenv(\"MOCK_SERVER_URL\")) |v| std.mem.span(v) else \"http://localhost:8080\"}});"
         );
 
         // Headers
