@@ -27,9 +27,13 @@ def test_{{ fn_name }}() -> None:
     url = f"{base}{{ path }}"
     _headers = {{ headers_py }}
 {% if has_body %}
+{% if is_form_body and body_is_string %}
+    _body = ({{ body_py }}).encode()
+{% else %}
     import json  # noqa: PLC0415
     _headers.setdefault("Content-Type", "application/json")
     _body = json.dumps({{ body_py }}).encode()
+{% endif %}
     _req = urllib.request.Request(url, data=_body, headers=_headers, method="{{ method }}")
 {% else %}
     _req = urllib.request.Request(url, headers=_headers, method="{{ method }}")

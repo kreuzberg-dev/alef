@@ -47,12 +47,30 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
     let method = http.request.method.to_uppercase();
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
-    // Determine body context
-    let (has_body, body_py) = if let Some(body) = &http.request.body {
+    // Detect content-type so the renderer can decide between JSON-encoded and
+    // raw (form-urlencoded / plain text) body emission.
+    let content_type_lower = http
+        .request
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.to_ascii_lowercase())
+        .unwrap_or_default();
+    let is_form_body = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("application/x-www-form-urlencoded"));
+
+    // Determine body context. For form-urlencoded payloads the fixture body is a
+    // pre-encoded string literal that must be sent as-is (UTF-8 bytes); for JSON
+    // payloads the body is a structured value that needs to be `json.dumps`'d.
+    let (has_body, body_py, body_is_string) = if let Some(body) = &http.request.body {
         let py_body = json_to_python_literal(body);
-        (true, py_body)
+        let body_is_string = matches!(body, serde_json::Value::String(_));
+        (true, py_body, body_is_string)
     } else {
-        (false, String::new())
+        (false, String::new(), false)
     };
 
     // Determine body assertions
@@ -152,6 +170,8 @@ pub(super) fn render_http_test_function(out: &mut String, fixture: &Fixture) {
         headers_py => headers_py,
         has_body => has_body,
         body_py => body_py,
+        is_form_body => is_form_body,
+        body_is_string => body_is_string,
         expected_status => http.expected_response.status_code,
         has_text_body => has_text_body,
         text_py => text_py,
