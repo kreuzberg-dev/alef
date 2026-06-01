@@ -61,7 +61,12 @@ pub fn swift_shim_param_ffi_type(ty: &TypeRef, optional: bool) -> String {
 /// - `setup`: Vec of setup lines to emit before the bridge call (e.g., `let cfg = try JSONDecoder...`)
 /// - `expr`: The expression to pass as the bridge argument
 /// - `is_throwing`: Whether the decode itself can throw (wrapped in try/catch at call site)
-pub fn swift_shim_param_decode(param_name: &str, ty: &TypeRef, _optional: bool) -> ParamDecode {
+pub fn swift_shim_param_decode(
+    param_name: &str,
+    ty: &TypeRef,
+    _optional: bool,
+    excluded_types: &std::collections::HashSet<String>,
+) -> ParamDecode {
     match ty {
         // Primitives and simple types pass through or have direct conversion.
         TypeRef::Primitive(PrimitiveType::Bool) => ParamDecode {
@@ -133,16 +138,27 @@ pub fn swift_shim_param_decode(param_name: &str, ty: &TypeRef, _optional: bool) 
                 }
             }
         }
-        // Named types (Codable structs, enums): JSON-decode from RustString
+        // Named types (Codable structs, enums): JSON-decode from RustString — UNLESS the type
+        // is excluded from the binding surface (e.g. InternalDocument, ExtractionResult). In that
+        // case the bridge protocol exposes it as `String` and the Box just passes the RustString
+        // through as a Swift String — no JSON decode.
         TypeRef::Named(type_name) => {
-            let setup = format!(
-                "let {}_decoded = try JSONDecoder().decode({}.self, from: Data({}.toString().utf8))",
-                param_name, type_name, param_name
-            );
-            ParamDecode {
-                setup: vec![setup],
-                expr: format!("{}_decoded", param_name),
-                is_throwing: true,
+            if excluded_types.contains(type_name) {
+                ParamDecode {
+                    setup: vec![],
+                    expr: format!("{}.toString()", param_name),
+                    is_throwing: false,
+                }
+            } else {
+                let setup = format!(
+                    "let {}_decoded = try JSONDecoder().decode({}.self, from: Data({}.toString().utf8))",
+                    param_name, type_name, param_name
+                );
+                ParamDecode {
+                    setup: vec![setup],
+                    expr: format!("{}_decoded", param_name),
+                    is_throwing: true,
+                }
             }
         }
         // Character: convert to String and take first char (or empty)
@@ -165,7 +181,7 @@ pub fn swift_shim_param_decode(param_name: &str, ty: &TypeRef, _optional: bool) 
         },
         // Optional<T>: recurse and apply optional chaining or try?
         TypeRef::Optional(inner) => {
-            let inner_decode = swift_shim_param_decode(param_name, inner, false);
+            let inner_decode = swift_shim_param_decode(param_name, inner, false, excluded_types);
             if inner_decode.is_throwing {
                 // Optional of throwable: requires try? inside
                 let try_expr = format!("try? {}", inner_decode.expr);
@@ -398,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_string() {
-        let decode = swift_shim_param_decode("config", &TypeRef::String, false);
+        let decode = swift_shim_param_decode("config", &TypeRef::String, false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "config.toString()");
         assert!(!decode.is_throwing);
@@ -406,7 +422,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_bytes() {
-        let decode = swift_shim_param_decode("image_bytes", &TypeRef::Bytes, false);
+        let decode = swift_shim_param_decode("image_bytes", &TypeRef::Bytes, false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "Array(image_bytes)");
         assert!(!decode.is_throwing);
@@ -414,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_bool() {
-        let decode = swift_shim_param_decode("flag", &TypeRef::Primitive(PrimitiveType::Bool), false);
+        let decode = swift_shim_param_decode("flag", &TypeRef::Primitive(PrimitiveType::Bool), false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "flag");
         assert!(!decode.is_throwing);
@@ -422,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_u32() {
-        let decode = swift_shim_param_decode("count", &TypeRef::Primitive(PrimitiveType::U32), false);
+        let decode = swift_shim_param_decode("count", &TypeRef::Primitive(PrimitiveType::U32), false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "count");
         assert!(!decode.is_throwing);
@@ -430,7 +446,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_vec_string() {
-        let decode = swift_shim_param_decode("langs", &TypeRef::Vec(Box::new(TypeRef::String)), false);
+        let decode = swift_shim_param_decode("langs", &TypeRef::Vec(Box::new(TypeRef::String)), false, &std::collections::HashSet::new());
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("langs_list"));
         assert_eq!(decode.expr, "langs_list");
@@ -439,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_named_codable() {
-        let decode = swift_shim_param_decode("cfg", &TypeRef::Named("OcrConfig".to_string()), false);
+        let decode = swift_shim_param_decode("cfg", &TypeRef::Named("OcrConfig".to_string()), false, &std::collections::HashSet::new());
         assert!(!decode.setup.is_empty());
         assert!(decode.setup[0].contains("JSONDecoder"));
         assert!(decode.setup[0].contains("OcrConfig"));
@@ -449,7 +465,7 @@ mod tests {
 
     #[test]
     fn test_param_decode_optional_string() {
-        let decode = swift_shim_param_decode("opt_str", &TypeRef::Optional(Box::new(TypeRef::String)), false);
+        let decode = swift_shim_param_decode("opt_str", &TypeRef::Optional(Box::new(TypeRef::String)), false, &std::collections::HashSet::new());
         assert!(decode.setup.is_empty());
         assert_eq!(decode.expr, "opt_str?.toString()");
         assert!(!decode.is_throwing);
@@ -461,6 +477,7 @@ mod tests {
             "opt_cfg",
             &TypeRef::Optional(Box::new(TypeRef::Named("Config".to_string()))),
             false,
+            &std::collections::HashSet::new(),
         );
         assert!(!decode.setup.is_empty());
         // Optional of Codable: wrapped in try?
