@@ -1168,6 +1168,7 @@ fn render_test_method(
         .and_then(|c| c.c_engine_factory.as_deref())
         .map(|ty| format!("{}_from_json", ty.to_snake_case()).to_lower_camel_case());
     let unnamed_arg_indices: &[usize] = call_overrides.map(|o| &o.unnamed_arg_indices[..]).unwrap_or(&[]);
+    let arg_name_map = call_overrides.map(|o| &o.arg_name_map);
     let (mut setup_lines, args_str) = build_args_and_setup(
         &fixture.input,
         args,
@@ -1184,6 +1185,7 @@ fn render_test_method(
         config,
         type_defs,
         fixture,
+        arg_name_map,
     );
     // Prepend visitor class declarations (before any setup lines that reference the handle).
     if !visitor_setup_lines.is_empty() {
@@ -1401,6 +1403,7 @@ fn build_args_and_setup(
     config: &crate::core::config::ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
     fixture: &Fixture,
+    arg_name_map: Option<&std::collections::HashMap<String, String>>,
 ) -> (Vec<String>, String) {
     if args.is_empty() {
         return (Vec::new(), String::new());
@@ -1753,7 +1756,11 @@ fn build_args_and_setup(
             if is_method_call || is_register_call || unnamed_arg_indices.contains(&idx) {
                 val
             } else {
-                let label = args[idx].name.to_lower_camel_case();
+                // Apply per-language argument renames before emitting the call.
+                let arg_name: &str = arg_name_map
+                    .and_then(|m| m.get(&args[idx].name).map(String::as_str))
+                    .unwrap_or(&args[idx].name);
+                let label = arg_name.to_lower_camel_case();
                 format!("{label}: {val}")
             }
         })
@@ -3500,28 +3507,47 @@ pub fn emit_test_backend(
     let mut setup = String::new();
     let _ = writeln!(setup, "class {class_name}: {protocol_name} {{");
 
-    // Plugin super-trait `name` computed property.
+    // Plugin super-trait conformance: emit all SwiftPluginBridge required methods
     if trait_bridge.super_trait.is_some() {
         let _ = writeln!(setup, "    var name: String {{ \"{plugin_name}\" }}");
+        let _ = writeln!(setup, "    func version() -> String {{ \"1.0.0\" }}");
+        let _ = writeln!(setup, "    func initialize() throws {{}}");
+        let _ = writeln!(setup, "    func shutdown() throws {{}}");
     }
 
-    // Required methods — use concrete Swift types from SwiftMapper.
+    // Required methods — trait bridge protocols marshal excluded types as JSON strings.
+    // Use concrete Swift types, converting Named types to String (JSON marshalling).
     for method in methods {
         if method.has_default_impl {
             continue;
         }
         let method_name = method.name.to_lower_camel_case();
 
-        // Build parameter list with concrete Swift types using labeled parameters (no underscore).
+        // Build parameter list. Named types (excluded/internal) are marshalled as String in trait bridges.
         let params: Vec<String> = method
             .params
             .iter()
-            .map(|p| format!("{}: {}", p.name.to_lower_camel_case(), mapper.map_type(&p.ty)))
+            .map(|p| {
+                let param_type = match &p.ty {
+                    crate::core::ir::TypeRef::Named(_) => "String".to_string(),
+                    _ => mapper.map_type(&p.ty).to_string(),
+                };
+                format!("{}: {}", p.name.to_lower_camel_case(), param_type)
+            })
             .collect();
         let params_str = params.join(", ");
 
-        let return_type = mapper.map_type(&method.return_type);
-        let default_val = defaults.emit_default(&method.return_type);
+        // Return type: Named types are marshalled as String (JSON).
+        let return_type = match &method.return_type {
+            crate::core::ir::TypeRef::Named(_) => "String".to_string(),
+            _ => mapper.map_type(&method.return_type).to_string(),
+        };
+
+        // Default value: use String for marshalled types, otherwise use defaults.emit_default.
+        let default_val = match &method.return_type {
+            crate::core::ir::TypeRef::Named(_) => "\"\"".to_string(),
+            _ => defaults.emit_default(&method.return_type),
+        };
 
         if method.is_async && method.error_type.is_some() {
             let _ = writeln!(

@@ -4728,7 +4728,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         content.push_str("    // MARK: Plugin super-trait shims\n\n");
 
         content.push_str("    public func alef_name() -> RustString {\n");
-        content.push_str("        return RustString(bridge.name())\n");
+        content.push_str("        return RustString(bridge.name)\n");
         content.push_str("    }\n\n");
 
         content.push_str("    public func alef_version() -> RustString {\n");
