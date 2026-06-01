@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Elixir e2e: wrap SUT_URL expression in parens not braces.** Braces (`{ ... }`)
+  create an Elixir tuple, but `<>` (binary concatenation) requires a binary on both
+  sides. Tuples are not binaries, causing "got type: dynamic({term()}) but expected
+  type: binary()" type error in all 559 Elixir e2e tests. Fix: replace `({ expr })` with
+  `(expr)` in URL construction to ensure the result is a binary, not a tuple.
+
 - **Swift: move parameter conversions inside Task.detached closure to fix Swift 6 strict-concurrency sending warning.**
   Async forwarders (e.g., `batchExtractFiles`) were materializing RustVec<T> objects outside the Task.detached
   closure, causing them to be captured into the `sending` closure parameter. Under Swift 6 strict concurrency,
