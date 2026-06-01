@@ -87,7 +87,7 @@ impl E2eCodegen for DartE2eCodegen {
         if has_http_fixtures {
             files.push(GeneratedFile {
                 path: output_base.join("app_harness.dart"),
-                content: render_app_harness(groups),
+                content: render_app_harness(groups, e2e_config, &pkg_name),
                 generated_header: true,
             });
         }
@@ -224,7 +224,7 @@ dev_dependencies:
     )
 }
 
-pub(crate) fn render_app_harness(groups: &[FixtureGroup]) -> String {
+pub(crate) fn render_app_harness(groups: &[FixtureGroup], e2e_config: &E2eConfig, pkg_name: &str) -> String {
     // Collect all HTTP fixtures from all groups.
     let mut fixtures_map = serde_json::Map::new();
 
@@ -276,9 +276,17 @@ pub(crate) fn render_app_harness(groups: &[FixtureGroup]) -> String {
 
     let fixtures_json = serde_json::to_string(&fixtures_map).unwrap_or_else(|_| "{}".to_string());
 
+    // Derive the bridge module name from the package name:
+    // e.g. "my_pkg" → "my_pkg_bridge_generated"
+    let bridge_module = format!("{pkg_name}_bridge_generated");
+
     // Render using the Jinja template.
     let ctx = minijinja::context! {
         fixtures_json => fixtures_json,
+        pkg_name => pkg_name,
+        bridge_module => bridge_module,
+        host => &e2e_config.harness.host,
+        port => e2e_config.harness.port,
     };
     crate::e2e::template_env::render("dart/app_harness.dart.jinja", ctx)
 }

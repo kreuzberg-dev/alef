@@ -5,7 +5,7 @@
    handlers that return expected responses, and serves on a configured port.
 
    Context variables (passed from C# codegen):
-   - imports: list of module names to import (e.g., ["Spikard"])
+   - imports: list of module names to import (e.g., ["MyPkg"])
    - app_class: class name for SUT app (e.g., "App")
    - register_method: method to register routes (e.g., "route")
    - route_builder_class: class name for route builder (e.g., "RouteBuilder")
@@ -75,7 +75,7 @@ class Program
                 var statusStr = expectedStatus.ToString();
                 var contentStr = expectedBody.ValueKind != JsonValueKind.Null ? expectedBody.GetRawText() : null;
 
-                // Return a dict shaped like spikard's Response for JSON serialization.
+                // Return a dict shaped like the SUT's Response for JSON serialization.
                 return new Dictionary<string, dynamic>
                 {
                     { "status_code", expectedStatus },

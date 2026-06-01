@@ -6,9 +6,9 @@
    handlers that return expected responses, and serves on a configured port.
 
    Context variables (passed from Ruby codegen):
-   - imports: list of module names to import (e.g., ["spikard"])
-   - app_class: class name for SUT app (e.g., "Spikard::App")
-   - method_enum_module: module path for Method enum (e.g., "Spikard::Method")
+   - imports: list of module names to import (e.g., ["my_pkg"])
+   - app_class: class name for SUT app (e.g., "MyPkg::App")
+   - method_enum_module: module path for Method enum (e.g., "MyPkg::Method")
    - register_route_method: app method to register routes (e.g., "register_route")
    - run_method: serve entrypoint (e.g., "run")
    - host: binding host (e.g., "127.0.0.1")
@@ -76,7 +76,7 @@ module AppHarness
   end
 
   # Configure and start the server.
-  APP.config(Spikard::ServerConfig.new(host: "{{ host }}", port: {{ port }}))
+  APP.config({{ server_config_class }}.new(host: "{{ host }}", port: {{ port }}))
   puts "Harness listening on {{ host }}:{{ port }}"
   STDOUT.flush
   APP.{{ run_method }}

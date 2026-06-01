@@ -533,15 +533,15 @@ pub fn gen_bridge_registration_overloads_file(
 
             let method_camel = method.name.to_lower_camel_case();
 
-            // Build parameter list
-            let no_excluded_types = HashSet::new();
+            // Build parameter list for the trait protocol (user-facing inbound API)
+            // Use snake_case names with labels matching the protocol definition
             let params = method
                 .params
                 .iter()
                 .map(|p| {
                     let name = p.name.to_snake_case();
-                    let ty = swift_type_name(&p.ty, &no_excluded_types);
-                    format!("{name}: {ty}")
+                    let ty = swift_type_name(&p.ty, &HashSet::new());
+                    format!("{}: {}", name, ty)
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
