@@ -137,7 +137,10 @@ fn test_trait_bridge_async_method() {
 
     assert_eq!(filename, "SwiftOcrBackendBridge.swift");
     assert!(content.contains("protocol SwiftOcrBackendBridge"));
-    assert!(content.contains("async throws"));
+    // Per commit 23a58ff9e ("drop async from trait bridge"), async trait methods
+    // now emit as plain `throws` in the Swift protocol — host implementations
+    // bridge async/non-async at their own boundary.
+    assert!(content.contains("throws"));
     assert!(content.contains("func recognize"));
 }
 
@@ -258,10 +261,12 @@ fn test_trait_bridge_excluded_type_return() {
 
     // Protocol marshals an excluded return type as a JSON String — the native
     // struct is not visible to the Swift side, so the conformer returns JSON.
-    assert!(content.contains("func process(image_bytes: Data) async throws -> String"));
+    // Per commit 23a58ff9e the async keyword is no longer emitted; the trait
+    // method shape is now plain `throws`.
+    assert!(content.contains("func process(image_bytes: Data) throws -> String"));
 
     // Adapter method should return String (JSON envelope)
-    assert!(content.contains("func processCall(image_bytes: Data) async throws -> String"));
+    assert!(content.contains("func processCall(image_bytes: Data) throws -> String"));
 
     // The marshal_encode_excluded helper should be present
     assert!(content.contains("marshal_encode_excluded"));
