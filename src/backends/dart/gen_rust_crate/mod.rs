@@ -1967,13 +1967,17 @@ fn emit_opaque_impl_block(
             continue;
         }
 
-        // Skip static / associated functions (no `&self`). The current emitter only
-        // generates `&self` instance bodies, so `T::new()` or `T::default()` end up as
-        // `self.inner.{name}()` — which trips E0599 (associated fn, not a method).
+        // Static methods: emit as standalone functions within the impl block (FRB recognizes this).
         if method.is_static {
-            out.push_str(&format!(
-                "    // Method `{method_name}` is a static/associated function and is not yet bridged through FRB — skipped.\n"
-            ));
+            emit_static_opaque_method(
+                out,
+                ty,
+                method,
+                source_crate_name,
+                stub_methods,
+                types_needing_from_conversion,
+                opaque_type_names,
+            );
             continue;
         }
 
@@ -2101,6 +2105,196 @@ fn emit_opaque_method(
     }
 
     out.push_str("    }\n");
+}
+
+/// Emit a static method inside an `impl TypeName { }` block for an FRB opaque type.
+///
+/// Static methods are bridged as `pub fn method_name(params...) -> Result<ReturnType, String>`
+/// without a receiver. The body calls `TypeName::method_name(...)` on the core type directly.
+fn emit_static_opaque_method(
+    out: &mut String,
+    ty: &TypeDef,
+    method: &MethodDef,
+    source_crate_name: &str,
+    stub_methods: &[String],
+    types_needing_from_conversion: &HashSet<String>,
+    opaque_type_names: &HashSet<String>,
+) {
+    use bridge_fn::frb_rust_type_mirror;
+
+    let method_name = &method.name;
+
+    // Build parameter list (excluding the receiver since this is a static method).
+    let params: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let rust_ty = frb_rust_type_mirror(&p.ty, p.optional);
+            format!("{}: {rust_ty}", p.name)
+        })
+        .collect();
+
+    let async_kw = if method.is_async { "async " } else { "" };
+
+    // Return type: always `Result<MirrorType, String>` when an error type is present.
+    let has_error = method.error_type.is_some();
+    let ret_ty = if has_error {
+        let ok_ty = frb_rust_type_mirror(&method.return_type, false);
+        format!("Result<{ok_ty}, String>")
+    } else {
+        frb_rust_type_mirror(&method.return_type, false)
+    };
+
+    // Emit `#[frb]` so FRB generates the Dart-side static method wrapper.
+    out.push_str("    #[frb]\n");
+
+    // Signature: no receiver for static methods.
+    let params_str = params.join(", ");
+    out.push_str(&format!(
+        "    pub {async_kw}fn {method_name}({params_str}) -> {ret_ty} {{\n"
+    ));
+
+    // Body: stub methods or real delegation.
+    if stub_methods.contains(method_name) {
+        out.push_str(&format!(
+            "        ::std::unimplemented!(\"method `{method_name}` is listed in dart.stub_methods\")\n"
+        ));
+    } else {
+        emit_static_opaque_method_body(
+            out,
+            ty,
+            method,
+            source_crate_name,
+            types_needing_from_conversion,
+            opaque_type_names,
+        );
+    }
+
+    out.push_str("    }\n");
+}
+
+/// Emit the body of a static method inside an opaque-type `impl` block.
+///
+/// Converts each parameter from the local mirror type to the core type, calls
+/// `CoreTypeName::method_name(...)` statically, and wraps the return value in the mirror type.
+fn emit_static_opaque_method_body(
+    out: &mut String,
+    ty: &TypeDef,
+    method: &MethodDef,
+    source_crate_name: &str,
+    types_needing_from_conversion: &HashSet<String>,
+    opaque_type_names: &HashSet<String>,
+) {
+    use conversions::frb_rust_type_inner;
+
+    let method_name = &method.name;
+    let type_name = &ty.name;
+    let core_type_path = format!("{source_crate_name}::{type_name}");
+
+    // Build per-argument conversion: mirror type → core type (same as instance methods).
+    let call_args: Vec<String> = method
+        .params
+        .iter()
+        .map(|p| {
+            let param_name = &p.name;
+            match &p.ty {
+                TypeRef::Named(mirror_name) => {
+                    if opaque_type_names.contains(mirror_name.as_str()) {
+                        if p.optional {
+                            return format!("{param_name}.map(|h| h.inner)");
+                        }
+                        if p.is_ref {
+                            return format!("&{param_name}.inner");
+                        }
+                        return format!("{param_name}.inner");
+                    }
+                    let core_ty = format!("{source_crate_name}::{mirror_name}");
+                    if types_needing_from_conversion.contains(mirror_name.as_str()) {
+                        if p.optional {
+                            format!("{param_name}.map({core_ty}::from)")
+                        } else if p.is_ref {
+                            format!("&{core_ty}::from({param_name})")
+                        } else {
+                            format!("{core_ty}::from({param_name})")
+                        }
+                    } else {
+                        if p.optional {
+                            format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})")
+                        } else if p.is_ref {
+                            format!("unsafe {{ ::std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{param_name}) }}")
+                        } else {
+                            format!("unsafe {{ ::std::mem::transmute::<{mirror_name}, {core_ty}>({param_name}) }}")
+                        }
+                    }
+                }
+                TypeRef::Vec(inner) => {
+                    if let TypeRef::Named(mirror_name) = inner.as_ref() {
+                        let core_ty = format!("{source_crate_name}::{mirror_name}");
+                        if types_needing_from_conversion.contains(mirror_name.as_str()) {
+                            if p.optional {
+                                format!("{param_name}.map(|v| v.into_iter().map({core_ty}::from).collect())")
+                            } else {
+                                format!("{param_name}.into_iter().map({core_ty}::from).collect()")
+                            }
+                        } else {
+                            if p.optional {
+                                format!("{param_name}.map(|v| unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>(v) }})")
+                            } else {
+                                format!("unsafe {{ ::std::mem::transmute::<Vec<{mirror_name}>, Vec<{core_ty}>>({param_name}) }}")
+                            }
+                        }
+                    } else if matches!(inner.as_ref(), TypeRef::String) && p.is_ref {
+                        format!("&{param_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+                    } else if p.is_ref {
+                        format!("&{param_name}")
+                    } else {
+                        param_name.clone()
+                    }
+                }
+                TypeRef::Bytes => {
+                    if p.is_ref {
+                        format!("&{param_name}")
+                    } else {
+                        format!("::bytes::Bytes::from({param_name})")
+                    }
+                }
+                TypeRef::Primitive(prim) => {
+                    let native = conversions::primitive_name(prim);
+                    let frb_ty = frb_rust_type_inner(&TypeRef::Primitive(prim.clone()));
+                    if native == frb_ty {
+                        param_name.clone()
+                    } else if p.optional {
+                        format!("{param_name}.map(|v| v as {native})")
+                    } else {
+                        format!("{param_name} as {native}")
+                    }
+                }
+                TypeRef::String => {
+                    if p.is_ref && p.optional {
+                        format!("{param_name}.as_deref()")
+                    } else if p.is_ref {
+                        format!("&{param_name}")
+                    } else {
+                        param_name.clone()
+                    }
+                }
+                _ => param_name.clone(),
+            }
+        })
+        .collect();
+
+    let call_args_str = call_args.join(", ");
+
+    // Emit the call to the static method.
+    if method.is_async {
+        out.push_str(&format!(
+            "        {core_type_path}::{method_name}({call_args_str}).await\n"
+        ));
+    } else {
+        out.push_str(&format!(
+            "        {core_type_path}::{method_name}({call_args_str})\n"
+        ));
+    }
 }
 
 /// Emit the body of a method inside an opaque-type `impl` block.
