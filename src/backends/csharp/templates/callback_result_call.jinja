@@ -1,1 +1,5 @@
+{% if is_property %}
+            var {{ result_var }} = bridge._impl.{{ method_pascal }};
+{% else %}
             var {{ result_var }} = bridge._impl.{{ method_pascal }}({{ param_call }});
+{% endif %}
