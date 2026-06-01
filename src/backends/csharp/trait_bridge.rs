@@ -704,10 +704,13 @@ fn gen_single_trait_bridge(
         } else if is_primitive_return {
             // Primitive return: call method and return directly
             // Use methodResult to avoid variable shadowing with parameters
-            callbacks.push_str(&format!(
-                "            var methodResult = bridge._impl.{}({});\n",
-                method_pascal, param_call
-            ));
+            // Zero-parameter non-void methods are emitted as properties in C#
+            let method_call_syntax = if method.params.is_empty() {
+                format!("bridge._impl.{}", method_pascal)
+            } else {
+                format!("bridge._impl.{}({})", method_pascal, param_call)
+            };
+            callbacks.push_str(&format!("            var methodResult = {};\n", method_call_syntax));
             // Convert return value based on method return type
             if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
                 // bool → int (0 or 1)
@@ -719,9 +722,11 @@ fn gen_single_trait_bridge(
             }
         } else {
             // Complex return: use out params
+            // Zero-parameter non-void methods are emitted as properties in C#
+            let is_property = method.params.is_empty();
             callbacks.push_str(&render(
                 "callback_result_call.jinja",
-                minijinja::context! { method_pascal, param_call, result_var => "methodResult" },
+                minijinja::context! { method_pascal, param_call, result_var => "methodResult", is_property },
             ));
             // Check if return type is a Named type (struct or enum) that's visible
             let is_named_visible =

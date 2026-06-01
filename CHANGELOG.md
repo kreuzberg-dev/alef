@@ -20,9 +20,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   e2e stub emitter now branch on `params.is_empty() && return_type != void` and
   emit the property form instead of a method signature.
 
+- **C# trait bridge: invoke property-style getters via property access in callbacks.**
+  Both the primitive-return inline callback and the complex-return jinja
+  (`callback_result_call.jinja`) now drop the `()` when `method.params.is_empty()`,
+  so `bridge._impl.ProcessingStage` is called instead of `bridge._impl.ProcessingStage()`.
+
 - **Zig e2e: typed cast wrappers for numeric assertions.** Render `@as(i64, n)`,
   `@as(usize, n)`, `@as(f64, n)` context vars so the JSON-assertion template can
   emit type-correct comparisons against integer or float literals.
+
+- **Zig e2e: cast root-level `count_equals` literals to `usize`.** `render_assertion`
+  emits `expectEqual(@as(usize, n), .len)` for both the field-driven and the JSON-
+  parse paths of root-level count assertions, matching the template-driven sites.
 
 - **R/extendr: free-function Named non-opaque params are owned `T`, not `&T`.**
   extendr's `#[extendr]` macro generates `TryFrom<&Robj> for T` (owned), not for
