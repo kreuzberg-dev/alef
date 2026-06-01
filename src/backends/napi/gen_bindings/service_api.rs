@@ -100,11 +100,26 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str) -> String {
                 }
             }
         }
-        // Add registration variant wrapper types and metadata param types
+        // Add registration variant wrapper types, metadata param types, and fixed enum types
         for reg in &service.registrations {
             for variant in &reg.variants {
                 if let Some(wrapper_call) = &variant.wrapper_call {
                     imports.push(wrapper_call.wrapper_type_name.clone());
+                    // Extract enum types from Fixed args (e.g., "spikard::Method::Get" → "Method")
+                    for arg in &wrapper_call.args {
+                        if let crate::core::ir::WrapperConstructorArg::Fixed {
+                            param_name: _,
+                            value_expr,
+                        } = arg
+                        {
+                            // Split on :: and take the second-to-last part (the type name).
+                            // "spikard::Method::Get" → ["spikard", "Method", "Get"] → "Method"
+                            let parts: Vec<&str> = value_expr.split("::").collect();
+                            if parts.len() >= 2 {
+                                imports.push(parts[parts.len() - 2].to_string());
+                            }
+                        }
+                    }
                 }
                 for param in &variant.signature_params {
                     if let TypeRef::Named(name) = &param.ty {
@@ -360,7 +375,6 @@ fn gen_registration_variant_method_ts(
     // When there's a wrapper constructor call, build the wrapper first
     let metadata_array = if let Some(wrapper_call) = &variant.wrapper_call {
         let wrapper_type = &wrapper_call.wrapper_type_name;
-        let constructor = &wrapper_call.constructor_method;
 
         // Build the constructor args by substituting Fixed args and pulling Free args
         let mut ctor_args = Vec::new();
@@ -370,8 +384,15 @@ fn gen_registration_variant_method_ts(
                     param_name: _,
                     value_expr,
                 } => {
-                    // Fixed args are value expressions like "Method.GET"
-                    ctor_args.push(value_expr.clone());
+                    // Fixed args are Rust value expressions like "spikard::Method::Get".
+                    // Extract the type and variant for TypeScript: "spikard::Method::Get" → "Method.Get"
+                    let parts: Vec<&str> = value_expr.split("::").collect();
+                    let ts_expr = if parts.len() >= 2 {
+                        format!("{}.{}", parts[parts.len() - 2], parts[parts.len() - 1])
+                    } else {
+                        value_expr.clone()
+                    };
+                    ctor_args.push(ts_expr);
                 }
                 crate::core::ir::WrapperConstructorArg::Free { param } => {
                     // Free args come from the variant's signature params
