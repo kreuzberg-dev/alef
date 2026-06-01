@@ -307,12 +307,14 @@ fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2e
 
 unless System.get_env("SUT_URL") do
   app_harness_bin = Path.expand("../app_harness.exs", __DIR__)
+  project_root = Path.expand("..", __DIR__)
 
-  # Build elixir args with code paths so the harness can access compiled library modules
-  build_dir = Path.expand("../_build/dev/lib", __DIR__)
-  code_paths = if File.dir?(build_dir) do
-    lib_dirs = File.ls!(build_dir) |> Enum.map(&Path.join(build_dir, &1))
-    lib_dirs
+  # Build the list of ebin directories from _build/dev/lib so the harness can access compiled dependencies
+  build_lib_dir = Path.join(project_root, "_build/dev/lib")
+  lib_paths = if File.dir?(build_lib_dir) do
+    File.ls!(build_lib_dir)
+    |> Enum.map(&Path.join(build_lib_dir, &1))
+    |> Enum.filter(&File.dir?/1)
     |> Enum.flat_map(fn lib_path ->
       ebin_path = Path.join(lib_path, "ebin")
       if File.dir?(ebin_path), do: ["-pa", ebin_path], else: []
@@ -321,10 +323,11 @@ unless System.get_env("SUT_URL") do
     []
   end
 
+  # Use `elixir` to execute the harness script with proper code paths
   port = Port.open({{:spawn_executable, System.find_executable("elixir")}}, [
     :binary,
     {{:line, 65_536}},
-    args: code_paths ++ [app_harness_bin]
+    args: lib_paths ++ [app_harness_bin]
   ])
 
   url = "http://{host}:{port}"
