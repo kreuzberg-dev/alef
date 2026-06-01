@@ -7,6 +7,7 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
+use crate::core::version::to_rubygems_prerelease;
 use crate::e2e::codegen::resolve_field;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
@@ -338,7 +339,10 @@ fn render_gemfile(
     dep_mode: crate::e2e::config::DependencyMode,
 ) -> String {
     let gem_line = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => format!("gem '{gem_name}', '{gem_version}'"),
+        crate::e2e::config::DependencyMode::Registry => {
+            let rubygems_version = to_rubygems_prerelease(gem_version);
+            format!("gem '{gem_name}', '~> {rubygems_version}'")
+        }
         crate::e2e::config::DependencyMode::Local => format!("gem '{gem_name}', path: '{gem_path}'"),
     };
     crate::e2e::template_env::render(
@@ -3127,6 +3131,46 @@ mod trait_bridge_tests {
             emission.setup_block.contains("def shutdown"),
             "stub must emit shutdown(), got:\n{}",
             emission.setup_block
+        );
+    }
+}
+
+#[cfg(test)]
+mod gemfile_tests {
+    use super::render_gemfile;
+    use crate::e2e::config::DependencyMode;
+
+    #[test]
+    fn render_gemfile_registry_release_uses_tilde_rocket() {
+        let out = render_gemfile("my-gem", "../../packages/ruby", "1.2.3", DependencyMode::Registry);
+        assert!(out.contains("gem 'my-gem', '~> 1.2.3'"), "got: {out}");
+    }
+
+    #[test]
+    fn render_gemfile_registry_prerelease_uses_rubygems_dot_pre_form() {
+        let out = render_gemfile("my-gem", "../../packages/ruby", "3.6.0-rc.1", DependencyMode::Registry);
+        assert!(
+            out.contains("gem 'my-gem', '~> 3.6.0.pre.rc.1'"),
+            "pre-release must use .pre. form, got: {out}"
+        );
+        assert!(
+            !out.contains("3.6.0-rc.1"),
+            "raw semver dash form must not appear in registry Gemfile, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_gemfile_local_uses_path() {
+        let out = render_gemfile("my-gem", "../../packages/ruby", "3.6.0-rc.1", DependencyMode::Local);
+        assert!(out.contains("path: '../../packages/ruby'"), "got: {out}");
+        // The target gem line must use path:, not a version constraint.
+        assert!(
+            out.contains("gem 'my-gem', path:"),
+            "local mode must use path: for the target gem, got: {out}"
+        );
+        assert!(
+            !out.contains("gem 'my-gem', '~>"),
+            "local mode must not pin a version for the target gem, got: {out}"
         );
     }
 }

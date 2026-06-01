@@ -9,6 +9,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/test_apps: route consumer manifest versions through per-registry renderers.**
+  The e2e/test_app generators for Ruby (`Gemfile`), Node/WASM (`package.json`), Python
+  (`pyproject.toml`), and R (`DESCRIPTION`) were emitting raw SemVer strings, producing
+  non-resolvable forms for pre-releases — e.g. RubyGems `~> 3.6.0-rc.1` (must be
+  `~> 3.6.0.pre.rc.1`) and Python `>=3.6.0-rc.1` (must be `>=3.6.0rc1`). Wire each
+  generator through the matching `to_pep440` / `to_rubygems_prerelease` / `to_r_version`
+  renderer from `core::version`, and emit `^X` caret prefix on npm/wasm
+  `package.json` deps for SemVer-respecting upgrade within the pre-release line. R
+  test_apps now use the CRAN dev-pin encoding `X.Y.Z.9001` matching `packages/r/`.
+
+- **Kotlin: emit enums with ktfmt-compatible formatting.** Annotated enum variants
+  emit inline when the line fits within ktfmt's 100-char width; expression-bodied
+  `toWire`/`fromWire` always emit with a newline before `when`; multi-value `when`
+  arms split each match value onto its own line. Prevents non-idempotent ktfmt reflow
+  on regenerated enums (downstream symptom: `TierStrategy.kt` flip-flopping on every
+  `prek run --all-files`).
+
+- **Rustler: pre-wrap `base_url` and `targets` in `RustlerPrecompiled` block for
+  mix-format idempotency.** Emit both keyword args on continuation lines indented by
+  2 spaces, ensuring mix-format does not reflow when one-line forms exceed Elixir's
+  98-column default.
+
+- **e2e/python: emit ruff E713-canonical `not in` for negated membership tests.**
+  Detect `is_false + In` predicates and emit `assert lhs not in rhs` directly instead
+  of wrapping with `assert not (lhs in rhs)`. Prevents ruff lint vs ruff-format flip-
+  flopping in generated Python e2e tests.
+
+- **e2e/dart: always include `RustLib.dispose()` call in `tearDownAll` body.** Empty
+  closures triggered dart-format reflow on every run; populating the body with the
+  always-available `RustLib.dispose()` cleanup matches the original intent of the
+  always-emit policy while giving dart-format a non-empty body.
+
+- **e2e/typescript & wasm: align Jinja templates to oxfmt canonical formatting.**
+  TypeScript test files and `vitest.config.ts` now emit with double quotes, tab
+  indentation, and trailing semicolons matching oxfmt defaults. Regression test
+  `e2e_typescript_oxfmt_idempotent` locks in the emitted shape. Fixes 1000+-line
+  oxfmt diffs on every regen of downstream test_apps.
+
 - **Java/Go/Zig FFI: pass register-trait vtables by pointer instead of by value.**
   Java Panama FFM does not honour the aarch64 SysV ABI rule that structs larger than
   16 bytes are passed via an invisible pointer; passing the 11-ADDRESS

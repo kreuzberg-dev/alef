@@ -44,6 +44,35 @@ pub fn to_r_version(version: &str) -> String {
     format!("{base}.{}", 9000 + numeric_offset)
 }
 
+/// Convert a semver pre-release version to PEP 440 format for Python/PyPI.
+///
+/// Maps SemVer pre-release identifiers to the PEP 440 canonical short forms:
+///   `alpha` → `a`, `beta` → `b`, `rc` → `rc`
+/// and strips any remaining dots from the numeric suffix.
+///
+/// # Examples
+///
+/// ```
+/// use alef::core::version::to_pep440;
+/// assert_eq!(to_pep440("1.2.3"), "1.2.3");
+/// assert_eq!(to_pep440("3.6.0-rc.1"), "3.6.0rc1");
+/// assert_eq!(to_pep440("1.0.0-alpha.2"), "1.0.0a2");
+/// assert_eq!(to_pep440("1.0.0-beta.3"), "1.0.0b3");
+/// ```
+pub fn to_pep440(version: &str) -> String {
+    let Some((base, pre)) = version.split_once('-') else {
+        return version.to_string();
+    };
+    let pep = pre
+        .replace("alpha.", "a")
+        .replace("alpha", "a")
+        .replace("beta.", "b")
+        .replace("beta", "b")
+        .replace("rc.", "rc")
+        .replace('.', "");
+    format!("{base}{pep}")
+}
+
 /// Convert a semver pre-release version to RubyGems canonical prerelease format.
 ///
 /// RubyGems rejects the dash-form prerelease syntax that cargo uses
@@ -116,5 +145,26 @@ mod tests {
     #[test]
     fn r_alpha_with_number_uses_offset() {
         assert_eq!(to_r_version("0.1.0-alpha.2"), "0.1.0.9000");
+    }
+
+    // --- to_pep440 tests ---
+
+    #[test]
+    fn pep440_release_version_is_unchanged() {
+        assert_eq!(to_pep440("1.2.3"), "1.2.3");
+        assert_eq!(to_pep440("0.1.0"), "0.1.0");
+    }
+
+    #[test]
+    fn pep440_rc_prerelease_canonical_form() {
+        assert_eq!(to_pep440("3.6.0-rc.1"), "3.6.0rc1");
+        assert_eq!(to_pep440("4.10.0-rc.9"), "4.10.0rc9");
+        assert_eq!(to_pep440("0.1.0-rc.1"), "0.1.0rc1");
+    }
+
+    #[test]
+    fn pep440_alpha_beta_prereleases() {
+        assert_eq!(to_pep440("1.0.0-alpha.2"), "1.0.0a2");
+        assert_eq!(to_pep440("1.0.0-beta.3"), "1.0.0b3");
     }
 }

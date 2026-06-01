@@ -14,7 +14,7 @@ pub(crate) fn render_package_json(
     extras: Option<&ManifestExtras>,
 ) -> String {
     let dep_value = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => pkg_version.to_string(),
+        crate::e2e::config::DependencyMode::Registry => format!("^{pkg_version}"),
         crate::e2e::config::DependencyMode::Local => "workspace:*".to_string(),
     };
     let _ = has_http_fixtures; // TODO: add HTTP test deps when http fixtures are present
@@ -223,9 +223,18 @@ mod tests {
     }
 
     #[test]
-    fn render_package_json_registry_uses_version() {
+    fn render_package_json_registry_uses_caret_version() {
         let out = render_package_json("my-pkg", "", "1.2.3", DependencyMode::Registry, false, None);
-        assert!(out.contains("\"1.2.3\""), "got: {out}");
+        assert!(out.contains("\"^1.2.3\""), "got: {out}");
+    }
+
+    #[test]
+    fn render_package_json_registry_prerelease_uses_caret_semver() {
+        let out = render_package_json("my-pkg", "", "3.6.0-rc.1", DependencyMode::Registry, false, None);
+        assert!(
+            out.contains("\"^3.6.0-rc.1\""),
+            "pre-release npm pin must include caret, got: {out}"
+        );
     }
 
     #[test]

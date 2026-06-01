@@ -1,6 +1,7 @@
 //! Python conftest.py and pyproject.toml rendering.
 
 use crate::core::hash::{self, CommentStyle};
+use crate::core::version::to_pep440;
 use crate::e2e::config::{DependencyMode, E2eConfig};
 use crate::e2e::fixture::FixtureGroup;
 use serde_json::json;
@@ -38,7 +39,7 @@ fn normalize_python_version(pkg_version: &str) -> String {
     if PEP508_COMPARATORS.iter().any(|c| trimmed.starts_with(c)) {
         pkg_version.to_string()
     } else {
-        format!("=={pkg_version}")
+        format!("=={}", to_pep440(pkg_version))
     }
 }
 
@@ -657,11 +658,9 @@ mod tests {
     }
 
     #[test]
-    fn render_pyproject_registry_bare_version_gets_eq_comparator() {
-        // When a caller passes a bare version (no PEP 508 comparator) we
-        // auto-prepend `==` so the resulting requirement is a valid PEP 508
-        // specifier. Bare `1.4.0-rc.30` previously rendered as
-        // `"my-pkg1.4.0-rc.30"` which pip/uv reject.
+    fn render_pyproject_registry_bare_version_gets_pep440_eq_comparator() {
+        // Bare SemVer pre-release `1.4.0-rc.30` must be normalised to PEP 440
+        // canonical form `==1.4.0rc30` — the dash form is not valid on PyPI.
         let out = render_pyproject(
             "my-pkg",
             "../../packages/python",
@@ -671,8 +670,29 @@ mod tests {
         let deps_start = out.find("dependencies = [").expect("dependencies array");
         let deps_block = &out[deps_start..];
         assert!(
-            deps_block.contains("\"my-pkg==1.4.0-rc.30\""),
-            "bare version should be normalised to `==1.4.0-rc.30`. got: {deps_block}",
+            deps_block.contains("\"my-pkg==1.4.0rc30\""),
+            "bare pre-release version should be normalised to PEP 440 `==1.4.0rc30`. got: {deps_block}",
+        );
+        assert!(
+            !deps_block.contains("1.4.0-rc.30"),
+            "raw semver dash form must not appear in pyproject.toml deps. got: {deps_block}",
+        );
+    }
+
+    #[test]
+    fn render_pyproject_registry_rc_prerelease_is_pep440_canonical() {
+        // The canonical fix: 3.6.0-rc.1 → ==3.6.0rc1
+        let out = render_pyproject(
+            "my-pkg",
+            "../../packages/python",
+            "3.6.0-rc.1",
+            DependencyMode::Registry,
+        );
+        let deps_start = out.find("dependencies = [").expect("dependencies array");
+        let deps_block = &out[deps_start..];
+        assert!(
+            deps_block.contains("\"my-pkg==3.6.0rc1\""),
+            "3.6.0-rc.1 must render as ==3.6.0rc1. got: {deps_block}"
         );
     }
 
