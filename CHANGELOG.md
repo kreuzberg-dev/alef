@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: SwiftPluginBridge `name` is now a `var` property instead of a method.**
+  Plugin implementations (TestStub in e2e, user bridges) can now conform by declaring `var name: String { ... }`
+  instead of `func name() -> String`. Box classes updated to access `bridge.name` as a property.
+
+- **Swift e2e: add `arg_name_map` support for parameter rename handling.**
+  E2e fixture calls with parameter renames (e.g. `paths` → `items` in batch functions) now correctly
+  apply per-language overrides, fixing batch function call labeling and parameter ordering.
+
 - **Swift e2e: emit Data(...) → Array([UInt8]) conversion for bytes args with path string values.**
   Swift's `extractBytes(_ [UInt8], ...)` and `extractBytesSync(_ [UInt8], ...)` e2e wrappers
   with `unnamed_arg_indices` previously received path strings directly instead of bytes,

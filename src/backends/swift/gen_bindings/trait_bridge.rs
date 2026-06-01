@@ -84,7 +84,7 @@ fn emit_swift_plugin_bridge_protocol() -> String {
          /// Declares the four Plugin trait super-methods for lifecycle management.\n\
          public protocol SwiftPluginBridge: AnyObject {\n\
          \x20   /// Returns the unique name/identifier for this plugin.\n\
-         \x20   func name() -> String\n\n\
+         \x20   var name: String { get }\n\n\
          \x20   /// Returns the semantic version of this plugin.\n\
          \x20   func version() -> String\n\n\
          \x20   /// Initialize the plugin.\n\
