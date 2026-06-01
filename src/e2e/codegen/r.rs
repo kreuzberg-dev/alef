@@ -3,6 +3,7 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::hash::{self, CommentStyle};
+use crate::core::version::to_r_version;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_r, r_template_to_paste0, sanitize_filename, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
@@ -129,7 +130,8 @@ impl E2eCodegen for RCodegen {
 fn render_description(pkg_name: &str, pkg_version: &str, dep_mode: crate::e2e::config::DependencyMode) -> String {
     let dep_line = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            format!("Imports: {pkg_name} ({pkg_version})\n")
+            let r_version = to_r_version(pkg_version);
+            format!("Imports: {pkg_name} ({r_version})\n")
         }
         crate::e2e::config::DependencyMode::Local => String::new(),
     };
@@ -1704,5 +1706,40 @@ mod tests {
                 emission.setup_block
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod description_tests {
+    use super::render_description;
+    use crate::e2e::config::DependencyMode;
+
+    #[test]
+    fn render_description_registry_release_uses_plain_version() {
+        let out = render_description("mypkg", "1.2.3", DependencyMode::Registry);
+        assert!(out.contains("Imports: mypkg (1.2.3)"), "got: {out}");
+    }
+
+    #[test]
+    fn render_description_registry_prerelease_uses_r_version_form() {
+        // 3.6.0-rc.1 → 3.6.0.9001 (CRAN-compatible dev-pin form)
+        let out = render_description("mypkg", "3.6.0-rc.1", DependencyMode::Registry);
+        assert!(
+            out.contains("Imports: mypkg (3.6.0.9001)"),
+            "pre-release must use CRAN dev-pin form, got: {out}"
+        );
+        assert!(
+            !out.contains("3.6.0-rc.1"),
+            "raw semver dash form must not appear in DESCRIPTION, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_description_local_omits_imports_line() {
+        let out = render_description("mypkg", "3.6.0-rc.1", DependencyMode::Local);
+        assert!(
+            !out.contains("Imports:"),
+            "local mode must not emit Imports line, got: {out}"
+        );
     }
 }

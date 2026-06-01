@@ -393,7 +393,7 @@ fn render_package_json(
     extras: Option<&crate::core::config::manifest_extras::ManifestExtras>,
 ) -> String {
     let dep_value = match dep_mode {
-        crate::e2e::config::DependencyMode::Registry => pkg_version.to_string(),
+        crate::e2e::config::DependencyMode::Registry => format!("^{pkg_version}"),
         // Fallback path: `wasm-pack build --target nodejs --out-dir pkg/nodejs` writes
         // the npm-consumable package (its own package.json with `main`/`types` etc.)
         // to `pkg/nodejs/`, not to `pkg/` directly. The fallback `wasm_crate_path()`
@@ -777,6 +777,38 @@ mod tests {
         assert!(
             pkg_json.contains("\"test\": \"NODE_OPTIONS=--max-old-space-size=4096 vitest run\""),
             "NODE_OPTIONS must be part of the test script; got:\n{pkg_json}"
+        );
+    }
+
+    #[test]
+    fn test_package_json_registry_release_uses_caret() {
+        let pkg_json = render_package_json(
+            "@test/wasm",
+            "pkg",
+            false,
+            "1.2.3",
+            crate::e2e::config::DependencyMode::Registry,
+            None,
+        );
+        assert!(
+            pkg_json.contains("\"^1.2.3\""),
+            "registry release pin must use caret; got:\n{pkg_json}"
+        );
+    }
+
+    #[test]
+    fn test_package_json_registry_prerelease_uses_caret_semver() {
+        let pkg_json = render_package_json(
+            "@test/wasm",
+            "pkg",
+            false,
+            "3.6.0-rc.1",
+            crate::e2e::config::DependencyMode::Registry,
+            None,
+        );
+        assert!(
+            pkg_json.contains("\"^3.6.0-rc.1\""),
+            "registry pre-release pin must use caret with raw semver; got:\n{pkg_json}"
         );
     }
 }
