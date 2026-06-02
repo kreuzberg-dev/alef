@@ -32,6 +32,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `RouteBuilder.new(Method.GET, path)` produces `(builder,)` rather than
   `(builder, path, method)`.
 
+- **tests/pyo3 stubs: align expected enum-variant casing with the SHOUTY_SNAKE_CASE
+  generator output.** Five `backends_pyo3_gen_stubs_test` assertions still asserted
+  lowercase variant names (e.g. `fast: Mode = ...`), which had been superseded when
+  the stub emitter switched to `to_python_enum_variant()` for pyo3-runtime parity.
+  Update assertions to `FAST`/`VALIDATING`/`DEL`/`INS`/`TITLE` so the test suite
+  tracks the actual emission.
+
 ## [0.21.1] - 2026-06-02
 
 ### Fixed
