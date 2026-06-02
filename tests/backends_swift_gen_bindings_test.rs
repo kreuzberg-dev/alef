@@ -71,7 +71,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_config() -> ResolvedCrateConfig {
@@ -747,7 +748,8 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "schema_query_only".into(),
             rust_path: "demo::schema_query_only".into(),
@@ -1635,7 +1637,8 @@ fn make_streaming_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1799,7 +1802,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "ChatCompletionChunk".to_string(),
                 rust_path: "demo_crate::ChatCompletionChunk".to_string(),
@@ -1825,7 +1829,8 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![],
         enums: vec![],
@@ -1942,7 +1947,8 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2055,7 +2061,8 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -2160,7 +2167,8 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "demo".into(),

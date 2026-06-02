@@ -98,6 +98,7 @@ pub(crate) fn emit_type_wrapper(
         minijinja::context! {
             name => &ty.name,
             source_path => &source_path,
+            has_lifetime_params => ty.has_lifetime_params,
         },
     ));
 

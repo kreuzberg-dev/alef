@@ -988,6 +988,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         }
     }
 
@@ -2040,6 +2041,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
         let func = make_func(
             "convert",
@@ -2095,6 +2097,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
         let func = make_func(
             "convert",

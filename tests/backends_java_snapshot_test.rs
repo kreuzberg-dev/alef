@@ -84,7 +84,8 @@ fn print_generated_java_code() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "ExtractionResult".to_string(),
                 rust_path: "sample_crate::ExtractionResult".to_string(),
@@ -147,7 +148,8 @@ fn print_generated_java_code() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![
             FunctionDef {

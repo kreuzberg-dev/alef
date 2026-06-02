@@ -842,7 +842,7 @@ fn gen_run_nif(
             ));
             out.push_str("                {\n");
             // Decode and bind opaque metadata params to locals for later use
-            // GAP 2: Access ResourceArc<T> via Arc::clone instead of private .inner field
+            // ResourceArc<T> implements Deref<Target=T>; deref to clone the inner value
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
                     api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
@@ -852,13 +852,7 @@ fn gen_run_nif(
                 if is_opaque {
                     if let TypeRef::Named(n) = &meta_param.ty {
                         out.push_str(&format!(
-                            "                    let {pname}_arc: Arc<{core_import}::{name}> = Arc::clone(&{pname});\n",
-                            pname = meta_param.name,
-                            core_import = core_import,
-                            name = n,
-                        ));
-                        out.push_str(&format!(
-                            "                    let {pname}: {core_import}::{name} = (*{pname}_arc).clone();\n",
+                            "                    let {pname}: {core_import}::{name} = (*{pname}).clone();\n",
                             pname = meta_param.name,
                             core_import = core_import,
                             name = n,
@@ -1060,15 +1054,9 @@ fn gen_registration_variant_nif(
             };
             if is_opaque {
                 if let TypeRef::Named(n) = &meta_param.ty {
-                    // GAP 2 (variant): Access ResourceArc<T> via Arc::clone instead of private .inner
+                    // ResourceArc<T> implements Deref<Target=T>; deref to clone the inner value
                     out.push_str(&format!(
-                        "                let {pname}_arc: Arc<{core_import}::{name}> = Arc::clone(&{pname});\n",
-                        pname = meta_param.name,
-                        core_import = core_import,
-                        name = n,
-                    ));
-                    out.push_str(&format!(
-                        "                let {pname}: {core_import}::{name} = (*{pname}_arc).clone();\n",
+                        "                let {pname}: {core_import}::{name} = (*{pname}).clone();\n",
                         pname = meta_param.name,
                         core_import = core_import,
                         name = n,

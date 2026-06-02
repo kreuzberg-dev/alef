@@ -86,7 +86,8 @@ fn make_streaming_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -262,7 +263,8 @@ fn make_opaque_factory_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let create_client_fn = FunctionDef {
         name: "create_client".into(),
         rust_path: "demo::create_client".into(),
@@ -375,7 +377,8 @@ fn make_handle_only_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let create_engine_fn = FunctionDef {
         name: "create_engine".into(),
         rust_path: "demo::create_engine".into(),
@@ -562,7 +565,8 @@ fn make_optional_params_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     use alef::core::ir::PrimitiveType;
     let create_client_fn = FunctionDef {
         name: "create_client".into(),
@@ -1278,7 +1282,8 @@ fn make_convert_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "ConversionResult".into(),
                 rust_path: "demo::ConversionResult".into(),
@@ -1300,7 +1305,8 @@ fn make_convert_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![FunctionDef {
             name: "convert".into(),
@@ -1457,7 +1463,8 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "DemoResult".into(),
                 rust_path: "demo::DemoResult".into(),
@@ -1479,7 +1486,8 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![FunctionDef {
             name: "batch_demo".into(),
@@ -1861,7 +1869,8 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "TowerResponse".into(),
                 rust_path: "demo::TowerResponse".into(),
@@ -1883,7 +1892,8 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "KeepMe".into(),
                 rust_path: "demo::KeepMe".into(),
@@ -1905,7 +1915,8 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![],
         enums: vec![EnumDef {
@@ -2068,7 +2079,8 @@ fn make_trait_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -2298,7 +2310,8 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let skipped_type = TypeDef {
         name: "SkippedDto".into(),
         rust_path: "demo::SkippedDto".into(),
@@ -2339,7 +2352,8 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_excluded: true,
         binding_exclusion_reason: Some("alef(skip)".into()),
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let included_enum = EnumDef {
         name: "IncludedMode".into(),
         rust_path: "demo::IncludedMode".into(),
@@ -2564,7 +2578,8 @@ fn make_long_signature_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     ApiSurface {
         crate_name: "demo".into(),

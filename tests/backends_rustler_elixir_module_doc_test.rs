@@ -91,7 +91,8 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -157,7 +158,8 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let config = make_config("test_app");
     let api = ApiSurface {
         crate_name: "test-app".to_string(),

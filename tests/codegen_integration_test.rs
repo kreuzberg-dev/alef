@@ -128,7 +128,8 @@ fn simple_type_def() -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn simple_function_def() -> FunctionDef {
@@ -306,7 +307,8 @@ fn test_gen_struct_with_empty_fields() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let mapper = RustMapper;
     let cfg = default_cfg();
 
@@ -2137,7 +2139,8 @@ fn test_gen_opaque_struct_arc_inner() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let cfg = default_cfg();
 
     let result = gen_opaque_struct(&typ, &cfg);
@@ -2193,7 +2196,8 @@ fn test_gen_opaque_struct_mutex_when_ref_mut_method() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     typ.is_opaque = true;
     let cfg = default_cfg();
 
@@ -2232,7 +2236,8 @@ fn test_gen_opaque_struct_trait_uses_dyn() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let cfg = default_cfg();
 
     let result = gen_opaque_struct(&typ, &cfg);
@@ -2321,7 +2326,8 @@ fn test_gen_struct_default_impl_optional_field_uses_none() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let result = gen_struct_default_impl(&typ, "");
 
@@ -2383,7 +2389,8 @@ fn test_can_generate_default_impl_named_not_in_known_set() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     assert!(
         !can_generate_default_impl(&typ, &known),
@@ -2433,7 +2440,8 @@ fn test_can_generate_default_impl_named_in_known_set() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let mut known: std::collections::HashSet<&str> = std::collections::HashSet::new();
     known.insert("KnownType");
     assert!(
@@ -2488,7 +2496,8 @@ fn test_gen_struct_with_opaque_field_skips_serde_derives() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let mapper = RustMapper;
 
     let result = gen_struct(&typ, &mapper, &cfg);
@@ -3305,7 +3314,8 @@ fn simple_trait_def() -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn simple_bridge_config() -> TraitBridgeConfig {

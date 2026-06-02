@@ -283,6 +283,7 @@ pub(crate) fn extract_impl_block(
                 "synthetic-opaque-from-impl-block (source visibility unverified)".to_string(),
             ),
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         });
     }
 }

@@ -107,7 +107,8 @@ fn php_native_and_facade_allow_null_default_config_param() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "extract_file".to_string(),
             rust_path: "test_lib::extract_file".to_string(),
@@ -207,7 +208,8 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "extract_file_sync".to_string(),
             rust_path: "test_lib::extract_file_sync".to_string(),
@@ -360,7 +362,8 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "hidden_function".to_string(),
             rust_path: "test_lib::hidden_function".to_string(),
@@ -461,7 +464,8 @@ fn test_type_mapping() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -697,7 +701,8 @@ fn test_methods_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -968,7 +973,8 @@ fn test_opaque_type() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1040,7 +1046,8 @@ fn test_default_config() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1150,7 +1157,8 @@ fn test_multiple_types_with_shared_error() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "Parser".to_string(),
                 rust_path: "test_lib::Parser".to_string(),
@@ -1202,7 +1210,8 @@ fn test_multiple_types_with_shared_error() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![],
         enums: vec![],
@@ -1274,7 +1283,8 @@ fn test_generate_type_stubs_contains_exception_and_api_class() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "create_thing".to_string(),
             rust_path: "test_lib::create_thing".to_string(),
@@ -1501,7 +1511,8 @@ fn test_opaque_class_promotes_parameters_after_first_optional() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1683,7 +1694,8 @@ fn make_trait_def_php(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_method_php(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
@@ -2316,7 +2328,8 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -2417,7 +2430,8 @@ fn test_stubs_non_void_methods_have_return_statements() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "create_config".to_string(),
             rust_path: "test_lib::create_config".to_string(),
@@ -2615,7 +2629,8 @@ fn test_vec_named_struct_parameter() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "batch_process".to_string(),
             rust_path: "test_lib::batch_process".to_string(),
@@ -2731,7 +2746,8 @@ fn test_dto_stubs_use_final_class_with_readonly_promoted_params() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2812,7 +2828,8 @@ fn test_dto_properties_use_camel_case_php_names() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3012,7 +3029,8 @@ fn test_type_stubs_documented_field_emits_var_phpdoc_with_description() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3083,7 +3101,8 @@ fn test_type_stubs_undocumented_field_emits_var_phpdoc_type_only() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3224,7 +3243,8 @@ fn test_duration_field_on_default_struct_getter_returns_option() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -3310,7 +3330,8 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     struct StubMapper;
     impl alef::codegen::type_mapper::TypeMapper for StubMapper {
@@ -3423,7 +3444,8 @@ fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     struct StubMapper;
     impl alef::codegen::type_mapper::TypeMapper for StubMapper {
@@ -3507,7 +3529,8 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
             TypeDef {
                 name: "Handle".to_string(),
                 rust_path: "test_lib::Handle".to_string(),
@@ -3546,7 +3569,8 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
-            },
+                has_lifetime_params: false,
+},
         ],
         functions: vec![],
         enums: vec![],

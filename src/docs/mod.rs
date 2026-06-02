@@ -1143,6 +1143,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         }
     }
 
@@ -1554,6 +1555,7 @@ exclude_types = ["FfiHidden"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![
@@ -1668,6 +1670,7 @@ exclude_types = ["FfiHidden"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -1886,6 +1889,7 @@ exclude_types = ["FfiHidden"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -2019,6 +2023,7 @@ exclude_types = ["FfiHidden"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -2091,6 +2096,7 @@ exclude_types = ["FfiHidden"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],

@@ -97,7 +97,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 #[test]
@@ -632,7 +633,8 @@ type = "ChatCompletionRequest"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -786,7 +788,8 @@ type = "ChatCompletionRequest"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -892,7 +895,8 @@ target = "jvm"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
         version: "0.1.0".into(),
@@ -1007,7 +1011,8 @@ target = "jvm"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }
+            has_lifetime_params: false,
+}
     }
 
     let router = opaque_with_method("Router", "route_count");
@@ -1157,7 +1162,8 @@ target = "jvm"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }
+            has_lifetime_params: false,
+}
     }
 
     let api = ApiSurface {

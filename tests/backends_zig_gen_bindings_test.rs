@@ -69,7 +69,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_config() -> ResolvedCrateConfig {
@@ -127,7 +128,8 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 #[test]
@@ -696,7 +698,8 @@ fn opaque_handle_with_no_methods_is_emitted() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let get_language_fn = FunctionDef {
         name: "get_language".to_string(),
         rust_path: "demo::get_language".to_string(),
@@ -1248,7 +1251,8 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -1345,7 +1349,8 @@ type = "*const std::ffi::c_char"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1452,7 +1457,8 @@ type = "CrawlStreamRequest"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1644,7 +1650,8 @@ type = "CrawlStreamRequest"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "demo".into(),

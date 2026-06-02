@@ -1,1 +1,1 @@
-pub struct {{ name }}(pub {{ source_path }});
+pub struct {{ name }}(pub {{ source_path }}{% if has_lifetime_params %}<'static>{% endif %});

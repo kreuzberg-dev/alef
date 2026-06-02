@@ -768,8 +768,13 @@ fn emit_lib_rs(
     for ty in &extra_serde_param_types {
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;
-        let source_path =
+        let source_path_base =
             crate::codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
+        let source_path = if ty.has_lifetime_params {
+            format!("{source_path_base}<'static>")
+        } else {
+            source_path_base
+        };
         emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 
@@ -779,8 +784,13 @@ fn emit_lib_rs(
     for ty in &streaming_item_types {
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;
-        let source_path =
+        let source_path_base =
             crate::codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
+        let source_path = if ty.has_lifetime_params {
+            format!("{source_path_base}<'static>")
+        } else {
+            source_path_base
+        };
         emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 
@@ -790,8 +800,13 @@ fn emit_lib_rs(
     for ty in &json_fallback_types {
         let type_snake = AsSnakeCase(ty.name.as_str()).to_string();
         let type_name = &ty.name;
-        let source_path =
+        let source_path_base =
             crate::codegen::generators::type_paths::resolve_type_path(type_name, &source_crate, &type_paths);
+        let source_path = if ty.has_lifetime_params {
+            format!("{source_path_base}<'static>")
+        } else {
+            source_path_base
+        };
         emit_from_json_shim(&mut out, &type_snake, type_name, &source_path, type_name);
     }
 

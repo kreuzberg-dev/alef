@@ -315,7 +315,7 @@ pub struct HandlerContractDef {
 }
 
 /// A public struct exposed to bindings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TypeDef {
     pub name: String,
     pub rust_path: String,
@@ -383,6 +383,12 @@ pub struct TypeDef {
     /// "cannot create instances" runtime error.
     #[serde(default)]
     pub is_variant_wrapper: bool,
+    /// True when the core Rust type has one or more lifetime parameters
+    /// (e.g. `NodeContext<'a>`). Backends use this flag to emit `From<T<'_>>`
+    /// instead of `From<T>`, `serde_json::from_str::<T<'static>>`, and
+    /// opaque wrapper newtypes `pub struct Wrapper(pub Source<'static>)`.
+    #[serde(default)]
+    pub has_lifetime_params: bool,
 }
 
 /// A field on a public struct.
