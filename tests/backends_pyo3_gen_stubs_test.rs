@@ -192,15 +192,15 @@ fn test_basic_stubs() {
         "Should have process function stub with multi-line signature (input is a builtin)"
     );
 
-    // Assert enum stub — variants are emitted as snake_case (PEP 8)
+    // Assert enum stub — variants are emitted as SHOUTY_SNAKE_CASE to match pyo3 runtime
     assert!(content.contains("class Mode:"), "Should define Mode enum class stub");
     assert!(
-        content.contains("fast: Mode = ..."),
-        "Should have fast variant typed as Mode (PEP 8 snake_case)"
+        content.contains("FAST: Mode = ..."),
+        "Should have FAST variant typed as Mode (matches pyo3 runtime SHOUTY_SNAKE_CASE)"
     );
     assert!(
-        content.contains("accurate: Mode = ..."),
-        "Should have accurate variant typed as Mode (PEP 8 snake_case)"
+        content.contains("ACCURATE: Mode = ..."),
+        "Should have ACCURATE variant typed as Mode (matches pyo3 runtime SHOUTY_SNAKE_CASE)"
     );
     assert!(
         content.contains("def __init__(self, value: int | str) -> None:"),
@@ -365,18 +365,18 @@ fn test_enum_stubs() {
     // Assert enum class definition
     assert!(content.contains("class Status:"), "Should define Status enum class");
 
-    // Assert enum variants typed as the enum class itself — snake_case (PEP 8)
+    // Assert enum variants typed as the enum class itself — SHOUTY_SNAKE_CASE (matches pyo3 runtime)
     assert!(
-        content.contains("pending: Status = ..."),
-        "Should have pending variant typed as Status (PEP 8 snake_case)"
+        content.contains("PENDING: Status = ..."),
+        "Should have PENDING variant typed as Status (SHOUTY_SNAKE_CASE matches pyo3 runtime)"
     );
     assert!(
-        content.contains("active: Status = ..."),
-        "Should have active variant typed as Status (PEP 8 snake_case)"
+        content.contains("ACTIVE: Status = ..."),
+        "Should have ACTIVE variant typed as Status (SHOUTY_SNAKE_CASE matches pyo3 runtime)"
     );
     assert!(
-        content.contains("complete: Status = ..."),
-        "Should have complete variant typed as Status (PEP 8 snake_case)"
+        content.contains("COMPLETE: Status = ..."),
+        "Should have COMPLETE variant typed as Status (SHOUTY_SNAKE_CASE matches pyo3 runtime)"
     );
 
     // Assert enum __init__ signature
@@ -1088,12 +1088,12 @@ fn test_multiple_types_and_functions() {
     // Assert enum is defined
     assert!(content.contains("class SortOrder:"), "Should define SortOrder enum");
     assert!(
-        content.contains("asc: SortOrder = ..."),
-        "Should have asc variant typed as SortOrder (PEP 8 snake_case)"
+        content.contains("ASC: SortOrder = ..."),
+        "Should have ASC variant typed as SortOrder (SHOUTY_SNAKE_CASE matches pyo3 runtime)"
     );
     assert!(
-        content.contains("desc: SortOrder = ..."),
-        "Should have desc variant typed as SortOrder (PEP 8 snake_case)"
+        content.contains("DESC: SortOrder = ..."),
+        "Should have DESC variant typed as SortOrder (SHOUTY_SNAKE_CASE matches pyo3 runtime)"
     );
 }
 
@@ -1360,20 +1360,20 @@ fn test_pyi_stub_emits_upper_snake_case_enum_variants() {
     let result = backend.generate_type_stubs(&api, &config).unwrap();
     let content = result.into_iter().next().unwrap().content;
 
-    // snake_case names must be present
+    // SHOUTY_SNAKE_CASE names must be present (matches pyo3 runtime conventions)
     assert!(
-        content.contains("validating: BatchStatus = ..."),
-        "stub must declare validating in snake_case, got:\n{}",
+        content.contains("VALIDATING: BatchStatus = ..."),
+        "stub must declare VALIDATING in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
     assert!(
-        content.contains("in_progress: BatchStatus = ..."),
-        "stub must declare in_progress in snake_case, got:\n{}",
+        content.contains("IN_PROGRESS: BatchStatus = ..."),
+        "stub must declare IN_PROGRESS in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
     assert!(
-        content.contains("complete: BatchStatus = ..."),
-        "stub must declare complete in snake_case, got:\n{}",
+        content.contains("COMPLETE: BatchStatus = ..."),
+        "stub must declare COMPLETE in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
 

@@ -199,7 +199,8 @@ Gem::Specification.new do |spec|
   spec.required_ruby_version = ">= 3.2.0"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
-  spec.files         = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}.reject {{ |f| f.include?("/native/target/") || f.include?("/native/tmp/") }}
+  candidate_files    = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
+  spec.files         = candidate_files.reject {{ |f| f.include?("/native/target/") || f.include?("/native/tmp/") }}
   spec.require_paths = ["lib"]
   spec.extensions    = ["ext/{ext_name}/native/extconf.rb"]
 

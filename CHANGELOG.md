@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **scaffold/ruby: split gemspec `spec.files` glob into two statements to
+  avoid `Style/MultilineBlockChain` (RuboCop).** The original template inlined
+  `Dir.glob(...).select { ... }.reject { ... }` on a single line that exceeded
+  RuboCop's 120-char line budget; the autocorrector rewrote it as
+  `select do |f| ... end.reject { ... }`, a chained multi-line block that
+  RuboCop then rejected. Emit two assignments — `candidate_files = ...select`
+  then `spec.files = candidate_files.reject` — so neither line exceeds the
+  budget and no chain forms.
+
 - **scaffold/zig: tag the `build.zig.zon` README code fence with `text`.** The
   scaffolded README emitted a bare fence for the dependencies snippet, which
   rumdl-fmt (MD040) keeps re-tagging with `text` while the next `sync-versions`
