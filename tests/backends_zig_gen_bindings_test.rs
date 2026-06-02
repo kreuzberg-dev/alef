@@ -656,7 +656,7 @@ fn error_set_emits_zig_error_with_pascal_case_tags() {
     let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
     assert!(
-        content.contains("pub const DemoError = error {"),
+        content.contains("pub const DemoError = error{"),
         "missing error set definition: {content}"
     );
     assert!(

@@ -17,7 +17,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `rustler = "0.38"` and generated `mix.exs` files request
   `{:rustler, "~> 0.38.0"}`.
 
+- **Ruby scaffold: enable `rake-compiler` cross-compilation by default.** The
+  generated `Rakefile` now sets `ext.cross_compile = true` and a
+  `CROSS_PLATFORMS` constant covering `x86_64-linux`, `aarch64-linux`,
+  `arm64-darwin`, `x86_64-darwin`, and `x64-mingw-ucrt`. Without this, gem
+  releases shipped only ruby-platform stubs, forcing every install to compile
+  the native extension from source. Consumers can override `CROSS_PLATFORMS`
+  per repo if their release matrix differs.
+
 ### Fixed
+
+- **Zig test + snapshot drift after `error{` (no-space) emission.** The
+  `error_set_emits_zig_error_with_pascal_case_tags` integration test still
+  asserted the legacy `error {` (with space) form; the demo snapshot likewise
+  contained the pre-fix output. Updated both to match the current emitter.
 
 - **Go code generation: fixed invalid cgo pointer dereference in handler registration.**
   The generated `service.go` was emitting `unsafe.Pointer(&C.service_handler_trampoline)`, which is invalid
@@ -43,7 +56,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   provides handlers as closures, but the service-pattern NIF expected them as process IDs.
   The generated `App.route()` method now detects closure handlers and automatically wraps
   them in a minimal GenServer (`HandlerWrapper`) before registration, enabling e2e tests
-  to pass closures directly without modification. Fixes issue #119 (Elixir e2e 557/559 fixtures failing with HTTP 404).
+  to pass closures directly without modification.
 
 - **Dart FRB post-processing now runs during `alef all`.** The `fix_handler_executor_calls`
   post-processor (which rewrites `handler.executeSync(...)` → `generalizedFrbRustBinding.executeSync(...)`)
