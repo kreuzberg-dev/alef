@@ -1622,21 +1622,42 @@ mod tests {
     /// `RegistrationVariantStyle` and emit the appropriate Elixir registration forms.
     #[test]
     fn registration_variant_style_hybrid_emits_both_forms() {
-        let surface = make_fixture_surface();
+        let mut surface = make_fixture_surface();
         let _config = make_test_config();
+
+        // Attach a Hybrid-styled variant `get` so the variant emission loop runs.
+        // The base `add_handler` is emitted unconditionally by gen_registration_method;
+        // RegistrationVariantStyle gates only the per-variant verb/builder emission.
+        surface.services[0].registrations[0].variants.push(crate::core::ir::RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: vec![crate::core::ir::RegistrationVariantOverride {
+                param_name: "method".to_owned(),
+                value_expr: "\"GET\"".to_owned(),
+            }],
+            wrapper_call: None,
+            signature_params: vec![ParamDef {
+                name: "path".to_owned(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            doc: None,
+            style: RegistrationVariantStyle::Hybrid,
+        });
 
         let elixir_output = gen_service_ex(&surface, "");
 
-        // VerbDecorator form should be present (direct method with handler)
+        // Hybrid → verb-decorator form
         assert!(
-            elixir_output.contains("def add_handler(app"),
-            "expected verb-decorator form 'def add_handler(app, ..., handler)' in Elixir output"
+            elixir_output.contains("def get(app, path, handler) do"),
+            "expected verb-decorator form 'def get(app, path, handler) do' in Elixir output:\n{elixir_output}"
         );
 
-        // Handler param should appear in verb form
+        // Hybrid → builder form
         assert!(
-            elixir_output.contains("handler) do"),
-            "expected handler parameter in verb-decorator method signature"
+            elixir_output.contains("def get_decorator(app, path) do"),
+            "expected builder form 'def get_decorator(app, path) do' in Elixir output:\n{elixir_output}"
         );
     }
 
