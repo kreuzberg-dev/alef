@@ -289,11 +289,7 @@ fn gen_registration_method(
         let direct_param_sig = if meta_params.is_empty() {
             format!("({callback})", callback = reg.callback_param)
         } else {
-            let positional_meta: Vec<String> = reg
-                .metadata_params
-                .iter()
-                .map(|p| p.name.clone())
-                .collect();
+            let positional_meta: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
             format!("({}, {})", positional_meta.join(", "), reg.callback_param)
         };
         out.push_str(&format!("  def {direct_name}{direct_param_sig}\n"));

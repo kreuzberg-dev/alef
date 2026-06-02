@@ -306,10 +306,14 @@ fn gen_registration_method(out: &mut String, reg: &RegistrationDef, _service: &S
         out.push_str("            response_json = Jason.encode!(response)\n");
         out.push_str("            Native.complete_trait_call(reply_id, response_json)\n");
         out.push_str("          rescue\n");
-        out.push_str("            _e -> Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"handler error\\\"}\")\n");
+        out.push_str(
+            "            _e -> Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"handler error\\\"}\")\n",
+        );
         out.push_str("          end\n");
         out.push_str("        {:error, _} ->\n");
-        out.push_str("          Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"json decode error\\\"}\")\n");
+        out.push_str(
+            "          Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"json decode error\\\"}\")\n",
+        );
         out.push_str("      end\n");
         out.push_str("      {:noreply, handler_fn}\n");
         out.push_str("    end\n");

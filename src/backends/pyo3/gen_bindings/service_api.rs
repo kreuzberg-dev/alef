@@ -382,10 +382,7 @@ fn build_wrapper_constructor_expr(variant: &crate::core::ir::RegistrationVariant
 /// Compute the shared metadata tuple string and the set of consumed param names
 /// for a registration variant. Used by both emission forms so the logic is not
 /// duplicated.
-fn variant_meta_tuple(
-    variant: &crate::core::ir::RegistrationVariant,
-    base_reg: &RegistrationDef,
-) -> (String, String) {
+fn variant_meta_tuple(variant: &crate::core::ir::RegistrationVariant, base_reg: &RegistrationDef) -> (String, String) {
     let wrapper_consumed: BTreeSet<&str> = if let Some(wc) = &variant.wrapper_call {
         let mut s = BTreeSet::new();
         s.insert(wc.metadata_param.as_str());
