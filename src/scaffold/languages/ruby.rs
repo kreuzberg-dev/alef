@@ -294,11 +294,21 @@ require "rspec/core/rake_task"
 GEM_ROOT = __dir__
 GEMSPEC = Gem::Specification.load(File.expand_path("{gem_name_snake}.gemspec", GEM_ROOT))
 
+CROSS_PLATFORMS = %w[
+  x86_64-linux
+  aarch64-linux
+  arm64-darwin
+  x86_64-darwin
+  x64-mingw-ucrt
+].freeze
+
 Rake::ExtensionTask.new("{cargo_pkg_name}", GEMSPEC) do |ext|
   ext.lib_dir = "lib"
   ext.ext_dir = "ext/{ext_name}/native"
   ext.source_pattern = "*.{{}}"
   ext.platform = "ruby"
+  ext.cross_compile = true
+  ext.cross_platform = CROSS_PLATFORMS
 end
 
 RSpec::Core::RakeTask.new(:spec)

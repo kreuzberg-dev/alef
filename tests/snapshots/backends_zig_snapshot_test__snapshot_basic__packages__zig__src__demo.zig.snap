@@ -35,7 +35,7 @@ inline fn _first_error(comptime E: type) E {
 }
 
 /// Errors emitted by demo operations.
-pub const DemoError = error {
+pub const DemoError = error{
     InvalidInput,
     ProcessingFailed,
     OutOfMemory,
