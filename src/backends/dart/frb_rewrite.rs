@@ -392,10 +392,24 @@ fn variant_regex() -> &'static Regex {
 /// );
 /// ```
 pub fn fix_handler_executor_calls(source: &str) -> String {
-    // Remove erroneous method calls and replace with direct handler invocation.
-    // These are used to execute task wrappers for callback parameters.
+    // FRB-generated code variants for invoking task wrappers:
+    //
+    // 1. `handler.executeSync(...)` / `handler.executeNormal(...)` — emitted
+    //    when `handler` is a *callback function parameter* (a function type
+    //    with no `.executeX` methods); rewrite to `handler(...)`.
+    //
+    // 2. `generalizedFrbRustBinding.executeNormal(...)` — FRB 2.12.x emits
+    //    these for ordinary `RustLibApiImpl` methods. The receiver is the
+    //    low-level FFI binding (`GeneralizedFrbRustBinding`), which does
+    //    *not* expose `executeNormal`/`executeSync`; those methods live on
+    //    the `BaseHandler` field (`handler`) of `BaseApiImpl`. Without this
+    //    rewrite every generated method body fails to compile with
+    //    "method 'executeNormal' isn't defined for the type
+    //    'GeneralizedFrbRustBinding'".
     let source = source.replace("handler.executeSync(", "handler(");
-    source.replace("handler.executeNormal(", "handler(")
+    let source = source.replace("handler.executeNormal(", "handler(");
+    let source = source.replace("generalizedFrbRustBinding.executeNormal(", "handler.executeNormal(");
+    source.replace("generalizedFrbRustBinding.executeSync(", "handler.executeSync(")
 }
 
 /// Rewrite the comma-separated parameter list inside the variant constructor.
