@@ -730,7 +730,7 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
         .map(|v| {
             let const_name = format!("{}{}", go_enum_name, to_go_name(&v.name));
             // Go constants use the Rust variant name as-is (PascalCase), not the wire format.
-            // The FFI function (e.g., spikard_method_from_str) expects the Rust variant name.
+            // The FFI function (e.g., crate_prefix_method_from_str) expects the Rust variant name.
             let const_value = v.name.clone();
 
             let mut doc_lines = Vec::new();

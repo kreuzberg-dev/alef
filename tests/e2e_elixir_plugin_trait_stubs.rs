@@ -1,5 +1,5 @@
 //! Verifies the Elixir e2e codegen emits complete plugin trait-bridge stubs with
-//! super-trait methods (initialize, name) and special handling for EmbeddingBackend.dimensions.
+//! super-trait methods and generic numeric defaults.
 
 use alef::core::config::TraitBridgeConfig;
 use alef::core::ir::{MethodDef, PrimitiveType, ReceiverKind, TypeRef};
@@ -86,12 +86,12 @@ fn elixir_stub_emits_super_trait_name_and_initialize() {
 }
 
 #[test]
-fn elixir_stub_emits_embedding_backend_dimensions_as_one() {
-    let bridge = make_trait_bridge("EmbeddingBackend", Some("Plugin"));
+fn elixir_stub_emits_integer_methods_as_one() {
+    let bridge = make_trait_bridge("VectorBackend", Some("Plugin"));
     let dimensions_method = make_method("dimensions", TypeRef::Primitive(PrimitiveType::U32), false);
     let embed_method = make_method("embed", TypeRef::Named("Vec<Vec<f32>>".to_string()), false);
     let methods = vec![&dimensions_method, &embed_method];
-    let fixture = make_fixture("my_backend", json!({ "backend": { "name": "test-embedding-backend" } }));
+    let fixture = make_fixture("my_backend", json!({ "backend": { "name": "test-vector-backend" } }));
 
     let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);
@@ -117,12 +117,12 @@ fn elixir_stub_emits_embedding_backend_dimensions_as_one() {
 
 #[test]
 fn elixir_stub_emits_all_required_trait_methods() {
-    let bridge = make_trait_bridge("OcrBackend", Some("Plugin"));
+    let bridge = make_trait_bridge("ImageBackend", Some("Plugin"));
     let process_image = make_method("process_image", TypeRef::Named("OcrResult".to_string()), false);
     let supports_language = make_method("supports_language", TypeRef::Primitive(PrimitiveType::Bool), false);
     let backend_type = make_method("backend_type", TypeRef::Named("BackendType".to_string()), false);
     let methods = vec![&process_image, &supports_language, &backend_type];
-    let fixture = make_fixture("my_ocr_backend", json!({ "backend": { "name": "test-backend" } }));
+    let fixture = make_fixture("my_image_backend", json!({ "backend": { "name": "test-backend" } }));
 
     let emission = emit_test_backend(&bridge, &methods, &fixture, "");
     let output = format!("{}\n{}", emission.setup_block, emission.arg_expr);

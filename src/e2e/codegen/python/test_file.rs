@@ -389,7 +389,7 @@ fn build_thirdparty_imports(
         }
     }
 
-    // Import any element_type referenced by a call arg (e.g. `BatchBytesItem`, `PageAction`).
+    // Import any element_type referenced by a call arg (e.g. `FileJob`, `PageAction`).
     // These names are emitted as bare references inside the test body (constructor calls,
     // type annotations) and must be importable from the public binding module.
     for fixture in fixtures.iter() {

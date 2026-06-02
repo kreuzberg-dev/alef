@@ -133,7 +133,6 @@ extension-module = []
 pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let ext_name = config.php_extension_name();
-    let name = &config.name;
     let pkg_dir = config.package_dir(Language::Php);
     // PSR-4 namespace derived from the extension name (e.g. sample_markdown_rs -> Html\To\Markdown\Rs).
     // Double backslashes for JSON string literal output.
@@ -146,30 +145,7 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         format!(",\n  \"keywords\": [{}]", entries.join(", "))
     };
 
-    // Derive vendor from the GitHub owner in the repository URL.
-    // e.g. "https://github.com/Acme/my-lib" -> "acme" (composer requires the
-    // vendor to be all-lowercase per the package-name regex; mixed-case orgs
-    // like `Goldziher` get folded down here).
-    let (vendor, package_name) = {
-        let repo = meta
-            .repository
-            .strip_prefix("https://github.com/")
-            .or_else(|| meta.repository.strip_prefix("http://github.com/"))
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&meta.repository);
-
-        let parts: Vec<&str> = repo.split('/').collect();
-        match parts.as_slice() {
-            [owner, repo_name, ..] => {
-                let vendor = owner.to_lowercase();
-                // Use the repo name (e.g. sample-markdown) for the package name,
-                // falling back to the crate name if the repo name can't be extracted.
-                let pkg_name = repo_name.to_lowercase();
-                (vendor, pkg_name)
-            }
-            _ => (name.clone(), name.to_lowercase()),
-        }
-    };
+    let (vendor, package_name) = composer_package_name(config, &meta);
 
     // Composer manifests are emitted twice with one structural difference: the
     // PSR-4 autoload src path. The package manifest at `{pkg_dir}/composer.json`
@@ -319,4 +295,21 @@ return (new PhpCsFixer\Config())
             generated_header: false,
         },
     ])
+}
+
+fn composer_package_name(config: &ResolvedCrateConfig, meta: &crate::scaffold::ScaffoldMeta) -> (String, String) {
+    let Some(repository) = meta.configured_repository.as_deref() else {
+        return ("unconfigured".to_string(), config.name.to_lowercase());
+    };
+    let repo = repository
+        .strip_prefix("https://github.com/")
+        .or_else(|| repository.strip_prefix("http://github.com/"))
+        .filter(|s| !s.is_empty())
+        .unwrap_or(repository);
+
+    let parts: Vec<&str> = repo.split('/').collect();
+    match parts.as_slice() {
+        [owner, repo_name, ..] => (owner.to_lowercase(), repo_name.to_lowercase()),
+        _ => ("unconfigured".to_string(), config.name.to_lowercase()),
+    }
 }

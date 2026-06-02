@@ -806,15 +806,10 @@ fn render_test_file(
                 }
             }
         }
-        // Detect batch item types and complex json_object array element types used in this fixture.
-        // Complex types like PageAction need JsonUtil for deserialization.
+        // Detect complex json_object array element types used in this fixture.
         for arg in &call_cfg.args {
             if let Some(elem_type) = &arg.element_type {
-                if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
-                    all_options_types.insert(elem_type.clone());
-                } else if arg.arg_type == "json_object"
-                    && !is_numeric_type_hint(elem_type)
-                    && !is_java_builtin_type(elem_type)
+                if arg.arg_type == "json_object" && !is_numeric_type_hint(elem_type) && !is_java_builtin_type(elem_type)
                 {
                     // Complex types in json_object arrays need JsonUtil.
                     // Skip Java built-in types (String, Boolean, Integer, etc.).
@@ -1905,8 +1900,6 @@ fn build_args_and_setup(
                         .map(|t| t.name.as_str())
                         .collect();
                     excluded_named.insert("InternalDocument");
-                    excluded_named.insert("OcrBackendType");
-                    excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
 
                     // Filter to only methods that appear in the Java trait-bridge interface.
@@ -1930,7 +1923,7 @@ fn build_args_and_setup(
                                     }
 
                                     // As of the trait method extraction fix, methods returning excluded types
-                                    // are now kept in the interface with type substitution (e.g., ProcessingStage -> String).
+                                    // are now kept in the interface with type substitution.
                                     // Methods like extract_bytes/extract_file and backend_type are now included.
                                     true
                                 })
@@ -1959,13 +1952,8 @@ fn build_args_and_setup(
                         .filter(|t| t.binding_excluded)
                         .map(|t| t.name.as_str())
                         .collect();
-                    // Hardcoded overrides for types always excluded in trait bridges.
-                    // NOTE: ExtractionResult is generated as a Java class and IS used in trait-bridge
-                    // interfaces (e.g., OcrBackend.process_image returns ExtractionResult), so it
-                    // should NOT be in the exclusion list.
+                    // Hardcoded overrides for internal types that are never emitted as Java classes.
                     excluded_named.insert("InternalDocument");
-                    excluded_named.insert("OcrBackendType");
-                    excluded_named.insert("ProcessingStage");
                     excluded_named.insert("SyncExtractor");
 
                     // Do NOT filter out methods that return excluded types. As of the trait method extraction
@@ -2025,14 +2013,9 @@ fn build_args_and_setup(
             Some(v) => {
                 if arg.arg_type == "json_object" {
                     // Array json_object args: emit inline Java list expression.
-                    // Check for batch item arrays first (element_type = BatchBytesItem/BatchFileItem).
                     if v.is_array() {
                         if let Some(elem_type) = &arg.element_type {
-                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
-                                parts.push(emit_java_batch_item_array(v, elem_type));
-                                continue;
-                            }
-                            // For complex types (e.g. PageAction), deserialize each array element via ObjectMapper.
+                            // For complex types, deserialize each array element via JsonUtil.
                             if !is_numeric_type_hint(elem_type) {
                                 parts.push(emit_java_object_array(v, elem_type));
                                 continue;
@@ -2711,49 +2694,7 @@ fn json_to_java(value: &serde_json::Value) -> String {
 }
 
 /// Convert a JSON value to a Java literal, optionally overriding number type for array elements.
-/// `element_type` controls how numeric array elements are emitted: "f32" → `1.0f`, otherwise `1.0d`.
-/// Emit Java batch item constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_java_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
-    if let Some(items) = arr.as_array() {
-        let item_strs: Vec<String> = items
-            .iter()
-            .filter_map(|item| {
-                if let Some(obj) = item.as_object() {
-                    match elem_type {
-                        "BatchBytesItem" => {
-                            let content = obj.get("content").and_then(|v| v.as_array());
-                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            let content_code = if let Some(arr) = content {
-                                let bytes: Vec<String> = arr
-                                    .iter()
-                                    .filter_map(|v| v.as_u64().map(|n| format!("(byte) {}", n)))
-                                    .collect();
-                                format!("new byte[] {{{}}}", bytes.join(", "))
-                            } else {
-                                "new byte[] {}".to_string()
-                            };
-                            Some(format!("new {}({}, \"{}\", null)", elem_type, content_code, mime_type))
-                        }
-                        "BatchFileItem" => {
-                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!(
-                                "new {}(java.nio.file.Paths.get(\"{}\"), null)",
-                                elem_type, path
-                            ))
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-        format!("java.util.Arrays.asList({})", item_strs.join(", "))
-    } else {
-        "java.util.List.of()".to_string()
-    }
-}
-
+/// `element_type` controls how numeric array elements are emitted: "f32" -> `1.0f`, otherwise `1.0d`.
 fn json_to_java_typed(value: &serde_json::Value, element_type: Option<&str>) -> String {
     match value {
         serde_json::Value::String(s) => format!("\"{}\"", escape_java(s)),
@@ -2813,10 +2754,6 @@ fn java_builder_expression(
                     let enum_type_name = camel_key.to_upper_camel_case();
                     let variant_name = s.to_upper_camel_case();
                     format!("{}.{}", enum_type_name, variant_name)
-                } else if camel_key == "preset" && type_name == "PreprocessingOptions" {
-                    // Special case: preset field in PreprocessingOptions maps to PreprocessingPreset
-                    let variant_name = s.to_upper_camel_case();
-                    format!("PreprocessingPreset.{}", variant_name)
                 } else if path_fields.contains(key) {
                     // Path field: wrap in Optional.of(java.nio.file.Path.of(...))
                     format!("Optional.of(java.nio.file.Path.of(\"{}\"))", escape_java(s))
@@ -2831,15 +2768,12 @@ fn java_builder_expression(
                 // Number field: emit literal with type suffix.
                 // Java records/classes use either `long` (primitive, not nullable) or
                 // `Optional<Long>` (nullable). The codegen wraps in `Optional.of(...)`
-                // by default since most options builder fields are Optional, but several
-                // record types (e.g. SecurityLimits) use primitive `long` throughout.
-                // Skip the wrap for: (a) known-primitive top-level fields and (b) any
-                // method on a record type whose builder methods take primitives only.
+                // by default since most options builder fields are Optional. Calls that
+                // use primitive builder fields can opt into bare values by setting
+                // `nested_types_optional = false`.
                 let camel_key = key.to_lower_camel_case();
                 let is_plain_field = matches!(camel_key.as_str(), "listIndentWidth" | "wrapWidth");
-                // Builders for typed-record nested config classes use primitives
-                // throughout — they're not the optional-options pattern.
-                let is_primitive_builder = matches!(type_name, "SecurityLimits" | "SecurityLimitsBuilder");
+                let is_primitive_builder = !nested_types_optional;
 
                 if is_plain_field || is_primitive_builder {
                     // Plain numeric field: no Optional wrapper
@@ -2875,10 +2809,10 @@ fn java_builder_expression(
                     nested_types_optional,
                     &[],
                 );
-                // Top-level config builders (e.g. ExtractionConfigBuilder) declare nested
-                // record fields as `Optional<T>` (since they are nullable). Primitive-fields
-                // builders (SecurityLimitsBuilder etc.) take the bare type directly.
-                let is_primitive_builder = matches!(type_name, "SecurityLimits" | "SecurityLimitsBuilder");
+                // Top-level config builders usually declare nested record fields as
+                // `Optional<T>`. Calls with non-optional nested config builders can opt
+                // into passing the bare builder result.
+                let is_primitive_builder = !nested_types_optional;
                 if is_primitive_builder || !nested_types_optional {
                     inner
                 } else {
@@ -2910,9 +2844,6 @@ fn collect_enum_and_nested_types(
         if let Some(enum_type) = enum_fields.get(&camel_key) {
             // Add the enum type from the mapping (e.g., "CodeBlockStyle").
             types_out.insert(enum_type.clone());
-        } else if camel_key == "preset" {
-            // Special case: preset field uses PreprocessingPreset enum.
-            types_out.insert("PreprocessingPreset".to_string());
         }
         // Recurse into nested objects to find their nested enum types.
         if let Some(nested) = val.as_object() {

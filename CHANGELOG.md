@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+
+
+- fix(codegen): remove consumer-specific naming and metadata leakage from Dart/Swift trait bridges, scaffold output, and e2e generators
+- fix(validation): add reusable sanitized public API diagnostics without blocking backend-specific fallback handling
 - test: sync ErrorVariant fixture fields and scaffold MANIFEST_PATH rename
 - fix(go): preserve enum variant casing in emitted constant values (#134)
 - fix(e2e): emit named imports for wasm-bindgen harness (#131)

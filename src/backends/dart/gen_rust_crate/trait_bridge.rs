@@ -1,3 +1,5 @@
+use crate::codegen::naming;
+use crate::core::config::Language;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use heck::ToSnakeCase;
@@ -395,8 +397,7 @@ pub(crate) fn emit_trait_bridge(
             // Use the same substitution as the closure-field type
             // (`dart_fn_future_callback_type`) so the `impl Fn` param shape matches
             // the field's `Box<dyn Fn>` shape at the `Box::new(name)` init site —
-            // including `InternalDocument` → opaque-bridge substitution applied
-            // to plugin/extractor trait signatures.
+            // including excluded-type carrier substitution applied to trait signatures.
             let callback_ty =
                 dart_fn_future_factory_param_type(method, source_crate_name, type_paths, &api.excluded_type_paths);
             out.push_str(&format!("    {param_name}: {callback_ty},\n"));
@@ -516,58 +517,64 @@ fn emit_clear_forwarder(out: &mut String, bridge_config: &TraitBridgeConfig, _so
     ));
 }
 
-/// Substitute all forms of `InternalDocument` with the JSON-backed bridge type used
-/// in binding-facing closure types.
-///
-/// `InternalDocument` is a Rust-internal contract type. Mapping it to the public
-/// `ExtractionResult` loses the trait semantics, so Dart receives an opaque JSON
-/// envelope instead. Rust serializes/deserializes at the bridge edge and keeps the
-/// actual trait impl signature on the original `InternalDocument` type.
-///
-fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name: &str) -> String {
-    // Strip fully qualified `{crate}::types::internal::InternalDocument`
-    let fully_qualified_internal = format!("{}::types::internal::InternalDocument", source_crate_name);
-    if rust_type.contains(&fully_qualified_internal) {
-        return rust_type.replace(&fully_qualified_internal, "InternalDocumentBridge");
-    }
+fn excluded_carrier_name(type_name: &str) -> String {
+    format!(
+        "{}Bridge",
+        naming::public_host_identifier(Language::Dart, naming::PublicIdentifierKind::Type, type_name)
+    )
+}
 
-    // Strip partially qualified `{crate}::InternalDocument`
-    let partial_qualified_internal = format!("{}::InternalDocument", source_crate_name);
-    if rust_type.contains(&partial_qualified_internal) {
-        return rust_type.replace(&partial_qualified_internal, "InternalDocumentBridge");
-    }
-
-    // Handle plain `InternalDocument` token (word-boundary aware: skip InternalDocumentBuilder etc.)
-    if rust_type.contains("InternalDocument") {
-        let mut result = String::new();
-        let mut chars = rust_type.chars().peekable();
-        while let Some(ch) = chars.next() {
-            if ch == 'I' {
-                let remaining: String = std::iter::once(ch)
-                    .chain(chars.by_ref().take("nternalDocument".len()))
-                    .collect();
-                if remaining == "InternalDocument" {
-                    let before_ok =
-                        result.is_empty() || !result.chars().last().is_some_and(|c| c.is_alphanumeric() || c == '_');
-                    let after_ok = chars.peek().is_none_or(|&c| !c.is_alphanumeric() && c != '_');
-                    if before_ok && after_ok {
-                        result.push_str("InternalDocumentBridge");
-                        continue;
-                    } else {
-                        result.push_str(&remaining);
-                        continue;
-                    }
-                } else {
-                    result.push(ch);
-                }
-            } else {
-                result.push(ch);
-            }
+fn needs_excluded_carrier(ty: &TypeRef, excluded_type_paths: &std::collections::HashMap<String, String>) -> bool {
+    match ty {
+        TypeRef::Named(name) => excluded_type_paths.contains_key(name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => needs_excluded_carrier(inner, excluded_type_paths),
+        TypeRef::Map(key, value) => {
+            needs_excluded_carrier(key, excluded_type_paths) || needs_excluded_carrier(value, excluded_type_paths)
         }
-        return result;
+        _ => false,
     }
+}
 
-    rust_type.to_string()
+fn replace_token(input: &str, needle: &str, replacement: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(index) = rest.find(needle) {
+        let (before, after_start) = rest.split_at(index);
+        out.push_str(before);
+        let after = &after_start[needle.len()..];
+        let before_ok = out.chars().last().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+        let after_ok = after.chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+        if before_ok && after_ok {
+            out.push_str(replacement);
+        } else {
+            out.push_str(needle);
+        }
+        rest = after;
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Substitute excluded concrete types with JSON-backed carrier types in binding-facing
+/// closure signatures. The exact type names come from the extracted API, not from
+/// downstream project conventions.
+fn substitute_excluded_carriers_in_rust_type(
+    rust_type: &str,
+    source_crate_name: &str,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let mut rendered = rust_type.to_string();
+    for (type_name, path) in excluded_type_paths {
+        let carrier = excluded_carrier_name(type_name);
+        if !path.is_empty() {
+            let normalized_path = path.replace('-', "_");
+            rendered = rendered.replace(&normalized_path, &carrier);
+        }
+        let partial_qualified = format!("{source_crate_name}::{type_name}");
+        rendered = rendered.replace(&partial_qualified, &carrier);
+        rendered = replace_token(&rendered, type_name, &carrier);
+    }
+    rendered
 }
 
 /// Build the callback closure type stored in the bridge struct field.
@@ -576,11 +583,11 @@ fn substitute_internal_document_in_rust_type(rust_type: &str, source_crate_name:
 /// decodes arguments as mirror types, not source-crate types). Returns a
 /// `DartFnFuture<T>` wrapping the FRB-friendly mirror return type.
 ///
-/// For excluded types like `InternalDocument`, substitutes the JSON-backed bridge
+/// For excluded named types, substitutes the JSON-backed bridge
 /// type so FRB generates a constructible Dart object without exposing the internal
-/// Rust document struct as a public DTO.
+/// Rust struct as a public DTO.
 ///
-/// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<InternalDocumentBridge> + Send + Sync>`
+/// Example: `Box<dyn Fn(Vec<u8>, OcrConfig) -> DartFnFuture<HiddenDocumentBridge> + Send + Sync>`
 fn dart_fn_future_callback_type(
     method: &MethodDef,
     source_crate_name: &str,
@@ -600,7 +607,7 @@ fn dart_fn_future_callback_type(
 /// stay `Box<dyn Fn(...)>` (see `dart_fn_future_callback_type`); the factory
 /// boxes each `impl Fn` argument as it stores it.
 ///
-/// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<InternalDocumentBridge> + Send + Sync + 'static`
+/// Example: `impl Fn(Vec<u8>, OcrConfig) -> DartFnFuture<HiddenDocumentBridge> + Send + Sync + 'static`
 fn dart_fn_future_factory_param_type(
     method: &MethodDef,
     source_crate_name: &str,
@@ -618,19 +625,18 @@ fn dart_fn_future_params_and_ret(
 ) -> (String, String) {
     // Closures take owned FRB mirror types — use frb_rust_type (no source prefix)
     // for types with an in-scope mirror, and the qualified source-crate path for
-    // excluded internal types (e.g. `InternalDocument`) that have no mirror struct.
+    // excluded internal types that have no mirror struct.
     let params: Vec<String> = method
         .params
         .iter()
         .map(|p| {
             let ty = frb_rust_type_excluded_aware(&p.ty, p.optional, excluded_type_paths);
-            // Substitute InternalDocument with an opaque JSON bridge for binding-facing signature.
-            substitute_internal_document_in_rust_type(&ty, source_crate_name)
+            substitute_excluded_carriers_in_rust_type(&ty, source_crate_name, excluded_type_paths)
         })
         .collect();
 
     let ret = frb_rust_type_excluded_aware(&method.return_type, false, excluded_type_paths);
-    let ret_substituted = substitute_internal_document_in_rust_type(&ret, source_crate_name);
+    let ret_substituted = substitute_excluded_carriers_in_rust_type(&ret, source_crate_name, excluded_type_paths);
     // FRB v2's closure-parameter parser inspects the FIRST path segment of the
     // return type. A fully-qualified `flutter_rust_bridge::DartFnFuture<...>`
     // makes that first segment resolve to `flutter_rust_bridge`, causing the
@@ -739,41 +745,45 @@ fn emit_trait_bridge_method(
 
     // Build call-site arg list (use the local owned var names).
     //
-    // For params whose original type was the excluded `InternalDocument`, the Dart-facing
-    // closure receives an opaque JSON bridge. The Rust trait method itself still receives
-    // the source-crate `InternalDocument`, so serialize at the bridge edge explicitly.
+    // For params whose original type was excluded from public bindings, the Dart-facing
+    // closure receives an opaque JSON carrier. The Rust trait method itself still
+    // receives the source-crate type, so serialize at the bridge edge explicitly.
     let mut pre_bindings = String::new();
     let call_args: Vec<String> = method
         .params
         .iter()
         .map(|p| {
-            let is_internal_document = match &p.ty {
-                TypeRef::Named(name) => name.ends_with("InternalDocument"),
-                _ => false,
+            let carrier_type = match &p.ty {
+                TypeRef::Named(name) if excluded_type_paths.contains_key(name) => Some(excluded_carrier_name(name)),
+                _ => None,
             };
-            if is_internal_document {
+            if let Some(carrier_type) = carrier_type {
                 let local = format!("__{}_local", p.name);
                 let expr = if p.optional {
                     if method.error_type.is_some() {
                         format!(
-                            "{name}.map(|v| serde_json::to_string(&v).map(|json| InternalDocumentBridge {{ json }})).transpose()?",
+                            "{name}.map(|v| serde_json::to_string(&v).map(|json| {carrier_type} {{ json }})).transpose()?",
                             name = p.name,
+                            carrier_type = carrier_type,
                         )
                     } else {
                         format!(
-                            "{name}.map(|v| InternalDocumentBridge {{ json: serde_json::to_string(&v).expect(\"serialize InternalDocument for Dart trait bridge\") }})",
+                            "{name}.map(|v| {carrier_type} {{ json: serde_json::to_string(&v).expect(\"serialize excluded Dart trait bridge value\") }})",
                             name = p.name,
+                            carrier_type = carrier_type,
                         )
                     }
                 } else if method.error_type.is_some() {
                     format!(
-                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name})? }}",
+                        "{carrier_type} {{ json: serde_json::to_string(&{name})? }}",
                         name = p.name,
+                        carrier_type = carrier_type,
                     )
                 } else {
                     format!(
-                        "InternalDocumentBridge {{ json: serde_json::to_string(&{name}).expect(\"serialize InternalDocument for Dart trait bridge\") }}",
+                        "{carrier_type} {{ json: serde_json::to_string(&{name}).expect(\"serialize excluded Dart trait bridge value\") }}",
                         name = p.name,
+                        carrier_type = carrier_type,
                     )
                 };
                 let _ = std::fmt::Write::write_fmt(
@@ -798,30 +808,33 @@ fn emit_trait_bridge_method(
     // back to the core type. Drop the result and return Default::default().
     let named_return_default = ret_conv == "__NAMED_RETURN_DEFAULT__";
 
-    // Special case: the return type was the excluded `InternalDocument`, substituted to
-    // the JSON-backed `InternalDocumentBridge` in the closure signature. Deserialize
-    // explicitly to the source trait's exact return type.
-    let returns_internal_document = match &method.return_type {
-        TypeRef::Named(name) => name.ends_with("InternalDocument"),
-        _ => false,
+    // Special case: the return type was excluded from public bindings, substituted
+    // to a JSON-backed carrier in the closure signature. Deserialize explicitly
+    // to the source trait's exact return type.
+    let excluded_return_name = match &method.return_type {
+        TypeRef::Named(name) if excluded_type_paths.contains_key(name) => Some(name.as_str()),
+        _ => None,
     };
-    if returns_internal_document {
-        let core_path = internal_document_core_path(&method.return_type, source_crate_name, excluded_type_paths);
+    if let Some(excluded_return_name) = excluded_return_name {
+        let core_path = excluded_type_core_path(excluded_return_name, source_crate_name, excluded_type_paths);
+        let carrier_type = excluded_carrier_name(excluded_return_name);
         if method.is_async {
             if method.error_type.is_some() {
                 out.push_str(&format!(
-                    "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
+                    "        let __ret_bridge: {carrier_type} = {call_expr}.await;\n\
                      \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)?;\n",
                     call_expr = call_expr,
                     core_path = core_path,
+                    carrier_type = carrier_type,
                 ));
             } else {
                 out.push_str(&format!(
-                    "        let __ret_bridge: InternalDocumentBridge = {call_expr}.await;\n\
+                    "        let __ret_bridge: {carrier_type} = {call_expr}.await;\n\
                      \x20       let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n\
-                     \x20           .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                     \x20           .expect(\"deserialize excluded Dart trait bridge value\");\n",
                     call_expr = call_expr,
                     core_path = core_path,
+                    carrier_type = carrier_type,
                 ));
             }
         } else {
@@ -839,7 +852,7 @@ fn emit_trait_bridge_method(
                 ));
             } else {
                 out.push_str(&format!(
-                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize InternalDocument from Dart trait bridge\");\n",
+                    "            ;\n        let __ret: {core_path} = serde_json::from_str(&__ret_bridge.json)\n            .expect(\"deserialize excluded Dart trait bridge value\");\n",
                     core_path = core_path,
                 ));
             }
@@ -978,40 +991,65 @@ fn emit_trait_bridge_method(
     out.push_str("    }\n");
 }
 
-pub(crate) fn needs_internal_document_bridge(ty: &TypeRef) -> bool {
-    match ty {
-        TypeRef::Named(name) => name.ends_with("InternalDocument"),
-        TypeRef::Optional(inner) | TypeRef::Vec(inner) => needs_internal_document_bridge(inner),
-        TypeRef::Map(k, v) => needs_internal_document_bridge(k) || needs_internal_document_bridge(v),
-        _ => false,
+pub(crate) fn needs_excluded_bridge_type(
+    ty: &TypeRef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> bool {
+    needs_excluded_carrier(ty, excluded_type_paths)
+}
+
+pub(crate) fn emit_excluded_bridge_types(out: &mut String, api: &ApiSurface) {
+    let mut carriers = std::collections::BTreeSet::new();
+    for trait_def in api.types.iter().filter(|t| t.is_trait) {
+        for method in &trait_def.methods {
+            for param in &method.params {
+                collect_excluded_carriers(&param.ty, &api.excluded_type_paths, &mut carriers);
+            }
+            collect_excluded_carriers(&method.return_type, &api.excluded_type_paths, &mut carriers);
+        }
+    }
+    for (type_name, carrier_name) in carriers {
+        out.push_str(&format!(
+            "\n/// Opaque JSON carrier for Rust's excluded `{type_name}` trait-bridge contract.\n\
+             /// Dart code should pass this value back to Alef-generated bridge APIs.\n\
+             #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]\n\
+             pub struct {carrier_name} {{\n\
+             \x20   pub json: String,\n\
+             }}\n"
+        ));
     }
 }
 
-pub(crate) fn emit_internal_document_bridge_type(out: &mut String) {
-    out.push_str(
-        "\n/// Opaque JSON carrier for Rust's internal `InternalDocument` trait contract.\n\
-         /// Dart code should pass this value back to Alef-generated bridge APIs rather\n\
-         /// than treating it as the public `ExtractionResult` DTO.\n\
-         #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]\n\
-         pub struct InternalDocumentBridge {\n\
-         \x20   pub json: String,\n\
-         }\n",
-    );
+fn collect_excluded_carriers(
+    ty: &TypeRef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+    carriers: &mut std::collections::BTreeSet<(String, String)>,
+) {
+    match ty {
+        TypeRef::Named(name) if excluded_type_paths.contains_key(name) => {
+            carriers.insert((name.clone(), excluded_carrier_name(name)));
+        }
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
+            collect_excluded_carriers(inner, excluded_type_paths, carriers)
+        }
+        TypeRef::Map(key, value) => {
+            collect_excluded_carriers(key, excluded_type_paths, carriers);
+            collect_excluded_carriers(value, excluded_type_paths, carriers);
+        }
+        _ => {}
+    }
 }
 
-fn internal_document_core_path(
-    ty: &TypeRef,
+fn excluded_type_core_path(
+    name: &str,
     source_crate_name: &str,
     excluded_type_paths: &std::collections::HashMap<String, String>,
 ) -> String {
-    match ty {
-        TypeRef::Named(name) => excluded_type_paths
-            .get(name)
-            .filter(|p| !p.is_empty())
-            .map(|p| p.replace('-', "_"))
-            .unwrap_or_else(|| format!("{source_crate_name}::{name}")),
-        _ => format!("{source_crate_name}::types::internal::InternalDocument"),
-    }
+    excluded_type_paths
+        .get(name)
+        .filter(|p| !p.is_empty())
+        .map(|p| p.replace('-', "_"))
+        .unwrap_or_else(|| format!("{source_crate_name}::{name}"))
 }
 
 /// Returns true if `ty` references a `Named(name)` at any depth where `name` resolves
@@ -1030,7 +1068,7 @@ fn internal_document_core_path(
 /// path used as a TYPE (`Option<sample_core::extractors::SyncExtractor>`), producing
 /// `error[E0782]: expected a type, found a trait`. Restricting the check to trait-shaped
 /// excluded items (not all excluded items) keeps methods returning excluded structs
-/// (`extract_bytes -> Result<InternalDocument>`) emitted, since `InternalDocument` is a
+/// (`load -> Result<HiddenDocument>`) emitted, since the excluded item is a
 /// concrete struct usable by its qualified core path.
 pub(crate) fn return_type_references_trait(ty: &TypeRef, api: &ApiSurface) -> bool {
     match ty {
@@ -1112,16 +1150,16 @@ mod tests {
 
     #[test]
     fn return_type_with_excluded_struct_is_not_detected() {
-        // Regression: excluded structs (e.g. `InternalDocument`) appear by qualified path
-        // in surviving method signatures (`extract_bytes -> Result<InternalDocument>`) and
+        // Regression: excluded structs appear by qualified path
+        // in surviving method signatures (`load -> Result<HiddenDocument>`) and
         // ARE bridgeable — they must NOT be filtered out, or the trait impl ends up missing
         // a required method (`error[E0046]: not all trait items implemented`).
         let api = api_surface(
             vec![],
-            vec![("InternalDocument", "demo::types::internal::InternalDocument")],
+            vec![("HiddenDocument", "demo::types::hidden::HiddenDocument")],
             vec![],
         );
-        let ret = TypeRef::Named("InternalDocument".into());
+        let ret = TypeRef::Named("HiddenDocument".into());
         assert!(!return_type_references_trait(&ret, &api));
     }
 
@@ -1133,11 +1171,11 @@ mod tests {
     }
 
     #[test]
-    fn internal_document_result_return_deserializes_with_error_mapping() {
+    fn excluded_named_result_return_deserializes_with_error_mapping() {
         let method = MethodDef {
             name: "extract".to_string(),
             params: vec![],
-            return_type: TypeRef::Named("InternalDocument".to_string()),
+            return_type: TypeRef::Named("HiddenDocument".to_string()),
             is_async: true,
             is_static: false,
             error_type: Some("Error".to_string()),
@@ -1154,8 +1192,8 @@ mod tests {
         };
         let mut out = String::new();
         let type_paths = std::collections::HashMap::from([(
-            "InternalDocument".to_string(),
-            "demo::types::internal::InternalDocument".to_string(),
+            "HiddenDocument".to_string(),
+            "demo::types::hidden::HiddenDocument".to_string(),
         )]);
         let excluded_type_paths = type_paths.clone();
 
@@ -1163,21 +1201,21 @@ mod tests {
 
         assert!(
             out.contains("serde_json::from_str(&__ret_bridge.json)?;"),
-            "Result-returning InternalDocument methods must propagate JSON decode errors, got:\n{out}",
+            "Result-returning excluded types must propagate JSON decode errors, got:\n{out}",
         );
         assert!(
-            !out.contains("expect(\"deserialize InternalDocument from Dart trait bridge\")"),
-            "Result-returning InternalDocument methods must not panic on JSON decode, got:\n{out}",
+            !out.contains("expect(\"deserialize excluded Dart trait bridge value\")"),
+            "Result-returning excluded types must not panic on JSON decode, got:\n{out}",
         );
     }
 
     #[test]
-    fn internal_document_result_param_serializes_with_error_mapping() {
+    fn excluded_named_result_param_serializes_with_error_mapping() {
         let method = MethodDef {
             name: "render".to_string(),
             params: vec![crate::core::ir::ParamDef {
                 name: "document".to_string(),
-                ty: TypeRef::Named("InternalDocument".to_string()),
+                ty: TypeRef::Named("HiddenDocument".to_string()),
                 optional: false,
                 is_ref: true,
                 ..Default::default()
@@ -1199,8 +1237,8 @@ mod tests {
         };
         let mut out = String::new();
         let type_paths = std::collections::HashMap::from([(
-            "InternalDocument".to_string(),
-            "demo::types::internal::InternalDocument".to_string(),
+            "HiddenDocument".to_string(),
+            "demo::types::hidden::HiddenDocument".to_string(),
         )]);
         let excluded_type_paths = type_paths.clone();
 
@@ -1208,11 +1246,11 @@ mod tests {
 
         assert!(
             out.contains("serde_json::to_string(&document)?"),
-            "Result-returning InternalDocument params must propagate JSON encode errors, got:\n{out}",
+            "Result-returning excluded params must propagate JSON encode errors, got:\n{out}",
         );
         assert!(
-            !out.contains("expect(\"serialize InternalDocument for Dart trait bridge\")"),
-            "Result-returning InternalDocument params must not panic on JSON encode, got:\n{out}",
+            !out.contains("expect(\"serialize excluded Dart trait bridge value\")"),
+            "Result-returning excluded params must not panic on JSON encode, got:\n{out}",
         );
     }
 }

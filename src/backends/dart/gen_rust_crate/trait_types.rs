@@ -28,6 +28,7 @@ pub(super) fn owned_ty(ty: &TypeRef, src: &str, tp: &std::collections::HashMap<S
 
 /// Build the parameter type for the `impl Trait` method signature — must match
 /// the original trait exactly (ref, mut-ref, original primitive widths).
+///
 pub(super) fn trait_impl_param_type(
     p: &ParamDef,
     source_crate_name: &str,
@@ -70,6 +71,18 @@ pub(super) fn trait_impl_param_type(
                     "&mut std::path::Path".to_string()
                 } else {
                     "&std::path::Path".to_string()
+                }
+            }
+            TypeRef::Named(name) => {
+                // Named reference: resolve path and append lifetime placeholder when needed.
+                let ty_str = match type_paths.get(name) {
+                    Some(p) => p.clone(),
+                    None => format!("{source_crate_name}::{name}"),
+                };
+                if p.is_mut {
+                    format!("&mut {ty_str}")
+                } else {
+                    format!("&{ty_str}")
                 }
             }
             _ => {

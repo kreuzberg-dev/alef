@@ -405,7 +405,7 @@ fn generate_napi_platform_package_json(
     platform: &str,
     version: &str,
     license: &str,
-    repository_git_url: &str,
+    repository_block: &str,
 ) -> String {
     let package_name = napi_platform_package_name(parent_package_name, platform);
     let (os, cpu, libc) = napi_platform_os_cpu_libc(platform);
@@ -418,11 +418,7 @@ fn generate_napi_platform_package_json(
         r#"{{
   "name": "{package_name}",
   "version": "{version}",
-  "license": "{license}",
-  "repository": {{
-    "type": "git",
-    "url": "{repository_git_url}"
-  }},
+  "license": "{license}"{repository_block},
   "main": "{binary_file}",
   "files": ["{binary_file}"],
   "os": ["{os}"],
@@ -440,21 +436,11 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let version = &api.version;
     let crate_dir = config.core_crate_dir();
 
-    // npm publish-with-provenance verifies the repo URL on the package against
-    // the provenance attestation. An absent or empty `repository.url` makes the
-    // registry reject the upload with E422
-    // (`"repository.url" is "", expected to match "<provenance repo>"`). Emit a
-    // git+https form sourced from the same field the README generator uses
-    // (`[scaffold] repository` / `[e2e.registry] github_repo`).
-    let repository_url = config.github_repo();
-    let repository_git_url = if repository_url.starts_with("git+") {
-        repository_url.clone()
-    } else {
-        format!(
-            "git+{}.git",
-            repository_url.trim_end_matches('/').trim_end_matches(".git")
-        )
-    };
+    let repository_block = meta
+        .configured_repository
+        .as_deref()
+        .map(npm_repository_block)
+        .unwrap_or_default();
     let excluded = excluded_node_platforms(config);
     let active_platforms = napi_platforms_filtered(&excluded);
     let optional_dependencies = active_platforms
@@ -480,11 +466,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
   "name": "{package_name}",
   "version": "{version}",
   "description": "{description}",
-  "license": "{license}",
-  "repository": {{
-    "type": "git",
-    "url": "{repository_git_url}"
-  }},
+  "license": "{license}"{repository_block},
   "main": "index.js",
   "types": "index.d.ts",
   "exports": {{
@@ -519,7 +501,7 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         version = version,
         description = meta.description,
         license = meta.license,
-        repository_git_url = repository_git_url,
+        repository_block = repository_block,
         crate_dir = crate_dir,
         optional_dependencies = optional_dependencies,
         targets = targets,
@@ -554,9 +536,27 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             platform,
             version,
             &meta.license,
-            &repository_git_url,
+            &repository_block,
         ),
         generated_header: false,
     }));
     Ok(files)
+}
+
+fn npm_repository_block(repository_url: &str) -> String {
+    let repository_git_url = if repository_url.starts_with("git+") {
+        repository_url.to_string()
+    } else {
+        format!(
+            "git+{}.git",
+            repository_url.trim_end_matches('/').trim_end_matches(".git")
+        )
+    };
+    format!(
+        r#",
+  "repository": {{
+    "type": "git",
+    "url": "{repository_git_url}"
+  }}"#
+    )
 }

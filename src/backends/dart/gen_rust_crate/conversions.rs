@@ -20,7 +20,7 @@ pub(crate) fn frb_rust_type(ty: &TypeRef, optional: bool) -> String {
 }
 
 /// Like `frb_rust_type`, but qualifies excluded named types with their source-crate
-/// path (so e.g. `InternalDocument` becomes `sample_core::internal::InternalDocument`
+/// path (so e.g. `HiddenDocument` becomes `sample_core::hidden::HiddenDocument`
 /// when it appears in a trait-bridge closure signature without an in-scope mirror).
 pub(crate) fn frb_rust_type_excluded_aware(
     ty: &TypeRef,
@@ -51,7 +51,7 @@ pub(crate) fn frb_rust_type_inner(ty: &TypeRef) -> String {
 /// `TypeRef::Named` entries that appear in `excluded_type_paths`. Non-excluded named
 /// types stay bare (they reference the in-scope FRB mirror struct emitted by
 /// `#[frb(mirror(T))]`). Used by trait-bridge callback type emission where the
-/// closure signature may reference excluded internal types like `InternalDocument`
+/// closure signature may reference excluded internal types
 /// that have no mirror struct.
 pub(crate) fn frb_rust_type_inner_excluded_aware(
     ty: &TypeRef,
@@ -173,7 +173,7 @@ pub(crate) fn dart_call_arg(p: &ParamDef) -> String {
     // losing the structural shape. Use `original_type` to spot these and emit
     // adapter logic that reconstructs a sensible default tuple. The IR stores
     // `original_type` as Rust Debug syntax (e.g.
-    // `Vec(Named("(PathBuf, Option<FileExtractionConfig>)"))`).
+    // `Vec(Named("(PathBuf, Option<Config>)"))`).
     if !stripped_orig.is_empty() && stripped_orig.starts_with("Vec(") && stripped_orig.contains("Named(\"(") {
         let tuple_inner = stripped_orig
             .find("Named(\"(")

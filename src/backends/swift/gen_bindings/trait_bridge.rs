@@ -114,6 +114,21 @@ pub fn collect_named_types(type_ref: &TypeRef, named_types: &mut HashSet<String>
     }
 }
 
+/// Compute the named types that must cross Swift trait bridge/plugin shim boundaries as strings.
+pub fn excluded_named_type_bridge_policy(trait_def: &TypeDef, excluded_types: &HashSet<String>) -> HashSet<String> {
+    let mut policy = excluded_types.clone();
+    for method in &trait_def.methods {
+        if method.has_default_impl {
+            continue;
+        }
+        for param in &method.params {
+            collect_named_types(&param.ty, &mut policy);
+        }
+        collect_named_types(&method.return_type, &mut policy);
+    }
+    policy
+}
+
 /// Generate Swift trait bridge code for a single trait.
 ///
 /// `exclude_types` contains type names that are not visible in the Swift binding surface.
@@ -124,25 +139,7 @@ fn gen_single_trait_bridge_file(
     trait_def: &TypeDef,
     exclude_types: &HashSet<String>,
 ) -> String {
-    // Augment exclude_types with opaque swift-bridge reference types that cannot be
-    // JSON-encoded directly. These must be marshalled as JSON strings at trait boundaries.
-    let mut aug_exclude_types = exclude_types.clone();
-    // ExtractionResult is an opaque FFI handle; marshal as JSON in trait bridges
-    aug_exclude_types.insert("ExtractionResult".to_string());
-    // InternalDocument is an internal non-serde type; marshal as JSON string at boundaries
-    aug_exclude_types.insert("InternalDocument".to_string());
-
-    // Collect all Named types referenced in method params and return types.
-    // These Named types (e.g., OcrConfig, ExtractionConfig) are exposed as String
-    // in the protocol since they are not JSON-decodable opaque types at the boundary.
-    for method in &trait_def.methods {
-        if !method.has_default_impl {
-            for param in &method.params {
-                collect_named_types(&param.ty, &mut aug_exclude_types);
-            }
-            collect_named_types(&method.return_type, &mut aug_exclude_types);
-        }
-    }
+    let bridge_exclude_types = excluded_named_type_bridge_policy(trait_def, exclude_types);
 
     let mut out = String::new();
 
@@ -165,9 +162,9 @@ fn gen_single_trait_bridge_file(
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();
         // Protocol method parameters marshal excluded types as JSON strings (like Java does)
-        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
+        let params_sig = swift_method_params(&method.params, &bridge_exclude_types);
         // Protocol method return types marshal excluded types as JSON strings (like Java does)
-        let return_type = swift_return_type(&method.return_type, &aug_exclude_types);
+        let return_type = swift_return_type(&method.return_type, &bridge_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
         // NOTE: async is removed — Swift{Trait}Bridge is now fully sync to match plugin protocol shape
 
@@ -190,8 +187,8 @@ fn gen_single_trait_bridge_file(
         }
 
         let method_camel = method.name.to_lower_camel_case();
-        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
-        let return_type = swift_return_type(&method.return_type, &aug_exclude_types);
+        let params_sig = swift_method_params(&method.params, &bridge_exclude_types);
+        let return_type = swift_return_type(&method.return_type, &bridge_exclude_types);
         let throws = if method.error_type.is_some() { " throws" } else { "" };
 
         // Generate default body based on return type
@@ -238,14 +235,14 @@ fn gen_single_trait_bridge_file(
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();
         // Build parameter signature for the adapter method (input from Rust across the boundary)
-        let params_sig = swift_method_params(&method.params, &aug_exclude_types);
+        let params_sig = swift_method_params(&method.params, &bridge_exclude_types);
         // Build return type for the adapter method (output back to Rust)
         // If the method has an error type, the adapter returns String (JSON envelope);
         // otherwise, it returns the original type
         let return_type = if method.error_type.is_some() {
             "String".to_string()
         } else {
-            swift_return_type(&method.return_type, &aug_exclude_types)
+            swift_return_type(&method.return_type, &bridge_exclude_types)
         };
 
         // Build async/throws keywords for the adapter method signature
@@ -302,7 +299,7 @@ fn gen_single_trait_bridge_file(
                              \x20\x20\x20\x20}\n",
                         );
                     }
-                    TypeRef::Named(name) if aug_exclude_types.contains(name) => {
+                    TypeRef::Named(name) if bridge_exclude_types.contains(name) => {
                         // Excluded type: result is the native Swift struct (not Encodable).
                         // Encode directly and wrap in JSON string manually.
                         out.push_str(
@@ -700,17 +697,62 @@ mod tests {
     #[test]
     fn test_swift_marshals_excluded_types_as_json() {
         let mut exclude_types = HashSet::new();
-        exclude_types.insert("InternalDocument".to_string());
+        exclude_types.insert("PrivatePayload".to_string());
         assert_eq!(
-            swift_type_name(&TypeRef::Named("InternalDocument".to_string()), &exclude_types),
+            swift_type_name(&TypeRef::Named("PrivatePayload".to_string()), &exclude_types),
             "String",
             "Excluded types should be marshalled as JSON strings"
         );
         assert_eq!(
-            swift_type_name(&TypeRef::Named("ExtractionResult".to_string()), &exclude_types),
-            "ExtractionResult",
+            swift_type_name(&TypeRef::Named("VisibleResult".to_string()), &exclude_types),
+            "VisibleResult",
             "Non-excluded types should keep their original names"
         );
+    }
+
+    #[test]
+    fn test_bridge_policy_derives_named_types_from_trait_methods() {
+        use crate::core::ir::{MethodDef, ParamDef};
+
+        let mut trait_def = make_trait_def("Processor");
+        trait_def.methods.push(MethodDef {
+            name: "process".to_string(),
+            params: vec![ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Named("PrivatePayload".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+            }],
+            return_type: TypeRef::Named("VisibleResult".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        });
+
+        let policy = excluded_named_type_bridge_policy(&trait_def, &HashSet::new());
+
+        assert!(policy.contains("PrivatePayload"));
+        assert!(policy.contains("VisibleResult"));
+        assert!(!policy.contains("UnmentionedResult"));
+        assert!(!policy.contains("UnmentionedPayload"));
     }
 
     /// Verify that gen_single_trait_bridge_file does NOT emit a `public func register*`
@@ -748,14 +790,14 @@ mod tests {
         );
     }
 
-    /// Verify that when an excluded type (e.g. InternalDocument) appears in a trait method
+    /// Verify that when an excluded type appears in a trait method
     /// signature, the protocol accepts the native type but the adapter marshals it as JSON String.
     #[test]
     fn test_excluded_type_in_method_becomes_string() {
         use crate::core::ir::{MethodDef, ParamDef, ReceiverKind};
 
         let mut trait_def = make_trait_def("DocumentExtractor");
-        // Add a method with InternalDocument as return type.
+        // Add a method with an excluded named type as return type.
         trait_def.methods.push(MethodDef {
             name: "extract_bytes".to_string(),
             params: vec![ParamDef {
@@ -772,7 +814,7 @@ mod tests {
                 map_is_ahash: false,
                 map_key_is_cow: false,
             }],
-            return_type: TypeRef::Named("InternalDocument".to_string()),
+            return_type: TypeRef::Named("PrivatePayload".to_string()),
             is_async: false,
             is_static: false,
             error_type: Some("Error".to_string()),
@@ -791,17 +833,17 @@ mod tests {
         let bridge_cfg = make_bridge_cfg("DocumentExtractor");
         let bridges = vec![("DocumentExtractor".to_string(), &bridge_cfg, &trait_def)];
 
-        // Pass InternalDocument in exclude_types (mimicking what mod.rs does when
+        // Pass PrivatePayload in exclude_types (mimicking what mod.rs does when
         // it augments from IR binding_excluded types).
         let mut exclude_types = HashSet::new();
-        exclude_types.insert("InternalDocument".to_string());
+        exclude_types.insert("PrivatePayload".to_string());
 
         let files = gen_trait_bridge_files(&bridges, &exclude_types);
         // Should emit SwiftPluginBridge.swift first, then SwiftDocumentExtractorBridge.swift
         assert_eq!(files.len(), 2);
         let content = &files[1].1;
 
-        // Protocol method must return String (JSON) for excluded type InternalDocument
+        // Protocol method must return String (JSON) for excluded type PrivatePayload
         assert!(
             content.contains("func extractBytes(content: Data) throws -> String"),
             "protocol method must marshal excluded type to String, got:\n{content}"

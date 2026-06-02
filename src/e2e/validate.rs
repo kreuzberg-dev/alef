@@ -71,6 +71,7 @@ pub fn validate_fixtures_semantic(
     languages: &[String],
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
+    validate_unsupported_in_languages(e2e_config, languages, &mut errors);
 
     // Per-fixture checks
     for fixture in fixtures {
@@ -207,6 +208,27 @@ pub fn validate_fixtures_semantic(
     errors
 }
 
+fn validate_unsupported_in_languages(e2e_config: &E2eConfig, languages: &[String], errors: &mut Vec<ValidationError>) {
+    if languages.is_empty() {
+        return;
+    }
+
+    for (call_name, call_config) in &e2e_config.calls {
+        for language in call_config.unsupported_in.keys() {
+            if !languages.iter().any(|configured| configured == language) {
+                errors.push(ValidationError {
+                    file: "alef.toml".to_string(),
+                    message: format!(
+                        "call '{call_name}' marks unsupported language '{language}', but that language is not in the \
+                         resolved e2e language set"
+                    ),
+                    severity: Severity::Error,
+                });
+            }
+        }
+    }
+}
+
 fn validate_recursive(
     base: &Path,
     dir: &Path,
@@ -328,6 +350,40 @@ mod tests {
         let config = make_e2e_config(vec![("embed", CallConfig::default())]);
         let errors = validate_fixtures_semantic(&fixtures, &config, &["rust".to_string()]);
         assert!(!errors.iter().any(|e| e.message.contains("unknown call")));
+    }
+
+    #[test]
+    fn test_unsupported_in_unknown_language_detected() {
+        let mut call = CallConfig::default();
+        call.unsupported_in
+            .insert("brew".to_string(), "CLI backend cannot pass complex args".to_string());
+        let config = make_e2e_config(vec![("interact", call)]);
+
+        let errors = validate_fixtures_semantic(&[], &config, &["rust".to_string()]);
+
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("marks unsupported language 'brew'")),
+            "unsupported_in for inactive languages should be rejected; got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_unsupported_in_resolved_language_is_valid() {
+        let mut call = CallConfig::default();
+        call.unsupported_in
+            .insert("brew".to_string(), "CLI backend cannot pass complex args".to_string());
+        let config = make_e2e_config(vec![("interact", call)]);
+
+        let errors = validate_fixtures_semantic(&[], &config, &["rust".to_string(), "brew".to_string()]);
+
+        assert!(
+            !errors.iter().any(|e| e.message.contains("marks unsupported language")),
+            "unsupported_in should accept active languages; got: {:?}",
+            errors
+        );
     }
 
     #[test]

@@ -815,17 +815,17 @@ fn lib_rs_emits_frb_trait_bridge_for_async_method_trait() {
 }
 
 #[test]
-fn lib_rs_trait_bridge_preserves_internal_document_contract_via_json_bridge() {
+fn lib_rs_trait_bridge_preserves_excluded_named_type_contract_via_json_bridge() {
     let mut extract = make_method(
         "extract_bytes",
         vec![make_param("content", TypeRef::Bytes)],
-        TypeRef::Named("InternalDocument".to_string()),
+        TypeRef::Named("HiddenDocument".to_string()),
         true,
     );
     extract.error_type = Some("Error".to_string());
     let render = make_method(
         "render",
-        vec![make_param("doc", TypeRef::Named("InternalDocument".to_string()))],
+        vec![make_param("doc", TypeRef::Named("HiddenDocument".to_string()))],
         TypeRef::String,
         true,
     );
@@ -836,8 +836,8 @@ fn lib_rs_trait_bridge_preserves_internal_document_contract_via_json_bridge() {
     );
     let mut excluded_type_paths = ::std::collections::HashMap::new();
     excluded_type_paths.insert(
-        "InternalDocument".to_string(),
-        "demo_crate::types::internal::InternalDocument".to_string(),
+        "HiddenDocument".to_string(),
+        "demo_crate::types::hidden::HiddenDocument".to_string(),
     );
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -856,28 +856,28 @@ fn lib_rs_trait_bridge_preserves_internal_document_contract_via_json_bridge() {
     let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
 
     assert!(
-        lib.contains("pub struct InternalDocumentBridge"),
-        "missing opaque JSON carrier for InternalDocument: {lib}"
+        lib.contains("pub struct HiddenDocumentBridge"),
+        "missing opaque JSON carrier for excluded type: {lib}"
     );
     assert!(
-        lib.contains("extract_bytes: Box<dyn Fn(Vec<u8>) -> DartFnFuture<InternalDocumentBridge>"),
-        "InternalDocument return must use InternalDocumentBridge, not ExtractionResult: {lib}"
+        lib.contains("extract_bytes: Box<dyn Fn(Vec<u8>) -> DartFnFuture<HiddenDocumentBridge>"),
+        "excluded return must use its bridge carrier: {lib}"
     );
     assert!(
-        lib.contains("render: Box<dyn Fn(InternalDocumentBridge) -> DartFnFuture<String>"),
-        "InternalDocument param must use InternalDocumentBridge, not ExtractionResult: {lib}"
+        lib.contains("render: Box<dyn Fn(HiddenDocumentBridge) -> DartFnFuture<String>"),
+        "excluded param must use its bridge carrier: {lib}"
     );
     assert!(
         lib.contains("serde_json::from_str(&__ret_bridge.json)"),
-        "InternalDocument return must deserialize explicitly: {lib}"
+        "excluded return must deserialize explicitly: {lib}"
     );
     assert!(
-        lib.contains("InternalDocumentBridge { json: serde_json::to_string(&doc)"),
-        "InternalDocument param must serialize explicitly: {lib}"
+        lib.contains("HiddenDocumentBridge { json: serde_json::to_string(&doc)"),
+        "excluded param must serialize explicitly: {lib}"
     );
     assert!(
         !lib.contains("DartFnFuture<ExtractionResult>"),
-        "InternalDocument bridge must not substitute ExtractionResult: {lib}"
+        "excluded bridge must not substitute another DTO: {lib}"
     );
 }
 

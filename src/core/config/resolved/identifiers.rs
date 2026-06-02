@@ -8,12 +8,16 @@ impl ResolvedCrateConfig {
     ///
     /// Resolution order:
     /// 1. `[e2e.registry] github_repo`
-    /// 2. `[scaffold] repository`
+    /// 2. `[package_metadata] repository`
+    /// 3. `[scaffold] repository`
     pub fn try_github_repo(&self) -> Result<String, String> {
         if let Some(e2e) = &self.e2e {
             if let Some(url) = &e2e.registry.github_repo {
                 return Ok(url.clone());
             }
+        }
+        if let Some(url) = self.package_metadata.as_ref().and_then(|p| p.repository.as_ref()) {
+            return Ok(url.clone());
         }
         if let Some(url) = self.scaffold.as_ref().and_then(|s| s.repository.as_ref()) {
             return Ok(url.clone());
@@ -185,6 +189,27 @@ module = "custom.example.com/my-lib"
 "#,
         );
         assert_eq!(r.go_module(), "custom.example.com/my-lib");
+    }
+
+    #[test]
+    fn github_repo_uses_package_metadata_repository() {
+        let r = resolved_one(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.package_metadata]
+repository = "https://gitlab.example.invalid/acme/my-lib"
+"#,
+        );
+        assert_eq!(
+            r.try_github_repo().as_deref(),
+            Ok("https://gitlab.example.invalid/acme/my-lib")
+        );
     }
 
     #[test]

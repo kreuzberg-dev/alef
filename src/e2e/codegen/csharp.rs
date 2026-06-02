@@ -1960,44 +1960,8 @@ fn build_args_and_setup(
 /// - `None` or any string type → `List<string>`
 /// - `"f32"` → `List<float>` with `(float)` casts
 /// - `"(String, String)"` → `List<List<string>>` for key-value pair arrays
-/// - `"BatchBytesItem"` / `"BatchFileItem"` → array of batch item instances
 fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&str>) -> String {
     match element_type {
-        Some("BatchBytesItem") => {
-            let items: Vec<String> = arr
-                .iter()
-                .filter_map(|v| v.as_object())
-                .map(|obj| {
-                    let content = obj.get("content").and_then(|v| v.as_array());
-                    let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                    let content_code = if let Some(arr) = content {
-                        let bytes: Vec<String> = arr
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| format!("(byte){}", n)))
-                            .collect();
-                        format!("new byte[] {{ {} }}", bytes.join(", "))
-                    } else {
-                        "new byte[] { }".to_string()
-                    };
-                    format!(
-                        "new BatchBytesItem {{ Content = {}, MimeType = \"{}\" }}",
-                        content_code, mime_type
-                    )
-                })
-                .collect();
-            format!("new List<BatchBytesItem>() {{ {} }}", items.join(", "))
-        }
-        Some("BatchFileItem") => {
-            let items: Vec<String> = arr
-                .iter()
-                .filter_map(|v| v.as_object())
-                .map(|obj| {
-                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    format!("new BatchFileItem {{ Path = \"{}\" }}", path)
-                })
-                .collect();
-            format!("new List<BatchFileItem>() {{ {} }}", items.join(", "))
-        }
         Some("f32") => {
             let items: Vec<String> = arr.iter().map(|v| format!("(float){}", json_to_csharp(v))).collect();
             format!("new List<float>() {{ {} }}", items.join(", "))
@@ -2014,13 +1978,7 @@ fn json_array_to_csharp_list(arr: &[serde_json::Value], element_type: Option<&st
                 .collect();
             format!("new List<List<string>>() {{ {} }}", items.join(", "))
         }
-        Some(et)
-            if et != "f32"
-                && et != "(String, String)"
-                && et != "string"
-                && et != "BatchBytesItem"
-                && et != "BatchFileItem" =>
-        {
+        Some(et) if et != "f32" && et != "(String, String)" && et != "string" => {
             // Class/record types: deserialize each element from JSON
             let items: Vec<String> = arr
                 .iter()
@@ -3727,9 +3685,6 @@ fn csharp_type_for_stub_visible(ty: &crate::core::ir::TypeRef) -> String {
 /// appear in test stubs or public interfaces.
 fn is_visible_csharp_type(type_name: &str) -> bool {
     // Whitelist of types that are actually exported by the C# binding.
-    // Post-Wave-2: Enums (OcrBackendType, ProcessingStage, etc.) are now part
-    // of the public interface and must be included here. Trait-bridge methods
-    // returning enums now use typed enum returns, so test stubs must match.
     matches!(
         type_name,
         "ExtractionResult"
@@ -3757,8 +3712,6 @@ fn is_visible_csharp_type(type_name: &str) -> bool {
             | "PluginException"
             | "SampleCrateError"
             | "OcrConfig"
-            | "OcrBackendType"
-            | "ProcessingStage"
     )
 }
 
@@ -3790,12 +3743,8 @@ fn emit_csharp_stub_default(
         } else {
             "\"\"".to_string()
         }
-    } else if matches!(original_type, TypeRef::Named(name) if matches!(name.as_str(), "OcrBackendType")) {
-        // OcrBackendType: return the first variant (Tesseract)
-        "OcrBackendType.Tesseract".to_string()
-    } else if matches!(original_type, TypeRef::Named(name) if matches!(name.as_str(), "ProcessingStage")) {
-        // ProcessingStage: return the first variant (Early)
-        "ProcessingStage.Early".to_string()
+    } else if matches!(original_type, TypeRef::Named(_)) {
+        format!("default({visible_type})")
     } else {
         // Visible type, use the default logic
         defaults.emit_default(original_type)

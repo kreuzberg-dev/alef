@@ -342,6 +342,108 @@ fn plain_enum_variants_carry_summary_javadoc() {
 }
 
 #[test]
+fn plain_enum_variant_multiline_summary_preserves_every_line() {
+    let backend = JavaBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Region".into(),
+            rust_path: "demo::Region".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "ComplexLayout".into(),
+                fields: vec![],
+                is_tuple: false,
+                doc: "A region whose layout the primary pipeline cannot handle (multi-column\ninsets, heavily annotated forms, mixed text+diagram)."
+                    .into(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: "Region kind.".into(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let region = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Region.java"))
+        .expect("Region.java generated");
+    let body = &region.content;
+    assert!(
+        body.contains("heavily annotated forms"),
+        "second javadoc line dropped:\n{body}"
+    );
+}
+
+#[test]
+fn sealed_interface_variant_multiline_summary_preserves_every_line() {
+    let backend = JavaBackend;
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "FallbackPolicy".into(),
+            rust_path: "demo::FallbackPolicy".into(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "OnLowQuality".into(),
+                fields: vec![field_with_doc(
+                    "quality_threshold",
+                    TypeRef::Primitive(PrimitiveType::F64),
+                    "",
+                )],
+                is_tuple: false,
+                doc: "Try the primary backend first. If the quality score is below\n`quality_threshold`, send the request to the fallback backend."
+                    .into(),
+                is_default: false,
+                serde_rename: None,
+            }],
+            doc: "Fallback policy.".into(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("kind".into()),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".into()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+    let files = backend.generate_bindings(&api, &make_config()).unwrap();
+    let policy = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("FallbackPolicy.java"))
+        .expect("FallbackPolicy.java generated");
+    let body = &policy.content;
+    assert!(
+        body.contains("{@code quality_threshold}, send the request to the fallback backend."),
+        "second javadoc line dropped:\n{body}"
+    );
+}
+
+#[test]
 fn free_function_facade_emits_javadoc_above_static_method() {
     let backend = JavaBackend;
     let api = ApiSurface {

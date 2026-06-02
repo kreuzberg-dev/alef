@@ -15,7 +15,7 @@ pub(crate) fn scaffold_gleam(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
         r#"name = "{app_name}"
 version = "{version}"
 description = "{description}"
-licences = ["MIT"]
+licences = ["{license}"]
 target = "erlang"
 
 [dependencies]
@@ -27,6 +27,7 @@ gleeunit = "{gleeunit}"
         app_name = gleam_app,
         version = version,
         description = meta.description,
+        license = meta.license,
         stdlib = hex::GLEAM_STDLIB_VERSION_RANGE,
         gleeunit = hex::GLEEUNIT_VERSION_RANGE,
     );
@@ -83,7 +84,7 @@ Add to your `gleam.toml`:
 
 ```toml
 [dependencies]
-{gleam_app} = "{{github = \"example/{gleam_app}\"}}"
+{gleam_app} = {dependency_ref}
 ```
 
 ## License
@@ -92,6 +93,7 @@ Add to your `gleam.toml`:
 "#,
         gleam_app = gleam_app,
         description = meta.description,
+        dependency_ref = gleam_dependency_ref(&meta),
         license = meta.license,
     );
 
@@ -144,4 +146,20 @@ pub fn main() {{
             generated_header: false,
         },
     ])
+}
+
+fn gleam_dependency_ref(meta: &crate::scaffold::ScaffoldMeta) -> String {
+    let Some(repository) = meta.configured_repository.as_deref() else {
+        return "{path = \"../packages/gleam\"}".to_string();
+    };
+    let github_path = repository
+        .strip_prefix("https://github.com/")
+        .or_else(|| repository.strip_prefix("http://github.com/"))
+        .map(|path| path.trim_end_matches('/').trim_end_matches(".git"));
+    if let Some(path) = github_path
+        && !path.is_empty()
+    {
+        return format!("{{github = \"{path}\"}}");
+    }
+    format!("{{git = \"{}\"}}", repository.trim_end_matches(".git"))
 }

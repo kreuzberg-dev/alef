@@ -28,10 +28,16 @@ SKIP_PATH_PARTS = {
     ".alef",
     ".ai-rulez",
     ".cursor",
-    "target",
     "__pycache__",
+    "fixtures",
+    "snapshots",
+    "target",
+    "tests",
 }
 
+# This hook is intentionally opinionated about production code: generic capabilities
+# such as package naming, hosted documentation, or repository metadata belong in
+# config-driven Alef infrastructure, while downstream/product-specific names do not.
 POLICY_FILES = {
     "hooks/check_project_mentions.py",
     "tests/project_mentions_hook.rs",
@@ -69,6 +75,7 @@ def build_pattern(parts: tuple[str, ...]) -> Pattern[str]:
 
 
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
+INFRASTRUCTURE_PATTERNS = tuple(re.compile(re.escape(allowed), re.IGNORECASE) for allowed in INFRASTRUCTURE_ALLOWLIST)
 
 
 def is_enforced_path(path: Path) -> bool:
@@ -93,9 +100,11 @@ def read_text(path: Path) -> str | None:
         return None
 
 
-def is_allowed_infrastructure(line: str) -> bool:
-    lowered = line.lower()
-    return any(allowed in lowered for allowed in INFRASTRUCTURE_ALLOWLIST)
+def mask_allowed_infrastructure(line: str) -> str:
+    masked = line
+    for pattern in INFRASTRUCTURE_PATTERNS:
+        masked = pattern.sub("", masked)
+    return masked
 
 
 def violations_for_file(path: Path) -> list[str]:
@@ -108,10 +117,9 @@ def violations_for_file(path: Path) -> list[str]:
 
     violations: list[str] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
-        if is_allowed_infrastructure(line):
-            continue
+        masked_line = mask_allowed_infrastructure(line)
         for name, pattern in PATTERNS.items():
-            if pattern.search(line):
+            if pattern.search(masked_line):
                 violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
     return violations
 

@@ -315,13 +315,12 @@ fn render_test_file(
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
 
-    // Check if any fixture needs Uint8List.fromList (batch item byte arrays or trait_bridge args).
+    // Check if any fixture needs Uint8List (trait_bridge byte args/returns).
     let has_batch_byte_items = fixtures.iter().any(|f| {
         let call_config =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
         f.resolved_args(call_config).iter().any(|a| {
-            (a.element_type.as_deref() == Some("BatchBytesItem") && resolve_field(&f.input, &a.field).is_array())
-                || a.arg_type == "test_backend" // trait_bridge stubs may use Uint8List in method params
+            a.arg_type == "test_backend" // trait_bridge stubs may use Uint8List in method params
         })
     });
 
@@ -1243,12 +1242,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                 }
             }
             "json_object" => {
-                // Handle batch item arrays (BatchBytesItem / BatchFileItem).
                 if let Some(elem_type) = &arg_def.element_type {
-                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && arg_value.is_array() {
-                        let dart_items = emit_dart_batch_item_array(arg_value, elem_type);
-                        args.push(dart_items);
-                    } else if elem_type == "String" && arg_value.is_array() {
+                    if elem_type == "String" && arg_value.is_array() {
                         // Scalar string array (e.g. `texts: ["a", "b"]` for embed_texts).
                         // The `SampleCrateBridge` facade declares these parameters as required
                         // positional (e.g. `embedTexts(List<String> texts, EmbeddingConfig config)`),
@@ -2603,51 +2598,6 @@ fn mime_from_extension(path: &str) -> Option<&'static str> {
     }
 }
 
-/// Emit Dart constructors for a batch item array (`BatchBytesItem` or `BatchFileItem`).
-///
-/// Returns a Dart list literal like:
-/// ```dart
-/// [BatchBytesItem(content: Uint8List.fromList([72, 101, ...]), mimeType: 'text/plain')]
-/// ```
-fn emit_dart_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
-    let items: Vec<String> = arr
-        .as_array()
-        .map(|a| a.as_slice())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|item| {
-            let obj = item.as_object()?;
-            match elem_type {
-                "BatchBytesItem" => {
-                    let content_bytes = obj
-                        .get("content")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            let nums: Vec<String> =
-                                arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                            format!("Uint8List.fromList([{}])", nums.join(", "))
-                        })
-                        .unwrap_or_else(|| "Uint8List(0)".to_string());
-                    let mime_type = obj
-                        .get("mime_type")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("application/octet-stream");
-                    Some(format!(
-                        "BatchBytesItem(content: {content_bytes}, mimeType: '{}')",
-                        escape_dart(mime_type)
-                    ))
-                }
-                "BatchFileItem" => {
-                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    Some(format!("BatchFileItem(path: '{}')", escape_dart(path)))
-                }
-                _ => None,
-            }
-        })
-        .collect();
-    format!("[{}]", items.join(", "))
-}
-
 /// Emit a `expect(array.where(...).any(...), isTrue)` line that aggregates
 /// every accessor on the element type of a `List<T>` field, mirroring
 /// python's `_alef_e2e_item_texts` helper.
@@ -3110,27 +3060,16 @@ fn emit_dart_default_for_type(
         _ => ty.clone(),
     };
 
-    // For named types that are enums (OcrBackendType, ProcessingStage, etc.), emit a default enum variant.
-    // Variant names must match the FRB-generated Dart enum (camelCase mirror of the Rust variant).
-    if let TypeRef::Named(name) = &effective_ty {
-        if name.ends_with("Type") || name.ends_with("Stage") {
-            if name == "OcrBackendType" {
-                return "OcrBackendType.tesseract".to_string();
-            } else if name == "ProcessingStage" {
-                // Rust variants: Early, Middle, Late → FRB Dart: early, middle, late_
-                return "ProcessingStage.early".to_string();
-            }
-        }
-        // Any other Named class: avoid `T()` default because the FRB-generated class
-        // may require named ctor params we cannot enumerate generically. Stubs in the
+    if let TypeRef::Named(_) = &effective_ty {
+        // Avoid `T()` defaults because the FRB-generated class or enum may require
+        // constructor params or a specific variant we cannot enumerate generically. Stubs in the
         // generated e2e plugin tests are registration-only — methods are never invoked —
         // so a `throw UnimplementedError()` body is type-safe (Never assignable to T)
         // and semantically correct.
         return "throw UnimplementedError()".to_string();
     }
-    // Integer primitives default to `1` (not `0`) so plugin registration validation
-    // (e.g. `EmbeddingBackend::dimensions() > 0`) accepts the stub. Floats stay at
-    // `0.0`; booleans stay at `false`. Mirrors the python e2e generator policy.
+    // Integer primitives default to `1` (not `0`). Floats stay at `0.0`;
+    // booleans stay at `false`. Mirrors the Python e2e generator policy.
     if let TypeRef::Primitive(p) = &effective_ty {
         use crate::core::ir::PrimitiveType;
         match p {

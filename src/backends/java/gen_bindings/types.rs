@@ -604,21 +604,7 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
                 Some(rename_all) => java_apply_rename_all(&variant.name, Some(rename_all)),
                 None => variant.name.to_lowercase(),
             });
-        if !variant.doc.is_empty() {
-            let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-            // 4 spaces indent + "/** " + " */" = 11 chars overhead; wrap if total > 80
-            if doc_summary.len() + 11 > 80 {
-                out.push_str("    /**\n");
-                out.push_str("     * ");
-                out.push_str(&doc_summary);
-                out.push('\n');
-                out.push_str("     */\n");
-            } else {
-                out.push_str("    /** ");
-                out.push_str(&doc_summary);
-                out.push_str(" */\n");
-            }
-        }
+        emit_javadoc(&mut out, &variant.doc, "    ");
         out.push_str("    ");
         out.push_str(&variant.name);
         out.push_str("(\"");
@@ -841,12 +827,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
         out.push('\n');
         if variant.fields.is_empty() {
             // Unit variant
-            if !variant.doc.is_empty() {
-                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-                out.push_str("    /** ");
-                out.push_str(&doc_summary);
-                out.push_str(" */\n");
-            }
+            emit_javadoc(&mut out, &variant.doc, "    ");
             out.push_str("    record ");
             out.push_str(&variant.name);
             out.push_str("() implements ");
@@ -907,12 +888,7 @@ pub(crate) fn gen_java_tagged_union(package: &str, enum_def: &EnumDef) -> String
                 + enum_def.name.len()
                 + " { }".len();
 
-            if !variant.doc.is_empty() {
-                let doc_summary = escape_javadoc_line(variant.doc.lines().next().unwrap_or("").trim());
-                out.push_str("    /** ");
-                out.push_str(&doc_summary);
-                out.push_str(" */\n");
-            }
+            emit_javadoc(&mut out, &variant.doc, "    ");
             if single_len > RECORD_LINE_WRAP_THRESHOLD && field_parts.len() > 1 {
                 out.push_str("    record ");
                 out.push_str(&variant.name);

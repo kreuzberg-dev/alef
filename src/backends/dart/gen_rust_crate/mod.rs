@@ -19,7 +19,7 @@ mod trait_types;
 use bridge_fn::emit_bridge_fn;
 use cargo::{emit_build_rs, emit_cargo_toml, emit_frb_yaml};
 use mirror::{emit_mirror_enum, emit_mirror_error, emit_mirror_struct};
-use trait_bridge::{emit_internal_document_bridge_type, emit_trait_bridge, needs_internal_document_bridge};
+use trait_bridge::{emit_excluded_bridge_types, emit_trait_bridge, needs_excluded_bridge_type};
 
 /// Emit the Rust-side flutter_rust_bridge bridge crate for the given API surface.
 ///
@@ -110,7 +110,7 @@ fn emit_lib_rs(
     // can reference it by bare name in the generated closure types.
     content.push_str("pub use flutter_rust_bridge::DartFnFuture;\n");
 
-    let has_internal_document_trait_bridge = config
+    let has_excluded_type_trait_bridge = config
         .trait_bridges
         .iter()
         .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
@@ -118,17 +118,19 @@ fn emit_lib_rs(
         .flat_map(|trait_def| trait_def.methods.iter())
         .filter(|m| m.trait_source.is_none())
         .any(|m| {
-            needs_internal_document_bridge(&m.return_type)
-                || m.params.iter().any(|p| needs_internal_document_bridge(&p.ty))
+            needs_excluded_bridge_type(&m.return_type, &api.excluded_type_paths)
+                || m.params
+                    .iter()
+                    .any(|p| needs_excluded_bridge_type(&p.ty, &api.excluded_type_paths))
         });
-    if has_internal_document_trait_bridge {
-        emit_internal_document_bridge_type(&mut content);
+    if has_excluded_type_trait_bridge {
+        emit_excluded_bridge_types(&mut content, api);
     }
 
     // FRB strips module paths from `frb_generated.rs` when it serializes closure
     // signatures, leaving bare type names that resolve against `use crate::*`.
     // Re-export every excluded type referenced by trait-bridge method signatures so
-    // those bare names resolve. Without this, types like `InternalDocument` show up
+    // those bare names resolve. Without this, excluded carrier types can show up
     // as E0425 in the generated bridge file.
     {
         use crate::core::ir::TypeRef;
@@ -237,7 +239,7 @@ fn emit_lib_rs(
 
     // Compute the transitive closure: types that DIRECTLY or INDIRECTLY contain a type
     // with sanitized fields. These cannot be safely transmuted because the inner types
-    // have different memory layouts (e.g. BatchBytesItem contains FileExtractionConfig
+    // have different memory layouts (e.g. a batch item contains a config DTO
     // which has Option<String> where core has Option<HtmlOutputConfig>).
     // Bridge functions use `From<MirrorT> for SourceT` for all of these.
     let types_needing_from_conversion: HashSet<String> =
@@ -911,7 +913,7 @@ fn field_from_expr(field: &FieldDef, source_crate_name: &str) -> String {
         TypeRef::Map(k, v_ty) => {
             // Maps: may need iter-collect to convert BTreeMap/AHashMap → HashMap,
             // and Value → String for value types.
-            map_from_expr(name, k, v_ty, field.optional)
+            map_from_expr(name, k, v_ty, field.optional, field.core_wrapper.clone())
         }
         TypeRef::Duration => {
             // Duration: convert to i64 millis (FRB ABI). Duration is not a primitive
@@ -1060,7 +1062,7 @@ fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, source_crate_
         if field.sanitized && !safe_sanitized_string {
             // Sanitized fields have an unknown core type simplified in the IR.
             // Only types in the transitive closure from input-parameter types get this
-            // impl generated, and those core types implement Default (e.g. ExtractionConfig
+            // impl generated, and those core types implement Default.
             // has cancel_token: Option<CancellationToken> which implements Default).
             //
             // `cfg = None`: the dart bridge crate enables `features = ["full"]` on
@@ -1499,7 +1501,11 @@ fn field_from_expr_to_core(field: &FieldDef, _source_crate_name: &str) -> String
 /// Build conversion expression for a Map field (core → mirror).
 /// Mirror always uses HashMap<String, String> or HashMap<String, T>.
 /// Core may use BTreeMap, AHashMap, HashMap with Value values, etc.
-fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> String {
+///
+/// When `core_wrapper` is `CoreWrapper::Cow` the map itself is a
+/// `Cow<'_, BTreeMap<...>>` — call `.into_owned()` before `.into_iter()` to
+/// consume the borrow and produce an owned `BTreeMap` that can be iterated.
+fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool, core_wrapper: CoreWrapper) -> String {
     // Determine value conversion strategy. The IR collapses wrapped string types
     // (`Box<str>`, `Cow<'_, str>`, `Arc<str>`) to `TypeRef::String`, so emit `.into()`
     // for the String case as well — it bridges `Box<str> → String` (which `(k, v)`
@@ -1511,7 +1517,7 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
             // serde_json serialize to String.
             "serde_json::to_string(&v).unwrap_or_default()"
         }
-        TypeRef::Named(mirror_name) => return map_named_from_expr(name, mirror_name, optional),
+        TypeRef::Named(mirror_name) => return map_named_from_expr(name, mirror_name, optional, core_wrapper),
         TypeRef::Primitive(_) => {
             // Cast to target primitive (i64 for integers, f64 for floats).
             "v as _"
@@ -1527,7 +1533,15 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
     // wrappers, so always emit `.into()` rather than the identity `k`. This bridges
     // `HashMap<Box<str>, _>` → `HashMap<String, _>` at the type level; the
     // crate-level `clippy::useless_conversion` allow absorbs the no-op String case.
-    let iter_expr = format!("into_iter().map(|(k, v)| (k.into(), {value_conv})).collect()");
+    //
+    // When the map itself is `Cow<'_, BTreeMap<...>>`, `.into_owned()` is needed first
+    // to get an owned `BTreeMap` before calling `.into_iter()`.
+    let iter_method = if core_wrapper == CoreWrapper::Cow {
+        "into_owned().into_iter()"
+    } else {
+        "into_iter()"
+    };
+    let iter_expr = format!("{iter_method}.map(|(k, v)| (k.into(), {value_conv})).collect()");
 
     if optional {
         format!("v.{name}.map(|m| m.{iter_expr})")
@@ -1536,8 +1550,13 @@ fn map_from_expr(name: &str, _k: &TypeRef, v_ty: &TypeRef, optional: bool) -> St
     }
 }
 
-fn map_named_from_expr(field_name: &str, mirror_name: &str, optional: bool) -> String {
-    let iter_expr = format!("into_iter().map(|(k, v)| (k.into(), {mirror_name}::from(v))).collect()");
+fn map_named_from_expr(field_name: &str, mirror_name: &str, optional: bool, core_wrapper: CoreWrapper) -> String {
+    let iter_method = if core_wrapper == CoreWrapper::Cow {
+        "into_owned().into_iter()"
+    } else {
+        "into_iter()"
+    };
+    let iter_expr = format!("{iter_method}.map(|(k, v)| (k.into(), {mirror_name}::from(v))).collect()");
     if optional {
         format!("v.{field_name}.map(|m| m.{iter_expr})")
     } else {
@@ -1550,7 +1569,7 @@ fn map_named_from_expr(field_name: &str, mirror_name: &str, optional: bool) -> S
 /// Sanitized fields have an unknown or complex core type that was simplified in the IR.
 /// We use Default::default() as a safe fallback — attempting serde_json::to_string
 /// would require the type to implement Serialize, which is not guaranteed for all
-/// sanitized types (e.g. StyleType, ParagraphProperties, InternalDocument).
+/// sanitized or excluded types.
 fn sanitized_field_from_expr(field: &FieldDef) -> String {
     let name = &field.name;
     match &field.ty {
@@ -1890,7 +1909,7 @@ fn emit_opaque_impl_block(
     // Collect unique paths that need to be brought into scope:
     //   1. Trait sources, so trait-provided methods on `self.inner` resolve.
     //   2. Named types referenced in method param/return signatures — FRB strips full
-    //      module paths from generated code, so types like `InternalDocument` and
+    //      module paths from generated code, so excluded types and
     //      `SyncExtractor` referenced via fully-qualified paths in the IR appear bare
     //      in the emitted bridge and need a `use` to resolve.
     let mut trait_uses: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();

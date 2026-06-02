@@ -1,6 +1,6 @@
 //! Verifies the Dart e2e codegen handles `json_object` args with a scalar
 //! `element_type` (e.g. `"String"`). Regression test for a bug where the
-//! match on `element_type` only handled `"BatchBytesItem"`/`"BatchFileItem"`
+//! match on `element_type` only handled two named DTO types
 //! and silently dropped scalar-typed array args (notably `texts: List<String>`
 //! for `embed_texts*`), causing the generated Dart test to crash.
 
