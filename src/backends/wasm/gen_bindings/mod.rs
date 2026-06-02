@@ -4,6 +4,7 @@ pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
+pub mod service_api;
 pub mod types;
 
 use crate::backends::wasm::type_map::WasmMapper;
@@ -776,6 +777,14 @@ impl Backend for WasmBackend {
                 generated_header: true,
             },
         ])
+    }
+
+    fn generate_service_api(
+        &self,
+        api: &ApiSurface,
+        config: &ResolvedCrateConfig,
+    ) -> anyhow::Result<Vec<GeneratedFile>> {
+        Ok(service_api::gen_service_files(api, config))
     }
 
     fn build_config(&self) -> Option<BuildConfig> {

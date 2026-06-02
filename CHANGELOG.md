@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **wasm-bindgen backend: wire RegistrationVariantStyle emission into generation pipeline (#26).**
+  Implemented `Backend::generate_service_api` in `WasmBackend` to call `service_api::gen_service_files()`, enabling the wasm backend to emit service API files (service.js and service.rs).
+  All three `RegistrationVariantStyle` branches (Builder, VerbDecorator, Hybrid) now emit correctly according to the variant's declared style.
+  Updated unit tests to verify each emission form produces expected JavaScript syntax.
+  (`src/backends/wasm/gen_bindings/mod.rs`, `src/backends/wasm/gen_bindings/service_api.rs`)
+
 - **rustler backend: fix Elixir 404 routing via trait_call message emission (#119).**
   The handler bridge now correctly sends the `{:trait_call, method, json, reply_id}` message to the Elixir GenServer via `OwnedEnv::new().send_and_clear()`. Previously the call was commented out, causing handlers to hang forever awaiting a response that never arrived.
   Added REPLY_ID_COUNTER atomic for deterministic request ID generation and updated the dispatch implementation to send messages in `spawn_blocking` tasks.
