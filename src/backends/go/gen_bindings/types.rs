@@ -449,7 +449,8 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
             continue;
         }
         let const_name = format!("{}{}", go_enum_name, to_go_name(&variant.name));
-        let wire_value = enum_variant_wire_value(variant, enum_def);
+        // Go constants use the Rust variant name as-is (PascalCase), not the wire format.
+        let const_value = variant.name.clone();
         let doc_lines: Vec<String> = if !variant.doc.is_empty() {
             let mut lines = variant.doc.lines();
             let mut result = Vec::new();
@@ -482,7 +483,7 @@ fn gen_newtype_tuple_enum_type(enum_def: &EnumDef) -> String {
             minijinja::context! {
                 const_name => &const_name,
                 type_name => &go_enum_name,
-                wire_value => &wire_value,
+                wire_value => &const_value,
                 doc_lines => &doc_lines,
             },
         ));
@@ -728,7 +729,9 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
         .iter()
         .map(|v| {
             let const_name = format!("{}{}", go_enum_name, to_go_name(&v.name));
-            let wire_value = enum_variant_wire_value(v, enum_def);
+            // Go constants use the Rust variant name as-is (PascalCase), not the wire format.
+            // The FFI function (e.g., spikard_method_from_str) expects the Rust variant name.
+            let const_value = v.name.clone();
 
             let mut doc_lines = Vec::new();
             let doc_first_line = if !v.doc.is_empty() {
@@ -761,7 +764,7 @@ fn gen_unit_enum_type(enum_def: &EnumDef) -> String {
                 rust_name => v.name,
                 doc_first_line => doc_first_line,
                 doc_lines => doc_lines,
-                wire_value => wire_value,
+                wire_value => const_value,
             }
         })
         .collect();
