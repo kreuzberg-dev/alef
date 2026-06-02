@@ -1452,24 +1452,27 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
     let result = backend.generate_type_stubs(&api, &config).unwrap();
     let content = result.into_iter().next().unwrap().content;
 
+    // With SHOUTY_SNAKE_CASE variants (pyo3 runtime convention), Python keywords
+    // and str-method collisions can't happen — DEL, INS, TITLE are all valid identifiers
+    // that don't collide with reserved keywords (which are lowercase) or str methods.
     assert!(
-        content.contains("del_: NodeType = ..."),
-        "stub must escape Python-keyword variant Del → del_, got:\n{}",
+        content.contains("DEL: NodeType = ..."),
+        "stub must emit Del → DEL in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
     assert!(
         !content.contains("del: NodeType = ..."),
-        "stub must NOT emit the unescaped keyword `del` as an attribute name, got:\n{}",
+        "stub must NOT emit lowercase `del` as an attribute name, got:\n{}",
         content
     );
     assert!(
-        content.contains("ins: NodeType = ..."),
-        "non-keyword variants must still emit unescaped (ins), got:\n{}",
+        content.contains("INS: NodeType = ..."),
+        "stub must emit Ins → INS in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
     assert!(
-        content.contains("title_: NodeType = ..."),
-        "stub must escape str-method variant Title → title_, got:\n{}",
+        content.contains("TITLE: NodeType = ..."),
+        "stub must emit Title → TITLE in SHOUTY_SNAKE_CASE, got:\n{}",
         content
     );
     assert!(
