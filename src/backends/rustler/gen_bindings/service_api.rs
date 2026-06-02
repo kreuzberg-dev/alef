@@ -852,7 +852,7 @@ fn gen_run_nif(
                 if is_opaque {
                     if let TypeRef::Named(n) = &meta_param.ty {
                         out.push_str(&format!(
-                            "                    let {pname}: {core_import}::{name} = (*{pname}).clone();\n",
+                            "                    let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
                             pname = meta_param.name,
                             core_import = core_import,
                             name = n,
@@ -1054,9 +1054,10 @@ fn gen_registration_variant_nif(
             };
             if is_opaque {
                 if let TypeRef::Named(n) = &meta_param.ty {
-                    // ResourceArc<T> implements Deref<Target=T>; deref to clone the inner value
+                    // The local wrapper exposes the core type via `.inner: Arc<CoreType>`;
+                    // deref through the Arc to get an owned clone of the core value.
                     out.push_str(&format!(
-                        "                let {pname}: {core_import}::{name} = (*{pname}).clone();\n",
+                        "                let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
                         pname = meta_param.name,
                         core_import = core_import,
                         name = n,
