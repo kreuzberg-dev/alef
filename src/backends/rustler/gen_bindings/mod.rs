@@ -7,6 +7,7 @@ use crate::backends::rustler::template_env;
 use crate::backends::rustler::type_map::RustlerMapper;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
@@ -156,18 +157,12 @@ impl Backend for RustlerBackend {
             builder.add_item(&format!("pub mod {module};"));
         }
 
-        // NOTE: `mod service;` is intentionally not declared here yet. The
-        // service-API codegen emits `service.rs` containing additional
-        // `#[rustler::nif]` functions that the macro would discover via the
-        // module tree — but the current `service.rs` codegen has architectural
-        // gaps (missing `use super::*;`, `ResourceArc.inner` private in
-        // rustler 0.38, no `Arc<dyn Trait>` coercion at call sites, and a
-        // route(builder, wrapper, handler) signature that doesn't match the
-        // typical 2-arg route(builder, handler) consumer API). Declaring
-        // the module surfaces all those bugs as hard compile errors. Until
-        // the rewrite lands, the file is left as orphan output and the
-        // service NIFs remain unresolved at load time — same state as
-        // before this commit. Tracking under the rustler service_api rewrite.
+        // Include service.rs (if services are configured). The service-API
+        // codegen emits additional `#[rustler::nif]` functions that Rustler's
+        // init! macro discovers via the module tree.
+        if !api.services.is_empty() {
+            builder.add_item("pub mod service;");
+        }
 
         let (_module_name, module_prefix) = get_module_info(api, config);
 
@@ -1795,8 +1790,8 @@ fn gen_nif_init(
             let owner = a.owner_type.as_deref()?;
             Some(format!(
                 "{}{}Handle",
-                pascal_case_simple(owner),
-                pascal_case_simple(&a.name)
+                streaming_handle_type_component(owner),
+                streaming_handle_type_component(&a.name)
             ))
         })
         .collect();
@@ -1849,18 +1844,9 @@ fn gen_nif_init(
     }
 }
 
-/// Convert snake_case (or already-PascalCase) to PascalCase. Used for synthesising
-/// streaming handle struct names from adapter `name` and `owner_type`.
-fn pascal_case_simple(s: &str) -> String {
-    s.split('_')
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
+/// Return the public type-name component used in generated Rustler resource structs.
+fn streaming_handle_type_component(name: &str) -> String {
+    public_host_identifier(Language::Elixir, PublicIdentifierKind::Type, name)
 }
 
 /// Patch a generated streaming `_start` NIF so its first parameter — when typed as
@@ -1983,6 +1969,84 @@ app_name = "my_lib"
             native_ex.content.contains("crate: \"my_lib_nif\""),
             "native.ex crate: field must match the _nif Cargo.toml package name; content: {}",
             native_ex.content
+        );
+    }
+
+    /// When services are present, lib.rs must declare `pub mod service;` so that
+    /// the `service.rs` module (containing `#[rustler::nif]` functions) is included
+    /// in the module tree and discovered by the `rustler::init!` macro.
+    #[test]
+    fn test_service_module_included_when_services_present() {
+        use crate::core::ir::{ServiceDef, MethodDef, EntrypointDef, EntrypointKind, TypeRef};
+
+        let mut config = test_config();
+        let mut api = test_api();
+
+        // Add a minimal service to trigger service.rs generation.
+        let service = ServiceDef {
+            name: "TestService".to_string(),
+            rust_path: "test::TestService".to_string(),
+            doc: String::new(),
+            cfg: None,
+            constructor: MethodDef {
+                name: "new".to_string(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                is_static: true,
+                error_type: None,
+                doc: "Create service".to_string(),
+                receiver: None,
+                sanitized: false,
+                trait_source: None,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                has_default_impl: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            },
+            configurators: vec![],
+            registrations: vec![],
+            entrypoints: vec![EntrypointDef {
+                method: "run".to_string(),
+                kind: EntrypointKind::Run,
+                is_async: true,
+                params: vec![],
+                return_type: TypeRef::Unit,
+                error_type: None,
+                doc: "Run service".to_string(),
+            }],
+            doc: "Test service".to_string(),
+            cfg: None,
+        };
+
+        api.services.push(service);
+
+        let backend = RustlerBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+
+        let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+        assert!(
+            lib_rs.content.contains("pub mod service;"),
+            "lib.rs must declare 'pub mod service;' when services are present; content:\n{}",
+            lib_rs.content
+        );
+    }
+
+    /// Conversely, when no services are present, lib.rs should not declare the service module.
+    #[test]
+    fn test_service_module_omitted_when_no_services() {
+        let config = test_config();
+        let api = test_api();
+        let backend = RustlerBackend;
+        let files = backend.generate_bindings(&api, &config).unwrap();
+
+        let lib_rs = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+        assert!(
+            !lib_rs.content.contains("pub mod service;"),
+            "lib.rs must NOT declare 'pub mod service;' when no services are present; content:\n{}",
+            lib_rs.content
         );
     }
 }
