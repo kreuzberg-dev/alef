@@ -754,7 +754,6 @@ fn gen_run_napi_function(
 
     // Build the function signature
     let mut rust_params = vec![
-        "env: Env".to_owned(),
         "registrations: Vec<(String, Vec<JsUnknown>, ThreadsafeFunction<napi::JsUnknown, napi::JsUnknown, (), napi::Error>)>".to_owned(),
     ];
     for p in &ep.params {
