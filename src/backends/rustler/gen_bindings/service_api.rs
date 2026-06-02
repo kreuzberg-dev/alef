@@ -823,10 +823,12 @@ fn gen_run_nif(
                 .metadata_params
                 .iter()
                 .map(|p| {
-                    // Opaque types are passed as ResourceArc<T>, not the core type.
+                    // Opaque types are passed as ResourceArc<super::T> where super::T is the
+                    // local lib-module wrapper (implements rustler::Resource). The `use spikard::*`
+                    // import in service.rs would shadow a bare `T` name, so qualify with `super::`.
                     if let TypeRef::Named(n) = &p.ty {
                         if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
-                            return format!("rustler::ResourceArc<{}>", n);
+                            return format!("rustler::ResourceArc<super::{}>", n);
                         }
                     }
                     typeref_to_rust_type(&p.ty, core_import)
@@ -841,8 +843,9 @@ fn gen_run_nif(
                 types = tuple_types_with_trailing
             ));
             out.push_str("                {\n");
-            // Decode and bind opaque metadata params to locals for later use
-            // ResourceArc<T> implements Deref<Target=T>; deref to clone the inner value
+            // Decode and bind opaque metadata params to locals for later use.
+            // ResourceArc<super::T> derefs to super::T (the local wrapper); wrapper.inner is
+            // Arc<CoreType>. Call as_ref() on the Arc to get &CoreType, then clone to own it.
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
                     api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
@@ -852,7 +855,7 @@ fn gen_run_nif(
                 if is_opaque {
                     if let TypeRef::Named(n) = &meta_param.ty {
                         out.push_str(&format!(
-                            "                    let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                            "                    let {pname}: {core_import}::{name} = (*{pname}).inner.as_ref().clone();\n",
                             pname = meta_param.name,
                             core_import = core_import,
                             name = n,
@@ -918,12 +921,12 @@ fn gen_run_nif(
             out.push_str("    }\n");
         }
         EntrypointKind::Finalize => {
-            // For finalize, call synchronously
+            // For finalize, call the method by its actual name (e.g. `into_router`).
             let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
             if ep.params.is_empty() {
-                out.push_str("    match owner.finalize() {\n");
+                out.push_str(&format!("    match owner.{}() {{\n", ep_method));
             } else {
-                out.push_str(&format!("    match owner.finalize({}) {{\n", ep_params));
+                out.push_str(&format!("    match owner.{}({}) {{\n", ep_method, ep_params));
             }
             out.push_str("        Ok(_) => Ok(atoms::ok()),\n");
             out.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
@@ -1027,9 +1030,11 @@ fn gen_registration_variant_nif(
             .metadata_params
             .iter()
             .map(|p| {
+                // Opaque types use super:: to name the local lib-module wrapper that implements
+                // rustler::Resource. The `use spikard::*` in service.rs would shadow a bare name.
                 if let TypeRef::Named(n) = &p.ty {
                     if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
-                        return format!("rustler::ResourceArc<{}>", n);
+                        return format!("rustler::ResourceArc<super::{}>", n);
                     }
                 }
                 typeref_to_rust_type(&p.ty, core_import)
@@ -1054,10 +1059,10 @@ fn gen_registration_variant_nif(
             };
             if is_opaque {
                 if let TypeRef::Named(n) = &meta_param.ty {
-                    // The local wrapper exposes the core type via `.inner: Arc<CoreType>`;
-                    // deref through the Arc to get an owned clone of the core value.
+                    // ResourceArc<super::T> derefs to the local wrapper super::T; wrapper.inner
+                    // is Arc<CoreType>. Use as_ref() then clone() to obtain an owned CoreType.
                     out.push_str(&format!(
-                        "                let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                        "                let {pname}: {core_import}::{name} = (*{pname}).inner.as_ref().clone();\n",
                         pname = meta_param.name,
                         core_import = core_import,
                         name = n,
