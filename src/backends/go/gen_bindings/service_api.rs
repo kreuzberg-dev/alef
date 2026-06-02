@@ -90,17 +90,12 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
 
     out.push_str(&format!("package {pkg_name}\n\n"));
 
-    // cgo preamble with C headers and helper functions
+    // cgo preamble with C headers
     out.push_str("/*\n");
     out.push_str("#include <string.h>\n");
     out.push_str(&format!("#include \"{ffi_header}\"\n"));
-    // Forward declaration of the Go callback function exported from this Go module.
-    // cgo declares it with non-const char* parameter; we wrap it to provide const char*.
+    // Forward declaration of the exported Go callback function
     out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
-    // Wrapper function providing the const char* signature expected by the C FFI.
-    out.push_str("char* _service_handler_const_wrapper(void* ctx, const char* req) {\n");
-    out.push_str("\treturn service_handler_callback(ctx, (char*)req);\n");
-    out.push_str("}\n");
     out.push_str("*/\n");
     out.push_str("import \"C\"\n\n");
 
@@ -433,14 +428,13 @@ fn gen_registration_method(
     out.push_str("\tctxID := registerHandler(handler)\n");
 
     // Call C registration function.
-    // Pass the wrapper function's address cast to the C function pointer type.
-    // The FFI header defines {PREFIX}ServiceHandlerCallback as a typedef for the callback signature.
+    // Pass the exported Go callback function's address as an opaque void* pointer.
+    // The FFI function will transmute it back to the proper function pointer type.
     let upper_prefix = ffi_prefix.to_uppercase();
-    let callback_type = format!("{}ServiceHandlerCallback", upper_prefix);
     out.push_str(&format!(
         "\tret := C.{}_{}_register_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.{callback_type}(unsafe.Pointer(C._service_handler_const_wrapper)),\n\
+         \t\tunsafe.Pointer(&service_handler_callback),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, reg_method_snake
     ));
@@ -546,12 +540,11 @@ fn gen_registration_variant(
     let upper_prefix = ffi_prefix.to_uppercase();
     // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
     // the registration method name is NOT included in the variant symbol name.
-    // Pass the wrapper function's address cast to the C function pointer type.
-    let callback_type = format!("{}ServiceHandlerCallback", upper_prefix);
+    // Pass the exported Go callback function's address as an opaque void* pointer.
     out.push_str(&format!(
         "\tret := C.{}_{}_{}(\n\
          \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.{callback_type}(unsafe.Pointer(C._service_handler_const_wrapper)),\n\
+         \t\tunsafe.Pointer(&service_handler_callback),\n\
          \t\tunsafe.Pointer(ctxID),\n",
         service_lower, service_snake, variant_name_snake
     ));
@@ -938,8 +931,7 @@ mod tests {
         // Verify cgo preamble
         assert!(go.contains("/*\n#include <string.h>"));
         assert!(go.contains("#include \"test_crate.h\""));
-        assert!(go.contains("extern char* service_handler_callback(void* ctx, char* req);"));
-        assert!(go.contains("char* service_handler_trampoline(void* ctx, const char* req) {"));
+        assert!(go.contains("//export service_handler_callback"));
         assert!(go.contains("import \"C\""));
         // Verify prefixed struct names (uppercase prefix)
         assert!(go.contains("*TEST_CRATETestServiceOpaque"));
@@ -991,8 +983,8 @@ mod tests {
         assert!(go.contains("RegisterAddHandler"));
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
-        // Verify callback is passed via the const-signature trampoline address.
-        assert!(go.contains("unsafe.Pointer(C.service_handler_trampoline),"));
+        // Verify callback is passed as address of the Go-exported callback function.
+        assert!(go.contains("unsafe.Pointer(&service_handler_callback),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }

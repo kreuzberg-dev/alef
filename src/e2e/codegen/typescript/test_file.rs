@@ -527,11 +527,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
                 .iter()
                 // Skip Content-Type for multipart fixtures — we'll add the correct one below
                 .filter(|(k, _)| {
-                    if is_multipart && k.eq_ignore_ascii_case("content-type") {
-                        false
-                    } else {
-                        true
-                    }
+                    !(is_multipart && k.eq_ignore_ascii_case("content-type"))
                 })
                 .map(|(k, v)| {
                     let expanded_v = expand_fixture_templates(v);
@@ -543,7 +539,8 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
             }
             if is_multipart && has_body {
                 // For multipart bodies, add the correct Content-Type with boundary
-                header_lines.push("        \"Content-Type\": \"multipart/form-data; boundary=alef-boundary\",".to_string());
+                header_lines
+                    .push("        \"Content-Type\": \"multipart/form-data; boundary=alef-boundary\",".to_string());
             }
             lines.push("      headers: {".to_string());
             lines.extend(header_lines);

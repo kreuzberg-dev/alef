@@ -10,7 +10,7 @@ use crate::core::template_versions as tv;
 use crate::core::version::to_rubygems_prerelease;
 use crate::e2e::codegen::resolve_field;
 use crate::e2e::config::E2eConfig;
-use crate::e2e::escape::{ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
+use crate::e2e::escape::{escape_ruby_single, ruby_string_literal, ruby_template_to_interpolation, sanitize_filename, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{
     Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm, ValidationErrorExpectation,
@@ -1090,9 +1090,13 @@ fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
                             } else {
                                 json_to_ruby(&serde_json::Value::Array(loc.clone()))
                             };
+                            // Escape single quotes for embedding in a Ruby single-quoted string.
+                            // `ruby_string_literal` would choose double-quotes, but the template
+                            // embeds the value directly inside `'...'`, so we must escape `'` → `\'`.
+                            let escaped = escape_ruby_single(msg);
                             Some(minijinja::context! {
                                 loc_ruby => loc_ruby,
-                                escaped_msg => msg,
+                                escaped_msg => escaped,
                             })
                         })
                         .collect();
