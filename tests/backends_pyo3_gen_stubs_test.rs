@@ -1642,6 +1642,71 @@ fn test_opaque_type_without_constructor_omits_init_stub() {
 }
 
 #[test]
+fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
+    let backend = Pyo3Backend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Action".to_string(),
+            rust_path: "test_lib::Action".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "OpenURL".to_string(),
+                    fields: vec![make_field("url", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "ReadText".to_string(),
+                    fields: vec![make_field("value", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("read-text".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("kind".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("kebab-case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let content = backend
+        .generate_type_stubs(&api, &make_config_with_stubs())
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap()
+        .content;
+
+    assert!(
+        content.contains("kind: Literal[\"open-url\"]"),
+        "rename_all must define TypedDict tag literals:\n{content}"
+    );
+    assert!(
+        content.contains("kind: Literal[\"read-text\"]"),
+        "serde(rename) must override rename_all:\n{content}"
+    );
+}
+
+#[test]
 fn test_pyi_includes_trait_bridge_registry_functions() {
     let backend = Pyo3Backend;
     let mut config = make_config_with_stubs();

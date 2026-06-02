@@ -6,8 +6,8 @@
 //!
 //! All functions are pure string transformations — no I/O, no config access.
 
+use crate::codegen::naming::to_class_name;
 use crate::core::config::ResolvedCrateConfig;
-use heck::ToUpperCamelCase;
 
 /// Resolve the Kotlin package used for JNI symbols.
 ///
@@ -45,7 +45,7 @@ pub fn jni_package(config: &ResolvedCrateConfig) -> String {
 /// assert_eq!(alef::core::jni::bridge_class_name("my-lib"), "MyLibBridge");
 /// ```
 pub fn bridge_class_name(crate_name: &str) -> String {
-    format!("{}Bridge", crate_name.to_upper_camel_case())
+    format!("{}Bridge", to_class_name(crate_name))
 }
 
 /// `<PascalService>ServiceBridge` — the JVM `object`/class hosting a service's
@@ -60,7 +60,7 @@ pub fn bridge_class_name(crate_name: &str) -> String {
 /// assert_eq!(alef::core::jni::service_bridge_class_name("api_surface"), "ApiSurfaceServiceBridge");
 /// ```
 pub fn service_bridge_class_name(service_name: &str) -> String {
-    format!("{}ServiceBridge", service_name.to_upper_camel_case())
+    format!("{}ServiceBridge", to_class_name(service_name))
 }
 
 /// `native<PascalOwner><PascalMethod>` for instance methods; `native<PascalMethod>`
@@ -72,8 +72,8 @@ pub fn service_bridge_class_name(service_name: &str) -> String {
 /// assert_eq!(alef::core::jni::bridge_method_name("", "createClient"), "nativeCreateClient");
 /// ```
 pub fn bridge_method_name(owner: &str, method: &str) -> String {
-    let owner_pascal = owner.to_upper_camel_case();
-    let method_pascal = method.to_upper_camel_case();
+    let owner_pascal = to_class_name(owner);
+    let method_pascal = to_class_name(method);
     if owner_pascal.is_empty() {
         format!("native{method_pascal}")
     } else {
@@ -92,8 +92,8 @@ pub fn bridge_method_name(owner: &str, method: &str) -> String {
 /// assert_eq!(free, "nativeDemoClientStreamDataFree");
 /// ```
 pub fn streaming_method_names(owner: &str, method: &str) -> (String, String, String) {
-    let owner_pascal = owner.to_upper_camel_case();
-    let method_pascal = method.to_upper_camel_case();
+    let owner_pascal = to_class_name(owner);
+    let method_pascal = to_class_name(method);
     (
         format!("native{owner_pascal}{method_pascal}Start"),
         format!("native{owner_pascal}{method_pascal}Next"),
@@ -108,7 +108,7 @@ pub fn streaming_method_names(owner: &str, method: &str) -> (String, String, Str
 /// assert_eq!(alef::core::jni::destructor_method_name("DemoClient"), "nativeFreeDemoClient");
 /// ```
 pub fn destructor_method_name(owner: &str) -> String {
-    let owner_pascal = owner.to_upper_camel_case();
+    let owner_pascal = to_class_name(owner);
     format!("nativeFree{owner_pascal}")
 }
 

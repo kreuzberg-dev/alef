@@ -1,10 +1,9 @@
 //! WASM enum code generation.
 
 use crate::core::ir::{EnumDef, FieldDef, TypeRef};
-use heck::{ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase};
 
 use crate::backends::wasm::type_map::WasmMapper;
-use crate::codegen::naming::to_node_name;
+use crate::codegen::naming::{to_node_name, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 
 use super::functions::emit_rustdoc;
@@ -30,23 +29,6 @@ fn escape_rust_keyword(name: &str) -> String {
         format!("r#{name}")
     } else {
         name.to_string()
-    }
-}
-
-/// Compute the serde wire name for an enum variant, respecting `serde_rename` and
-/// `serde_rename_all` on the parent enum.
-fn variant_serde_name(variant_name: &str, serde_rename: Option<&str>, serde_rename_all: Option<&str>) -> String {
-    if let Some(explicit) = serde_rename {
-        return explicit.to_string();
-    }
-    match serde_rename_all {
-        Some("snake_case") => variant_name.to_snake_case(),
-        Some("camelCase") => variant_name.to_lower_camel_case(),
-        Some("SCREAMING_SNAKE_CASE") => variant_name.to_shouty_snake_case(),
-        Some("lowercase") => variant_name.to_lowercase(),
-        Some("UPPERCASE") => variant_name.to_uppercase(),
-        // PascalCase (default serde), or unknown strategy → keep as-is
-        _ => variant_name.to_string(),
     }
 }
 
@@ -182,7 +164,7 @@ pub(super) fn variant_tag_value(
     serde_rename: Option<&str>,
     serde_rename_all: Option<&str>,
 ) -> String {
-    variant_serde_name(variant_name, serde_rename, serde_rename_all)
+    wire_variant_value(variant_name, serde_rename, serde_rename_all)
 }
 
 /// Generate a wasm-bindgen tagged-enum representation as a flat `#[wasm_bindgen]` struct.
@@ -677,7 +659,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         lines.push("    pub fn to_api_str(self) -> &'static str {".to_string());
         lines.push("        match self {".to_string());
         for variant in &enum_def.variants {
-            let wire = variant_serde_name(
+            let wire = wire_variant_value(
                 &variant.name,
                 variant.serde_rename.as_deref(),
                 enum_def.serde_rename_all.as_deref(),
@@ -697,7 +679,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, prefix: &str) -> String {
         lines.push("    pub fn from_api_str(s: &str) -> Option<Self> {".to_string());
         lines.push("        match s {".to_string());
         for variant in &enum_def.variants {
-            let wire = variant_serde_name(
+            let wire = wire_variant_value(
                 &variant.name,
                 variant.serde_rename.as_deref(),
                 enum_def.serde_rename_all.as_deref(),

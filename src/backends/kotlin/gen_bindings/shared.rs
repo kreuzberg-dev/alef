@@ -2,26 +2,19 @@
 //!
 //! Used by both the JVM and Native backends as well as the MPP backend.
 
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::core::config::Language;
+
 /// Convert a `snake_case` or `kebab-case` name to `PascalCase`.
-pub fn to_pascal_case(name: &str) -> String {
-    let mut out = String::new();
-    let mut upper_next = true;
-    for ch in name.chars() {
-        if ch == '-' || ch == '_' {
-            upper_next = true;
-        } else if upper_next {
-            out.extend(ch.to_uppercase());
-            upper_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+pub fn kotlin_pascal_case(name: &str) -> String {
+    public_host_identifier(Language::Kotlin, PublicIdentifierKind::Type, name)
 }
+
+pub use kotlin_pascal_case as to_pascal_case;
 
 /// Convert a `snake_case` or `kebab-case` name to `lowerCamelCase`.
 pub fn to_lower_camel(name: &str) -> String {
-    let pascal = to_pascal_case(name);
+    let pascal = kotlin_pascal_case(name);
     let mut chars = pascal.chars();
     match chars.next() {
         Some(first) => first.to_lowercase().collect::<String>() + chars.as_str(),

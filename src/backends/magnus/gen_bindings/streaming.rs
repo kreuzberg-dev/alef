@@ -9,7 +9,8 @@
 //! IR represents `BoxStream` returns as `String` (sanitized), which would emit a
 //! `chat_stream_async` stub raising `NotImplementedError`.
 
-use crate::core::config::{AdapterConfig, AdapterPattern};
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::core::config::{AdapterConfig, AdapterPattern, Language};
 
 /// Adapter info needed to generate one streaming iterator + method pair.
 pub(super) struct StreamingAdapter<'a> {
@@ -35,8 +36,8 @@ impl<'a> StreamingAdapter<'a> {
         let error = adapter.error_type.as_deref()?;
         let request_full = adapter.request_type.as_deref()?;
         let req_binding = request_full.rsplit("::").next().unwrap_or(request_full);
-        // PascalCase the adapter name for the iterator class name (e.g. chat_stream → ChatStream)
-        let pascal = pascal_case(&adapter.name);
+        // Ruby class names are public host type identifiers.
+        let pascal = ruby_streaming_iterator_type_name(&adapter.name);
         let iterator_struct_name = format!("{}Iterator", pascal);
         let class_path = format!("{}::{}", module_name, iterator_struct_name);
         Some(Self {
@@ -54,22 +55,8 @@ impl<'a> StreamingAdapter<'a> {
     }
 }
 
-fn pascal_case(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut upper_next = true;
-    for ch in s.chars() {
-        if ch == '_' || ch == '-' {
-            upper_next = true;
-            continue;
-        }
-        if upper_next {
-            out.extend(ch.to_uppercase());
-            upper_next = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+fn ruby_streaming_iterator_type_name(name: &str) -> String {
+    public_host_identifier(Language::Ruby, PublicIdentifierKind::Type, name)
 }
 
 /// Generate the iterator opaque struct, its `IntoValueFromNative`/`TryConvert`

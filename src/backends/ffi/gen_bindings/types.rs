@@ -1,8 +1,8 @@
 use crate::backends::ffi::type_map::c_return_type_with_paths;
 use crate::codegen::conversions::{core_enum_path, core_type_path};
+use crate::codegen::naming::pascal_to_snake;
 use crate::core::ir::{CoreWrapper, EnumDef, FieldDef, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use heck::ToSnakeCase;
 use minijinja::context;
 
 use super::helpers::{gen_value_to_c, null_return_value};
@@ -45,12 +45,16 @@ fn is_primitive_c_type_override(c_type: &str) -> bool {
     )
 }
 
+fn c_symbol_component(name: &str) -> String {
+    pascal_to_snake(name)
+}
+
 // ---------------------------------------------------------------------------
 // Type: from_json + free
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
 
@@ -66,7 +70,7 @@ pub(super) fn gen_type_from_json(typ: &TypeDef, prefix: &str, core_import: &str)
 }
 
 pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
 
@@ -82,7 +86,7 @@ pub(super) fn gen_type_to_json(typ: &TypeDef, prefix: &str, core_import: &str) -
 }
 
 pub(super) fn gen_type_free(typ: &TypeDef, prefix: &str, core_import: &str) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
 
@@ -112,7 +116,7 @@ pub(super) fn gen_field_accessor(
     clone_names: &AHashSet<String>,
     fields_c_types: &std::collections::HashMap<String, String>,
 ) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
     let field_name = &field.name;
@@ -406,7 +410,7 @@ fn gen_field_access_body(
 // ---------------------------------------------------------------------------
 
 pub(super) fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let variants: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
@@ -422,7 +426,7 @@ pub(super) fn gen_enum_from_i32(enum_def: &EnumDef, prefix: &str, _core_import: 
 }
 
 pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let variants: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
 
@@ -443,7 +447,7 @@ pub(super) fn gen_enum_to_i32(enum_def: &EnumDef, prefix: &str, _core_import: &s
 /// `i32` discriminant. It is `pub(crate)` to avoid unused-item warnings and is not exported
 /// to C. All FFI parameter-crossing enums need this helper regardless of their `Copy` status.
 pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let qualified = core_enum_path(enum_def, core_import);
 
     let mut arms = String::new();
@@ -468,7 +472,7 @@ pub(super) fn gen_enum_from_i32_rs_helper(enum_def: &EnumDef, core_import: &str)
 /// caller must free the allocation. This applies to enums that derive `Copy`/`Clone` but are
 /// returned through the pointer-based FFI API (e.g. field accessor methods on struct types).
 pub(super) fn gen_enum_free(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
 
@@ -488,7 +492,7 @@ pub(super) fn gen_enum_free(enum_def: &EnumDef, prefix: &str, core_import: &str)
 /// Serializes the enum to a JSON string using serde. Only generated for enums that
 /// derive `Serialize` (i.e. `has_serde` is true).
 pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
 
@@ -511,7 +515,7 @@ pub(super) fn gen_enum_to_json(enum_def: &EnumDef, prefix: &str, core_import: &s
 /// whose runtime serialization yields a string (`has_serde`); compound enums
 /// would JSON-encode as objects and `as_str()` returns `None`.
 pub(super) fn gen_enum_to_string(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
 
@@ -531,7 +535,7 @@ pub(super) fn gen_enum_to_string(enum_def: &EnumDef, prefix: &str, core_import: 
 /// Deserializes the enum from a JSON string. Only generated for enums that
 /// derive `Deserialize` (i.e. `has_serde` is true).
 pub(super) fn gen_enum_from_json(enum_def: &EnumDef, prefix: &str, core_import: &str) -> String {
-    let enum_snake = enum_def.name.to_snake_case();
+    let enum_snake = c_symbol_component(&enum_def.name);
     let enum_name = &enum_def.name;
     let qualified = core_enum_path(enum_def, core_import);
 
@@ -554,7 +558,7 @@ pub(super) fn gen_type_new(
     body: &str,
     err_ty: &str,
 ) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
 
@@ -591,7 +595,7 @@ pub(super) fn gen_opaque_static_constructor(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
     let ffi_fn_name = format!("{prefix}_{type_snake}_new");
@@ -664,7 +668,7 @@ pub(super) fn gen_opaque_static_constructor(
                 // Use the private Rust helper (generated alongside the public C export) so that
                 // we don't call the non-existent `{core_import}::{enum_snake}_from_i32` Rust fn.
                 // Use a `match` instead of `?` because the function returns `*mut T`, not Result/Option.
-                let enum_snake = heck::ToSnakeCase::to_snake_case(n.as_str());
+                let enum_snake = c_symbol_component(n);
                 out.push_str(&format!(
                     "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
                      Some(v) => v,\n        \

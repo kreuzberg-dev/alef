@@ -610,18 +610,6 @@ fn gen_async_instance_method(
     )
 }
 
-/// Convert a PascalCase name to snake_case for Ruby symbol mapping.
-pub(super) fn pascal_to_snake(name: &str) -> String {
-    let mut result = String::with_capacity(name.len() + 4);
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_lowercase().next().unwrap_or(ch));
-    }
-    result
-}
-
 fn non_opaque_method_result_wrap(method: &MethodDef) -> String {
     match &method.return_type {
         TypeRef::Named(_) | TypeRef::String | TypeRef::Char | TypeRef::Path => ".into()".to_string(),
@@ -718,7 +706,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
                 serde_rename => &variant.serde_rename,
                 fields => &fields,
                 is_tuple => variant.is_tuple,
-                snake_name => pascal_to_snake(&variant.name),
+                snake_name => crate::codegen::naming::pascal_to_snake(&variant.name),
             }
         })
         .collect();
@@ -973,13 +961,6 @@ mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
         }
-    }
-
-    #[test]
-    fn pascal_to_snake_converts_camel_case() {
-        assert_eq!(pascal_to_snake("FooBar"), "foo_bar");
-        assert_eq!(pascal_to_snake("PaddleOcr"), "paddle_ocr");
-        assert_eq!(pascal_to_snake("Tesseract"), "tesseract");
     }
 
     #[test]

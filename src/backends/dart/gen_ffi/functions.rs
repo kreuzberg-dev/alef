@@ -1,9 +1,10 @@
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
+use crate::core::config::Language;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
-use heck::ToLowerCamelCase;
 
 use super::type_map::{
-    call_arg_name, dart_callable_return, dart_callable_type, dart_public_return, dart_wrapper_param, native_param_type,
-    native_return_type, unwrap_return_expr,
+    call_arg_name, dart_callable_return, dart_callable_type, dart_param_name, dart_public_return, dart_wrapper_param,
+    native_param_type, native_return_type, unwrap_return_expr,
 };
 
 /// Emit a Dart function that resolves its C symbol via `_lib.lookupFunction`.
@@ -46,7 +47,7 @@ pub(super) fn emit_function(
     }
 
     let c_symbol = format!("{prefix}_{}", f.name);
-    let fn_name = f.name.to_lower_camel_case();
+    let fn_name = public_host_identifier(Language::Dart, PublicIdentifierKind::Function, &f.name);
 
     // Emit the native and Dart typedef pair.
     let native_params: Vec<String> = f.params.iter().map(native_param_type).collect();
@@ -146,7 +147,7 @@ pub(super) fn emit_function(
 /// Allocate a native UTF-8 string for a string/path parameter.
 fn emit_param_alloc(p: &ParamDef, out: &mut String) {
     use crate::backends::dart::template_env;
-    let name = p.name.to_lower_camel_case();
+    let name = dart_param_name(&p.name);
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             out.push_str(&template_env::render(
@@ -164,7 +165,7 @@ fn emit_param_alloc(p: &ParamDef, out: &mut String) {
 fn emit_param_free_all(params: &[ParamDef], out: &mut String) {
     use crate::backends::dart::template_env;
     for p in params {
-        let name = p.name.to_lower_camel_case();
+        let name = dart_param_name(&p.name);
         match &p.ty {
             TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
                 out.push_str(&template_env::render(

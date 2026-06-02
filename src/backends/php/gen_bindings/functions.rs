@@ -70,30 +70,49 @@ fn apply_bridge_none_substitutions(call_args: &str, func: &FunctionDef, bridge_n
 }
 
 fn promoted_default_param_names<'a>(
-    _params: &'a [crate::core::ir::ParamDef],
-    _default_types: &AHashSet<String>,
-    _opaque_types: &AHashSet<String>,
+    params: &'a [crate::core::ir::ParamDef],
+    default_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
 ) -> AHashSet<&'a str> {
-    // Kept in lockstep with `promote_default_params`: since required
-    // default-typed params no longer get promoted to optional in the PHP
-    // signature, there are also no names whose call-site argument should be
-    // rewritten to `<arg>.unwrap_or_default()`. Returning an empty set keeps
-    // `apply_default_param_substitutions` a no-op for these params and
-    // prevents emitting `&req_core.unwrap_or_default()` on a value that is
-    // already `T` rather than `Option<T>` (which fails to compile when `T`
-    // has no `Option::unwrap_or_default` of its own).
-    AHashSet::new()
+    params
+        .iter()
+        .filter_map(|param| match &param.ty {
+            TypeRef::Named(name)
+                if !param.optional
+                    && default_types.contains(name.as_str())
+                    && !opaque_types.contains(name.as_str()) =>
+            {
+                Some(param.name.as_str())
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 fn promote_default_params(
     params: &[crate::core::ir::ParamDef],
-    _default_types: &AHashSet<String>,
-    _opaque_types: &AHashSet<String>,
+    default_types: &AHashSet<String>,
+    opaque_types: &AHashSet<String>,
 ) -> Vec<crate::core::ir::ParamDef> {
-    // Default-typed params that are required in Rust stay required in PHP — the
-    // wrapper must not unilaterally relax arity. `Optional<DefaultType>` is
-    // already optional via `ParamDef::optional` and needs no further promotion.
-    params.to_vec()
+    params
+        .iter()
+        .map(|param| {
+            let should_promote = matches!(
+                &param.ty,
+                TypeRef::Named(name)
+                    if !param.optional
+                        && default_types.contains(name.as_str())
+                        && !opaque_types.contains(name.as_str())
+            );
+            if should_promote {
+                let mut promoted = param.clone();
+                promoted.optional = true;
+                promoted
+            } else {
+                param.clone()
+            }
+        })
+        .collect()
 }
 
 fn apply_default_param_substitutions(

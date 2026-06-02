@@ -2,7 +2,7 @@ use crate::core::ir::{FunctionDef, ParamDef, PrimitiveType, TypeRef};
 
 use super::errors::resolve_zig_error_type;
 use super::helpers::emit_cleaned_zig_doc;
-use super::types::zig_field_type;
+use super::types::{c_symbol_component, zig_field_type};
 
 /// Returns true if `ty` (or its `Optional<>` inner) is a struct named in
 /// `struct_names`. Struct parameters are passed across the FFI as opaque
@@ -49,10 +49,6 @@ fn get_opaque_named<'a>(
         },
         _ => None,
     }
-}
-
-fn snake_case(name: &str) -> String {
-    heck::AsSnakeCase(name).to_string()
 }
 
 /// Returns true if generating the param-conversion boilerplate for `p` will
@@ -389,7 +385,7 @@ fn emit_param_conversion(
                     prefix => prefix,
                     creator_fn => creator_fn,
                     config_snake => config_snake,
-                    name_snake => &snake_case(opaque_name),
+                    name_snake => &c_symbol_component(opaque_name),
                     json_error_return => json_error_return,
                 },
             ));
@@ -399,7 +395,7 @@ fn emit_param_conversion(
 
     if let Some(inner_name) = struct_named_inner(&p.ty) {
         if struct_names.contains(inner_name) {
-            let snake = snake_case(inner_name);
+            let snake = c_symbol_component(inner_name);
             // Determine if the wrapper-level type is optional (either the
             // outer TypeRef is Optional, or the param itself is marked optional).
             let is_optional = p.optional || matches!(p.ty, TypeRef::Optional(_));
@@ -701,7 +697,7 @@ fn unwrap_return_expr(
             // it to JSON via the FFI `<prefix>_<snake>_to_json` helper, copy the
             // JSON string into a Zig-owned buffer, then free both the JSON string
             // and the opaque handle. The wrapper returns `[]u8` (JSON).
-            let snake = snake_case(name);
+            let snake = c_symbol_component(name);
             crate::backends::zig::template_env::render(
                 "return_named_json_block.jinja",
                 minijinja::context! {
@@ -742,7 +738,7 @@ fn unwrap_return_expr(
             // buffer, free the JSON string and the opaque handle.  When the C
             // handle is null, return `null` directly.
             TypeRef::Named(name) if struct_names.contains(name) => {
-                let snake = snake_case(name);
+                let snake = c_symbol_component(name);
                 let inner_block = crate::backends::zig::template_env::render(
                     "return_named_json_block.jinja",
                     minijinja::context! {

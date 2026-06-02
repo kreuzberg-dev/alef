@@ -18,6 +18,24 @@ pub fn bridge_protocol_name(trait_name: &str) -> String {
     format!("Swift{trait_name}Bridge")
 }
 
+/// Resolve a Swift public source identifier.
+pub(crate) fn swift_source_ident(name: &str) -> String {
+    crate::codegen::naming::escape_identifier_for(
+        crate::core::config::Language::Swift,
+        name,
+        crate::codegen::naming::IdentifierContext::SwiftSource,
+    )
+}
+
+/// Resolve a Swift Rust-shim identifier.
+pub(crate) fn swift_rust_shim_ident(name: &str) -> String {
+    crate::codegen::naming::escape_identifier_for(
+        crate::core::config::Language::Swift,
+        name,
+        crate::codegen::naming::IdentifierContext::SwiftRustShim,
+    )
+}
+
 /// Get the swift-bridge version to pin in the generated `Cargo.toml`.
 ///
 /// Returns the per-crate override from `[crates.swift] swift_bridge_version` when set;

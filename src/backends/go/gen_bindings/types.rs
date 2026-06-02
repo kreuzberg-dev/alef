@@ -1,8 +1,8 @@
 use crate::backends::go::type_map::{go_optional_type, go_type};
-use crate::codegen::naming::{go_type_name, to_go_name};
+use crate::codegen::naming::{apply_serde_rename_all, go_type_name, to_go_name};
 use crate::codegen::shared::binding_fields;
 use crate::core::ir::{DefaultValue, EnumDef, FieldDef, TypeDef, TypeRef};
-use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
+use heck::ToSnakeCase;
 use minijinja::context;
 use std::borrow::Cow;
 
@@ -11,19 +11,6 @@ use std::borrow::Cow;
 pub(super) fn is_tuple_field(field: &FieldDef) -> bool {
     (field.name.starts_with('_') && field.name[1..].chars().all(|c| c.is_ascii_digit()))
         || field.name.chars().next().is_none_or(|c| c.is_ascii_digit())
-}
-
-/// Apply a serde `rename_all` strategy to a field name.
-/// Returns the field name transformed according to the strategy, or the
-/// original name if no strategy is set.
-pub(super) fn apply_serde_rename(field_name: &str, rename_all: Option<&str>) -> String {
-    match rename_all {
-        Some("camelCase") => field_name.to_lower_camel_case(),
-        Some("PascalCase") => field_name.to_pascal_case(),
-        Some("SCREAMING_SNAKE_CASE") => field_name.to_uppercase(),
-        // snake_case is the Rust default — field names are already snake_case.
-        _ => field_name.to_string(),
-    }
 }
 
 /// Returns true if a non-optional struct field should be emitted as a pointer type with
@@ -429,7 +416,7 @@ fn enum_variant_wire_value(variant: &crate::core::ir::EnumVariant, enum_def: &En
     if let Some(rename) = &variant.serde_rename {
         return rename.clone();
     }
-    apply_serde_rename(
+    apply_serde_rename_all(
         &crate::codegen::naming::pascal_to_snake(&variant.name),
         enum_def.serde_rename_all.as_deref(),
     )
@@ -573,7 +560,7 @@ fn gen_tuple_tagged_union_type(enum_def: &EnumDef) -> String {
             if let TypeRef::Named(struct_type_name) = &field.ty {
                 let go_struct_type = go_type_name(struct_type_name);
                 let field_name = to_go_name(&variant.name);
-                let json_field_name = apply_serde_rename(
+                let json_field_name = apply_serde_rename_all(
                     &crate::codegen::naming::pascal_to_snake(&variant.name),
                     enum_def.serde_rename_all.as_deref(),
                 );
@@ -876,7 +863,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             } else {
                 go_type(&field.ty)
             };
-            let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+            let json_name = apply_serde_rename_all(&field.name, enum_def.serde_rename_all.as_deref());
             let json_tag = if field.optional {
                 format!("json:\"{},omitempty\"", json_name)
             } else {
@@ -949,7 +936,7 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
                 } else {
                     go_type(&field.ty)
                 };
-                let json_name = apply_serde_rename(&field.name, enum_def.serde_rename_all.as_deref());
+                let json_name = apply_serde_rename_all(&field.name, enum_def.serde_rename_all.as_deref());
                 let json_tag = if field.optional {
                     format!("json:\"{json_name},omitempty\"")
                 } else {
@@ -1229,7 +1216,7 @@ pub(super) fn gen_struct_type(
         let json_name = field
             .serde_rename
             .clone()
-            .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
+            .unwrap_or_else(|| apply_serde_rename_all(&field.name, typ.serde_rename_all.as_deref()));
         let is_collection = matches!(&field.ty, TypeRef::Vec(_) | TypeRef::Map(_, _));
         let json_tag = if field.optional || is_collection || use_default_pointer || is_named_enum || is_unresolved_named
         {
@@ -1292,7 +1279,7 @@ pub(super) fn gen_struct_type(
             let json_name = field
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| apply_serde_rename_all(&field.name, typ.serde_rename_all.as_deref()));
             let use_default_pointer = !field.optional && typ.has_default && needs_omitempty_pointer(field);
             let is_named_enum = !field.optional
                 && !use_default_pointer
@@ -1430,7 +1417,7 @@ pub(super) fn gen_struct_type(
             let json_name = field
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_serde_rename(&field.name, typ.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| apply_serde_rename_all(&field.name, typ.serde_rename_all.as_deref()));
             // Check if this field is a data enum field (direct, optional, or slice).
             let data_enum_def = data_enum_fields.iter().find(|def| def.go_name == go_field_name);
             if let Some(def) = data_enum_def {
@@ -1955,9 +1942,9 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_serde_rename_camel_case() {
-        assert_eq!(apply_serde_rename("my_field", Some("camelCase")), "myField");
-        assert_eq!(apply_serde_rename("my_field", None), "my_field");
+    fn test_apply_serde_rename_all_camel_case() {
+        assert_eq!(apply_serde_rename_all("my_field", Some("camelCase")), "myField");
+        assert_eq!(apply_serde_rename_all("my_field", None), "my_field");
     }
 
     #[test]

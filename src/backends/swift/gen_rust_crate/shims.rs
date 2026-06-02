@@ -11,8 +11,8 @@ use crate::backends::swift::gen_rust_crate::type_bridge::{
     bridge_type_enum_aware_ref, bridge_type_with_handles, needs_json_bridge, needs_json_bridge_with_handles,
     swift_bridge_rust_type,
 };
+use crate::backends::swift::naming::swift_rust_shim_ident as swift_ident;
 use crate::core::ir::{FunctionDef, TypeRef};
-use crate::core::keywords::swift_ident;
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 

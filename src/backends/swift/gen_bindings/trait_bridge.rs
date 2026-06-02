@@ -565,7 +565,7 @@ pub fn gen_bridge_registration_overloads_file(
     // MARK: Unregister name: label overloads
     content.push_str("// MARK: - Unregister name: label overloads\n\n");
     for (trait_name, _, _) in &trait_bridges {
-        let pascal_name = to_pascal_case(trait_name);
+        let pascal_name = trait_bridge_pascal_name(trait_name);
         content.push_str(&format!(
             "public func unregister{pascal_name}(name: String) throws {{\n\
              \x20   try RustBridge.unregister{pascal_name}(name)\n\
@@ -576,7 +576,7 @@ pub fn gen_bridge_registration_overloads_file(
     // MARK: Bridge → Box register overloads
     content.push_str("// MARK: - Bridge → Box register overloads\n\n");
     for (trait_name, _, _) in &trait_bridges {
-        let pascal_name = to_pascal_case(trait_name);
+        let pascal_name = trait_bridge_pascal_name(trait_name);
         content.push_str(&format!(
             "public func register{pascal_name}(_ bridge: any Swift{pascal_name}Bridge) throws {{\n\
              \x20   try register{pascal_name}(Swift{pascal_name}Box(bridge))\n\
@@ -588,16 +588,8 @@ pub fn gen_bridge_registration_overloads_file(
 }
 
 /// Convert a snake_case or kebab-case identifier to PascalCase.
-fn to_pascal_case(s: &str) -> String {
-    s.split(&['-', '_'][..])
-        .map(|part| {
-            let mut chars = part.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            }
-        })
-        .collect()
+fn trait_bridge_pascal_name(s: &str) -> String {
+    crate::codegen::naming::to_class_name(s)
 }
 
 #[cfg(test)]
@@ -901,9 +893,9 @@ mod tests {
 
     #[test]
     fn test_pascal_case_conversion() {
-        assert_eq!(to_pascal_case("my_lib"), "MyLib");
-        assert_eq!(to_pascal_case("ocr_backend"), "OcrBackend");
-        assert_eq!(to_pascal_case("test"), "Test");
-        assert_eq!(to_pascal_case("a"), "A");
+        assert_eq!(trait_bridge_pascal_name("my_lib"), "MyLib");
+        assert_eq!(trait_bridge_pascal_name("ocr_backend"), "OcrBackend");
+        assert_eq!(trait_bridge_pascal_name("test"), "Test");
+        assert_eq!(trait_bridge_pascal_name("a"), "A");
     }
 }

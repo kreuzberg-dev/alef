@@ -2,25 +2,8 @@
 
 use super::{csharp_file_header, is_tuple_field};
 use crate::backends::csharp::type_map::csharp_type;
-use crate::codegen::naming::{csharp_type_name, to_csharp_name};
+use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_variant_value};
 use crate::core::ir::EnumDef;
-
-/// Apply a serde `rename_all` strategy to a variant name.
-pub(super) fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
-    use heck::{ToKebabCase, ToLowerCamelCase, ToPascalCase};
-
-    match rename_all {
-        Some("snake_case") => crate::codegen::naming::pascal_to_snake(name),
-        Some("camelCase") => name.to_lower_camel_case(),
-        Some("PascalCase") => name.to_pascal_case(),
-        Some("SCREAMING_SNAKE_CASE") => crate::codegen::naming::pascal_to_screaming_snake(name),
-        Some("kebab-case") => name.to_kebab_case(),
-        Some("SCREAMING-KEBAB-CASE") => name.to_kebab_case().to_uppercase(),
-        Some("lowercase") => name.to_lowercase(),
-        Some("UPPERCASE") => name.to_uppercase(),
-        _ => name.to_lowercase(),
-    }
-}
 
 pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
     use crate::backends::csharp::template_env::render;
@@ -58,8 +41,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
     let needs_custom_converter = rename_all_differs
         || enum_def.variants.iter().any(|v| {
             if let Some(ref rename) = v.serde_rename {
-                let snake = apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref());
-                rename != &snake
+                let default_wire_name = wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref());
+                rename != &default_wire_name
             } else {
                 false
             }
@@ -75,7 +58,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
             let json_name = v
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
             let pascal_name = to_csharp_name(&v.name);
             (json_name, pascal_name)
         })
@@ -88,7 +71,7 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
             let json_name = v
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
             let pascal_name = to_csharp_name(&v.name);
             let doc_lines = super::sanitize_doc_lines_for_csharp(&v.doc);
             let has_doc = !doc_lines.is_empty();
@@ -173,7 +156,7 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
             let disc = v
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
             (pascal, disc)
         })
         .collect();
@@ -385,7 +368,7 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
             let discriminator = v
                 .serde_rename
                 .clone()
-                .unwrap_or_else(|| apply_rename_all(&v.name, enum_def.serde_rename_all.as_deref()));
+                .unwrap_or_else(|| wire_variant_value(&v.name, None, enum_def.serde_rename_all.as_deref()));
             let is_unit = v.fields.is_empty();
             let is_tuple = !is_unit && v.fields.len() == 1 && is_tuple_field(&v.fields[0]);
             Value::from_serialize(serde_json::json!({

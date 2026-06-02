@@ -2,6 +2,7 @@ use crate::adapters::AdapterBodies;
 use crate::backends::php::type_map::PhpMapper;
 use crate::codegen::builder::ImplBuilder;
 use crate::codegen::generators::{self, RustBindingConfig};
+use crate::codegen::naming::wire_variant_value;
 use crate::codegen::shared::{binding_fields, partition_methods};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
@@ -1115,34 +1116,11 @@ pub(crate) fn gen_flat_data_enum_methods(enum_def: &EnumDef, mapper: &PhpMapper)
 
 /// Returns the serde-renamed tag string for a variant.
 fn variant_tag_value(variant: &EnumVariant, enum_def: &EnumDef) -> String {
-    if let Some(rename) = &variant.serde_rename {
-        return rename.clone();
-    }
-    if let Some(rename_all) = &enum_def.serde_rename_all {
-        return apply_rename_all(&variant.name, rename_all);
-    }
-    variant.name.clone()
-}
-
-/// Public alias used by `gen_string_to_enum_expr` in `helpers.rs` to honour the
-/// core enum's serde rename strategy when emitting `match val.as_str()` arms
-/// against the user-supplied wire value.
-pub(crate) fn apply_rename_all_public(name: &str, strategy: &str) -> String {
-    apply_rename_all(name, strategy)
-}
-
-fn apply_rename_all(name: &str, strategy: &str) -> String {
-    use heck::{ToKebabCase, ToLowerCamelCase, ToShoutySnakeCase, ToSnakeCase, ToUpperCamelCase};
-    match strategy {
-        "lowercase" => name.to_lowercase(),
-        "UPPERCASE" => name.to_uppercase(),
-        "camelCase" => name.to_lower_camel_case(),
-        "PascalCase" => name.to_upper_camel_case(),
-        "snake_case" => name.to_snake_case(),
-        "SCREAMING_SNAKE_CASE" => name.to_shouty_snake_case(),
-        "kebab-case" => name.to_kebab_case(),
-        _ => name.to_string(),
-    }
+    wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    )
 }
 
 /// Generate `From<core::DataEnum> for PhpDataEnum` and `From<PhpDataEnum> for core::DataEnum`

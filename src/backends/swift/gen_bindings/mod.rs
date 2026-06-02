@@ -1,4 +1,4 @@
-use crate::codegen::keywords::{swift_case_ident, swift_ident};
+use crate::backends::swift::naming::{swift_rust_shim_ident as swift_ident, swift_source_ident as swift_case_ident};
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
@@ -8,7 +8,7 @@ use crate::core::config::{
 use crate::core::ir::{
     ApiSurface, DefaultValue, EnumDef, EnumVariant, ErrorDef, FunctionDef, MethodDef, PrimitiveType, TypeDef, TypeRef,
 };
-use heck::{AsSnakeCase, ToKebabCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use heck::{AsSnakeCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
@@ -1365,21 +1365,11 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
     out.push_str("        switch type {\n");
 
     for variant in &en.variants {
-        // Compute the variant tag value based on serde_rename_all and serde_rename
-        let variant_tag = if let Some(rename) = &variant.serde_rename {
-            rename.clone()
-        } else {
-            match en.serde_rename_all.as_deref() {
-                Some("camelCase") => variant.name.to_lower_camel_case(),
-                Some("snake_case") => variant.name.to_snake_case(),
-                Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
-                Some("PascalCase") => variant.name.to_upper_camel_case(),
-                Some("kebab-case") => variant.name.to_kebab_case(),
-                Some("lowercase") => variant.name.to_lowercase(),
-                Some("UPPERCASE") => variant.name.to_uppercase(),
-                _ => variant.name.clone(),
-            }
-        };
+        let variant_tag = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            en.serde_rename_all.as_deref(),
+        );
 
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         out.push_str(&format!("        case \"{}\":\n", variant_tag));
@@ -1432,21 +1422,11 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
     out.push_str("        switch self {\n");
 
     for variant in &en.variants {
-        // Compute the variant tag value
-        let variant_tag = if let Some(rename) = &variant.serde_rename {
-            rename.clone()
-        } else {
-            match en.serde_rename_all.as_deref() {
-                Some("camelCase") => variant.name.to_lower_camel_case(),
-                Some("snake_case") => variant.name.to_snake_case(),
-                Some("SCREAMING_SNAKE_CASE") => variant.name.to_snake_case().to_uppercase(),
-                Some("PascalCase") => variant.name.to_upper_camel_case(),
-                Some("kebab-case") => variant.name.to_kebab_case(),
-                Some("lowercase") => variant.name.to_lowercase(),
-                Some("UPPERCASE") => variant.name.to_uppercase(),
-                _ => variant.name.clone(),
-            }
-        };
+        let variant_tag = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            en.serde_rename_all.as_deref(),
+        );
 
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
 
@@ -1585,7 +1565,7 @@ fn emit_enum(
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-            let raw_value = unit_enum_raw_value(variant, en.serde_rename_all.as_deref());
+            let raw_value = unit_enum_wire_value(variant, en.serde_rename_all.as_deref());
             if raw_value == case_name.trim_matches('`') {
                 // Raw value matches the Swift case name — no explicit annotation needed.
                 out.push_str(&crate::backends::swift::template_env::render(
@@ -1729,7 +1709,7 @@ fn emit_enum_without_into_rust(
         for variant in &en.variants {
             emit_doc_comment(&variant.doc, "    ", out);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-            let raw_value = unit_enum_raw_value(variant, en.serde_rename_all.as_deref());
+            let raw_value = unit_enum_wire_value(variant, en.serde_rename_all.as_deref());
             if raw_value == case_name.trim_matches('`') {
                 out.push_str(&crate::backends::swift::template_env::render(
                     "enum_case_unit.jinja",
@@ -1800,21 +1780,8 @@ fn emit_enum_into_rust_extension(name: &str, out: &mut String) {
 ///
 /// Supported `serde_rename_all` values: `"snake_case"`, `"camelCase"`, `"SCREAMING_SNAKE_CASE"`,
 /// `"kebab-case"`. Unknown strategies fall back to the PascalCase variant name.
-fn unit_enum_raw_value(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
-    use heck::{ToKebabCase, ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
-    if let Some(rename) = &variant.serde_rename {
-        return rename.clone();
-    }
-    match rename_all {
-        Some("snake_case") => variant.name.to_snake_case(),
-        Some("camelCase") => variant.name.to_lower_camel_case(),
-        Some("SCREAMING_SNAKE_CASE") | Some("SCREAMING-KEBAB-CASE") => variant.name.to_snake_case().to_uppercase(),
-        Some("PascalCase") => variant.name.to_upper_camel_case(),
-        Some("kebab-case") | Some("train-case") => variant.name.to_kebab_case(),
-        Some("lowercase") => variant.name.to_lowercase(),
-        Some("UPPERCASE") => variant.name.to_uppercase(),
-        _ => variant.name.clone(),
-    }
+fn unit_enum_wire_value(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
+    crate::codegen::naming::wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all)
 }
 
 /// Emits a single enum case, with or without associated values.

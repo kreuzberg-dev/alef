@@ -13,6 +13,7 @@ use std::collections::BTreeSet;
 use super::helpers::emit_cleaned_kdoc;
 use super::shared::{kotlin_field_name, to_lower_camel, to_screaming_snake};
 use crate::backends::kotlin::type_map::KotlinMapper;
+use crate::codegen::naming::wire_variant_value;
 use crate::codegen::type_mapper::TypeMapper;
 
 // ---------------------------------------------------------------------------
@@ -290,7 +291,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
             // deserialize and back on serialize. This is the typical case
             // when the Rust source uses `#[serde(rename_all = "snake_case")]`
             // or per-variant `#[serde(rename = "...")]`.
-            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            let discriminator = wire_variant_value(
+                &en.variants[idx].name,
+                en.variants[idx].serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
             let comma = if idx + 1 == names.len() { ";" } else { "," };
 
             if discriminator != *name {
@@ -327,7 +332,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         out.push_str("    fun toWire(): String =\n");
         out.push_str("        when (this) {\n");
         for (idx, name) in names.iter().enumerate() {
-            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            let discriminator = wire_variant_value(
+                &en.variants[idx].name,
+                en.variants[idx].serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
             out.push_str(&format!(
                 "            {} -> \"{}\"\n",
                 name,
@@ -345,7 +354,11 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
         out.push_str(" =\n");
         out.push_str("            when (value) {\n");
         for (idx, name) in names.iter().enumerate() {
-            let discriminator = variant_discriminator(&en.variants[idx], en.serde_rename_all.as_deref());
+            let discriminator = wire_variant_value(
+                &en.variants[idx].name,
+                en.variants[idx].serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
             let discriminator_lower = discriminator.to_lowercase();
             if discriminator != discriminator_lower {
                 // Accept both the serde-renamed wire form (e.g. "Angle") and its lowercase
@@ -524,28 +537,6 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String, package: &str) {
     }
 }
 
-/// Derive the JSON discriminator value for a variant, applying `rename_all` or
-/// defaulting to the variant name in lowercase (serde's default for enums).
-fn variant_discriminator(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
-    if let Some(r) = &variant.serde_rename {
-        return r.clone();
-    }
-    match rename_all {
-        Some("snake_case") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()),
-        Some("camelCase") => heck::ToLowerCamelCase::to_lower_camel_case(variant.name.as_str()),
-        Some("PascalCase") => heck::ToPascalCase::to_pascal_case(variant.name.as_str()),
-        Some("SCREAMING_SNAKE_CASE") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()).to_uppercase(),
-        Some("kebab-case") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()),
-        Some("SCREAMING-KEBAB-CASE") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()).to_uppercase(),
-        Some("lowercase") => variant.name.to_lowercase(),
-        Some("UPPERCASE") => variant.name.to_uppercase(),
-        // serde default for enums: use the variant name as-is (PascalCase).
-        // Most enums in this codebase use explicit serde_rename per variant, so
-        // this fallback is rarely hit.
-        _ => variant.name.clone(),
-    }
-}
-
 /// True when a field's name is a tuple-field index (e.g. `"0"`, `"_0"`).
 fn is_tuple_field_name(name: &str) -> bool {
     let stripped = name.trim_start_matches('_');
@@ -617,7 +608,11 @@ fn emit_kotlin_tagged_serializer(out: &mut String, en: &EnumDef, tag_field: &str
     out.push_str("        val node: com.fasterxml.jackson.databind.node.ObjectNode = when (value) {\n");
 
     for variant in &en.variants {
-        let discriminator = variant_discriminator(variant, en.serde_rename_all.as_deref());
+        let discriminator = wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            en.serde_rename_all.as_deref(),
+        );
         out.push_str("            is ");
         out.push_str(name);
         out.push('.');
@@ -737,7 +732,11 @@ fn emit_kotlin_tagged_deserializer(out: &mut String, en: &EnumDef, tag_field: &s
     out.push_str("        return when (tag) {\n");
 
     for variant in &en.variants {
-        let discriminator = variant_discriminator(variant, en.serde_rename_all.as_deref());
+        let discriminator = wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            en.serde_rename_all.as_deref(),
+        );
         out.push_str("            \"");
         out.push_str(&discriminator);
         out.push_str("\" -> ");

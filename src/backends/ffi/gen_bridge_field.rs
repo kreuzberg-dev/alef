@@ -15,6 +15,7 @@
 //! The `{prefix}_convert_with_visitor` export from the legacy `visitor_callbacks` path is
 //! NOT emitted in this mode — a single `{prefix}_convert` suffices.
 
+use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::ir::TypeDef;
 use std::collections::HashMap;
 
@@ -49,12 +50,11 @@ pub fn gen_options_set_bridge(
     options_type_name: &str,
     type_paths: &HashMap<String, String>,
 ) -> String {
-    use heck::ToPascalCase;
-    let pascal_prefix = prefix.to_pascal_case();
+    let pascal_prefix = to_class_name(prefix);
     // Bridge handle type: {PascalPrefix}{TraitName}Bridge (produced by gen_trait_bridge)
     let handle_type = format!("{pascal_prefix}{trait_name}Bridge");
-    let options_type_snake = to_snake_case(options_type_name);
-    let handle_snake = to_snake_case(&handle_type);
+    let options_type_snake = ffi_symbol_component(options_type_name);
+    let handle_snake = ffi_symbol_component(&handle_type);
     let fn_name = format!("{prefix}_options_set_{field_name}");
     let trait_path = trait_def.rust_path.replace('-', "_");
 
@@ -281,13 +281,6 @@ fn build_arg_list(method: &MethodDef, _core_import: &str, _type_paths: &HashMap<
 }
 
 /// Convert a PascalCase identifier to snake_case.
-pub(crate) fn to_snake_case(s: &str) -> String {
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_ascii_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(ch.to_ascii_lowercase());
-    }
-    out
+pub(crate) fn ffi_symbol_component(s: &str) -> String {
+    pascal_to_snake(s)
 }

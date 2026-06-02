@@ -2523,6 +2523,70 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
     );
 }
 
+#[test]
+fn tagged_enum_dispatcher_uses_serde_wire_names() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Action".to_string(),
+            rust_path: "test_lib::Action".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "OpenURL".to_string(),
+                    fields: vec![make_field("url", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                },
+                EnumVariant {
+                    name: "ReadText".to_string(),
+                    fields: vec![make_field("value", TypeRef::String, false)],
+                    is_tuple: false,
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: Some("read-text".to_string()),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            serde_tag: Some("kind".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("kebab-case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_public_api(&api, &make_config()).unwrap();
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("native.rb"))
+        .unwrap()
+        .content;
+
+    assert!(
+        content.contains("when \"open-url\" then ActionOpenURL.from_hash(hash)"),
+        "rename_all must define Ruby dispatcher wire names:\n{content}"
+    );
+    assert!(
+        content.contains("when \"read-text\" then ActionReadText.from_hash(hash)"),
+        "serde(rename) must override rename_all:\n{content}"
+    );
+}
+
 /// Regression: tagged enum must emit a base class and per-variant subclasses.
 ///
 /// The base `Message` class provides predicate methods that return `false` by default.

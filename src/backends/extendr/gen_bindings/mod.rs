@@ -4,6 +4,7 @@ use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::doc_emission::{parse_arguments_bullets, parse_rustdoc_sections};
 use crate::codegen::generators::trait_bridge::find_bridge_field;
 use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier, wire_variant_value};
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
@@ -1088,7 +1089,7 @@ fn gen_enum_decoder(code: &mut String, enum_name: &str) {
         _ => return, // Unknown enum, skip
     };
 
-    let field_name_snake = to_snake_case(enum_name);
+    let field_name_snake = r_function_component(enum_name);
     let fn_name = format!("decode_{}", field_name_snake);
 
     code.push_str("/// Decode a ");
@@ -1327,7 +1328,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
         }
         TypeRef::Named(enum_name) => {
             if should_decode_enum(enum_name) {
-                let fn_name = format!("decode_{}", to_snake_case(enum_name));
+                let fn_name = format!("decode_{}", r_function_component(enum_name));
                 code.push_str("    if let Some(v) = list_get(&list, \"");
                 code.push_str(field_name_trim);
                 code.push_str("\") {\n");
@@ -1413,15 +1414,8 @@ fn should_decode_enum(name: &str) -> bool {
 }
 
 /// Convert a CamelCase type name to snake_case for function names.
-fn to_snake_case(name: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in name.chars().enumerate() {
-        if ch.is_uppercase() && i > 0 {
-            result.push('_');
-        }
-        result.push(ch.to_lowercase().next().unwrap_or(ch));
-    }
-    result
+fn r_function_component(name: &str) -> String {
+    public_host_identifier(Language::R, PublicIdentifierKind::Function, name)
 }
 
 /// Returns true if the function return type cannot be handled by extendr's `#[extendr]` macro
@@ -1707,19 +1701,6 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &crate::core::ir::EnumDef, cor
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(512);
 
-    let variant_wire_name = |variant: &crate::core::ir::EnumVariant| -> String {
-        if let Some(r) = &variant.serde_rename {
-            return r.clone();
-        }
-        match enum_def.serde_rename_all.as_deref() {
-            Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
-            Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
-            Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
-            Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
-            _ => variant.name.clone(),
-        }
-    };
-
     out.push_str(&crate::backends::extendr::template_env::render(
         "flat_enum_from_core_impl.jinja",
         minijinja::context! {
@@ -1730,7 +1711,11 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &crate::core::ir::EnumDef, cor
 
     for variant in &enum_def.variants {
         let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
-        let wire_name = variant_wire_name(variant);
+        let wire_name = wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::extendr::template_env::render(
                 "flat_enum_from_core_variant_unit.jinja",
@@ -1784,19 +1769,6 @@ fn gen_extendr_flat_data_enum_to_core(enum_def: &crate::core::ir::EnumDef, core_
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
     let mut out = String::with_capacity(512);
 
-    let variant_wire_name = |variant: &crate::core::ir::EnumVariant| -> String {
-        if let Some(r) = &variant.serde_rename {
-            return r.clone();
-        }
-        match enum_def.serde_rename_all.as_deref() {
-            Some("snake_case") => heck::AsSnakeCase(variant.name.as_str()).to_string(),
-            Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
-            Some("SCREAMING_SNAKE_CASE") => heck::AsShoutySnakeCase(variant.name.as_str()).to_string(),
-            Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
-            _ => variant.name.clone(),
-        }
-    };
-
     out.push_str(&crate::backends::extendr::template_env::render(
         "flat_enum_from_binding_impl.jinja",
         minijinja::context! {
@@ -1808,7 +1780,11 @@ fn gen_extendr_flat_data_enum_to_core(enum_def: &crate::core::ir::EnumDef, core_
 
     for variant in &enum_def.variants {
         let field_name = heck::AsSnakeCase(variant.name.as_str()).to_string();
-        let wire_name = variant_wire_name(variant);
+        let wire_name = wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
         if variant.fields.is_empty() {
             out.push_str(&crate::backends::extendr::template_env::render(
                 "flat_enum_from_binding_variant_unit.jinja",

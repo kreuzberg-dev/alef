@@ -873,17 +873,15 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
     ));
     out.push_str("      case discriminator\n");
     for variant in &enum_def.variants {
-        let snake = classes::pascal_to_snake(&variant.name);
+        let wire_name = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref().or(Some("snake_case")),
+        );
         let variant_const = format!("{}{}", class_name, &variant.name);
-        if let Some(rename) = &variant.serde_rename {
-            out.push_str(&format!(
-                "      when \"{rename}\" then {variant_const}.from_hash(hash)\n"
-            ));
-        } else {
-            out.push_str(&format!(
-                "      when \"{snake}\" then {variant_const}.from_hash(hash)\n"
-            ));
-        }
+        out.push_str(&format!(
+            "      when \"{wire_name}\" then {variant_const}.from_hash(hash)\n"
+        ));
     }
     out.push_str("      else raise \"Unknown discriminator: #{discriminator}\"\n");
     out.push_str("      end\n");
@@ -948,7 +946,7 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
 
         // Variant predicate methods (return true for this variant, false for others)
         for variant_name in &variant_names {
-            let v_snake = classes::pascal_to_snake(variant_name);
+            let v_snake = crate::codegen::naming::pascal_to_snake(variant_name);
             let returns_true = *variant_name == variant.name;
             out.push_str("    sig { returns(T::Boolean) }\n");
             out.push_str(&format!("    def {v_snake}? = {}\n\n", returns_true));

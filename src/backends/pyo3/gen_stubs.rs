@@ -811,12 +811,8 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
         let class_name = format!("{}{}Variant", enum_def.name, variant.name);
         variant_class_names.push(class_name.clone());
 
-        // Compute the tag value (what appears in JSON)
-        let tag_value = if let Some(rename) = &variant.serde_rename {
-            rename.clone()
-        } else {
-            apply_rename_all(&variant.name, rename_all)
-        };
+        let tag_value =
+            crate::codegen::naming::wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all);
 
         lines.push(format!("class {}(TypedDict):", class_name));
 
@@ -851,33 +847,6 @@ fn gen_data_enum_typeddicts(lines: &mut Vec<String>, enum_def: &EnumDef) {
     // via Display/Debug, and downstream callers rely on str(value) returning the serde tag.
     lines.push("    def __str__(self) -> str: ...  # noqa: PYI029".to_string());
     lines.push("    def __repr__(self) -> str: ...  # noqa: PYI029".to_string());
-}
-
-/// Apply serde rename_all strategy to a variant name.
-fn apply_rename_all(name: &str, rename_all: Option<&str>) -> String {
-    match rename_all {
-        Some("snake_case") => {
-            // PascalCase → snake_case
-            let mut result = String::new();
-            for (i, ch) in name.chars().enumerate() {
-                if ch.is_uppercase() && i > 0 {
-                    result.push('_');
-                }
-                result.push(ch.to_lowercase().next().unwrap_or(ch));
-            }
-            result
-        }
-        Some("camelCase") => {
-            let mut chars = name.chars();
-            match chars.next() {
-                None => String::new(),
-                Some(c) => c.to_lowercase().collect::<String>() + chars.as_str(),
-            }
-        }
-        Some("lowercase") => name.to_lowercase(),
-        Some("UPPERCASE") => name.to_uppercase(),
-        _ => name.to_string(), // No renaming or unknown strategy
-    }
 }
 
 /// Generate a function stub.

@@ -317,7 +317,7 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
         let symbol_variants: Vec<String> = enum_def
             .variants
             .iter()
-            .map(|v| format!(":{}", to_snake_case(&v.name)))
+            .map(|v| format!(":{}", crate::codegen::naming::pascal_to_snake(&v.name)))
             .collect();
         lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
     }
@@ -325,17 +325,6 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
     lines.push("  end".to_string());
 
     lines.join("\n")
-}
-
-fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if i > 0 && ch.is_uppercase() {
-            result.push('_');
-        }
-        result.push(ch.to_ascii_lowercase());
-    }
-    result
 }
 
 /// Generate a function stub (module method) using RBS declaration syntax.
