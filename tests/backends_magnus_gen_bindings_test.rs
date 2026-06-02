@@ -3050,3 +3050,118 @@ exclude_types = ["ExcludedType"]
         "must not use dynamic .methods or .constants patterns:\n{content}"
     );
 }
+
+/// Verify that RegistrationVariantStyle is honored via semantic equivalence:
+/// All three styles (Builder, VerbDecorator, Hybrid) emit the same block-form
+/// method in Ruby since blocks are the idiomatic closure mechanism.
+/// This test confirms the IR field is acknowledged and no branching is needed.
+#[test]
+fn test_registration_variant_styles_emit_unified_block_form() {
+    use alef::core::ir::*;
+
+    let backend = MagnusBackend;
+
+    let make_service_with_style = |style: RegistrationVariantStyle| -> ApiSurface {
+        ApiSurface {
+            crate_name: "test_lib".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![ServiceDef {
+                name: "TestApp".to_string(),
+                rust_path: "test_lib::TestApp".to_string(),
+                original_rust_path: String::new(),
+                doc: "Test service".to_string(),
+                registrations: vec![RegistrationDef {
+                    name: "route".to_string(),
+                    rust_path: "test_lib::route".to_string(),
+                    original_rust_path: String::new(),
+                    pinned_metadata: vec![
+                        MetadataParam {
+                            name: "method".to_string(),
+                            ty: TypeRef::String,
+                            doc: String::new(),
+                        },
+                        MetadataParam {
+                            name: "path".to_string(),
+                            ty: TypeRef::String,
+                            doc: String::new(),
+                        },
+                    ],
+                    free_metadata: vec![],
+                    doc: String::new(),
+                    default_variant: None,
+                }],
+                variants: vec![
+                    RegistrationVariant {
+                        name: "get".to_string(),
+                        overrides: vec![
+                            RegistrationVariantOverride {
+                                param_name: "method".to_string(),
+                                value_expr: "\"GET\"".to_string(),
+                            },
+                        ],
+                        wrapper_call: None,
+                        signature_params: vec![ParamDef {
+                            name: "path".to_string(),
+                            ty: TypeRef::String,
+                            optional: false,
+                            default: None,
+                            sanitized: false,
+                            typed_default: None,
+                            is_ref: false,
+                            is_mut: false,
+                            newtype_wrapper: None,
+                            original_type: None,
+                            map_is_ahash: false,
+                            map_key_is_cow: false,
+                        }],
+                        doc: None,
+                        style,
+                    },
+                ],
+            }],
+            handler_contracts: vec![],
+        }
+    };
+
+    let config = make_config();
+
+    // Generate bindings for all three styles
+    for style in [
+        RegistrationVariantStyle::Builder,
+        RegistrationVariantStyle::VerbDecorator,
+        RegistrationVariantStyle::Hybrid,
+    ] {
+        let api = make_service_with_style(style);
+        let result = backend.generate_bindings(&api, &config);
+        assert!(result.is_ok(), "Generation should succeed for style {:?}", style);
+
+        let files = result.unwrap();
+        let service_file = files
+            .iter()
+            .find(|f| f.path.to_string_lossy().contains("service.rs"))
+            .unwrap();
+        let content = &service_file.content;
+
+        // All styles must emit the same block-form method signature: def get(path, &block)
+        assert!(
+            content.contains("def get(path, &block)"),
+            "style {:?} must emit block-form method def get(path, &block):\n{}",
+            style,
+            content
+        );
+
+        // No conditionals or branching on style — one unified form only
+        assert!(
+            !content.contains(&format!("RegistrationVariantStyle::{:?}", style)),
+            "Generated code must not mention RegistrationVariantStyle in output for {:?}",
+            style
+        );
+    }
+}
+
