@@ -49,6 +49,43 @@ pub(super) fn json_to_js(value: &serde_json::Value) -> String {
     }
 }
 
+/// Convert a `serde_json::Value` to an indented multi-line JavaScript literal.
+///
+/// Top-level objects are always expanded to multi-line form with trailing commas
+/// so that formatters (e.g. oxfmt) leave the output unchanged. Scalar values and
+/// arrays are emitted inline. Nested objects are also expanded to multi-line.
+///
+/// The `indent` parameter controls the base indentation in spaces for all but
+/// the outermost `{`/`}`. Pass 4 for a top-level `expect(data).toEqual({...})`
+/// inside a two-space-indented test body.
+pub(super) fn json_to_js_multiline(value: &serde_json::Value, indent: usize) -> String {
+    match value {
+        serde_json::Value::Object(map) => {
+            if map.is_empty() {
+                return "{}".to_string();
+            }
+            let pad = " ".repeat(indent);
+            let inner_pad = " ".repeat(indent + 2);
+            let entries: Vec<String> = map
+                .iter()
+                .map(|(k, v)| {
+                    let key = if k.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+                        && !k.starts_with(|c: char| c.is_ascii_digit())
+                    {
+                        k.clone()
+                    } else {
+                        format!("\"{}\"", escape_js(k))
+                    };
+                    format!("{inner_pad}{key}: {},", json_to_js_multiline(v, indent + 2))
+                })
+                .collect();
+            format!("{{\n{}\n{pad}}}", entries.join("\n"))
+        }
+        // Non-object values are emitted inline.
+        other => json_to_js(other),
+    }
+}
+
 /// Convert a `serde_json::Value` to a JavaScript literal string with camelCase object keys.
 ///
 /// NAPI-RS bindings use camelCase for JavaScript field names. This variant converts
