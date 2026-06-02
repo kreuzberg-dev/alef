@@ -122,7 +122,7 @@ impl Backend for DartBackend {
             //
             // The prefixed import (`as rust_bridge`) lets us call bridge free-functions
             // without namespace collisions. The unqualified import makes all FRB types
-            // (ExtractionConfig, ResultFormat, etc.) available unqualified inside the
+            // generated bridge types available unqualified inside the
             // class body for use in return-type annotations and default-value literals.
             body.push_str(&crate::backends::dart::template_env::render(
                 "dart_bridge_imports.jinja",
@@ -335,13 +335,6 @@ impl DartBackend {
                 post_build_steps.push(PostBuildStep::PostProcessFile {
                     path: lib_dart_path.clone(),
                     processor: PostProcessor::FrbDartSealedVariants,
-                });
-
-                // Make struct fields with Rust defaults optional in the Dart constructor.
-                // This handles types like EmbeddingConfig which have #[serde(default)] fields.
-                post_build_steps.push(PostBuildStep::PostProcessFile {
-                    path: lib_dart_path.clone(),
-                    processor: PostProcessor::FrbDartOptionalFieldsWithDefaults,
                 });
 
                 // Filter excluded functions from frb_generated.dart as well, since FRB

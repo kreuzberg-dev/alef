@@ -1457,47 +1457,6 @@ fn render_test_case(
 ///
 /// Returns `(setup_lines, args_string)`.
 #[allow(clippy::too_many_arguments)]
-/// Emit Elixir batch item map constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_elixir_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
-    if let Some(items) = arr.as_array() {
-        let item_strs: Vec<String> = items
-            .iter()
-            .filter_map(|item| {
-                if let Some(obj) = item.as_object() {
-                    match elem_type {
-                        "BatchBytesItem" => {
-                            let content = obj.get("content").and_then(|v| v.as_array());
-                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            let content_code = if let Some(arr) = content {
-                                let bytes: Vec<String> =
-                                    arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                format!("<<{}>>", bytes.join(", "))
-                            } else {
-                                "<<>>".to_string()
-                            };
-                            Some(format!(
-                                "%BatchBytesItem{{content: {}, mime_type: \"{}\"}}",
-                                content_code, mime_type
-                            ))
-                        }
-                        "BatchFileItem" => {
-                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!("%BatchFileItem{{path: \"{}\"}}", path))
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-        format!("[{}]", item_strs.join(", "))
-    } else {
-        "[]".to_string()
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
 fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[crate::e2e::config::ArgMapping],
@@ -1856,17 +1815,7 @@ fn build_args_and_setup(
                         }
                         continue;
                     }
-                    // When element_type is set to a batch item type, wrap items with constructors.
                     if let Some(elem_type) = &arg.element_type {
-                        if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && v.is_array() {
-                            let formatted = emit_elixir_batch_item_array(v, elem_type);
-                            if arg.optional {
-                                parts.push(format!("{}: {formatted}", arg.name));
-                            } else {
-                                parts.push(formatted);
-                            }
-                            continue;
-                        }
                         // Internally-tagged enums (#[serde(tag = "type")]) — emit a list of
                         // Rustler NifTaggedEnum tuples. `:variant_atom` for unit variants,
                         // `{:variant_atom, %{field: value}}` for struct variants. Variant
@@ -2853,6 +2802,21 @@ fn emit_tagged_enum_array(
     format!("[{}]", elements.join(", "))
 }
 
+fn elixir_stub_default(
+    return_type: &crate::core::ir::TypeRef,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) -> String {
+    use crate::core::ir::{PrimitiveType, TypeRef};
+
+    match return_type {
+        TypeRef::Primitive(PrimitiveType::Bool | PrimitiveType::F32 | PrimitiveType::F64) => {
+            defaults.emit_default(return_type)
+        }
+        TypeRef::Primitive(_) => "1".to_string(),
+        _ => defaults.emit_default(return_type),
+    }
+}
+
 /// Emit an Elixir test backend stub module for a trait bridge.
 ///
 /// Generates a `defmodule TestStub{PascalId}` that implements the trait's required
@@ -2926,12 +2890,7 @@ pub fn emit_test_backend(
         let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
         let params_str = params.join(", ");
 
-        // Special case: EmbeddingBackend.dimensions must return > 0, not 0.
-        let default_val = if method.name == "dimensions" && trait_bridge.trait_name == "EmbeddingBackend" {
-            "1".to_string()
-        } else {
-            defaults.emit_default(&method.return_type)
-        };
+        let default_val = elixir_stub_default(&method.return_type, &*defaults);
 
         // Elixir NIFs that may error wrap the result in `{:ok, value}`.
         let return_expr = if method.error_type.is_some() {

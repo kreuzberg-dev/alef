@@ -31,6 +31,8 @@ fn effective_exclude_types(config: &ResolvedCrateConfig, api: &ApiSurface) -> st
         exclude_types.extend(swift.exclude_types.iter().cloned());
     }
     exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
+    exclude_types.extend(api.enums.iter().filter(|e| e.binding_excluded).map(|e| e.name.clone()));
+    exclude_types.extend(api.excluded_type_paths.keys().cloned());
     exclude_types
 }
 
@@ -362,7 +364,7 @@ impl Backend for SwiftBackend {
         // `embedTexts`, `listEmbeddingPresets`, `getEmbeddingPreset`, `renderPdfPageToPng`,
         // `getExtensionsForMime`, `detectMimeType`, and the various `list_*` registry
         // helpers are only reachable as `RustBridge.fnName(...)` — which requires
-        // consumers of the `SampleCrate` module to also `import RustBridge`, violating
+        // users of the host module to also `import RustBridge`, violating
         // the alef binding-parity promise that every public Rust free function is
         // re-exposed as a top-level public function on the host module.
         let client_class_names: std::collections::HashSet<String> =
@@ -484,22 +486,14 @@ impl Backend for SwiftBackend {
 
         // Emit Swift{Trait}Box.swift into Sources/RustBridge/ for every OptionsField bridge.
         // This class is referenced by the @_cdecl shims generated into that same directory
-        // by swift-bridge, so it MUST live in the RustBridge module — not SampleMarkdown.
+        // by swift-bridge, so it MUST live in the RustBridge module, not the host module.
         let rust_bridge_sources = package_root.join("Sources").join("RustBridge");
         for box_file in emit_inbound_box_files(api, config, &rust_bridge_sources) {
             files.push(box_file);
         }
 
         // Emit Swift{Trait}Box.swift and SwiftPluginHelpers.swift for every FunctionParam bridge.
-        // Need the augmented excluded-types set so Box methods passthrough excluded Named types
-        // (e.g. InternalDocument) as String instead of trying to JSONDecode them.
-        let mut box_exclude_types = exclude_types.clone();
-        box_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
-        // Also: trait_bridge.rs hard-excludes ExtractionResult + InternalDocument in bridge
-        // protocols. Mirror that here so the Box agrees with the bridge protocol signature.
-        box_exclude_types.insert("ExtractionResult".to_string());
-        box_exclude_types.insert("InternalDocument".to_string());
-        for box_file in emit_function_param_box_files(api, config, &rust_bridge_sources, &box_exclude_types) {
+        for box_file in emit_function_param_box_files(api, config, &rust_bridge_sources, &exclude_types) {
             files.push(box_file);
         }
 
@@ -523,14 +517,7 @@ impl Backend for SwiftBackend {
             base_path.join("Sources").join(&module_name)
         };
 
-        // Augment exclude_types with IR `binding_excluded` types.
-        // These types (e.g. InternalDocument) exist in Rust but are not emitted as Swift
-        // structs — they are serialised as JSON strings at the trait boundary.
-        // They must be in the exclude set so swift_type_name() maps them to String in
-        // protocol/adapter method signatures.
-        let mut exclude_types_with_ir = exclude_types.clone();
-        exclude_types_with_ir.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.clone()));
-        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types_with_ir) {
+        for (filename, content) in trait_bridge::gen_trait_bridge_files(&trait_bridge_configs, &exclude_types) {
             // Trait bridge protocol files (Swift{Trait}Bridge.swift and SwiftPluginBridge.swift)
             // go into the RustBridge target so they are accessible from Box classes in the same target.
             let path = rust_bridge_sources.join(&filename);
@@ -541,10 +528,10 @@ impl Backend for SwiftBackend {
             });
         }
 
-        // Emit ExtractionResultExtensions (property-access aliases for zero-param string-returning methods).
+        // Emit ref-property extensions (property-access aliases for zero-param string-returning methods).
         // The extension filters via method.binding_excluded to skip methods that swift-bridge
         // silently drops (e.g. signatures with non-FFI-friendly returns like SocketAddr).
-        if let Some((filename, content)) = emit_extraction_result_extensions(api) {
+        if let Some((filename, content)) = emit_ref_property_extensions(api) {
             let path = module_dir.join(&filename);
             files.push(GeneratedFile {
                 path,
@@ -2585,7 +2572,7 @@ fn emit_convenience_wrappers(api: &ApiSurface, out: &mut String) {
 /// base function. Example:
 ///
 /// ```swift
-/// public func extractFile(_ path: String, _ mimeType: String?, _ configJson: String) throws -> ExtractionResult {
+/// public func extractFile(_ path: String, _ mimeType: String?, _ configJson: String) throws -> OutputSummary {
 ///     let config = try extractionConfigFromJson(configJson)
 ///     return try extractFile(path: path, mimeType: mimeType, config: config)
 /// }
@@ -3348,7 +3335,7 @@ fn emit_swift_bridge_files(
 // ---------------------------------------------------------------------------
 
 /// Emit Swift protocol + adapter class for every `bind_via = "options_field"` inbound bridge
-/// into the main module file (e.g. `SampleMarkdown.swift`).
+/// into the main module file (e.g. `{Module}.swift`).
 ///
 /// For each such bridge this produces:
 ///
@@ -3441,7 +3428,7 @@ fn emit_inbound_protocols(
         }
         out.push_str("}\n\n");
 
-        // --- 3. Adapter class (private, lives in SampleMarkdown module) ---
+        // --- 3. Adapter class (private, lives in the host module) ---
         // Implements Swift{Trait}BoxDelegate (from RustBridge), wrapping any {Trait}Protocol.
         // Converts RustString → String, passes to user protocol, serializes result to JSON.
         out.push_str(&format!(
@@ -3564,7 +3551,7 @@ fn emit_inbound_protocols(
 // Free-function and trait-bridge top-level forwarders
 // ---------------------------------------------------------------------------
 
-/// Returns the set of public-func names already emitted in `SampleCrate.swift` by
+/// Returns the set of public-func names already emitted in the host module by
 /// earlier emission passes. Forwarders for `api.functions` entries that would
 /// produce an identical Swift function name are skipped to avoid duplicate
 /// declarations.
@@ -4382,7 +4369,7 @@ fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collectio
 /// `gen_rust_crate::plugin_inbound::emit_extern_block_for_inbound_registration`
 /// and by the `TraitBridgeGenerator` impl in `gen_rust_crate::trait_bridge`.
 /// swift-bridge re-exports them in the `RustBridge` module; without these
-/// top-level forwarders consumers of `SampleCrate` cannot reach the plugin
+/// top-level forwarders host-module users cannot reach the plugin
 /// registration surface without an explicit `import RustBridge`.
 ///
 /// Each bridge contributes up to three forwarders:
@@ -4499,7 +4486,7 @@ fn emit_inbound_box_files(
         content.push_str("Box by name and must see it in the same module.\n\n");
         content.push_str("import RustBridgeC\n\n");
 
-        // --- Delegate protocol (also in RustBridge so SampleMarkdown can conform to it) ---
+        // --- Delegate protocol (also in RustBridge so the host module can conform to it) ---
         // The leading underscore is a Swift convention signalling "internal binding
         // surface, not part of the user-facing API". Marking it `internal` is not an
         // option: implementers (the private adapter class) live in a different module
@@ -4721,20 +4708,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
         // Trait-specific shim methods
         content.push_str("    // MARK: Trait-specific shims\n\n");
 
-        // Collect augmented excluded types per trait (like trait_bridge.rs does)
-        let mut aug_exclude_types = excluded_types.clone();
-        aug_exclude_types.insert("ExtractionResult".to_string());
-        aug_exclude_types.insert("InternalDocument".to_string());
-        // Collect all Named types from trait methods and mark them as excluded
-        // (they are exposed as String in the bridge protocol)
-        for method in &trait_def.methods {
-            if !method.has_default_impl {
-                for param in &method.params {
-                    trait_bridge::collect_named_types(&param.ty, &mut aug_exclude_types);
-                }
-                trait_bridge::collect_named_types(&method.return_type, &mut aug_exclude_types);
-            }
-        }
+        let bridge_exclude_types = trait_bridge::excluded_named_type_bridge_policy(trait_def, excluded_types);
 
         for method in &trait_def.methods {
             let method_snake = method.name.to_snake_case();
@@ -4770,7 +4744,7 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             for param in &method.params {
                 let param_camel = swift_ident(&param.name.to_lower_camel_case());
-                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional, &aug_exclude_types);
+                let decode = swift_shim_param_decode(&param_camel, &param.ty, param.optional, &bridge_exclude_types);
                 setup_lines.extend(decode.setup);
                 call_args.push(format!("{}: {}", param.name.to_lower_camel_case(), decode.expr));
             }
@@ -5340,7 +5314,7 @@ fn is_extension_param_bridgeable(ty: &TypeRef, api: &ApiSurface) -> bool {
     }
 }
 
-/// Generate `ExtractionResultExtensions.swift` with computed-property extensions
+/// Generate computed-property extensions
 /// for swift-bridge-generated opaque Ref types.
 ///
 /// For each non-opaque struct type with methods, emits an extension on the swift-bridge
@@ -5361,7 +5335,7 @@ fn is_extension_param_bridgeable(ty: &TypeRef, api: &ApiSurface) -> bool {
 /// ```
 ///
 /// Returns `Some((filename, content))` if there are eligible types, `None` otherwise.
-fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String)> {
+fn emit_ref_property_extensions(api: &ApiSurface) -> Option<(String, String)> {
     // Collect all non-opaque struct types that have zero-arg string-returning methods.
     let eligible_types: Vec<_> = api
         .types
@@ -5384,7 +5358,7 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
     content.push_str("// fixture generator emits property-access syntax.\n");
     content.push_str("//\n");
     content.push_str("// Although these are primarily for test convenience, they are part of the public API\n");
-    content.push_str("// and can be used in production code for more ergonomic access to extraction results.\n");
+    content.push_str("// and can be used in production code for more ergonomic access to generated ref types.\n");
 
     let mut has_any_extensions = false;
 
@@ -5458,7 +5432,7 @@ fn emit_extraction_result_extensions(api: &ApiSurface) -> Option<(String, String
     }
 
     if has_any_extensions {
-        Some(("ExtractionResultExtensions.swift".to_string(), content))
+        Some(("RustBridgeRefExtensions.swift".to_string(), content))
     } else {
         None
     }
@@ -5588,12 +5562,12 @@ mod tests {
     #[test]
     fn inbound_protocol_maps_excluded_named_params_to_json_string() {
         let mut excluded = std::collections::HashSet::new();
-        excluded.insert("InternalDocument".to_string());
+        excluded.insert("PrivatePayload".to_string());
         let method = MethodDef {
             name: "process".to_string(),
             params: vec![crate::core::ir::ParamDef {
-                name: "document".to_string(),
-                ty: TypeRef::Named("InternalDocument".to_string()),
+                name: "payload".to_string(),
+                ty: TypeRef::Named("PrivatePayload".to_string()),
                 optional: false,
                 is_mut: true,
                 ..Default::default()
@@ -5616,22 +5590,121 @@ mod tests {
 
         assert_eq!(
             swift_protocol_params(&method, &excluded),
-            "_ document: String",
-            "public inbound protocols must not expose excluded InternalDocument types",
+            "_ payload: String",
+            "public inbound protocols must not expose excluded named types",
         );
         let (setup, args) = swift_adapter_conversions(&method, &excluded);
         assert!(
             setup.is_empty(),
             "excluded JSON strings must not route through missing fromJson helpers"
         );
-        assert_eq!(args, "document.toString()");
+        assert_eq!(args, "payload.toString()");
+    }
+
+    #[test]
+    fn function_param_box_uses_named_type_bridge_policy_for_shims() {
+        use crate::core::config::new_config::NewAlefConfig;
+
+        let method = MethodDef {
+            name: "process".to_string(),
+            params: vec![crate::core::ir::ParamDef {
+                name: "payload".to_string(),
+                ty: TypeRef::Named("PrivatePayload".to_string()),
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let trait_def = TypeDef {
+            name: "Processor".to_string(),
+            rust_path: "demo::Processor".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![method],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+        };
+        let api = ApiSurface {
+            crate_name: "demo".to_string(),
+            version: "0.1.0".to_string(),
+            types: vec![trait_def],
+            ..Default::default()
+        };
+        let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "demo"
+sources = ["src/lib.rs"]
+
+[[crates.trait_bridges]]
+trait_name = "Processor"
+bind_via = "function_param"
+register_fn = "register_processor"
+"#;
+        let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+        let config = cfg.resolve().expect("test config must resolve").remove(0);
+        let files = emit_function_param_box_files(
+            &api,
+            &config,
+            std::path::Path::new("/tmp/RustBridge"),
+            &std::collections::HashSet::new(),
+        );
+        let box_file = files
+            .iter()
+            .find(|f| f.path.ends_with("SwiftProcessorBox.swift"))
+            .expect("SwiftProcessorBox.swift must be generated");
+
+        assert!(
+            box_file
+                .content
+                .contains("public func alef_process(payload: RustString) -> RustString"),
+            "named payload should stay a RustString at the shim boundary:\n{}",
+            box_file.content
+        );
+        assert!(
+            box_file.content.contains("bridge.process(payload: payload.toString())"),
+            "named payload discovered by bridge policy should pass through as a JSON string:\n{}",
+            box_file.content
+        );
+        assert!(
+            !box_file.content.contains("JSONDecoder().decode(PrivatePayload.self"),
+            "generic bridge-policy named types must not be decoded in plugin shims:\n{}",
+            box_file.content
+        );
     }
 
     /// Extraction result extensions should return None for empty API.
     #[test]
-    fn emit_extraction_result_extensions_returns_none_for_empty_api() {
+    fn emit_ref_property_extensions_returns_none_for_empty_api() {
         let api = ApiSurface::default();
-        let result = emit_extraction_result_extensions(&api);
+        let result = emit_ref_property_extensions(&api);
         assert!(result.is_none(), "should not generate extensions when API is empty");
     }
 

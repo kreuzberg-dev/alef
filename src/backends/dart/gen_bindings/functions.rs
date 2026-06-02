@@ -66,7 +66,7 @@ pub(super) fn emit_function(
     });
 
     // Build the dart wrapper parameter list. If the function has an optional config param
-    // (e.g., ExtractionConfig or PackConfig), split into required params and then
+    // with a synthesizable default, split into required params and then
     // `[ConfigType? config]` optional positional.
     //
     // For all other functions, emit required (non-optional) params as positional and

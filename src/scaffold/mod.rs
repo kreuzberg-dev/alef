@@ -406,6 +406,7 @@ pub struct ScaffoldMeta {
     pub description: String,
     pub license: String,
     pub repository: String,
+    pub configured_repository: Option<String>,
     pub homepage: String,
     pub documentation: String,
     pub issues: String,
@@ -419,6 +420,9 @@ pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
     let scaffold = config.scaffold.as_ref();
     let package = config.package_metadata.as_ref();
     let truncate = package.map(|p| p.truncate_registry_lists).unwrap_or(false);
+    let configured_repository = package
+        .and_then(|p| p.repository.clone())
+        .or_else(|| scaffold.and_then(|s| s.repository.clone()));
     let mut keywords = package
         .filter(|p| !p.keywords.is_empty())
         .map(|p| p.keywords.clone())
@@ -443,7 +447,8 @@ pub fn scaffold_meta(config: &ResolvedCrateConfig) -> ScaffoldMeta {
         repository: package
             .and_then(|p| p.repository.clone())
             .or_else(|| scaffold.and_then(|s| s.repository.clone()))
-            .unwrap_or_else(|| format!("https://github.com/example/{}", config.name)),
+            .unwrap_or_else(|| format!("https://example.invalid/{}", config.name)),
+        configured_repository,
         homepage: package
             .and_then(|p| p.homepage.clone())
             .or_else(|| scaffold.and_then(|s| s.homepage.clone()))

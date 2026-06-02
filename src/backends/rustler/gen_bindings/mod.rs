@@ -1758,7 +1758,9 @@ fn gen_nif_init(
         exports.push("complete_trait_call".to_string());
         exports.push("app_run".to_string());
         exports.push("app_into_router".to_string());
-        for http_method in &["get", "post", "put", "patch", "delete", "head", "options", "connect", "trace"] {
+        for http_method in &[
+            "get", "post", "put", "patch", "delete", "head", "options", "connect", "trace",
+        ] {
             exports.push(format!("app_{}", http_method));
         }
     }

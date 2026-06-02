@@ -2217,7 +2217,7 @@ fn build_args_and_setup(
                             }
                         } else if is_array {
                             // Array type — unmarshal into a Go slice. Honor `go_type` for a
-                            // fully explicit Go type (e.g. `"sample_core.BatchBytesItem"`), fall
+                            // fully explicit Go type (e.g. `"sample_core.FileJob"`), fall
                             // back to deriving the slice type from `element_type`, defaulting
                             // to `[]string` for unknown types.
                             let go_slice_type = if let Some(go_t) = arg.go_type.as_deref() {
@@ -2227,7 +2227,7 @@ fn build_args_and_setup(
                                 if go_t.starts_with('[') {
                                     go_t.to_string()
                                 } else {
-                                    // Qualify unqualified types (e.g., "BatchBytesItem" → "sample_core.BatchBytesItem")
+                                    // Qualify unqualified types (e.g., "FileJob" -> "sample_core.FileJob")
                                     let qualified = if go_t.contains('.') {
                                         go_t.to_string()
                                     } else {
@@ -3604,7 +3604,7 @@ fn element_type_to_go_slice(element_type: Option<&str>, import_alias: &str) -> S
 }
 
 /// Map a small subset of Rust scalar / `Vec<T>` types to their Go equivalents.
-/// For unknown types, qualify with the import alias (e.g., "sample_core.BatchBytesItem").
+/// For unknown types, qualify with the import alias (e.g., "sample_core.FileJob").
 fn rust_type_to_go(rust: &str, import_alias: &str) -> String {
     let trimmed = rust.trim();
     if let Some(inner) = trimmed.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
@@ -4394,21 +4394,16 @@ mod trait_bridge_tests {
         );
     }
 
-    /// Verify that Named types (like OcrBackendType) use their proper Go type names
+    /// Verify that Named types use their proper Go type names
     /// in stubs, matching the actual trait-bridge interface signatures.
     #[test]
     fn test_go_stub_named_types_use_proper_go_names() {
-        let backend_type_method = make_method(
-            "backend_type",
-            vec![],
-            TypeRef::Named("OcrBackendType".to_string()),
-            false,
-        );
+        let backend_type_method = make_method("backend_type", vec![], TypeRef::Named("BackendKind".to_string()), false);
 
         let trait_bridge = TraitBridgeConfig {
-            trait_name: "OcrBackend".to_string(),
+            trait_name: "SampleBackend".to_string(),
             super_trait: Some("Plugin".to_string()),
-            register_fn: Some("register_ocr_backend".to_string()),
+            register_fn: Some("register_sample_backend".to_string()),
             ..TraitBridgeConfig::default()
         };
 
@@ -4416,17 +4411,17 @@ mod trait_bridge_tests {
         let methods = vec![&backend_type_method];
         let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
 
-        // The method signature should use OcrBackendType (proper Go name), not json.RawMessage.
+        // The method signature should use the proper Go name, not json.RawMessage.
         assert!(
-            emission.setup_block.contains("BackendType()") && emission.setup_block.contains("OcrBackendType"),
-            "setup_block must use OcrBackendType in BackendType() method signature, got:\n{}",
+            emission.setup_block.contains("BackendType()") && emission.setup_block.contains("BackendKind"),
+            "setup_block must use BackendKind in BackendType() method signature, got:\n{}",
             emission.setup_block
         );
 
-        // Return value must match go_zero_value for OcrBackendType (which is nil for Named types).
+        // Return value must match go_zero_value for named types.
         assert!(
             !emission.setup_block.contains("json.RawMessage(nil)"),
-            "setup_block must not use json.RawMessage for OcrBackendType, got:\n{}",
+            "setup_block must not use json.RawMessage for BackendKind, got:\n{}",
             emission.setup_block
         );
     }

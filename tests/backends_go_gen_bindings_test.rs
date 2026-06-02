@@ -565,10 +565,10 @@ fn test_enum_generation() {
         "Should have StatusCompleted constant"
     );
 
-    // Verify string values in snake_case
-    assert!(content.contains("\"pending\""), "Should use snake_case values");
-    assert!(content.contains("\"active\""), "Should use snake_case values");
-    assert!(content.contains("\"completed\""), "Should use snake_case values");
+    // Verify string values follow Rust serde defaults when no rename_all is configured.
+    assert!(content.contains("\"Pending\""), "Should use Rust variant values");
+    assert!(content.contains("\"Active\""), "Should use Rust variant values");
+    assert!(content.contains("\"Completed\""), "Should use Rust variant values");
 }
 
 #[test]

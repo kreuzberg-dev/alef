@@ -920,15 +920,14 @@ fn emit_json_object_arg(
             }
         }
         _ => {
-            // When we have an array with element_type, construct typed batch items.
+            // When we have an array with element_type, pass object items as fixture-shaped dicts.
             if element_type.is_some() && !value.is_null() {
                 if let Some(arr) = value.as_array() {
                     if arr.iter().all(|item| item.is_object()) {
-                        let elem_type = element_type.as_deref().unwrap();
                         let items: Vec<String> = arr
                             .iter()
                             .filter_map(|item| item.as_object())
-                            .map(|obj| emit_python_batch_item(obj, elem_type))
+                            .map(emit_python_object_item)
                             .collect();
                         arg_bindings.push(format!("    {var_name} = [{}]", items.join(", ")));
                         kwarg_exprs.push(var_name.to_string());
@@ -993,72 +992,19 @@ fn emit_bytes_arg(
     kwarg_exprs.push(var_name.to_string());
 }
 
-/// Emit a Python batch item (BatchBytesItem or BatchFileItem) constructor.
-fn emit_python_batch_item(obj: &serde_json::Map<String, serde_json::Value>, elem_type: &str) -> String {
-    match elem_type {
-        "BatchBytesItem" => {
-            let content = obj.get("content").and_then(|v| v.as_array());
-            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-            let config = obj.get("config");
-
-            let content_code = if let Some(arr) = content {
-                format!(
-                    "bytes([{}])",
-                    arr.iter()
-                        .filter_map(|v| v.as_u64())
-                        .map(|n| n.to_string())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                )
-            } else {
-                "b\"\"".to_string()
-            };
-
-            if let Some(cfg_val) = config {
-                if !cfg_val.is_null() {
-                    let cfg_literal = json_to_python_literal(cfg_val);
-                    format!(
-                        "{}(content={}, mime_type=\"{}\", config={})",
-                        elem_type, content_code, mime_type, cfg_literal
-                    )
-                } else {
-                    format!("{}(content={}, mime_type=\"{}\")", elem_type, content_code, mime_type)
-                }
-            } else {
-                format!("{}(content={}, mime_type=\"{}\")", elem_type, content_code, mime_type)
-            }
-        }
-        "BatchFileItem" => {
-            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            let config = obj.get("config");
-
-            if let Some(cfg_val) = config {
-                if !cfg_val.is_null() {
-                    let cfg_literal = json_to_python_literal(cfg_val);
-                    format!("{}(path=\"{}\", config={})", elem_type, path, cfg_literal)
-                } else {
-                    format!("{}(path=\"{}\")", elem_type, path)
-                }
-            } else {
-                format!("{}(path=\"{}\")", elem_type, path)
-            }
-        }
-        _ => {
-            // Generic handling: emit dict literal for tagged enums (PageAction, etc.)
-            // The bindings expect {"type": "click", "selector": "#id"}, not PageAction(type="click", selector="#id")
-            let items: Vec<String> = obj
-                .iter()
-                .map(|(k, v)| {
-                    format!(
-                        "{}: {}",
-                        json_to_python_literal(&serde_json::Value::String(k.clone())),
-                        json_to_python_literal(v)
-                    )
-                })
-                .collect();
-            format!("{{{}}}", items.join(", "))
-        }
-    }
+/// Emit a Python dict literal for a typed object-array element.
+fn emit_python_object_item(obj: &serde_json::Map<String, serde_json::Value>) -> String {
+    let items: Vec<String> = obj
+        .iter()
+        .map(|(k, v)| {
+            format!(
+                "{}: {}",
+                json_to_python_literal(&serde_json::Value::String(k.clone())),
+                json_to_python_literal(v)
+            )
+        })
+        .collect();
+    format!("{{{}}}", items.join(", "))
 }
 
 // ---------------------------------------------------------------------------

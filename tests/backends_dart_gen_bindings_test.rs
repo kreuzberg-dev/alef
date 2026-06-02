@@ -1218,7 +1218,7 @@ fn find_traits_src(files: &[alef::core::backend::GeneratedFile]) -> Option<&str>
 }
 
 #[test]
-fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
+fn dart_traits_preserve_excluded_named_type_as_explicit_bridge_type() {
     let trait_def = make_trait(
         "DocumentExtractor",
         "demo_crate::DocumentExtractor",
@@ -1226,16 +1226,21 @@ fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
             make_method(
                 "extract_bytes",
                 vec![make_param("content", TypeRef::Bytes)],
-                TypeRef::Named("InternalDocument".to_string()),
+                TypeRef::Named("HiddenDocument".to_string()),
                 true,
             ),
             make_method(
                 "render",
-                vec![make_param("doc", TypeRef::Named("InternalDocument".to_string()))],
+                vec![make_param("doc", TypeRef::Named("HiddenDocument".to_string()))],
                 TypeRef::String,
                 true,
             ),
         ],
+    );
+    let mut excluded_type_paths = ::std::collections::HashMap::new();
+    excluded_type_paths.insert(
+        "HiddenDocument".to_string(),
+        "demo_crate::types::hidden::HiddenDocument".to_string(),
     );
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -1244,7 +1249,7 @@ fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
         functions: vec![],
         enums: vec![],
         errors: vec![],
-        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_type_paths,
         excluded_trait_names: ::std::collections::HashSet::new(),
         services: vec![],
         handler_contracts: vec![],
@@ -1258,20 +1263,20 @@ fn dart_traits_preserve_internal_document_as_explicit_bridge_type() {
         "traits.dart must import the FRB public bridge types: {traits}"
     );
     assert!(
-        !traits.contains("final class InternalDocumentBridge"),
-        "traits.dart must not redeclare the FRB-owned InternalDocumentBridge type: {traits}"
+        !traits.contains("final class HiddenDocumentBridge"),
+        "traits.dart must not redeclare the FRB-owned HiddenDocumentBridge type: {traits}"
     );
     assert!(
-        traits.contains("Future<InternalDocumentBridge> extractBytes"),
-        "InternalDocument return must not be surfaced as ExtractionResult: {traits}"
+        traits.contains("Future<HiddenDocumentBridge> extractBytes"),
+        "excluded return must use the explicit carrier: {traits}"
     );
     assert!(
-        traits.contains("Future<String> render(InternalDocumentBridge doc);"),
-        "InternalDocument params must use the bridge type: {traits}"
+        traits.contains("Future<String> render(HiddenDocumentBridge doc);"),
+        "excluded params must use the bridge type: {traits}"
     );
     assert!(
         !traits.contains("Future<ExtractionResult> extractBytes"),
-        "InternalDocument must not be substituted to ExtractionResult: {traits}"
+        "excluded type must not be substituted to another DTO: {traits}"
     );
 }
 
@@ -1606,11 +1611,11 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        6,
-        "FRB config must have six PostProcessFile steps: (1) exclude_functions on lib.dart, \
-         (2) sealed_variants on lib.dart, (3) optional_fields_with_defaults on lib.dart, \
-         (4) exclude_functions on frb_generated.dart, (5) sealed_variants on frb_generated.dart \
-         for the published-package native-lib loader, (6) fix handler executor calls on frb_generated.dart"
+        5,
+        "FRB config must have five PostProcessFile steps: (1) exclude_functions on lib.dart, \
+         (2) sealed_variants on lib.dart, (3) exclude_functions on frb_generated.dart, \
+         (4) sealed_variants on frb_generated.dart for the published-package native-lib loader, \
+         (5) fix handler executor calls on frb_generated.dart"
     );
 
     let lib_dart_path = PathBuf::from("packages")
@@ -1645,56 +1650,58 @@ fn build_config_for_frb_emits_post_process_file_step() {
         assert_eq!(path, &lib_dart_path, "Second PostProcessFile must target lib.dart");
     }
 
-    // (3) optional_fields_with_defaults on lib.dart — makes Dart constructor fields with
-    // Rust serde defaults optional.
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
-        assert_eq!(
-            *processor,
-            PostProcessor::FrbDartOptionalFieldsWithDefaults,
-            "Third PostProcessFile must use FrbDartOptionalFieldsWithDefaults processor"
-        );
-        assert_eq!(path, &lib_dart_path, "Third PostProcessFile must target lib.dart");
-    }
+    assert!(
+        !post_process_steps.iter().any(|step| {
+            matches!(
+                step,
+                PostBuildStep::PostProcessFile {
+                    processor: PostProcessor::FrbDartOptionalFieldsWithDefaults,
+                    ..
+                }
+            )
+        }),
+        "Dart must not schedule the product-name-based optional field rewriter"
+    );
 
-    // (4) exclude_functions on frb_generated.dart — filters Rust FFI bridge wrappers like
+    // (3) exclude_functions on frb_generated.dart — filters Rust FFI bridge wrappers like
     // `crateCalculateQualityScore` that are also emitted in frb_generated.dart.
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[3] {
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[2] {
         assert!(
             matches!(processor, PostProcessor::FrbDartExcludeFunctions(..)),
-            "Fourth PostProcessFile must use FrbDartExcludeFunctions processor"
+            "Third PostProcessFile must use FrbDartExcludeFunctions processor"
         );
         assert_eq!(
             path, &frb_generated_path,
-            "Fourth PostProcessFile must target frb_generated.dart"
+            "Third PostProcessFile must target frb_generated.dart"
         );
     }
 
-    // (5) sealed_variants on frb_generated.dart — reused for the published-package
+    // (4) sealed_variants on frb_generated.dart — reused for the published-package
     // native-lib loader injection (idempotent — the loader fix is keyed off the FRB
     // loader config present only in that file).
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[4] {
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[3] {
         assert_eq!(
             *processor,
             PostProcessor::FrbDartSealedVariants,
-            "Fifth PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
+            "Fourth PostProcessFile must use FrbDartSealedVariants processor (for native-lib loader)"
         );
         assert_eq!(
             path, &frb_generated_path,
-            "Fifth PostProcessFile must target frb_generated.dart for the loader injection"
+            "Fourth PostProcessFile must target frb_generated.dart for the loader injection"
         );
     }
 
-    // (6) fix handler executor calls on frb_generated.dart — rewrites FRB callback handler
+    // (5) fix handler executor calls on frb_generated.dart — rewrites FRB callback handler
     // invocations that incorrectly call executeSync/executeNormal on function parameters.
-    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[5] {
+    if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[4] {
         assert_eq!(
             *processor,
             PostProcessor::FrbDartFixHandlerExecutorCalls,
-            "Sixth PostProcessFile must use FrbDartFixHandlerExecutorCalls processor"
+            "Fifth PostProcessFile must use FrbDartFixHandlerExecutorCalls processor"
         );
         assert_eq!(
             path, &frb_generated_path,
-            "Sixth PostProcessFile must target frb_generated.dart for handler executor fixes"
+            "Fifth PostProcessFile must target frb_generated.dart for handler executor fixes"
         );
     }
 }
@@ -1724,7 +1731,6 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         steps,
         vec![
             "RunCommand",
-            "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
@@ -1772,8 +1778,7 @@ fn build_config_with_config_includes_post_build_steps() {
     let config = make_config(); // crate name = "demo-crate"
     let backend = DartBackend;
 
-    // The new method `build_config_with_config` should delegate to `build_config_for`
-    // and include the full set of post-build steps including FrbDartOptionalFieldsWithDefaults
+    // The new method `build_config_with_config` should delegate to `build_config_for`.
     let bc_with_config = backend
         .build_config_with_config(&config)
         .expect("build_config_with_config must return a BuildConfig");
@@ -1788,7 +1793,7 @@ fn build_config_with_config_includes_post_build_steps() {
         "build_config_with_config must have the same number of post-build steps as build_config_for"
     );
 
-    // Verify that the post-build steps include FrbDartOptionalFieldsWithDefaults
+    // Verify that the product-name-based optional-field rewriter is not scheduled.
     let has_optional_fields_processor = bc_with_config.post_build.iter().any(|step| {
         if let PostBuildStep::PostProcessFile { processor, .. } = step {
             matches!(
@@ -1801,7 +1806,7 @@ fn build_config_with_config_includes_post_build_steps() {
     });
 
     assert!(
-        has_optional_fields_processor,
-        "build_config_with_config must include FrbDartOptionalFieldsWithDefaults processor"
+        !has_optional_fields_processor,
+        "build_config_with_config must not include FrbDartOptionalFieldsWithDefaults processor"
     );
 }

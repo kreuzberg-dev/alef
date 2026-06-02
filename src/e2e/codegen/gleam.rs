@@ -2027,10 +2027,10 @@ mod tests {
     use super::*;
     use crate::core::config::{GleamElementConstructor, GleamElementField};
 
-    fn batch_file_item_recipe() -> GleamElementConstructor {
+    fn file_job_recipe() -> GleamElementConstructor {
         GleamElementConstructor {
-            element_type: "BatchFileItem".to_string(),
-            constructor: "sample_crate.BatchFileItem".to_string(),
+            element_type: "FileJob".to_string(),
+            constructor: "sample_crate.FileJob".to_string(),
             fields: vec![
                 GleamElementField {
                     gleam_field: "path".to_string(),
@@ -2053,17 +2053,17 @@ mod tests {
     #[test]
     fn render_element_constructor_file_path_relative_path_gets_test_documents_prefix() {
         let item = serde_json::json!({ "path": "docx/fake.docx" });
-        let out = render_gleam_element_constructor(&item, &batch_file_item_recipe(), "../../test_documents");
+        let out = render_gleam_element_constructor(&item, &file_job_recipe(), "../../test_documents");
         assert_eq!(
             out,
-            "sample_crate.BatchFileItem(path: \"../../test_documents/docx/fake.docx\", config: option.None)"
+            "sample_crate.FileJob(path: \"../../test_documents/docx/fake.docx\", config: option.None)"
         );
     }
 
     #[test]
     fn render_element_constructor_file_path_absolute_path_passes_through() {
         let item = serde_json::json!({ "path": "/etc/some/absolute" });
-        let out = render_gleam_element_constructor(&item, &batch_file_item_recipe(), "../../test_documents");
+        let out = render_gleam_element_constructor(&item, &file_job_recipe(), "../../test_documents");
         assert!(
             out.contains("\"/etc/some/absolute\""),
             "absolute paths must NOT receive the test_documents prefix; got:\n{out}"
@@ -2073,8 +2073,8 @@ mod tests {
     #[test]
     fn render_element_constructor_byte_array_emits_bitarray() {
         let recipe = GleamElementConstructor {
-            element_type: "BatchBytesItem".to_string(),
-            constructor: "sample_crate.BatchBytesItem".to_string(),
+            element_type: "BytesJob".to_string(),
+            constructor: "sample_crate.BytesJob".to_string(),
             fields: vec![
                 GleamElementField {
                     gleam_field: "content".to_string(),
@@ -2103,7 +2103,7 @@ mod tests {
         let out = render_gleam_element_constructor(&item, &recipe, "../../test_documents");
         assert_eq!(
             out,
-            "sample_crate.BatchBytesItem(content: <<72, 105>>, mime_type: \"text/html\", config: option.None)"
+            "sample_crate.BytesJob(content: <<72, 105>>, mime_type: \"text/html\", config: option.None)"
         );
     }
 
@@ -2185,8 +2185,8 @@ mod tests {
     #[test]
     fn render_element_constructor_string_falls_back_to_default() {
         let recipe = GleamElementConstructor {
-            element_type: "BatchBytesItem".to_string(),
-            constructor: "k.BatchBytesItem".to_string(),
+            element_type: "BytesJob".to_string(),
+            constructor: "k.BytesJob".to_string(),
             fields: vec![GleamElementField {
                 gleam_field: "mime_type".to_string(),
                 kind: "string".to_string(),

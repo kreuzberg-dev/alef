@@ -1549,66 +1549,14 @@ fn render_example(
 /// Build setup lines (e.g. handle creation) and the argument list for the function call.
 ///
 /// Returns `(setup_lines, args_string)`.
-/// Emit Ruby batch item constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_ruby_batch_item_array(arr: &serde_json::Value, elem_type: &str, module_name: &str) -> String {
+/// Emit Ruby object-array fixture values for a typed `json_object` array.
+fn emit_ruby_object_array(arr: &serde_json::Value) -> String {
     if let Some(items) = arr.as_array() {
         let item_strs: Vec<String> = items
             .iter()
             .filter_map(|item| {
-                if let Some(obj) = item.as_object() {
-                    match elem_type {
-                        "BatchBytesItem" => {
-                            let content = obj.get("content").and_then(|v| v.as_array());
-                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            let config = obj.get("config");
-                            let content_code = if let Some(arr) = content {
-                                let bytes: Vec<String> =
-                                    arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                // Pass as Ruby array - Magnus will convert Array<u8> to Vec<u8>
-                                format!("[{}]", bytes.join(", "))
-                            } else {
-                                "[]".to_string()
-                            };
-                            let config_arg = if let Some(cfg) = config {
-                                if cfg.is_null() {
-                                    "nil".to_string()
-                                } else {
-                                    json_to_ruby(cfg)
-                                }
-                            } else {
-                                "nil".to_string()
-                            };
-                            Some(format!(
-                                "{}::{}.new(content: {}, mime_type: \"{}\", config: {})",
-                                module_name, elem_type, content_code, mime_type, config_arg
-                            ))
-                        }
-                        "BatchFileItem" => {
-                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            let config = obj.get("config");
-                            let config_arg = if let Some(cfg) = config {
-                                if cfg.is_null() {
-                                    "nil".to_string()
-                                } else {
-                                    json_to_ruby(cfg)
-                                }
-                            } else {
-                                "nil".to_string()
-                            };
-                            Some(format!(
-                                "{}::{}.new(path: \"{}\", config: {})",
-                                module_name, elem_type, path, config_arg
-                            ))
-                        }
-                        _ => {
-                            // Generic handling: emit hash literal for tagged enums (PageAction, etc.)
-                            // The bindings expect { type: "click", selector: "#id" }, not PageAction.new(...)
-                            Some(json_to_ruby(&serde_json::Value::Object(obj.clone())))
-                        }
-                    }
-                } else {
-                    None
-                }
+                item.as_object()
+                    .map(|obj| json_to_ruby(&serde_json::Value::Object(obj.clone())))
             })
             .collect();
         format!("[{}]", item_strs.join(", "))
@@ -1870,24 +1818,14 @@ fn build_args_and_setup(
                 // For json_object args with options_type, construct a typed options object.
                 // When result_is_simple, the binding accepts a plain Hash (no wrapper class).
                 if arg.arg_type == "json_object" && !v.is_null() {
-                    // Check for batch item arrays or tagged-enum arrays (element_type set)
-                    if let Some(elem_type) = &arg.element_type {
+                    // Check for typed object arrays (element_type set)
+                    if let Some(_elem_type) = &arg.element_type {
                         if v.is_array() {
-                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
-                                parts.push(emit_ruby_batch_item_array(v, elem_type, module_name));
-                                continue;
-                            } else if let Some(arr) = v.as_array() {
+                            if let Some(arr) = v.as_array() {
                                 // Only emit as tagged-enum array if all elements are objects.
                                 // Otherwise fall through to json_to_ruby for primitive arrays (e.g., String, Int).
                                 if !arr.is_empty() && arr.iter().all(|item| item.is_object()) {
-                                    let items: Vec<String> = arr
-                                        .iter()
-                                        .filter_map(|item| {
-                                            item.as_object()
-                                                .map(|obj| json_to_ruby(&serde_json::Value::Object(obj.clone())))
-                                        })
-                                        .collect();
-                                    parts.push(format!("[{}]", items.join(", ")));
+                                    parts.push(emit_ruby_object_array(v));
                                     continue;
                                 }
                             }
@@ -2821,12 +2759,11 @@ pub fn emit_test_backend(
         // tries String#to_s then falls back to .to_json, so return a JSON-safe empty
         // object string '{}'  that round-trips through serde_json.
         //
-        // For numeric types in test backends, use 1 instead of 0 to satisfy validation
-        // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
+        // For numeric types in test backends, use a nonzero integer default.
         let default_val = match &method.return_type {
             TypeRef::Named(_) => "'{}'".to_string(),
             TypeRef::Primitive(PrimitiveType::Bool) => "false".to_string(),
-            TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
+            TypeRef::Primitive(_) => "1".to_string(),
             other => defaults.emit_default(other),
         };
         if param_str.is_empty() {
@@ -2834,12 +2771,6 @@ pub fn emit_test_backend(
         } else {
             let _ = writeln!(setup, "  def {ruby_name}({param_str}) = {default_val}");
         }
-    }
-
-    // EmbeddingBackend requires dimensions() > 0 for validation; if not already emitted,
-    // add a stub that returns 384 (common embedding dimension).
-    if trait_bridge.trait_name == "EmbeddingBackend" && !methods.iter().any(|m| m.name == "dimensions") {
-        let _ = writeln!(setup, "  def dimensions = 384");
     }
 
     let _ = writeln!(setup, "end.new");
@@ -3111,48 +3042,6 @@ mod trait_bridge_tests {
         );
         assert_eq!(emission.setup_block, expected_setup, "setup_block snapshot mismatch");
         assert_eq!(emission.arg_expr, "stub_register_document_extractor_trait_bridge");
-    }
-
-    /// EmbeddingBackend stubs must emit dimensions() > 0 for validation to pass.
-    #[test]
-    fn test_embedding_backend_dimensions() {
-        let trait_bridge = TraitBridgeConfig {
-            trait_name: "EmbeddingBackend".to_string(),
-            super_trait: Some("Plugin".to_string()),
-            register_fn: Some("register_embedding_backend".to_string()),
-            ..TraitBridgeConfig::default()
-        };
-
-        let embed = make_method(
-            "embed",
-            vec![("texts", TypeRef::Vec(Box::new(TypeRef::String)))],
-            TypeRef::Vec(Box::new(TypeRef::Vec(Box::new(TypeRef::Primitive(
-                crate::core::ir::PrimitiveType::F32,
-            ))))),
-            true,
-        );
-
-        let fixture = make_fixture("register_embedding_backend_trait_bridge");
-        let methods = vec![&embed];
-        let emission = emit_test_backend(&trait_bridge, &methods, &fixture);
-
-        // Must emit dimensions() even though not in method list.
-        assert!(
-            emission.setup_block.contains("def dimensions = 384"),
-            "EmbeddingBackend stub must emit nonzero dimensions(), got:\n{}",
-            emission.setup_block
-        );
-        // Must also emit super-trait methods.
-        assert!(
-            emission.setup_block.contains("def initialize"),
-            "stub must emit initialize(), got:\n{}",
-            emission.setup_block
-        );
-        assert!(
-            emission.setup_block.contains("def shutdown"),
-            "stub must emit shutdown(), got:\n{}",
-            emission.setup_block
-        );
     }
 }
 

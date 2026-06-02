@@ -15,7 +15,7 @@ pub(super) fn emit_dart_traits(api: &ApiSurface, trait_names: &[&str]) -> (Strin
 
     for &trait_name in trait_names {
         if let Some(trait_def) = api.types.iter().find(|t| t.name == trait_name && t.is_trait) {
-            emit_trait_abstract_class(trait_def, &mut body, &mut imports);
+            emit_trait_abstract_class(trait_def, &api.excluded_type_paths, &mut body, &mut imports);
             body.push('\n');
         }
     }
@@ -33,7 +33,12 @@ pub(super) fn emit_dart_traits(api: &ApiSurface, trait_names: &[&str]) -> (Strin
 /// The class contains one abstract `Future<{Ret}> {method}(...)` per own method
 /// (methods without a `trait_source`). A doc comment shows the registration
 /// pattern using `create_{snake}_dart_impl(...)`.
-fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mut BTreeSet<String>) {
+fn emit_trait_abstract_class(
+    trait_def: &TypeDef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+) {
     let trait_name = &trait_def.name;
 
     // Filter to own methods only (no inherited super-trait methods).
@@ -62,7 +67,10 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
         out.push_str(&template_env::render(
             "abstract_class_method_doc_line.jinja",
             minijinja::context! {
-                return_type => substitute_internal_document(&dart_return_type_str(&method.return_type, imports)),
+                return_type => substitute_excluded_named_types(
+                    &dart_return_type_str(&method.return_type, imports),
+                    excluded_type_paths,
+                ),
                 method_camel => method_camel.as_str(),
             },
         ));
@@ -97,14 +105,19 @@ fn emit_trait_abstract_class(trait_def: &TypeDef, out: &mut String, imports: &mu
     ));
 
     for method in &own_methods {
-        emit_abstract_method(method, out, imports);
+        emit_abstract_method(method, excluded_type_paths, out, imports);
     }
 
     out.push_str("}\n");
 }
 
 /// Emit one abstract method declaration inside an abstract class.
-fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTreeSet<String>) {
+fn emit_abstract_method(
+    method: &MethodDef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+    out: &mut String,
+    imports: &mut BTreeSet<String>,
+) {
     if !method.doc.is_empty() {
         let doc_lines: Vec<String> = method.doc.lines().map(ToString::to_string).collect();
         out.push_str(&template_env::render(
@@ -125,7 +138,8 @@ fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTre
     }
 
     let method_camel = method.name.to_lower_camel_case();
-    let inner_ret = substitute_internal_document(&dart_return_type_str(&method.return_type, imports));
+    let inner_ret =
+        substitute_excluded_named_types(&dart_return_type_str(&method.return_type, imports), excluded_type_paths);
 
     // All trait methods are bridged as async from the Dart side — they always
     // use DartFnFuture on the Rust side, so we always emit `Future<T>`.
@@ -140,7 +154,7 @@ fn emit_abstract_method(method: &MethodDef, out: &mut String, imports: &mut BTre
         .iter()
         .map(|p| {
             let rendered = render_type(&p.ty, imports);
-            let mapped = substitute_internal_document(&rendered);
+            let mapped = substitute_excluded_named_types(&rendered, excluded_type_paths);
             let ty = if p.optional { format!("{mapped}?") } else { mapped };
             format!("{ty} {}", p.name.to_lower_camel_case())
         })
@@ -166,25 +180,46 @@ fn dart_return_type_str(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String 
     }
 }
 
-/// Substitute the internal Rust type `InternalDocument` with an explicit
-/// JSON-backed bridge type. The Rust trait signatures (e.g.
-/// `DocumentExtractor::extract_bytes -> Result<InternalDocument>`,
-/// `Renderer::render(&InternalDocument)`) reference an internal type, but the
-/// Dart trait bridge must not silently collapse that contract to the public
-/// `ExtractionResult` DTO. The generated bridge serializes/deserializes this
-/// opaque carrier at the Rust edge.
-/// Other backends (gleam, go, zig) handle this via explicit excluded-types
-/// substitution; dart applies it directly to the rendered type string.
-fn substitute_internal_document(rendered: &str) -> String {
-    rendered.replace("InternalDocument", "InternalDocumentBridge")
+/// Substitute excluded named Rust types with explicit JSON-backed bridge types.
+/// The generated bridge serializes/deserializes these opaque carriers at the Rust edge.
+fn substitute_excluded_named_types(
+    rendered: &str,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> String {
+    let mut mapped = rendered.to_string();
+    for name in excluded_type_paths.keys() {
+        mapped = replace_token(&mapped, name, &format!("{name}Bridge"));
+    }
+    mapped
+}
+
+fn replace_token(input: &str, needle: &str, replacement: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut rest = input;
+
+    while let Some(index) = rest.find(needle) {
+        let (before, after_start) = rest.split_at(index);
+        out.push_str(before);
+
+        let after = &after_start[needle.len()..];
+        let before_ok = out.chars().last().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+        let after_ok = after.chars().next().is_none_or(|c| !c.is_alphanumeric() && c != '_');
+        if before_ok && after_ok {
+            out.push_str(replacement);
+        } else {
+            out.push_str(needle);
+        }
+        rest = after;
+    }
+
+    out.push_str(rest);
+    out
 }
 
 /// Emit trait bridge stub types required by e2e test fixtures.
 ///
-/// `InternalDocumentBridge`, `OcrBackendType`, `ProcessingStage` are now surfaced
-/// directly by the generated FRB bridge (they appear in trait method signatures),
-/// so traits.dart must NOT redeclare them — doing so collides with the bridge
-/// re-export when both files are exported from the package root.
+/// Excluded-type bridge carriers and other generated FRB types are surfaced
+/// directly by the generated FRB bridge, so traits.dart must NOT redeclare them.
 ///
 /// `SyncExtractor` stays here because the Rust type is annotated with
 /// `#[cfg_attr(alef, alef(skip))]` and is therefore NOT emitted by the bridge,

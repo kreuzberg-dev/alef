@@ -668,139 +668,13 @@ fn snake_to_camel(name: &str) -> String {
     result
 }
 
-/// Make struct constructor fields optional for types with Rust defaults.
+/// Legacy identity transform kept for old post-build processor references.
 ///
-/// Processes struct definitions to make non-optional fields optional in the
-/// Dart constructor when the Rust struct has `#[serde(default)]` or similar
-/// attributes indicating a default value.
-///
-/// Currently targets specific sample_crate types that are known to have defaults:
-/// - `EmbeddingConfig`: model, normalize, batchSize, showDownloadProgress, acceleration, maxEmbedDurationSecs
-/// - `ChunkingConfig`: similar pattern
-/// - `ExtractionConfig`: similar pattern (though most are already optional)
-///
-/// The function rewrites constructor declarations from:
-/// ```dart
-/// const EmbeddingConfig({
-///   required this.model,
-///   required this.normalize,
-///   ...
-/// });
-/// ```
-///
-/// To:
-/// ```dart
-/// const EmbeddingConfig({
-///   this.model,
-///   this.normalize,
-///   ...
-/// });
-/// ```
+/// Dart default handling is emitted from IR metadata in the generated wrapper
+/// layer. This post-FRB source rewriter has no API metadata, so it must not infer
+/// defaults from product-specific class or field names.
 pub fn make_struct_fields_with_defaults_optional(source: &str) -> String {
-    // Map of struct names to field names that should be made optional.
-    // These correspond to Rust fields with #[serde(default...)] or similar.
-    let optional_fields: std::collections::HashMap<&str, Vec<&str>> = [
-        (
-            "EmbeddingConfig",
-            vec![
-                "model",
-                "normalize",
-                "batchSize",
-                "showDownloadProgress",
-                "acceleration",
-                "maxEmbedDurationSecs",
-            ],
-        ),
-        (
-            "ChunkingConfig",
-            vec![
-                "maxCharacters",
-                "overlap",
-                "trim",
-                "chunkerType",
-                "sizing",
-                "prependHeadingContext",
-                "topicThreshold",
-            ],
-        ),
-        ("ExtractionConfig", vec!["useCache", "enableQualityProcessing"]),
-    ]
-    .iter()
-    .cloned()
-    .collect();
-
-    // Derive the set of struct names for quick lookup during detection
-    let struct_names: Vec<&str> = optional_fields.keys().cloned().collect();
-
-    let lines: Vec<&str> = source.lines().collect();
-    let mut result = String::with_capacity(source.len());
-    let mut i = 0;
-
-    while i < lines.len() {
-        let line = lines[i];
-        let trimmed = line.trim();
-
-        // Check if this line starts a const constructor for a known type with optional fields.
-        // Match patterns like `const EmbeddingConfig({` or `const EmbeddingConfig(`
-        let struct_name_opt = struct_names
-            .iter()
-            .find(|&&name| {
-                trimmed.starts_with(&format!("const {}({{", name)) || trimmed.starts_with(&format!("const {}(", name))
-            })
-            .cloned();
-
-        if let Some(struct_name) = struct_name_opt {
-            let fields_to_make_optional = optional_fields[struct_name].clone();
-
-            // Emit the constructor opening line
-            result.push_str(line);
-            result.push('\n');
-            i += 1;
-
-            // Process parameter lines within the constructor
-            while i < lines.len() {
-                let param_line = lines[i];
-                let param_trimmed = param_line.trim_start();
-
-                // Check if this line closes the constructor
-                if param_trimmed.starts_with("});") {
-                    result.push_str(param_line);
-                    result.push('\n');
-                    i += 1;
-                    break;
-                }
-
-                // Check if this is a parameter that should be made optional
-                let mut modified = false;
-                for &field_name in &fields_to_make_optional {
-                    if param_trimmed.contains(&format!("required this.{}", field_name)) {
-                        // Replace "required this.field" with "this.field"
-                        let modified_line = param_line.replace(
-                            &format!("required this.{}", field_name),
-                            &format!("this.{}", field_name),
-                        );
-                        result.push_str(&modified_line);
-                        result.push('\n');
-                        modified = true;
-                        break;
-                    }
-                }
-
-                if !modified {
-                    // Not a field we're making optional, keep as-is
-                    result.push_str(param_line);
-                    result.push('\n');
-                }
-                i += 1;
-            }
-        } else {
-            result.push_str(line);
-            result.push('\n');
-            i += 1;
-        }
-    }
-
-    result
+    source.to_string()
 }
 
 #[cfg(test)]
@@ -1206,103 +1080,22 @@ Future<ExtractionResult> extractBytes(
     }
 
     #[test]
-    fn make_embedding_config_fields_with_defaults_optional() {
-        let input = r#"class EmbeddingConfig {
-  /// The embedding model to use (defaults to "balanced" preset if not specified)
-  final EmbeddingModelType model;
+    fn default_field_rewriter_is_identity_without_ir_metadata() {
+        let input = r#"class GenericOptions {
+  final String mode;
+  final bool enabled;
+  final PlatformInt64 retryCount;
 
-  /// Whether to normalize embedding vectors (recommended for cosine similarity)
-  final bool normalize;
-
-  /// Batch size for embedding generation
-  final PlatformInt64 batchSize;
-
-  /// Show model download progress
-  final bool showDownloadProgress;
-
-  /// Custom cache directory for model files
-  final String? cacheDir;
-
-  /// Hardware acceleration for the embedding ONNX model.
-  final AccelerationConfig? acceleration;
-
-  /// Maximum wall-clock duration (in seconds) for a single `embed()` call.
-  final PlatformInt64? maxEmbedDurationSecs;
-
-  const EmbeddingConfig({
-    required this.model,
-    required this.normalize,
-    required this.batchSize,
-    required this.showDownloadProgress,
-    this.cacheDir,
-    this.acceleration,
-    this.maxEmbedDurationSecs,
+  const GenericOptions({
+    required this.mode,
+    required this.enabled,
+    required this.retryCount,
   });
 }
 "#;
         let out = make_struct_fields_with_defaults_optional(input);
 
-        // Fields with defaults should be made optional
-        assert!(
-            out.contains("this.model,") && !out.contains("required this.model"),
-            "model field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.normalize,") && !out.contains("required this.normalize"),
-            "normalize field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.batchSize,") && !out.contains("required this.batchSize"),
-            "batchSize field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.showDownloadProgress,") && !out.contains("required this.showDownloadProgress"),
-            "showDownloadProgress field should be made optional, got:\n{out}"
-        );
-
-        // Already-optional fields should not be changed
-        assert!(
-            out.contains("this.cacheDir,"),
-            "cacheDir field should remain, got:\n{out}"
-        );
-    }
-
-    #[test]
-    fn make_embedding_config_fields_optional_with_frb_formatting() {
-        // FRB generates the opening brace on the next line
-        let input = r#"class EmbeddingConfig {
-  final EmbeddingModelType model;
-  final bool normalize;
-  final PlatformInt64 batchSize;
-  final bool showDownloadProgress;
-
-  const EmbeddingConfig({
-    required this.model,
-    required this.normalize,
-    required this.batchSize,
-    required this.showDownloadProgress,
-  });
-}
-"#;
-        let out = make_struct_fields_with_defaults_optional(input);
-
-        // Fields should be made optional
-        assert!(
-            out.contains("this.model,") && !out.contains("required this.model"),
-            "model field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.normalize,") && !out.contains("required this.normalize"),
-            "normalize field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.batchSize,") && !out.contains("required this.batchSize"),
-            "batchSize field should be made optional, got:\n{out}"
-        );
-        assert!(
-            out.contains("this.showDownloadProgress,") && !out.contains("required this.showDownloadProgress"),
-            "showDownloadProgress field should be made optional, got:\n{out}"
-        );
+        assert_eq!(out, input, "post-FRB rewriter must not infer defaults by class name");
     }
 
     #[test]

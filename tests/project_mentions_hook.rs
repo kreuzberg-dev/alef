@@ -81,12 +81,98 @@ fn accepts_clean_generic_code() {
 }
 
 #[test]
-fn skips_prose_documentation_files() {
+fn reports_mentions_in_source_comments() {
     let dir = tempfile::tempdir().expect("tempdir");
-    let file = dir.path().join("notes.md");
-    fs::write(&file, forbidden(&["spik", "ard"], "")).expect("write fixture");
+    let file = dir.path().join("code.rs");
+    fs::write(&file, format!("// {}\n", forbidden(&["spik", "ard"], ""))).expect("write fixture");
 
     let output = run_hook(&[&file]);
+
+    assert!(!output.status.success(), "hook should reject production-source comment");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden project mention `spikard`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_explicit_alef_owned_infrastructure_mentions() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        "docs_host = \"docs.<repo>.kreuzberg.dev\"\norg = \"github.com/kreuzberg-dev/alef\"\n",
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn reports_project_mentions_next_to_allowed_infrastructure() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("config.toml");
+    fs::write(
+        &file,
+        format!(
+            "remote = {:?}\n",
+            format!("github.com/kreuzberg-dev/{}", forbidden(&["kreuz", "berg"], ""))
+        ),
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(!output.status.success(), "hook should reject downstream repo name");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden project mention `kreuzberg`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
+fn accepts_opinionated_generic_capability_names() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let file = dir.path().join("capabilities.rs");
+    fs::write(
+        &file,
+        "enum Capability { HostedDocs, PackageName, RepositoryMetadata }\n",
+    )
+    .expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn skips_tests_fixtures_snapshots_and_prose_documentation_files() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let test_file = dir.path().join("tests").join("code.rs");
+    let fixture_file = dir.path().join("fixtures").join("input.toml");
+    let snapshot_file = dir.path().join("snapshots").join("output.snap");
+    let docs_file = dir.path().join("notes.md");
+    fs::create_dir_all(test_file.parent().expect("test parent")).expect("create test dir");
+    fs::create_dir_all(fixture_file.parent().expect("fixture parent")).expect("create fixture dir");
+    fs::create_dir_all(snapshot_file.parent().expect("snapshot parent")).expect("create snapshot dir");
+    fs::write(&test_file, forbidden(&["spik", "ard"], "")).expect("write test fixture");
+    fs::write(&fixture_file, forbidden(&["h2", "m"], "")).expect("write input fixture");
+    fs::write(&snapshot_file, forbidden(&["ll", "lm"], "")).expect("write snapshot fixture");
+    fs::write(&docs_file, forbidden(&["html", "to", "markdown"], "-")).expect("write docs fixture");
+
+    let output = run_hook(&[&test_file, &fixture_file, &snapshot_file, &docs_file]);
 
     assert!(
         output.status.success(),
@@ -99,7 +185,7 @@ fn skips_prose_documentation_files() {
 fn reports_multiple_files_with_line_numbers() {
     let dir = tempfile::tempdir().expect("tempdir");
     let first = dir.path().join("first.toml");
-    let second = dir.path().join("second.snap");
+    let second = dir.path().join("second.rs");
     fs::write(&first, format!("name = {:?}\n", forbidden(&["h2", "m"], ""))).expect("write first fixture");
     fs::write(&second, format!("\n{}\n", forbidden(&["ll", "lm"], ""))).expect("write second fixture");
 
@@ -108,5 +194,5 @@ fn reports_multiple_files_with_line_numbers() {
     assert!(!output.status.success(), "hook should reject both files");
     let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
     assert!(stderr.contains("first.toml:1:"), "stderr: {stderr}");
-    assert!(stderr.contains("second.snap:2:"), "stderr: {stderr}");
+    assert!(stderr.contains("second.rs:2:"), "stderr: {stderr}");
 }

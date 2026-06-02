@@ -615,7 +615,7 @@ fn build_args_string(
                 return Some(format!("{arg_name} = {r_value}"));
             }
             // `json_object` arrays are passed to extendr functions whose Rust
-            // signature is `items: String` (JSON-serialized batch items). The
+            // signature is `items: String` (JSON-serialized object items). The
             // wrapper has no R-list → JSON conversion, so we must serialize the
             // fixture value to a literal JSON string at test-emit time.
             //

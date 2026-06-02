@@ -12,6 +12,37 @@ use super::assertions::render_assertion;
 use super::json::{json_to_js, json_to_js_camel, json_to_js_multiline, snake_to_camel};
 use super::visitors::build_typescript_visitor;
 
+fn is_typescript_primitive_element_type(element_type: &str) -> bool {
+    matches!(
+        element_type,
+        "string"
+            | "String"
+            | "&str"
+            | "number"
+            | "float"
+            | "f32"
+            | "f64"
+            | "int"
+            | "integer"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "boolean"
+            | "bool"
+            | "bytes"
+            | "Uint8Array"
+    )
+}
+
 /// Render a complete test file for the given category.
 ///
 /// `lang` is the language key used for per-fixture call override resolution
@@ -209,7 +240,7 @@ pub fn render_test_file(
             }
         }
 
-        // Detect batch item types (BatchBytesItem, BatchFileItem) used in any fixture
+        // Import named element types used by typed json_object arrays.
         for fixture in fixtures.iter() {
             let cc = e2e_config.resolve_call_for_fixture(
                 fixture.call.as_deref(),
@@ -220,7 +251,7 @@ pub fn render_test_file(
             );
             for arg in &cc.args {
                 if let Some(elem_type) = &arg.element_type {
-                    if (elem_type == "BatchBytesItem" || elem_type == "BatchFileItem") && !imports.contains(elem_type) {
+                    if !is_typescript_primitive_element_type(elem_type) && !imports.contains(elem_type) {
                         imports.push(elem_type.clone());
                     }
                 }
@@ -1044,43 +1075,6 @@ fn has_bytes_file_reads(input: &serde_json::Value, args: &[ArgMapping]) -> bool 
     })
 }
 
-/// Emit TypeScript batch item constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_typescript_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
-    if let Some(items) = arr.as_array() {
-        let item_strs: Vec<String> = items
-            .iter()
-            .filter_map(|item| {
-                if let Some(obj) = item.as_object() {
-                    match elem_type {
-                        "BatchBytesItem" => {
-                            let content = obj.get("content").and_then(|v| v.as_array());
-                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            let content_code = if let Some(arr) = content {
-                                let bytes: Vec<String> =
-                                    arr.iter().filter_map(|v| v.as_u64().map(|n| n.to_string())).collect();
-                                format!("new Uint8Array([{}])", bytes.join(", "))
-                            } else {
-                                "new Uint8Array([])".to_string()
-                            };
-                            Some(format!("{{ content: {}, mimeType: \"{}\" }}", content_code, mime_type))
-                        }
-                        "BatchFileItem" => {
-                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!("{{ path: \"{}\" }}", path.replace('\\', "\\\\")))
-                        }
-                        _ => None,
-                    }
-                } else {
-                    None
-                }
-            })
-            .collect();
-        format!("[{}]", item_strs.join(", "))
-    } else {
-        "[]".to_string()
-    }
-}
-
 /// Build a TypeScript expression to construct an options object.
 ///
 /// Node: ConversionOptions is a TypeScript interface — returns a plain object literal
@@ -1338,7 +1332,7 @@ fn ts_builder_expression_inner(
 ) -> String {
     // Use a depth-indexed variable name so nested IFEs don't shadow each other.
     // Without this, `const _u = WasmConversionOptions.default(); _u.preprocessing =
-    // (() => { const _u = WasmPreprocessingOptions.default(); ... })()` triggers
+    // (() => { const _u = WasmOptions.default(); ... })()` triggers
     // oxlint `no-shadow` on every nested-options expression.
     let var = format!("_u{depth}");
     if lang == "node" || (lang == "wasm" && is_tagged_data_enum(type_name, enums, wasm_type_prefix)) {
@@ -1748,17 +1742,9 @@ fn build_args_and_setup(
                     }
                 } else if arg.arg_type == "json_object" {
                     if v.is_array() {
-                        // Array args (e.g. batch items) may need element_type wrapping.
-                        if let Some(elem_type) = &arg.element_type {
-                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
-                                let wrapped = emit_typescript_batch_item_array(v, elem_type);
-                                parts.push(wrapped);
-                            } else {
-                                parts.push(json_to_js_camel(v));
-                            }
-                        } else {
-                            parts.push(json_to_js_camel(v));
-                        }
+                        // Array args use fixture-shaped object literals; element_type is
+                        // still used by typed bindings/imports, not product-specific constructors.
+                        parts.push(json_to_js_camel(v));
                     } else if let Some(opts_type) = options_type {
                         // Object value with known options type — construct properly for wasm-bindgen.
                         if v.is_object() && v.as_object().is_some_and(|o| o.is_empty()) {
@@ -2132,22 +2118,6 @@ mod tests {
         });
         let cleaned = strip_setup_metadata(&input);
         assert_eq!(cleaned, serde_json::json!({ "text": "hello" }));
-    }
-
-    #[test]
-    fn batch_bytes_items_use_typed_byte_arrays() {
-        let input = serde_json::json!([
-            { "content": [65, 66, 67], "mime_type": "text/plain" }
-        ]);
-        let rendered = emit_typescript_batch_item_array(&input, "BatchBytesItem");
-        assert!(
-            rendered.contains("new Uint8Array([65, 66, 67])"),
-            "batch byte content must use typed byte arrays, got: {rendered}"
-        );
-        assert!(
-            !rendered.contains("content: [65"),
-            "raw array bytes should not be emitted: {rendered}"
-        );
     }
 
     #[test]

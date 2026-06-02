@@ -18,6 +18,37 @@ fn type_has_json(t: &TypeRef) -> bool {
     }
 }
 
+fn type_references_excluded_named(
+    t: &TypeRef,
+    excluded_type_paths: &std::collections::HashMap<String, String>,
+) -> bool {
+    match t {
+        TypeRef::Named(name) => excluded_type_paths.contains_key(name),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => type_references_excluded_named(inner, excluded_type_paths),
+        TypeRef::Map(k, v) => {
+            type_references_excluded_named(k, excluded_type_paths)
+                || type_references_excluded_named(v, excluded_type_paths)
+        }
+        _ => false,
+    }
+}
+
+fn api_has_trait_bridge_excluded_carrier(api: &ApiSurface, config: &ResolvedCrateConfig) -> bool {
+    config
+        .trait_bridges
+        .iter()
+        .filter(|cfg| !cfg.exclude_languages.iter().any(|l| l == "dart"))
+        .filter_map(|cfg| api.types.iter().find(|t| t.name == cfg.trait_name && t.is_trait))
+        .flat_map(|trait_def| trait_def.methods.iter())
+        .filter(|m| m.trait_source.is_none())
+        .any(|m| {
+            type_references_excluded_named(&m.return_type, &api.excluded_type_paths)
+                || m.params
+                    .iter()
+                    .any(|p| type_references_excluded_named(&p.ty, &api.excluded_type_paths))
+        })
+}
+
 /// Returns true when the IR surface contains a TypeRef::Json field OR when any
 /// Named field resolves to an enum type. The dart bridge codegen emits
 /// `serde_json::to_string(&enum_value)` for enum-typed fields (they are not
@@ -160,19 +191,13 @@ pub(crate) fn emit_cargo_toml(
     } else {
         format!("{}\n", workspace_dep_lines.join("\n"))
     };
-    // serde_json is required when the generated From<SourceT> impls use
-    // serde_json::to_string() to convert Json-typed fields (serde_json::Value,
-    // ProcessResult, InternalDocument, etc.) OR enum-typed fields to String for the
-    // FRB-friendly mirror. Detect by scanning the API surface for TypeRef::Json or
-    // any Named field that resolves to an enum (D6 fix).
-    let needs_serde_json = api_has_json_or_enum_field(api);
+    // serde_json is required when generated conversions serialize JSON fields,
+    // enum fields, or excluded trait-bridge carrier values.
+    let has_trait_bridge_excluded_carrier = api_has_trait_bridge_excluded_carrier(api, config);
+    let needs_serde_json = api_has_json_or_enum_field(api) || has_trait_bridge_excluded_carrier;
     let serde_json_dep = if needs_serde_json { "serde_json = \"1\"\n" } else { "" };
-    // Trait-bridge codegen emits `pub struct InternalDocumentBridge` with
-    // `#[derive(serde::Serialize, serde::Deserialize)]` whenever any trait-bridge
-    // method signature references `InternalDocument`. The Serialize/Deserialize
-    // derives need `serde` as a direct dependency with the `derive` feature; the
-    // crate is not pulled in transitively by `serde_json`.
-    let needs_serde_derive = !config.trait_bridges.is_empty();
+    // Excluded-type carrier derives need serde as a direct dependency.
+    let needs_serde_derive = has_trait_bridge_excluded_carrier;
     let serde_dep = if needs_serde_derive {
         "serde = { version = \"1\", features = [\"derive\"] }\n"
     } else {

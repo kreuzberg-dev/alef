@@ -732,31 +732,6 @@ fn render_test_file_inner(
     if needs_object_mapper_for_handle {
         let _ = writeln!(out, "import {binding_pkg_for_imports}.CrawlConfig");
     }
-    // Import BatchBytesItem / BatchFileItem when any fixture has a batch-item
-    // array arg (element_type) — the test code constructs these directly.
-    let mut batch_elem_imports: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for f in fixtures.iter() {
-        let cc =
-            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        let fixture_args = if cc.args.is_empty() { args } else { cc.args.as_slice() };
-        for arg in fixture_args.iter() {
-            if arg.arg_type != "json_object" {
-                continue;
-            }
-            let v = super::resolve_field(&f.input, &arg.field);
-            if !v.is_array() {
-                continue;
-            }
-            if let Some(elem) = &arg.element_type {
-                if elem == "BatchBytesItem" || elem == "BatchFileItem" {
-                    batch_elem_imports.insert(elem.clone());
-                }
-            }
-        }
-    }
-    for elem in &batch_elem_imports {
-        let _ = writeln!(out, "import {binding_pkg_for_imports}.{elem}");
-    }
     let _ = writeln!(out);
 
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
@@ -1330,9 +1305,8 @@ fn render_test_method(
 
     // Collect ObjectMapper deserialization bindings for json_object args.
     // Object args use the configured `options_type`. Array args carrying
-    // `element_type = BatchBytesItem | BatchFileItem` are emitted as inline
-    // List<T> constructors below (build_args_and_setup) — no deser binding is
-    // needed because the array is materialised directly in source.
+    // `element_type` are emitted as inline List<T> literals below
+    // (build_args_and_setup), so no deser binding is needed.
     //
     // For error tests we want these `val xxx = MAPPER.readValue(...)` lines
     // INSIDE the assertFailsWith block, so that Jackson validation errors on
@@ -1349,8 +1323,7 @@ fn render_test_method(
             if val.is_null() {
                 continue;
             }
-            // Skip arrays that we materialise inline (batch items + primitive
-            // lists like List<String>) rather than deserialising via Jackson.
+            // Skip arrays that we materialise inline rather than deserialising via Jackson.
             if val.is_array() && arg.element_type.is_some() {
                 continue;
             }
@@ -1729,24 +1702,15 @@ fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // Typed arrays carry `element_type`. Batch item arrays
-                // (BatchBytesItem/BatchFileItem) need typed constructors; all
-                // other typed lists (e.g. List<String>) are materialised as a
+                // Typed arrays carry `element_type` and are materialised as a
                 // plain `listOf(...)` of the JSON literals.
-                if arg.arg_type == "json_object" && v.is_array() {
-                    if let Some(elem) = &arg.element_type {
-                        if elem == "BatchBytesItem" || elem == "BatchFileItem" {
-                            parts.push(emit_kotlin_batch_item_array(v, elem));
-                            continue;
-                        }
-                        // Generic typed list — emit literal Kotlin `listOf(...)`.
-                        let items: Vec<String> = v
-                            .as_array()
-                            .map(|arr| arr.iter().map(json_to_kotlin).collect())
-                            .unwrap_or_default();
-                        parts.push(format!("listOf({})", items.join(", ")));
-                        continue;
-                    }
+                if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
+                    let items: Vec<String> = v
+                        .as_array()
+                        .map(|arr| arr.iter().map(json_to_kotlin).collect())
+                        .unwrap_or_default();
+                    parts.push(format!("listOf({})", items.join(", ")));
+                    continue;
                 }
                 // For json_object args with options_type, use the pre-deserialized variable.
                 if arg.arg_type == "json_object" && options_type.is_some() {
@@ -1779,42 +1743,6 @@ fn build_args_and_setup(
     }
 
     (setup_lines, parts.join(", "))
-}
-
-/// Emit a Kotlin `listOf(...)` expression of `BatchBytesItem` or
-/// `BatchFileItem` constructors. Mirrors `emit_java_batch_item_array` so the
-/// Kotlin tests build the same typed lists the Java facade expects.
-fn emit_kotlin_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
-    let Some(items) = arr.as_array() else {
-        return "emptyList()".to_string();
-    };
-    let parts: Vec<String> = items
-        .iter()
-        .filter_map(|item| {
-            let obj = item.as_object()?;
-            match elem_type {
-                "BatchBytesItem" => {
-                    let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                    let content_code = obj
-                        .get("content")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            let bytes: Vec<String> =
-                                arr.iter().filter_map(|v| v.as_u64().map(|n| format!("{n}"))).collect();
-                            format!("byteArrayOf({})", bytes.join(", "))
-                        })
-                        .unwrap_or_else(|| "byteArrayOf()".to_string());
-                    Some(format!("{elem_type}({content_code}, \"{mime_type}\", null)"))
-                }
-                "BatchFileItem" => {
-                    let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                    Some(format!("{elem_type}(java.nio.file.Paths.get(\"{path}\"), null)"))
-                }
-                _ => None,
-            }
-        })
-        .collect();
-    format!("listOf({})", parts.join(", "))
 }
 
 #[allow(clippy::too_many_arguments)]

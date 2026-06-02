@@ -277,14 +277,13 @@ fn emit_python_stub_method(
     // in the generated test file and would cause a NameError at runtime. Return
     // an empty dict `{}` instead — it round-trips cleanly through serde_json.
     //
-    // For numeric types in test backends, use 1 instead of 0 to satisfy validation
-    // constraints (e.g., EmbeddingBackend::dimensions() must return > 0).
+    // For numeric types in test backends, use a nonzero integer default.
     let default_val = match &method.return_type {
         crate::core::ir::TypeRef::Named(_) => "{}".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "False".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F32) => "0.0".to_string(),
         crate::core::ir::TypeRef::Primitive(crate::core::ir::PrimitiveType::F64) => "0.0".to_string(),
-        crate::core::ir::TypeRef::Primitive(_) => "1".to_string(), // all integer types: 1 instead of 0
+        crate::core::ir::TypeRef::Primitive(_) => "1".to_string(),
         other => defaults.emit_default(other),
     };
 

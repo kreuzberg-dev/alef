@@ -92,7 +92,7 @@ mavenPublishing {
     pom {
         name.set("demo-android")
         description.set("Bindings for demo")
-        url.set("https://github.com/example/demo")
+        url.set("https://example.invalid/demo")
         licenses {
             license {
                 name.set("MIT")
@@ -101,9 +101,9 @@ mavenPublishing {
         }
 
         scm {
-            url.set("https://github.com/example/demo")
-            connection.set("scm:git:git://github.com/example/demo.git")
-            developerConnection.set("scm:git:ssh://git@github.com:example/demo.git")
+            url.set("https://example.invalid/demo")
+            connection.set("scm:git:git://github.com/example.invalid/demo.git")
+            developerConnection.set("scm:git:ssh://git@github.com:example.invalid/demo.git")
         }
     }
 }

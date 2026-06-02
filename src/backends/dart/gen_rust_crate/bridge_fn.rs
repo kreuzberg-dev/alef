@@ -107,7 +107,7 @@ pub(crate) fn emit_bridge_fn(
     // `#[frb(mirror(T))]`) are received as the local mirror type but the core fn
     // expects source-crate `T`. For types without sanitized fields, transmute is sound
     // because the layouts are identical. For types with sanitized fields (e.g.
-    // ExtractionConfig which has cancel_token and concurrency as sanitized Option<String>
+    // a config DTO with sanitized Option<String>
     // fields that differ in size from the core types), we use From<MirrorT> for CoreT
     // to avoid undefined behavior from layout mismatches.
     let call_args: Vec<String> = f
@@ -210,8 +210,8 @@ fn frb_rust_type_mirror_inner(ty: &TypeRef) -> String {
 /// guarantees identical layout for non-sanitized structs, `unsafe { std::mem::transmute }`
 /// is sound and zero-cost for those.
 ///
-/// For Named types with sanitized fields (e.g. ExtractionConfig, which has cancel_token
-/// and concurrency as `Option<String>` in the mirror but different-sized types in core),
+/// For Named types with sanitized fields (e.g. a config DTO with `Option<String>`
+/// in the mirror but different-sized types in core),
 /// we use `SourceT::from(name)` instead to avoid UB from layout mismatches.
 fn dart_call_arg_with_mirror_transmute(
     p: &ParamDef,

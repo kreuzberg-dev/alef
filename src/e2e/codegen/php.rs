@@ -17,7 +17,7 @@ use crate::e2e::fixture::{
     Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, TemplateReturnForm, ValidationErrorExpectation,
 };
 use anyhow::Result;
-use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
+use heck::{ToLowerCamelCase, ToUpperCamelCase};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
@@ -1520,50 +1520,17 @@ fn render_test_method(
 /// the binding accepts a typed config object.
 ///
 /// Returns `(setup_lines, args_string)`.
-/// Emit PHP batch item array constructors for BatchBytesItem or BatchFileItem arrays.
-fn emit_php_batch_item_array(arr: &serde_json::Value, elem_type: &str) -> String {
+/// Emit PHP object-array elements for a typed `json_object` array.
+fn emit_php_object_array(arr: &serde_json::Value, elem_type: &str) -> String {
     if let Some(items) = arr.as_array() {
         let item_strs: Vec<String> = items
             .iter()
             .filter_map(|item| {
                 if let Some(obj) = item.as_object() {
-                    match elem_type {
-                        "BatchBytesItem" => {
-                            let content = obj.get("content").and_then(|v| v.as_array());
-                            let mime_type = obj.get("mime_type").and_then(|v| v.as_str()).unwrap_or("text/plain");
-                            let content_code = if let Some(arr) = content {
-                                let bytes: Vec<String> = arr
-                                    .iter()
-                                    .filter_map(|v| v.as_u64())
-                                    .map(|n| format!("\\x{:02x}", n))
-                                    .collect();
-                                format!("\"{}\"", bytes.join(""))
-                            } else {
-                                "\"\"".to_string()
-                            };
-                            Some(format!(
-                                "new {}(content: {}, mimeType: \"{}\")",
-                                elem_type, content_code, mime_type
-                            ))
-                        }
-                        "BatchFileItem" => {
-                            let path = obj.get("path").and_then(|v| v.as_str()).unwrap_or("");
-                            Some(format!("new {}(path: \"{}\")", elem_type, path))
-                        }
-                        _ => {
-                            // Generic handling for tagged-enum DTOs (PageAction, etc.): wrap each
-                            // element in `{Type}::from_json('{...}')`. The PHP binding's #[php_class]
-                            // FromZval only accepts class instances; raw PHP arrays are rejected with
-                            // "Failed to convert array element to {Type}". Every alef-emitted class
-                            // with a tagged-enum shape (or any has_default struct) has a `from_json`
-                            // static method generated from `serde::Deserialize`, so this is the
-                            // portable path that works without a per-class FromZval impl.
-                            let json_str = serde_json::to_string(&serde_json::Value::Object(obj.clone()))
-                                .unwrap_or_else(|_| "{}".to_string());
-                            let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
-                            Some(format!("{}::from_json('{}')", elem_type, php_literal))
-                        }
-                    }
+                    let json_str = serde_json::to_string(&serde_json::Value::Object(obj.clone()))
+                        .unwrap_or_else(|_| "{}".to_string());
+                    let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
+                    Some(format!("{}::from_json('{}')", elem_type, php_literal))
                 } else {
                     None
                 }
@@ -1885,13 +1852,9 @@ fn build_args_and_setup(
             }
             Some(v) => {
                 if arg.arg_type == "json_object" && !v.is_null() {
-                    // Check for batch item arrays first
+                    // Check for typed object arrays first.
                     if let Some(elem_type) = &arg.element_type {
                         if v.is_array() {
-                            if elem_type == "BatchBytesItem" || elem_type == "BatchFileItem" {
-                                parts.push(emit_php_batch_item_array(v, elem_type));
-                                continue;
-                            }
                             // When element_type is a scalar/primitive and value is an array,
                             // pass it directly as a PHP array (e.g. ["python"]) rather than
                             // wrapping in a typed config constructor.
@@ -1899,25 +1862,13 @@ fn build_args_and_setup(
                                 parts.push(json_to_php(v));
                                 continue;
                             }
-                            // Tagged-enum / has_default array (e.g., Vec<PageAction>): wrap each element
-                            // in `{ElemType}::from_json('{...}')`. PHP's #[php_class] FromZval only
+                            // Typed object arrays wrap each element in `{ElemType}::from_json('{...}')`.
+                            // PHP's #[php_class] FromZval only
                             // accepts class instances; raw assoc arrays produce "Failed to convert
                             // array element to {Type}". Every alef-emitted has_default/has_serde
                             // struct gets a `from_json` static method, so this is the portable path.
-                            if let Some(arr) = v.as_array() {
-                                let items: Vec<String> = arr
-                                    .iter()
-                                    .filter_map(|item| {
-                                        item.as_object().map(|obj| {
-                                            let json_str =
-                                                serde_json::to_string(&serde_json::Value::Object(obj.clone()))
-                                                    .unwrap_or_else(|_| "{}".to_string());
-                                            let php_literal = json_str.replace('\\', "\\\\").replace('\'', "\\'");
-                                            format!("{}::from_json('{}')", elem_type, php_literal)
-                                        })
-                                    })
-                                    .collect();
-                                parts.push(format!("[{}]", items.join(", ")));
+                            if v.as_array().is_some() {
+                                parts.push(emit_php_object_array(v, elem_type));
                                 continue;
                             }
                         }
@@ -1989,40 +1940,9 @@ fn build_args_and_setup(
                                 parts.push(arg_var);
                                 continue;
                             }
-                            // Fallback: builder pattern when no options_type is configured.
-                            // This path is kept for backwards compatibility with projects
-                            // that use a builder-style API without explicit options_type.
-                            if let Some(obj) = v.as_object() {
-                                setup_lines.push("$builder = $this->createDefaultOptionsBuilder();".to_string());
-                                for (k, vv) in obj {
-                                    let snake_key = k.to_snake_case();
-                                    if snake_key == "preprocessing" {
-                                        if let Some(prep_obj) = vv.as_object() {
-                                            let enabled =
-                                                prep_obj.get("enabled").and_then(|v| v.as_bool()).unwrap_or(true);
-                                            let preset =
-                                                prep_obj.get("preset").and_then(|v| v.as_str()).unwrap_or("Minimal");
-                                            let remove_navigation = prep_obj
-                                                .get("remove_navigation")
-                                                .and_then(|v| v.as_bool())
-                                                .unwrap_or(true);
-                                            let remove_forms =
-                                                prep_obj.get("remove_forms").and_then(|v| v.as_bool()).unwrap_or(true);
-                                            setup_lines.push(format!(
-                                                "$preprocessing = $this->createPreprocessingOptions({}, {}, {}, {});",
-                                                if enabled { "true" } else { "false" },
-                                                json_to_php(&serde_json::Value::String(preset.to_string())),
-                                                if remove_navigation { "true" } else { "false" },
-                                                if remove_forms { "true" } else { "false" }
-                                            ));
-                                            setup_lines.push(
-                                                "$builder = $builder->preprocessing($preprocessing);".to_string(),
-                                            );
-                                        }
-                                    }
-                                }
-                                setup_lines.push("$options = $builder->build();".to_string());
-                                parts.push("$options".to_string());
+                            // Fallback when no options_type is configured: pass the fixture object literally.
+                            if v.as_object().is_some() {
+                                parts.push(json_to_php(v));
                                 continue;
                             }
                         }
