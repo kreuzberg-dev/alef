@@ -71,15 +71,19 @@ const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 /// directory), and `stem` is the native library file stem
 /// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `sample_project_dart`).
 pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
-    if source.contains(ALEF_LOADER_MARKER) {
-        return source.to_string();
-    }
-    let Some(prologue) = frb_init_prologue(source) else {
-        return source.to_string();
+    let with_loader = if source.contains(ALEF_LOADER_MARKER) {
+        // Loader already injected on a prior run; keep the source verbatim but
+        // still run `ensure_loader_imports` below so subsequent additions to
+        // the required-imports set (e.g. the unprefixed `dart:core` rescue)
+        // land in already-patched files without a full FRB regen.
+        source.to_string()
+    } else {
+        let Some(prologue) = frb_init_prologue(source) else {
+            return source.to_string();
+        };
+        let replacement = frb_init_prologue_replacement(package_name, module_name, stem);
+        source.replacen(&prologue, &replacement, 1)
     };
-
-    let replacement = frb_init_prologue_replacement(package_name, module_name, stem);
-    let with_loader = source.replacen(&prologue, &replacement, 1);
 
     ensure_loader_imports(&with_loader)
 }
@@ -234,7 +238,15 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
 /// `Uri.parse()` and `Uri.resolve()` calls with the aliased name.
 fn ensure_loader_imports(source: &str) -> String {
     let mut result = source.to_string();
+    // The aliased `import 'dart:core' as _DartCore;` SUPPRESSES the implicit
+    // unprefixed `dart:core` import per the Dart spec, so without an explicit
+    // unprefixed import every bare reference to `String`, `int`, `bool`,
+    // `List`, `double`, … in the FRB-generated file would fail to resolve with
+    // `Error: Type 'X' not found.`. We keep both: the unprefixed import
+    // re-exposes the common types, and the aliased import lets us qualify just
+    // `Uri` to avoid the FRB-generated `Uri` class collision.
     let needed = [
+        ("import 'dart:core';", "import 'dart:core';\n"),
         ("import 'dart:core' as _DartCore;", "import 'dart:core' as _DartCore;\n"),
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
