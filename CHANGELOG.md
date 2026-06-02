@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Bump `rustler` (crate) and `rustler` (hex) pins from `0.37` to `0.38`.**
+  `cargo-edit` reported `rustler 0.37.3 → 0.38.0 — Update not possible` for
+  downstream consumers because alef's `template_versions::cargo::RUSTLER` and
+  `template_versions::hex::RUSTLER` constants pinned the major.minor at `0.37`.
+  Lifted both pins to `0.38` so generated `Cargo.toml` files request
+  `rustler = "0.38"` and generated `mix.exs` files request
+  `{:rustler, "~> 0.38.0"}`.
+
 ### Fixed
 
 - **Kotlin scaffold: emit trailing comma after `KotlinJvm(...)` argument.**

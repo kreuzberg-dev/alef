@@ -77,7 +77,7 @@ pub mod cargo {
     pub const TEMPFILE: &str = "3";
 
     // renovate: datasource=crate depName=rustler
-    pub const RUSTLER: &str = "0.37";
+    pub const RUSTLER: &str = "0.38";
 
     // renovate: datasource=crate depName=async-trait
     pub const ASYNC_TRAIT: &str = "0.1";
@@ -307,7 +307,7 @@ pub mod nuget {
 
 pub mod hex {
     // renovate: datasource=hex depName=rustler
-    pub const RUSTLER: &str = "~> 0.37.0";
+    pub const RUSTLER: &str = "~> 0.38.0";
 
     // renovate: datasource=hex depName=rustler_precompiled
     pub const RUSTLER_PRECOMPILED: &str = "~> 0.9";
