@@ -85,7 +85,8 @@ module AppHarness
     end
 
     # Register the route with the handler.
-    APP.{{ register_route_method }}(builder, handler_fn)
+    # Ruby uses block form for route registration
+    APP.{{ register_route_method }}(builder, &handler_fn)
   end
 
   # Configure and start the server.

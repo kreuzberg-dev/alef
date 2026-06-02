@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- fix(e2e): wire factory import into harness destructure (#131)
+- fix(e2e): emit per-language idiomatic registration call shape (#132)
 - fix(rustler): close service_api codegen compile gaps (#129)
 - fix(e2e): emit backend-specific ServerConfig factory expression (#130)
 - fix(e2e/go): poll port readiness before signalling harness ready (#128)
