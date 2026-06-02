@@ -98,7 +98,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   alongside the aliased `import 'dart:core' as _DartCore;`.** The aliased
   import was added to avoid the FRB-generated `Uri` class colliding with
   `dart:core.Uri`, but per the Dart spec an aliased `dart:core` import
-  *suppresses* the otherwise-implicit unprefixed `dart:core`. Without the
+  _suppresses_ the otherwise-implicit unprefixed `dart:core`. Without the
   rescue, every bare `String`/`int`/`bool`/`List`/`double`/… reference in the
   FRB-generated file fails with `Error: Type 'X' not found.` (hundreds of
   errors per build). Also: `rewrite_frb_external_library_loader` now runs the
