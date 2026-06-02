@@ -635,6 +635,11 @@ pub(super) fn gen_opaque_static_constructor(
         ffi_params.join(",\n")
     ));
 
+    // Clear error state if this is a fallible constructor
+    if method.error_type.is_some() {
+        out.push_str("    clear_last_error();\n");
+    }
+
     // Unimplemented stub if sanitized
     if will_be_unimplemented {
         out.push_str("    panic!(\"Sanitized method {type_name}::new cannot be called from C\");\n");
@@ -705,7 +710,21 @@ pub(super) fn gen_opaque_static_constructor(
         "    let result = {qualified}::{}({});\n",
         method.name, call_args
     ));
-    out.push_str("    Box::into_raw(Box::new(result))\n");
+
+    // Handle fallible constructors: if error_type is present, the constructor returns Result<T, E>
+    if method.error_type.is_some() {
+        // Fallible constructor — match on Result and handle error via set_last_error
+        out.push_str("    match result {\n");
+        out.push_str("        Ok(value) => Box::into_raw(Box::new(value)),\n");
+        out.push_str("        Err(e) => {\n");
+        out.push_str("            set_last_error(1, &e.to_string());\n");
+        out.push_str("            std::ptr::null_mut()\n");
+        out.push_str("        }\n");
+        out.push_str("    }\n");
+    } else {
+        // Infallible constructor — directly box the result
+        out.push_str("    Box::into_raw(Box::new(result))\n");
+    }
     out.push_str("}\n");
 
     out
