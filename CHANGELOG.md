@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C# backend now only emits constructors for methods named `new`.**
+  The C# backend was generating constructor wrappers for all static methods returning
+  the owner type (e.g., `with_cache_dir`). This caused type mismatches where constructors
+  tried to call non-existent P/Invoke overloads. Only methods explicitly named `new`
+  are now emitted as public C# constructors; others are exposed as static factory
+  methods via their own FFI bindings.
+
 - **Elixir e2e suite now uses rustler 0.37.0 matching package bindings.**
   The e2e hex dependency template was pinned to rustler ~> 0.38.0 while the actual
   language-pack Elixir binding uses ~> 0.37.0. Mix dependency resolution failed with
