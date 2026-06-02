@@ -369,17 +369,26 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
 }
 
 /// Emit a TypeScript shortcut method for one registration variant.
+///
+/// The emission style depends on [`RegistrationVariant::style`]:
+/// - [`RegistrationVariantStyle::VerbDecorator`] — only the direct method form
+///   (`app.get(path, handler)` returning `this` for chaining).
+/// - [`RegistrationVariantStyle::Builder`] — only the decorator-factory form
+///   (`app.get(path)` returning a function that accepts the handler).
+/// - [`RegistrationVariantStyle::Hybrid`] — both forms (overloaded).
 fn gen_registration_variant_method_ts(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
     reg: &RegistrationDef,
     _service: &ServiceDef,
 ) {
+    use crate::core::ir::RegistrationVariantStyle;
+
     let variant_name = &variant.name;
     let base_method = &reg.method;
 
-    // Build signature from variant's signature_params
-    let mut variant_params: Vec<String> = variant
+    // Build signature from variant's signature_params (without handler)
+    let variant_params_no_handler: Vec<String> = variant
         .signature_params
         .iter()
         .map(|p| {
@@ -392,21 +401,7 @@ fn gen_registration_variant_method_ts(
         })
         .collect();
 
-    // Add handler callback
-    variant_params.push("handler: (...args: any[]) => any".to_string());
-    let full_sig = variant_params.join(", ");
-
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
-    } else {
-        out.push_str(&format!("   * Register a {} callback directly.\n", variant_name));
-    }
-    out.push_str("   */\n");
-
-    out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
-
-    // When there's a wrapper constructor call, build the wrapper first
+    // Metadata array (shared by both forms)
     let metadata_array = if let Some(wrapper_call) = &variant.wrapper_call {
         let wrapper_type = &wrapper_call.wrapper_type_name;
 
@@ -437,30 +432,136 @@ fn gen_registration_variant_method_ts(
         let ctor_arg_str = ctor_args.join(", ");
         let metadata_param = &wrapper_call.metadata_param;
 
-        out.push_str(&format!(
+        // Return a tuple: (wrapper construction code, metadata array expression)
+        let wrapper_code = format!(
             "    const {metadata_param} = new {wrapper_type}({ctor_arg_str});\n"
-        ));
-
-        // Push metadata param to the registrations
-        format!("[{metadata_param}]")
+        );
+        (wrapper_code, format!("[{metadata_param}]"))
     } else {
-        // No wrapper constructor: build metadata array from variant params + overrides
+        // No wrapper constructor: build metadata array from variant params
         let mut metadata_values = Vec::new();
         for param in &variant.signature_params {
             metadata_values.push(param.name.clone());
         }
 
-        if metadata_values.is_empty() {
+        let metadata_expr = if metadata_values.is_empty() {
             "[]".to_owned()
         } else {
             format!("[{}]", metadata_values.join(", "))
-        }
+        };
+        ("".to_owned(), metadata_expr)
     };
 
+    match variant.style {
+        RegistrationVariantStyle::VerbDecorator => {
+            // Direct method form only: `app.get(path, handler): this`
+            emit_variant_direct_method(
+                out,
+                variant_name,
+                &variant_params_no_handler,
+                base_method,
+                &metadata_array.0,
+                &metadata_array.1,
+                variant,
+            );
+        }
+        RegistrationVariantStyle::Builder => {
+            // Decorator-factory form only: `app.get(path): (handler) => any`
+            emit_variant_decorator_factory(
+                out,
+                variant_name,
+                &variant_params_no_handler,
+                base_method,
+                &metadata_array.0,
+                &metadata_array.1,
+                variant,
+            );
+        }
+        RegistrationVariantStyle::Hybrid => {
+            // Both forms
+            emit_variant_direct_method(
+                out,
+                variant_name,
+                &variant_params_no_handler,
+                base_method,
+                &metadata_array.0,
+                &metadata_array.1,
+                variant,
+            );
+            emit_variant_decorator_factory(
+                out,
+                variant_name,
+                &variant_params_no_handler,
+                base_method,
+                &metadata_array.0,
+                &metadata_array.1,
+                variant,
+            );
+        }
+    }
+}
+
+/// Emit the direct method form for a registration variant: `app.get(path, handler): this`.
+fn emit_variant_direct_method(
+    out: &mut String,
+    variant_name: &str,
+    variant_params: &[String],
+    base_method: &str,
+    wrapper_code: &str,
+    metadata_array: &str,
+    variant: &crate::core::ir::RegistrationVariant,
+) {
+    let mut full_params = variant_params.to_vec();
+    full_params.push("handler: (...args: any[]) => any".to_string());
+    let full_sig = full_params.join(", ");
+
+    out.push_str("  /**\n");
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    } else {
+        out.push_str(&format!("   * Register a {} callback directly.\n", variant_name));
+    }
+    out.push_str("   */\n");
+
+    out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
+    out.push_str(wrapper_code);
     out.push_str(&format!(
         "    this._registrations.push([\"{base_method}\", {metadata_array}, handler]);\n"
     ));
     out.push_str("    return this;\n");
+    out.push_str("  }\n\n");
+}
+
+/// Emit the decorator-factory form for a registration variant: `app.get(path): (handler) => any`.
+fn emit_variant_decorator_factory(
+    out: &mut String,
+    variant_name: &str,
+    variant_params: &[String],
+    base_method: &str,
+    wrapper_code: &str,
+    metadata_array: &str,
+    variant: &crate::core::ir::RegistrationVariant,
+) {
+    let sig = variant_params.join(", ");
+
+    out.push_str("  /**\n");
+    if let Some(doc) = &variant.doc {
+        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    } else {
+        out.push_str(&format!("   * Register a {} callback via decorator factory.\n", variant_name));
+    }
+    out.push_str("   */\n");
+
+    out.push_str(&format!(
+        "  {variant_name}({sig}): (fn: (...args: any[]) => any) => (...args: any[]) => any {{\n"
+    ));
+    out.push_str(wrapper_code);
+    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
+    out.push_str(&format!(
+        "      this._registrations.push([\"{base_method}\", {metadata_array}, fn]);\n"
+    ));
+    out.push_str("      return fn;\n");
+    out.push_str("    };\n");
     out.push_str("  }\n\n");
 }
 
@@ -1543,6 +1644,142 @@ mod tests {
         assert!(
             output.contains("my_crate::Method::GET"),
             "expected fixed arg substitution in output:\n{output}"
+        );
+    }
+
+    #[test]
+    fn typescript_variant_verb_decorator_style() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantStyle};
+
+        let mut surface = make_fixture_surface();
+
+        if let Some(reg) = surface.services[0].registrations.first_mut() {
+            reg.variants.push(RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler.".to_owned()),
+                style: RegistrationVariantStyle::VerbDecorator,
+            });
+        }
+
+        let output = gen_service_ts(&surface, "my_crate");
+
+        // VerbDecorator should emit only the direct form: get(path, handler): this
+        assert!(
+            output.contains("get(path: string, handler: (...args: any[]) => any): this"),
+            "expected VerbDecorator form `get(path, handler): this` in output:\n{output}"
+        );
+
+        // Should return `this` for chaining
+        assert!(
+            output.contains("return this;"),
+            "expected `return this;` for chaining in VerbDecorator form:\n{output}"
+        );
+
+        // Should NOT emit decorator-factory form
+        let get_count = output.matches("  get(").count();
+        assert_eq!(
+            get_count, 1,
+            "expected exactly one `get(` method in VerbDecorator style, found {}: {}",
+            get_count, output
+        );
+    }
+
+    #[test]
+    fn typescript_variant_builder_style() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantStyle};
+
+        let mut surface = make_fixture_surface();
+
+        if let Some(reg) = surface.services[0].registrations.first_mut() {
+            reg.variants.push(RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler.".to_owned()),
+                style: RegistrationVariantStyle::Builder,
+            });
+        }
+
+        let output = gen_service_ts(&surface, "my_crate");
+
+        // Builder should emit only the decorator-factory form: get(path) returns a function
+        assert!(
+            output.contains("get(path: string): (fn: (...args: any[]) => any) => (...args: any[]) => any"),
+            "expected Builder form `get(path): (fn) => ...` in output:\n{output}"
+        );
+
+        // Should return the handler unchanged (for decorator form)
+        assert!(
+            output.contains("return fn;"),
+            "expected `return fn;` in Builder form:\n{output}"
+        );
+
+        // Should NOT emit direct form with handler parameter
+        assert!(
+            !output.contains("get(path: string, handler: (...args: any[]) => any): this"),
+            "Builder form should not emit direct method with handler parameter:\n{output}"
+        );
+    }
+
+    #[test]
+    fn typescript_variant_hybrid_style() {
+        use crate::core::ir::{RegistrationVariant, RegistrationVariantStyle};
+
+        let mut surface = make_fixture_surface();
+
+        if let Some(reg) = surface.services[0].registrations.first_mut() {
+            reg.variants.push(RegistrationVariant {
+                name: "get".to_owned(),
+                overrides: vec![],
+                wrapper_call: None,
+                signature_params: vec![ParamDef {
+                    name: "path".to_owned(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    ..ParamDef::default()
+                }],
+                doc: Some("Register a GET handler.".to_owned()),
+                style: RegistrationVariantStyle::Hybrid,
+            });
+        }
+
+        let output = gen_service_ts(&surface, "my_crate");
+
+        // Hybrid should emit both forms
+        assert!(
+            output.contains("get(path: string, handler: (...args: any[]) => any): this"),
+            "expected Hybrid to include direct form `get(path, handler): this`:\n{output}"
+        );
+
+        assert!(
+            output.contains("get(path: string): (fn: (...args: any[]) => any) => (...args: any[]) => any"),
+            "expected Hybrid to include factory form `get(path): (fn) => ...`:\n{output}"
+        );
+
+        // Should have both `return this;` and `return fn;`
+        let this_count = output.matches("return this;").count();
+        let fn_count = output.matches("return fn;").count();
+        assert!(
+            this_count >= 1 && fn_count >= 1,
+            "Hybrid form should have both return forms; this={}, fn={}: {}",
+            this_count, fn_count, output
         );
     }
 }
