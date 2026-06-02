@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- fix(napi): remove unused env parameter from app_run signature (#131)
 - fix(magnus): emit positional Ruby params for route registration (#132)
 
 - fix(rustler): explicitly register service NIFs in init! macro list
