@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   literals (e.g. `'query', 'limit'`) so `[{{ loc_ruby }}]` expands to the correct
   flat `['query', 'limit']` in generated RSpec `any?` assertions.
 
+- **Magnus handler bridge no longer uses `spawn_blocking` to invoke Ruby procs.**
+  The generated `RbHandlerBridge::call` used `tokio::task::spawn_blocking` to call
+  `rb_thread_call_with_gvl`. Since `app_run` drives a `new_current_thread` Tokio
+  runtime inside `rb_thread_call_without_gvl`, the async future always runs on the
+  same OS thread that released the GVL. `spawn_blocking` spawned a separate OS
+  thread from the blocking pool — not a Ruby thread — which caused
+  `[BUG] rb_thread_call_with_gvl() is called by non-ruby thread`.
+  The bridge now calls `call_ruby_proc_with_gvl` directly (inline IIFE closure)
+  without spawning any additional thread.
+
 ### Fixed
 
 - **C FFI backend now correctly handles fallible static constructors.**
