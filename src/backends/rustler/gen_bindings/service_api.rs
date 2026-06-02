@@ -520,7 +520,9 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     out.push_str("use std::collections::HashMap;\n");
     out.push_str("use std::sync::Arc;\n");
     out.push_str("use std::sync::atomic::{AtomicU64, Ordering};\n");
-    out.push_str("use std::sync::{Mutex, OnceLock};\n\n");
+    out.push_str("use std::sync::{Mutex, OnceLock};\n");
+    // GAP 1: Import the core crate for trait types and RouteBuilder
+    out.push_str(&format!("use {}::*;\n\n", core_import));
 
     out.push_str("/// Atom constants used by the service NIFs.\n");
     out.push_str("mod atoms {\n");
@@ -840,6 +842,7 @@ fn gen_run_nif(
             ));
             out.push_str("                {\n");
             // Decode and bind opaque metadata params to locals for later use
+            // GAP 2: Access ResourceArc<T> via Arc::clone instead of private .inner field
             for meta_param in reg.metadata_params.iter() {
                 let is_opaque = if let TypeRef::Named(n) = &meta_param.ty {
                     api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque)
@@ -849,7 +852,13 @@ fn gen_run_nif(
                 if is_opaque {
                     if let TypeRef::Named(n) = &meta_param.ty {
                         out.push_str(&format!(
-                            "                    let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                            "                    let {pname}_arc: Arc<{core_import}::{name}> = Arc::clone(&{pname});\n",
+                            pname = meta_param.name,
+                            core_import = core_import,
+                            name = n,
+                        ));
+                        out.push_str(&format!(
+                            "                    let {pname}: {core_import}::{name} = (*{pname}_arc).clone();\n",
                             pname = meta_param.name,
                             core_import = core_import,
                             name = n,
@@ -860,12 +869,18 @@ fn gen_run_nif(
             out.push_str(&format!(
                 "                    let bridge = {bridge_wrapper}::new(handler_pid);\n"
             ));
+            // GAP 3: Cast bridge to Arc<dyn HandlerContract> via upcast
+            out.push_str(&format!(
+                "                    let handler: Arc<dyn {core_import}::{trait_name}> = Arc::new(bridge);\n",
+                trait_name = &reg.callback_contract
+            ));
             let args_list = metadata_param_names
                 .iter()
                 .map(|name| format!("{}, ", name))
                 .collect::<String>();
+            // GAP 4: Call with 2 args (metadata + handler), not 3 (metadata + wrapper + handler)
             out.push_str(&format!(
-                "                    let _ = owner.{reg_method}({}std::sync::Arc::new(bridge));\n",
+                "                    let _ = owner.{reg_method}({}handler);\n",
                 args_list
             ));
             out.push_str("                }\n");
@@ -873,8 +888,14 @@ fn gen_run_nif(
             out.push_str(&format!(
                 "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
             ));
+            // GAP 3: Cast bridge to Arc<dyn HandlerContract>
             out.push_str(&format!(
-                "                let _ = owner.{reg_method}(std::sync::Arc::new(bridge));\n"
+                "                let handler: Arc<dyn {core_import}::{trait_name}> = Arc::new(bridge);\n",
+                trait_name = &reg.callback_contract
+            ));
+            // GAP 4: Call with handler directly
+            out.push_str(&format!(
+                "                let _ = owner.{reg_method}(handler);\n"
             ));
         }
     }
@@ -1041,8 +1062,15 @@ fn gen_registration_variant_nif(
             };
             if is_opaque {
                 if let TypeRef::Named(n) = &meta_param.ty {
+                    // GAP 2 (variant): Access ResourceArc<T> via Arc::clone instead of private .inner
                     out.push_str(&format!(
-                        "                let {pname}: {core_import}::{name} = (*{pname}.inner).clone();\n",
+                        "                let {pname}_arc: Arc<{core_import}::{name}> = Arc::clone(&{pname});\n",
+                        pname = meta_param.name,
+                        core_import = core_import,
+                        name = n,
+                    ));
+                    out.push_str(&format!(
+                        "                let {pname}: {core_import}::{name} = (*{pname}_arc).clone();\n",
                         pname = meta_param.name,
                         core_import = core_import,
                         name = n,
@@ -1054,18 +1082,24 @@ fn gen_registration_variant_nif(
         out.push_str(&format!(
             "                let bridge = {bridge_wrapper}::new(handler_pid);\n"
         ));
+        // GAP 3 (variant): Cast bridge to Arc<dyn HandlerContract>
+        out.push_str(&format!(
+            "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n",
+            contract_name = base_reg.callback_contract
+        ));
 
-        // Call base registration with wrapper + metadata
+        // Call base registration with metadata + handler (not wrapper)
+        // GAP 4 (variant): 2-arg call, not 3-arg
         if let Some(wrapper_call) = &variant.wrapper_call {
             let _metadata_param = &wrapper_call.metadata_param;
             out.push_str(&format!(
-                "                let _ = owner.{}({}, wrapper, std::sync::Arc::new(bridge));\n",
+                "                let _ = owner.{}({}, handler);\n",
                 base_method,
                 metadata_param_names.join(", ")
             ));
         } else {
             out.push_str(&format!(
-                "                let _ = owner.{}({}, std::sync::Arc::new(bridge));\n",
+                "                let _ = owner.{}({}, handler);\n",
                 base_method,
                 metadata_param_names.join(", ")
             ));
@@ -1766,6 +1800,39 @@ mod tests {
         assert!(
             rust_output.contains("tokio::task::spawn_blocking(move || {"),
             "expected spawn_blocking to wrap the message send"
+        );
+    }
+
+    /// Verify that Rust codegen emits core crate import + trait implementation.
+    /// This tests GAP 1 (core import) and GAP 3 (trait cast).
+    #[test]
+    fn rust_codegen_emits_core_import_and_trait_impl() {
+        let surface = make_fixture_surface();
+        let config = make_test_config();
+        let rust_output = gen_service_rs(&surface, &config);
+
+        // GAP 1: Verify core crate import
+        assert!(
+            rust_output.contains("use my_crate::*;"),
+            "expected core crate wildcard import in gen_service_rs output:\n{rust_output}"
+        );
+
+        // GAP 3: Verify bridge trait implementation
+        assert!(
+            rust_output.contains("impl my_crate::RequestHandler for ElixirRequestHandlerBridge"),
+            "expected trait impl for bridge in generated output:\n{rust_output}"
+        );
+
+        // Verify handler variable bindings for trait casting
+        assert!(
+            rust_output.contains("let handler: Arc<dyn my_crate::RequestHandler> = Arc::new(bridge);"),
+            "expected handler trait cast in registration code:\n{rust_output}"
+        );
+
+        // Verify bridge struct definition
+        assert!(
+            rust_output.contains("pub struct ElixirRequestHandlerBridge"),
+            "expected ElixirRequestHandlerBridge struct definition:\n{rust_output}"
         );
     }
 
