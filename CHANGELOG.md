@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **napi backend: registration variant style emission switching.**
+  The napi backend now respects `RegistrationVariant::style` when emitting TypeScript registration methods.
+  `VerbDecorator` style emits only the direct form (`app.get(path, handler): this`);
+  `Builder` style emits only the factory form (`app.get(path): (handler) => ...`);
+  `Hybrid` (default) emits both forms. Matches the behavior already present in the PyO3 backend.
+  (`src/backends/napi/gen_bindings/service_api.rs`)
+
 ### Fixed
 
 - **magnus async entrypoint releases GVL and drives a current-thread Tokio runtime.**
