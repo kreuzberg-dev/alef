@@ -27,6 +27,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dart FRB loader rewrite now also adds the unprefixed `import 'dart:core';`
+  alongside the aliased `import 'dart:core' as _DartCore;`.** The aliased
+  import was added to avoid the FRB-generated `Uri` class colliding with
+  `dart:core.Uri`, but per the Dart spec an aliased `dart:core` import
+  *suppresses* the otherwise-implicit unprefixed `dart:core`. Without the
+  rescue, every bare `String`/`int`/`bool`/`List`/`double`/… reference in the
+  FRB-generated file fails with `Error: Type 'X' not found.` (hundreds of
+  errors per build). Also: `rewrite_frb_external_library_loader` now runs the
+  import-set fixup even when the loader marker is already present, so the
+  rescue can land in already-patched files without a full FRB regen.
+
 - **`alef test --e2e` now runs per-language `before` hooks sequentially before
   the parallel test phase.** Most consumer `[crates.test.<lang>] before = ...`
   entries invoke `cargo build` against the shared `target/` directory; running
