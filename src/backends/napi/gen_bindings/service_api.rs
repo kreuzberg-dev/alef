@@ -181,7 +181,10 @@ fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface
         } else {
             out.push_str(&format!("  static new({param_sig}): {class_name} {{\n"));
             let params_for_ctor: Vec<&str> = ctor.params.iter().map(|p| p.name.as_str()).collect();
-            out.push_str(&format!("    return new {class_name}({});\n", params_for_ctor.join(", ")));
+            out.push_str(&format!(
+                "    return new {class_name}({});\n",
+                params_for_ctor.join(", ")
+            ));
         }
         out.push_str("  }\n\n");
     }
