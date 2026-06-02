@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Zig error-set header: emit `error{` without space before `{`.** The
+  `error_set_header.jinja` template emitted `pub const Foo = error {` (with
+  a space before the opening brace). `zig fmt` canonicalises this to `error{`
+  (no space), so every generation run produced output that diverged from the
+  formatter. Fixed by removing the space in the template.
+
 - **TypeScript HTTP e2e test emitter: emit double-quoted strings and
   pre-formatted multi-line fetch/toEqual blocks.** The `http_test.jinja`
   template and `render_http_test_case` emitter were using single-quoted string
