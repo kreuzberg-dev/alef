@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C FFI backend now correctly handles fallible static constructors.**
+  Opaque type static `new()` methods that return `Result<T, E>` were incorrectly
+  passed directly to `Box::into_raw()` without pattern-matching on the result.
+  Rust compilation failed with "expected struct ... found enum Result" at the
+  Box::new call site. The codegen now matches on the Result, calls `set_last_error`
+  on failure (with code 1 and the error message), and returns null on the C side.
+  Affected constructors include `tree_sitter_language_pack::DownloadManager::new()`.
+  Root cause: `gen_opaque_static_constructor` in `src/backends/ffi/gen_bindings/types.rs`
+  was not checking `method.error_type` before wrapping the return value. Now both
+  infallible and fallible paths are handled per the established FFI error convention.
+
 - **Dart FRB loader rewrite now also adds the unprefixed `import 'dart:core';`
   alongside the aliased `import 'dart:core' as _DartCore;`.** The aliased
   import was added to avoid the FRB-generated `Uri` class colliding with
