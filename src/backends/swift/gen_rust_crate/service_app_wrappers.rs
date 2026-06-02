@@ -5,8 +5,13 @@
 //! - `pub fn new() -> Self`
 //! - `pub fn config(&mut self) -> ()`
 //! - `pub fn run(self) -> Result<(), String>`
+//!
+//! Also emits wrapper-constructor free functions (e.g. `route_builder_new`) for registration variants
+//! that need to construct a wrapper metadata param (e.g. `RouteBuilder::new(method, path)`) in Swift.
+//! These are declared in the bridge `extern "Rust"` block and implemented here.
 
-use crate::core::ir::ApiSurface;
+use crate::core::ir::{ApiSurface, WrapperConstructorArg};
+use heck::ToSnakeCase;
 
 /// Generate App wrapper struct and impl for all services with registrations.
 pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String {
@@ -101,7 +106,84 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
              /// Expose the wrapper's address as a usize for cross-bridge ptr handoff.\n\
              pub fn {service_snake_local}_raw_ptr(client: &mut {service_name}) -> usize {{ client as *mut {service_name} as usize }}\n\n"
         ));
+
+        // Emit `route_builder_new`-style free functions for each unique WrapperConstructorCall.
+        // These are called from Swift variant shorthand methods (e.g. `app.get(handler, path:)`)
+        // to construct the wrapper metadata param before invoking the base callback-registration
+        // C function. Each function uses serde to parse the opaque enum argument (via its
+        // `to_string()` which returns the serde variant wire name) into the Rust core type,
+        // then forwards to the wrapper type's static constructor.
+        let mut seen_wrapper_fns = std::collections::HashSet::new();
+        for reg in &service.registrations {
+            for variant in &reg.variants {
+                let Some(wc) = &variant.wrapper_call else { continue };
+                let fn_name = format!("{}_new", wc.wrapper_type_name.to_snake_case());
+                if !seen_wrapper_fns.insert(fn_name.clone()) {
+                    continue;
+                }
+                // Build parameter list: Fixed args use the opaque enum type by reference,
+                // Free args use their declared Rust type.
+                let mut param_defs: Vec<String> = Vec::new();
+                let mut call_args: Vec<String> = Vec::new();
+                for arg in &wc.args {
+                    match arg {
+                        WrapperConstructorArg::Fixed { param_name, value_expr } => {
+                            // value_expr is e.g. "source_crate::Method::Get". Extract the type name.
+                            let type_name = if let Some(last_colon) = value_expr.rfind("::") {
+                                if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
+                                    &value_expr[second_colon + 2..last_colon]
+                                } else {
+                                    &value_expr[..last_colon]
+                                }
+                            } else {
+                                value_expr.as_str()
+                            };
+                            param_defs.push(format!("{param_name}: &{type_name}"));
+                            // Use the opaque type's to_string() (returns serde variant name like
+                            // "Get", "Post") to reconstruct the core Rust enum via serde_json.
+                            // The wrapper_type_path has the full Rust path for the core enum
+                            // (extracted from value_expr: "source_crate::Method::Get" → "source_crate::Method").
+                            let core_enum_path = if let Some(last_colon) = value_expr.rfind("::") {
+                                &value_expr[..last_colon]
+                            } else {
+                                value_expr.as_str()
+                            };
+                            call_args.push(format!(
+                                "serde_json::from_str::<{core_enum_path}>(&format!(\"\\\"{{}}\\\"\\n\", {param_name}.to_string())).unwrap_or_default()"
+                            ));
+                        }
+                        WrapperConstructorArg::Free { param } => {
+                            param_defs.push(format!("{}: {}", param.name, rust_type_for_param(&param.ty)));
+                            call_args.push(param.name.clone());
+                        }
+                    }
+                }
+                let params_str = param_defs.join(", ");
+                let call_args_str = call_args.join(", ");
+                let wrapper_type = &wc.wrapper_type_name;
+                let wrapper_path = &wc.wrapper_type_path;
+                let ctor = &wc.constructor_method;
+                out.push_str(&format!(
+                    "/// Construct a [`{wrapper_type}`] from its constructor args for use by Swift variant\n\
+                     /// registration shortcuts. Fixed args (e.g. Method) are passed as opaque references;\n\
+                     /// their `to_string()` returns the serde wire name used to reconstruct the Rust core type.\n\
+                     pub fn {fn_name}({params_str}) -> {wrapper_type} {{\n\
+                     \x20\x20\x20\x20{wrapper_type}({wrapper_path}::{ctor}({call_args_str}))\n\
+                     }}\n\n"
+                ));
+            }
+        }
     }
 
     out
+}
+
+/// Map a TypeRef to a Rust type string for function parameter declaration.
+fn rust_type_for_param(ty: &crate::core::ir::TypeRef) -> &'static str {
+    use crate::core::ir::TypeRef;
+    match ty {
+        TypeRef::String => "String",
+        TypeRef::Primitive(_) => "i64", // conservative fallback; callers usually use String for paths
+        _ => "String",
+    }
 }

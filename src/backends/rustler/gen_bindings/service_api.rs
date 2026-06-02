@@ -824,7 +824,7 @@ fn gen_run_nif(
                 .iter()
                 .map(|p| {
                     // Opaque types are passed as ResourceArc<super::T> where super::T is the
-                    // local lib-module wrapper (implements rustler::Resource). The `use spikard::*`
+                    // local lib-module wrapper (implements rustler::Resource). The wildcard
                     // import in service.rs would shadow a bare `T` name, so qualify with `super::`.
                     if let TypeRef::Named(n) = &p.ty {
                         if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
@@ -1031,7 +1031,7 @@ fn gen_registration_variant_nif(
             .iter()
             .map(|p| {
                 // Opaque types use super:: to name the local lib-module wrapper that implements
-                // rustler::Resource. The `use spikard::*` in service.rs would shadow a bare name.
+                // rustler::Resource. The wildcard import in service.rs would shadow a bare name.
                 if let TypeRef::Named(n) = &p.ty {
                     if api.types.iter().any(|t| &t.name == n && !t.is_trait && t.is_opaque) {
                         return format!("rustler::ResourceArc<super::{}>", n);

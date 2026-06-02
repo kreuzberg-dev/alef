@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 
+- fix(swift): replace invalid opaque-enum static access with delegate pattern using routeBuilderNew factory and from_json round-trip for registration variants
 - fix(codegen): remove consumer-specific naming and metadata leakage from Dart/Swift trait bridges, scaffold output, and e2e generators
 - fix(validation): add reusable sanitized public API diagnostics without blocking backend-specific fallback handling
 - test: sync ErrorVariant fixture fields and scaffold MANIFEST_PATH rename
