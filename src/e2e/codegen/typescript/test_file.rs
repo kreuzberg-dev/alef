@@ -498,7 +498,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let has_headers = !http.request.headers.is_empty() || needs_json_content_type || is_multipart && has_body;
 
     // Build the body entry if present.
-    let body_entry: Option<String> = if let Some(body) = http.request.body.as_ref() {
+    let body_entry: Option<String> = http.request.body.as_ref().map(|body| {
         let js_body = json_to_js(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
 
@@ -510,9 +510,7 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         } else {
             format!("body: JSON.stringify({js_body})")
         }
-    } else {
-        None
-    };
+    });
 
     // Build the fetch init object. Use multi-line form when headers or body
     // are present so the output matches what oxfmt would produce; use inline
