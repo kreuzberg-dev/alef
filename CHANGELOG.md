@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **magnus backend: documentation of registration variant style semantic equivalence (#26).**
+  Updated doc comment in `src/backends/magnus/gen_bindings/service_api.rs` (lines 361–369) to explicitly cite `RegistrationVariantStyle` enum and explain why Ruby's block-form method signature satisfies all three styles (Builder, VerbDecorator, Hybrid) via semantic equivalence.
+  Added `test_registration_variant_styles_emit_unified_block_form` integration test to verify that all three styles emit the same block-form method signature in generated Ruby code.
+
 - **php backend: registration variant style emission switching.**
   The php backend now respects `RegistrationVariant::style` when emitting PHP registration methods.
   `VerbDecorator` style emits only the direct form (`$app->get(path, handler): self`);

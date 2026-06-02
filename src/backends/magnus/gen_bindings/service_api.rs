@@ -358,12 +358,15 @@ fn gen_registration_variant(
         format!("[{}]", meta_items.join(", "))
     };
 
-    // In Ruby, blocks are the idiomatic callback mechanism regardless of style.
-    // `RegistrationVariantStyle::VerbDecorator` and `Hybrid` both emit the block-
-    // accepting form since Ruby has no separate "decorator factory" concept.
-    // `RegistrationVariantStyle::Builder` is treated the same way.
-    // The style field is carried in the IR so other backends (Python) can
-    // distinguish the forms; Ruby emits one unified block form.
+    // In Ruby, blocks are the idiomatic callback mechanism, making all three
+    // RegistrationVariantStyle variants semantically equivalent at the API surface.
+    // - RegistrationVariantStyle::VerbDecorator: handler as block param
+    // - RegistrationVariantStyle::Builder: handler as block (no decorator factory)
+    // - RegistrationVariantStyle::Hybrid: handler as block (same as both above)
+    // Ruby's unified block form satisfies all three patterns — a block IS a closure
+    // that can serve as either a direct callback or a factory result. The style
+    // field is preserved in the IR so other backends (e.g., Python) can distinguish
+    // between decorator-factory and direct-method forms; Ruby emits one unified form.
     let _ = variant.style; // acknowledged; no Ruby-specific branching needed
 
     let param_sig = if free_params_sig.is_empty() {
