@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.5] - 2026-06-02
+
+### Fixed
+
+- **rustler service-api codegen: prefix unused `variant_name` / `base_reg` to compile under `-D warnings`.**
+  `gen_registration_variant_method` bound `let variant_name = &variant.name;` without using it (the function delegates to `emit_*` siblings), and `emit_verb_decorator_variant` accepted `base_reg: &RegistrationDef` without referencing it in the body. Both were latent dead bindings that compiled fine under default lints but failed `cargo install` in CI because `setup-rust` exports `RUSTFLAGS=-D warnings` to `$GITHUB_ENV`, which propagates to `install-alef`'s `cargo install --tag` fallback when the release tarball is missing. Surfaced as `error: unused variable` killing every C FFI / Go FFI / Java FFI publish lane in h2m v3.6.0-rc.5. The bindings are now `_variant_name` / `_base_reg`, preserving the placeholder intent without tripping lints. (`src/backends/rustler/gen_bindings/service_api.rs`)
+
 ### Fixed
 
 - **pyo3 converters: narrow `value` after str/dict coercion so mypy accepts field access.**

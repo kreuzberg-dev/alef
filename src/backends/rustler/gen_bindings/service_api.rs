@@ -340,7 +340,7 @@ fn gen_registration_variant_method(
     variant: &crate::core::ir::RegistrationVariant,
     base_reg: &RegistrationDef,
 ) {
-    let variant_name = &variant.name;
+    let _variant_name = &variant.name;
     let _base_method = &base_reg.method;
 
     match variant.style {
@@ -361,7 +361,7 @@ fn gen_registration_variant_method(
 fn emit_verb_decorator_variant(
     out: &mut String,
     variant: &crate::core::ir::RegistrationVariant,
-    base_reg: &RegistrationDef,
+    _base_reg: &RegistrationDef,
 ) {
     let variant_name = &variant.name;
 
