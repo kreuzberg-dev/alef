@@ -988,7 +988,7 @@ mod tests {
         assert!(go.contains("handler HandlerFunc"));
         assert!(go.contains("registerHandler(handler)"));
         // Verify callback is passed via the const-signature trampoline address.
-        assert!(go.contains("unsafe.Pointer(&C.service_handler_trampoline),"));
+        assert!(go.contains("unsafe.Pointer(C.service_handler_trampoline),"));
         // Verify prefixed struct names
         assert!(go.contains("(*C.TEST_CRATETestServiceOpaque)"));
     }
