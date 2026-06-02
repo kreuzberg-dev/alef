@@ -9,7 +9,7 @@ use crate::e2e::fixture::Fixture;
 use heck::ToUpperCamelCase;
 
 use super::assertions::render_assertion;
-use super::json::{json_to_js, json_to_js_camel, snake_to_camel};
+use super::json::{json_to_js, json_to_js_camel, json_to_js_multiline, snake_to_camel};
 use super::visitors::build_typescript_visitor;
 
 /// Render a complete test file for the given category.
@@ -455,16 +455,17 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     };
 
     let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('\'', "\\'");
+    // Escape backslashes and double quotes for use in a double-quoted JS string.
+    let description = fixture
+        .description
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
 
     if http.expected_response.status_code == 101 {
         return;
     }
 
     let method = http.request.method.to_uppercase();
-    let mut init_entries: Vec<String> = Vec::new();
-    init_entries.push(format!("method: '{method}'"));
-    init_entries.push("redirect: 'manual'".to_string());
 
     // Detect content-type so the renderer can decide between JSON-encoded and
     // raw (form-urlencoded / multipart) body emission.
@@ -484,35 +485,54 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let has_content_type = !content_type_lower.is_empty();
     let needs_json_content_type = has_body && !is_form_body && !has_content_type;
 
-    if !http.request.headers.is_empty() || needs_json_content_type {
-        let mut entries: Vec<String> = http
-            .request
-            .headers
-            .iter()
-            .map(|(k, v)| {
-                let expanded_v = expand_fixture_templates(v);
-                format!("      \"{}\": \"{}\"", escape_js(k), escape_js(&expanded_v))
-            })
-            .collect();
-        if needs_json_content_type {
-            entries.push(r#"      "Content-Type": "application/json""#.to_string());
-        }
-        init_entries.push(format!("headers: {{\n{},\n    }}", entries.join(",\n")));
-    }
+    let has_headers = !http.request.headers.is_empty() || needs_json_content_type;
 
-    if let Some(body) = &http.request.body {
+    // Build the body entry if present.
+    let body_entry: Option<String> = http.request.body.as_ref().map(|body| {
         let js_body = json_to_js(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
         if is_form_body && body_is_string {
-            // For form-encoded payloads, emit the raw string without JSON.stringify.
-            init_entries.push(format!("body: {js_body}"));
+            format!("body: {js_body}")
         } else {
-            // For JSON payloads, wrap in JSON.stringify.
-            init_entries.push(format!("body: JSON.stringify({js_body})"));
+            format!("body: JSON.stringify({js_body})")
         }
-    }
+    });
 
-    let init_str = init_entries.join(", ");
+    // Build the fetch init object. Use multi-line form when headers or body
+    // are present so the output matches what oxfmt would produce; use inline
+    // form for the simple method+redirect-only case.
+    let fetch_init: String = if has_headers || body_entry.is_some() {
+        // Multi-line object: each entry on its own line, trailing commas.
+        let mut lines: Vec<String> = Vec::new();
+        lines.push(format!("      method: \"{method}\","));
+        lines.push("      redirect: \"manual\",".to_string());
+        if has_headers {
+            let mut header_lines: Vec<String> = http
+                .request
+                .headers
+                .iter()
+                .map(|(k, v)| {
+                    let expanded_v = expand_fixture_templates(v);
+                    format!("        \"{}\": \"{}\",", escape_js(k), escape_js(&expanded_v))
+                })
+                .collect();
+            if needs_json_content_type {
+                header_lines.push("        \"Content-Type\": \"application/json\",".to_string());
+            }
+            lines.push("      headers: {".to_string());
+            lines.extend(header_lines);
+            lines.push("      },".to_string());
+        }
+        if let Some(body) = body_entry {
+            lines.push(format!("      {body},"));
+        }
+        format!("{{\n{}\n    }}", lines.join("\n"))
+    } else {
+        // Inline: no headers, no body — only method and redirect.
+        format!("{{ method: \"{method}\", redirect: \"manual\" }}")
+    };
+
+    let init_str = fetch_init;
     // Server-pattern: construct path as /fixtures/{fixture_id}{request_path}
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
@@ -538,7 +558,10 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
             if let serde_json::Value::String(_) = expected_body {
                 (false, String::new())
             } else {
-                (true, json_to_js(expected_body))
+                // Use multi-line form for objects so the output is stable under
+                // oxfmt (formatters leave properly-indented multi-line objects
+                // unchanged). Scalar and array values stay inline.
+                (true, json_to_js_multiline(expected_body, 4))
             }
         } else {
             (false, String::new())
@@ -724,7 +747,7 @@ fn render_test_case(
     let test_is_async = call_is_async || has_bytes_file_reads(&fixture.input, args);
 
     let test_name = sanitize_ident(&fixture.id);
-    let description = fixture.description.replace('\'', "\\'");
+    let description = fixture.description.replace('\\', "\\\\").replace('"', "\\\"");
     let async_kw = if test_is_async { "async " } else { "" };
     let await_kw = if call_is_async { "await " } else { "" };
 
@@ -1691,7 +1714,7 @@ fn build_args_and_setup(
                     if let Some(path) = v.as_str() {
                         let var_name = format!("_{}_content", sanitize_ident(&arg.name));
                         setup_lines.push(format!(
-                            "const {var_name} = await (await import('node:fs/promises')).readFile('{}');",
+                            "const {var_name} = await (await import(\"node:fs/promises\")).readFile(\"{}\");",
                             escape_js(path)
                         ));
                         parts.push(var_name);
@@ -1945,7 +1968,7 @@ mod tests {
             "missing generic cache var: {rendered}"
         );
         assert!(
-            rendered.contains("mkdtempSync(join(tmpdir(), 'alef-e2e-'))"),
+            rendered.contains("mkdtempSync(join(tmpdir(), \"alef-e2e-\"))"),
             "missing generic cache prefix: {rendered}"
         );
         assert!(

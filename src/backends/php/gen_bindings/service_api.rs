@@ -113,7 +113,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
     if !service.doc.is_empty() {
         out.push_str(&format_php_comment(&service.doc, 0));
     }
-    out.push_str(&format!("class {class_name} {{\n"));
+    out.push_str(&format!("class {class_name}\n{{\n"));
 
     // Private registrations storage
     out.push_str("    private array $registrations = [];\n\n");
@@ -138,7 +138,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         let param_sig = ctor_params.join(", ");
         // PHP constructors cannot declare a return type — emitting `: void`
         // is a parse error. The return type is implicit.
-        out.push_str(&format!("    public function __construct({param_sig}) {{\n"));
+        out.push_str(&format!("    public function __construct({param_sig})\n    {{\n"));
         if !ctor.doc.is_empty() {
             out.push_str(&format_php_comment(&ctor.doc, 8));
         }
@@ -163,7 +163,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         }
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        out.push_str(&format!("    public function {method_name}({param_sig}): self {{\n"));
+        out.push_str(&format!("    public function {method_name}({param_sig}): self\n    {{\n"));
         if !method.doc.is_empty() {
             out.push_str(&format_php_comment(&method.doc, 8));
         }
@@ -197,7 +197,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("    public function {ep_name}({param_sig}): void {{\n"));
+                out.push_str(&format!("    public function {ep_name}({param_sig}): void\n    {{\n"));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_php_comment(&ep.doc, 8));
                 }
@@ -216,7 +216,7 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
             EntrypointKind::Finalize => {
                 let return_annotation = php_type_annotation(&ep.return_type);
                 out.push_str(&format!(
-                    "    public function {ep_name}({param_sig}): {return_annotation} {{\n"
+                    "    public function {ep_name}({param_sig}): {return_annotation}\n    {{\n"
                 ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_php_comment(&ep.doc, 8));
@@ -268,7 +268,7 @@ fn gen_registration_method(
     let direct_sig = direct_params.join(", ");
 
     // Decorator factory form: returns a closure
-    out.push_str(&format!("    public function {method_name}({meta_sig}): callable {{\n"));
+    out.push_str(&format!("    public function {method_name}({meta_sig}): callable\n    {{\n"));
     if !reg.doc.is_empty() {
         out.push_str(&format_php_comment(&reg.doc, 8));
     }
@@ -286,7 +286,7 @@ fn gen_registration_method(
 
     out.push_str(&format!(
         "        return function (callable ${callback_param}) {{\n            \
-         $this->registrations[] = [\"{method_name}\", {meta_tuple}, ${callback_param}];\n            \
+         $this->registrations[] = ['{method_name}', {meta_tuple}, ${callback_param}];\n            \
          return ${callback_param};\n        \
          }};\n",
         callback_param = reg.callback_param,
@@ -296,9 +296,9 @@ fn gen_registration_method(
     // Also expose a direct (non-decorator) variant: `register_{method_name}`
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        out.push_str(&format!("    public function {direct_name}({direct_sig}): self {{\n"));
+        out.push_str(&format!("    public function {direct_name}({direct_sig}): self\n    {{\n"));
         out.push_str(&format!(
-            "        $this->registrations[] = [\"{method_name}\", {meta_tuple}, ${callback_param}];\n",
+            "        $this->registrations[] = ['{method_name}', {meta_tuple}, ${callback_param}];\n",
             callback_param = reg.callback_param,
         ));
         out.push_str("        return $this;\n");
@@ -727,7 +727,7 @@ fn gen_registration_variant(
     let variant_sig = variant_params.join(", ");
 
     out.push_str(&format!(
-        "    public function {variant_name}({variant_sig}): callable {{\n"
+        "    public function {variant_name}({variant_sig}): callable\n    {{\n"
     ));
     if let Some(doc) = &variant.doc {
         out.push_str(&format_php_comment(doc, 8));

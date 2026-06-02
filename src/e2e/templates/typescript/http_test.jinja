@@ -17,32 +17,32 @@
    - has_validation_errors: bool
    - validation_errors: array of {loc_js, escaped_msg} dicts
 #}
-  it('{{ test_name }}: {{ description }}', async () => {
-    const sutUrl = process.env.SUT_URL || 'http://127.0.0.1:8001';
+  it("{{ test_name }}: {{ description }}", async () => {
+    const sutUrl = process.env.SUT_URL || "http://127.0.0.1:8001";
     const url = `${sutUrl}{{ path }}`;
-    const response = await fetch(url, { {{ init_str }} });
+    const response = await fetch(url, {{ init_str }});
     expect(response.status).toBe({{ expected_status }});
 {%- if has_text_body %}
     const text = await response.text();
-    expect(text).toBe('{{ text_body }}');
+    expect(text).toBe("{{ text_body }}");
 {%- elif has_json_body %}
     const data = await response.json();
     expect(data).toEqual({{ json_val }});
 {%- elif has_partial_body %}
     const data = await response.json();
 {%- for check in partial_body_checks %}
-    expect((data as Record<string, unknown>)['{{ check.key }}']).toEqual({{ check.js_val }});
+    expect((data as Record<string, unknown>)["{{ check.key }}"]).toEqual({{ check.js_val }});
 {%- endfor %}
 {%- endif %}
 {%- for assertion in header_assertions %}
 {%- if assertion.assertion_type == "present" %}
-    expect(response.headers.get('{{ assertion.name }}')).not.toBeNull();
+    expect(response.headers.get("{{ assertion.name }}")).not.toBeNull();
 {%- elif assertion.assertion_type == "absent" %}
-    expect(response.headers.get('{{ assertion.name }}')).toBeNull();
+    expect(response.headers.get("{{ assertion.name }}")).toBeNull();
 {%- elif assertion.assertion_type == "uuid" %}
-    expect(response.headers.get('{{ assertion.name }}')).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(response.headers.get("{{ assertion.name }}")).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
 {%- else %}
-    expect(response.headers.get('{{ assertion.name }}')).toBe('{{ assertion.value }}');
+    expect(response.headers.get("{{ assertion.name }}")).toBe("{{ assertion.value }}");
 {%- endif %}
 {%- endfor %}
 {%- if has_validation_errors %}
