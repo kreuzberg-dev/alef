@@ -15,6 +15,7 @@
 
 use std::path::PathBuf;
 
+use crate::codegen::naming::to_class_name;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig};
@@ -279,8 +280,7 @@ fn emit_trait_bridge_shims(
     out.push_str("// Trait-bridge shims\n");
     out.push_str("// ---------------------------------------------------------------------------\n\n");
     for bridge_cfg in &bridges {
-        use heck::ToUpperCamelCase;
-        let trait_pascal = bridge_cfg.trait_name.to_upper_camel_case();
+        let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
 
         // Find the trait definition for method iteration
         let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
@@ -1482,10 +1482,7 @@ fn emit_streaming_shims(
     _api: &ApiSurface,
 ) {
     let type_name = &ty.name;
-    let adapter_pascal = {
-        use heck::ToUpperCamelCase;
-        adapter.name.to_upper_camel_case()
-    };
+    let adapter_pascal = internal_class_component(&adapter.name);
     let stream_handle_type = format!("{type_name}{adapter_pascal}StreamHandle");
     let adapter_method = adapter.name.replace('-', "_");
 
@@ -1617,6 +1614,10 @@ fn emit_streaming_shims(
 // ---------------------------------------------------------------------------
 // Return type helpers
 // ---------------------------------------------------------------------------
+
+fn internal_class_component(name: &str) -> String {
+    to_class_name(name)
+}
 
 /// Return the ` -> <JniReturnType>` suffix for a method shim signature.
 fn method_return_type_decl(return_type: &TypeRef) -> String {

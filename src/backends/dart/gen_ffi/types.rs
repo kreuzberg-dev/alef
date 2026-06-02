@@ -1,6 +1,7 @@
+use crate::codegen::naming::{PublicIdentifierKind, public_field_name, public_host_identifier};
 use crate::codegen::shared::binding_fields;
+use crate::core::config::Language;
 use crate::core::ir::{EnumDef, TypeDef};
-use heck::ToLowerCamelCase;
 
 use super::type_map::dart_type;
 use crate::backends::dart::template_env;
@@ -49,7 +50,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
     if visible_fields.len() == 1 {
         let field = visible_fields[0];
         let ty_str = dart_type(&field.ty, field.optional);
-        let name = field.name.to_lower_camel_case();
+        let name = public_field_name(Language::Dart, &field.name, None);
         out.push_str(&template_env::render(
             "freezed_class_single_param.jinja",
             minijinja::context! {
@@ -67,7 +68,7 @@ pub(super) fn emit_type(ty: &TypeDef, out: &mut String) {
         ));
         for field in &visible_fields {
             let ty_str = dart_type(&field.ty, field.optional);
-            let name = field.name.to_lower_camel_case();
+            let name = public_field_name(Language::Dart, &field.name, None);
             if !field.doc.is_empty() {
                 let doc_lines: Vec<String> = field.doc.lines().map(ToString::to_string).collect();
                 out.push_str(&template_env::render(
@@ -132,7 +133,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
                     },
                 ));
             }
-            let vname = variant.name.to_lower_camel_case();
+            let vname = public_host_identifier(Language::Dart, PublicIdentifierKind::Field, &variant.name);
             let suffix = if idx + 1 == count { ";" } else { "," };
             out.push_str(&template_env::render(
                 "enum_unit_variant.jinja",
@@ -160,7 +161,7 @@ pub(super) fn emit_enum(en: &EnumDef, out: &mut String) {
         ));
         let count = en.variants.len();
         for (idx, variant) in en.variants.iter().enumerate() {
-            let vname = variant.name.to_lower_camel_case();
+            let vname = public_host_identifier(Language::Dart, PublicIdentifierKind::Field, &variant.name);
             let suffix = if idx + 1 == count { ";" } else { "," };
             out.push_str(&template_env::render(
                 "enum_unit_variant.jinja",

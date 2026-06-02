@@ -80,7 +80,7 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     out.push_str("        match self {\n");
 
     for variant in &en.variants {
-        let serde_name = serde_variant_name(variant, en.serde_rename_all.as_deref());
+        let serde_name = serde_variant_wire_name(variant, en.serde_rename_all.as_deref());
         out.push_str(&format!(
             "            Self::{} => \"{}\".to_string(),\n",
             variant.name, serde_name
@@ -100,35 +100,6 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
 /// 1. Explicit `#[serde(rename = "...")]` on the variant.
 /// 2. `rename_all` transformation applied to the Rust identifier.
 /// 3. Raw Rust identifier (no transformation).
-fn serde_variant_name(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
-    if let Some(rename) = &variant.serde_rename {
-        return rename.clone();
-    }
-    match rename_all {
-        Some("snake_case") => crate::codegen::naming::pascal_to_snake(&variant.name),
-        Some("lowercase") => variant.name.to_lowercase(),
-        Some("UPPERCASE") => variant.name.to_uppercase(),
-        Some("camelCase") => {
-            // to_lower_camel_case from heck
-            use heck::ToLowerCamelCase;
-            variant.name.to_lower_camel_case()
-        }
-        Some("PascalCase") | Some("UpperCamelCase") => {
-            use heck::ToUpperCamelCase;
-            variant.name.to_upper_camel_case()
-        }
-        Some("SCREAMING_SNAKE_CASE") => {
-            use heck::ToShoutySnakeCase;
-            variant.name.to_shouty_snake_case()
-        }
-        Some("kebab-case") => {
-            use heck::ToKebabCase;
-            variant.name.to_kebab_case()
-        }
-        Some("SCREAMING-KEBAB-CASE") => {
-            use heck::ToShoutyKebabCase;
-            variant.name.to_shouty_kebab_case()
-        }
-        _ => variant.name.clone(),
-    }
+fn serde_variant_wire_name(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
+    crate::codegen::naming::wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all)
 }

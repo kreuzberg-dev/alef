@@ -1,6 +1,7 @@
-use crate::codegen::keywords::zig_ident;
+use crate::codegen::naming::{PublicIdentifierKind, pascal_to_snake, public_host_identifier, wire_variant_value};
 use crate::codegen::shared::binding_fields;
 use crate::codegen::type_mapper::TypeMapper;
+use crate::core::config::Language;
 use crate::core::ir::{EnumDef, TypeDef, TypeRef};
 
 use crate::backends::zig::type_map::ZigMapper;
@@ -24,7 +25,7 @@ pub(crate) fn emit_type(ty: &TypeDef, out: &mut String) {
         out.push_str(&crate::backends::zig::template_env::render(
             "type_field.jinja",
             minijinja::context! {
-                field_name => zig_ident(&field.name),
+                field_name => public_host_identifier(Language::Zig, PublicIdentifierKind::Field, &field.name),
                 field_type => ty_str,
             },
         ));
@@ -46,14 +47,15 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
             // Variant docstrings render as `///` comments immediately above the
             // tag declaration. Empty docs no-op via `emit_cleaned_zig_doc`.
             emit_cleaned_zig_doc(out, &variant.doc, "    ");
-            let tag_value = variant
-                .serde_rename
-                .clone()
-                .unwrap_or_else(|| to_snake_case(&variant.name));
+            let tag_value = wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
             out.push_str(&crate::backends::zig::template_env::render(
                 "enum_unit_variant.jinja",
                 minijinja::context! {
-                    variant_name => zig_ident(&tag_value),
+                    variant_name => public_host_identifier(Language::Zig, PublicIdentifierKind::EnumVariant, &tag_value),
                 },
             ));
         }
@@ -68,11 +70,12 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
         for variant in &en.variants {
             // Tagged-union variants carry their rustdoc as `///` above the tag.
             emit_cleaned_zig_doc(out, &variant.doc, "    ");
-            let tag_value = variant
-                .serde_rename
-                .clone()
-                .unwrap_or_else(|| to_snake_case(&variant.name));
-            let tag = zig_ident(&tag_value);
+            let tag_value = wire_variant_value(
+                &variant.name,
+                variant.serde_rename.as_deref(),
+                en.serde_rename_all.as_deref(),
+            );
+            let tag = public_host_identifier(Language::Zig, PublicIdentifierKind::EnumVariant, &tag_value);
             if variant.fields.is_empty() {
                 out.push_str(&crate::backends::zig::template_env::render(
                     "enum_variant_void.jinja",
@@ -100,7 +103,7 @@ pub(crate) fn emit_enum(en: &EnumDef, out: &mut String) {
                     let name = if f.name.is_empty() {
                         "value".into()
                     } else {
-                        zig_ident(&f.name)
+                        public_host_identifier(Language::Zig, PublicIdentifierKind::Field, &f.name)
                     };
                     let ty_str = zig_field_type(&f.ty, f.optional);
                     out.push_str(&crate::backends::zig::template_env::render(
@@ -131,125 +134,6 @@ pub(crate) fn zig_field_type(ty: &TypeRef, optional: bool) -> String {
     }
 }
 
-/// Convert a PascalCase identifier to snake_case with acronym awareness.
-///
-/// Consecutive uppercase letters (≥2) are treated as a single acronym word.
-/// The last uppercase in an all-caps run is the first letter of the next word
-/// when followed by a lowercase letter.
-///
-/// # Examples
-/// - `Rdfa`          → `rdfa`
-/// - `MyType`        → `my_type`
-/// - `HTMLParser`    → `html_parser`
-/// - `IOError`       → `io_error`
-/// - `URLPath`       → `url_path`
-/// - `XMLHttpRequest`→ `xml_http_request`
-/// - `JSONLD`        → `jsonld`
-pub(crate) fn to_snake_case(name: &str) -> String {
-    if name.is_empty() {
-        return String::new();
-    }
-    let chars: Vec<char> = name.chars().collect();
-    let n = chars.len();
-    let mut out = String::with_capacity(n + 4);
-    let mut i = 0;
-    while i < n {
-        let ch = chars[i];
-        if ch.is_ascii_uppercase() {
-            // Determine how long this uppercase run is.
-            let run_start = i;
-            while i < n && chars[i].is_ascii_uppercase() {
-                i += 1;
-            }
-            let run_end = i; // exclusive
-            let run_len = run_end - run_start;
-            if run_len == 1 {
-                // Single uppercase letter — normal word boundary.
-                if !out.is_empty() {
-                    out.push('_');
-                }
-                out.extend(chars[run_start].to_lowercase());
-            } else {
-                // Multi-char uppercase run = acronym.
-                // If followed by lowercase, the last char of the run starts
-                // the next word: split as acronym[0..run_len-1] + next_word.
-                let split = if i < n && chars[i].is_ascii_lowercase() {
-                    run_len - 1
-                } else {
-                    run_len
-                };
-                // Emit acronym portion.
-                if !out.is_empty() {
-                    out.push('_');
-                }
-                for &ch in chars.iter().skip(run_start).take(split) {
-                    out.extend(ch.to_lowercase());
-                }
-                // Emit trailing char as new word if applicable.
-                if split < run_len {
-                    out.push('_');
-                    out.extend(chars[run_start + split].to_lowercase());
-                }
-            }
-        } else {
-            out.push(ch);
-            i += 1;
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod case_tests {
-    use super::to_snake_case;
-
-    #[test]
-    fn rdfa_single_word() {
-        assert_eq!(to_snake_case("Rdfa"), "rdfa");
-    }
-
-    #[test]
-    fn my_type_normal() {
-        assert_eq!(to_snake_case("MyType"), "my_type");
-    }
-
-    #[test]
-    fn html_parser_acronym_prefix() {
-        assert_eq!(to_snake_case("HTMLParser"), "html_parser");
-    }
-
-    #[test]
-    fn io_error_two_char_acronym() {
-        assert_eq!(to_snake_case("IOError"), "io_error");
-    }
-
-    #[test]
-    fn url_path_acronym_prefix() {
-        assert_eq!(to_snake_case("URLPath"), "url_path");
-    }
-
-    #[test]
-    fn xml_http_request_compound() {
-        assert_eq!(to_snake_case("XMLHttpRequest"), "xml_http_request");
-    }
-
-    #[test]
-    fn jsonld_all_caps() {
-        assert_eq!(to_snake_case("JSONLD"), "jsonld");
-    }
-
-    #[test]
-    fn empty_string() {
-        assert_eq!(to_snake_case(""), "");
-    }
-
-    #[test]
-    fn single_lowercase() {
-        assert_eq!(to_snake_case("value"), "value");
-    }
-
-    #[test]
-    fn single_uppercase() {
-        assert_eq!(to_snake_case("A"), "a");
-    }
+pub(crate) fn c_symbol_component(name: &str) -> String {
+    pascal_to_snake(name)
 }

@@ -42,10 +42,8 @@ pub(crate) fn emit_trait_bridge_shims(
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
-    use heck::ToSnakeCase;
-
     let trait_name = &bridge_cfg.trait_name;
-    let trait_snake = trait_name.to_snake_case();
+    let trait_snake = gleam_public_member_name(trait_name);
 
     // Documentation comment
     out.push_str(&crate::backends::gleam::template_env::render(
@@ -127,7 +125,7 @@ pub(crate) fn emit_trait_bridge_shims(
     // callers pass the opaque reference term received in the trait_call message.
     if let Some(trait_ty) = trait_type {
         for method in &trait_ty.methods {
-            let method_snake = method.name.to_snake_case();
+            let method_snake = gleam_public_member_name(&method.name);
             let nif_fn_name = format!("{trait_snake}_{method_snake}_response");
 
             // Build Gleam return type for the ok branch (Nil when Unit).
@@ -185,6 +183,14 @@ pub(crate) fn emit_trait_bridge_shims(
             out.push('\n');
         }
     }
+}
+
+fn gleam_public_member_name(name: &str) -> String {
+    crate::codegen::naming::public_host_identifier(
+        crate::core::config::Language::Gleam,
+        crate::codegen::naming::PublicIdentifierKind::Function,
+        name,
+    )
 }
 
 /// Emit the shared `complete_trait_call` and `fail_trait_call` support NIF shims.

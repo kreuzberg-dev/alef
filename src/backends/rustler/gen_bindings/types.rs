@@ -157,17 +157,11 @@ fn field_type_for_rustler_inner(ty: &TypeRef) -> String {
 
 /// Return the serde wire name for a variant, applying serde_rename_all if set.
 fn variant_wire_name(variant: &crate::core::ir::EnumVariant, enum_def: &EnumDef) -> String {
-    if let Some(rename) = &variant.serde_rename {
-        return rename.clone();
-    }
-    match enum_def.serde_rename_all.as_deref() {
-        Some("snake_case") => crate::codegen::naming::pascal_to_snake(&variant.name),
-        Some("camelCase") => heck::AsLowerCamelCase(variant.name.as_str()).to_string(),
-        Some("PascalCase") | Some("UpperCamelCase") => variant.name.clone(),
-        Some("SCREAMING_SNAKE_CASE") => crate::codegen::naming::pascal_to_screaming_snake(&variant.name),
-        Some("kebab-case") => heck::AsKebabCase(variant.name.as_str()).to_string(),
-        _ => variant.name.clone(),
-    }
+    crate::codegen::naming::wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    )
 }
 
 /// Generate a Rustler flat struct enum for data enums with tuple fields containing Named types.

@@ -264,7 +264,7 @@ pub fn gen_visitor_file(
 
     // Derive bridge_snake from bridge_rust_name for fn names.
     // e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
-    let bridge_snake = to_snake_case(&bridge_rust_name);
+    let bridge_snake = go_visitor_bridge_function_component(&bridge_rust_name);
     let fn_bridge_new = format!("{ffi_prefix}_{bridge_snake}_new");
     let fn_bridge_free = format!("{ffi_prefix}_{bridge_snake}_free");
     let fn_options_set_visitor = format!("{ffi_prefix}_options_set_{options_field}");
@@ -600,14 +600,7 @@ fn capitalize(s: &str) -> String {
     }
 }
 
-/// Convert PascalCase to snake_case (e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge").
-fn to_snake_case(s: &str) -> String {
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_ascii_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(ch.to_ascii_lowercase());
-    }
-    out
+/// Convert a generated visitor bridge type name into its Go wrapper function component.
+fn go_visitor_bridge_function_component(name: &str) -> String {
+    crate::codegen::naming::pascal_to_snake(name)
 }

@@ -1,19 +1,11 @@
 use crate::core::ir::ErrorDef;
 
-fn to_pascal_case(name: &str) -> String {
-    let mut out = String::new();
-    let mut capitalize = true;
-    for ch in name.chars() {
-        if ch == '_' {
-            capitalize = true;
-        } else if capitalize {
-            out.push(ch.to_uppercase().next().unwrap());
-            capitalize = false;
-        } else {
-            out.push(ch);
-        }
-    }
-    out
+fn zig_error_variant_component(name: &str) -> String {
+    crate::codegen::naming::public_host_identifier(
+        crate::core::config::Language::Zig,
+        crate::codegen::naming::PublicIdentifierKind::Type,
+        name,
+    )
 }
 
 pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
@@ -35,14 +27,18 @@ pub(crate) fn emit_error_set(error: &ErrorDef, out: &mut String) {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
             minijinja::context! {
-                variant_name => to_pascal_case(&variant.name),
+                variant_name => zig_error_variant_component(&variant.name),
             },
         ));
     }
     // OutOfMemory is always included so allocator failures can be propagated
     // without a `||error{OutOfMemory}` concat on every return type.
     // Only emit if not already present as a user-defined variant.
-    if !error.variants.iter().any(|v| to_pascal_case(&v.name) == "OutOfMemory") {
+    if !error
+        .variants
+        .iter()
+        .any(|v| zig_error_variant_component(&v.name) == "OutOfMemory")
+    {
         out.push_str(&crate::backends::zig::template_env::render(
             "error_set_variant.jinja",
             minijinja::context! {

@@ -1,8 +1,8 @@
 use crate::codegen::conversions::core_type_path;
 use crate::codegen::doc_emission::emit_c_doxygen;
+use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::{AHashMap, AHashSet};
-use heck::{ToPascalCase, ToSnakeCase};
 use minijinja::context;
 
 /// Returns true if a method should be skipped from C FFI wrapper generation.
@@ -129,6 +129,14 @@ use crate::backends::ffi::type_map::{c_return_type_with_paths, is_passthrough_re
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
+fn c_symbol_component(name: &str) -> String {
+    pascal_to_snake(name)
+}
+
+fn internal_class_component(name: &str) -> String {
+    to_class_name(name)
+}
+
 // ---------------------------------------------------------------------------
 // _len() companion helpers
 // ---------------------------------------------------------------------------
@@ -236,7 +244,7 @@ pub(super) fn gen_free_function_len_companion(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
 ) -> String {
-    let fn_name_snake = func.name.to_snake_case();
+    let fn_name_snake = c_symbol_component(&func.name);
     let ffi_name = format!("{prefix}_{fn_name_snake}_len");
 
     let ffi_param_count = func.params.len() + func.params.iter().filter(|p| matches!(p.ty, TypeRef::Bytes)).count();
@@ -317,11 +325,11 @@ pub(super) fn gen_streaming_method_wrapper(
     core_import: &str,
     body: &str,
 ) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
     let qualified = core_type_path(typ, core_import);
-    let callback_type = format!("{}StreamCallback", prefix.to_pascal_case());
+    let callback_type = format!("{}StreamCallback", internal_class_component(prefix));
 
     let doc_comment = ffi_doxygen_block(&method.doc);
 
@@ -351,7 +359,7 @@ pub(super) fn gen_method_wrapper(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
 ) -> String {
-    let type_snake = typ.name.to_snake_case();
+    let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let method_name = &method.name;
     let fn_name = format!("{prefix}_{type_snake}_{method_name}");
@@ -814,7 +822,7 @@ pub(super) fn gen_free_function(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
 ) -> String {
-    let fn_name_snake = func.name.to_snake_case();
+    let fn_name_snake = c_symbol_component(&func.name);
     let ffi_name = format!("{prefix}_{fn_name_snake}");
     // Use the full rust_path for correct module path resolution
     let core_fn_path = {
@@ -1297,7 +1305,7 @@ pub(super) fn gen_param_conversion_with_enums(
                 // Optional enum passed as i32 sentinel: reconstruct via private Rust helper.
                 // Use match+explicit return rather than `?` because the outer function may return
                 // *mut T or i32, not Result/Option, so the ? operator is unavailable.
-                let enum_snake = type_name.to_snake_case();
+                let enum_snake = c_symbol_component(type_name);
                 out.push_str(&format!(
                     "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
                      Some(v) => v,\n        \
@@ -1465,7 +1473,7 @@ pub(super) fn gen_param_conversion_with_enums(
                 // Enum passed as i32: reconstruct using the private Rust helper.
                 // Use match+explicit return rather than `?` because the outer function may return
                 // *mut T or i32, not Result/Option, so the ? operator is unavailable.
-                let enum_snake = type_name.to_snake_case();
+                let enum_snake = c_symbol_component(type_name);
                 out.push_str(&format!(
                     "    let {0}_rs = match {0}_from_i32_rs({0}) {{\n        \
                      Some(v) => v,\n        \

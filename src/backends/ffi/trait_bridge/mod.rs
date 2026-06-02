@@ -20,9 +20,9 @@ mod registration;
 mod vtable;
 
 use crate::codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugin_impl};
+use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
-use heck::ToPascalCase;
 use std::collections::HashMap;
 
 use helpers::prim_to_c;
@@ -57,13 +57,13 @@ pub struct FfiBridgeGenerator {
 impl FfiBridgeGenerator {
     /// VTable struct name: `{PascalPrefix}{TraitName}VTable`.
     pub(super) fn vtable_name(&self, spec: &TraitBridgeSpec) -> String {
-        let pascal = self.prefix.to_pascal_case();
+        let pascal = to_class_name(&self.prefix);
         format!("{}{}VTable", pascal, spec.trait_def.name)
     }
 
     /// Bridge struct name: `{PascalPrefix}{TraitName}Bridge`.
     pub(super) fn bridge_name(&self, spec: &TraitBridgeSpec) -> String {
-        let pascal = self.prefix.to_pascal_case();
+        let pascal = to_class_name(&self.prefix);
         format!("{}{}Bridge", pascal, spec.trait_def.name)
     }
 
@@ -210,11 +210,12 @@ pub fn gen_trait_bridge(
         plugin_error_constructor: plugin_error_constructor.map(str::to_string),
     };
 
+    let wrapper_prefix = to_class_name(prefix);
     let spec = TraitBridgeSpec {
         trait_def: trait_type,
         bridge_config: bridge_cfg,
         core_import,
-        wrapper_prefix: &prefix.to_pascal_case(),
+        wrapper_prefix: &wrapper_prefix,
         type_paths,
         error_type: error_type.to_string(),
         error_constructor: error_constructor.to_string(),
@@ -294,7 +295,7 @@ pub fn gen_bridge_new_free(prefix: &str, pascal_prefix: &str, trait_name: &str) 
     let vtable_name = format!("{pascal_prefix}{trait_name}VTable");
 
     // snake_case: e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
-    let bridge_snake = to_snake_case(&bridge_name);
+    let bridge_snake = ffi_symbol_component(&bridge_name);
     let fn_new = format!("{prefix}_{bridge_snake}_new");
     let fn_free = format!("{prefix}_{bridge_snake}_free");
 
@@ -345,15 +346,8 @@ pub unsafe extern "C" fn {fn_free}(ptr: *mut {bridge_name}) {{
 ///
 /// Consecutive uppercase letters are treated as a single word to match cbindgen's
 /// behaviour (e.g. `HtmHtmlVisitorBridge` → `htm_html_visitor_bridge`).
-fn to_snake_case(s: &str) -> String {
-    let mut out = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_ascii_uppercase() && i > 0 {
-            out.push('_');
-        }
-        out.push(ch.to_ascii_lowercase());
-    }
-    out
+fn ffi_symbol_component(s: &str) -> String {
+    pascal_to_snake(s)
 }
 
 // ---------------------------------------------------------------------------

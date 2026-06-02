@@ -492,8 +492,9 @@ impl Backend for CsharpBackend {
                 // Enums with non-standard variant names need a custom converter
                 e.variants.iter().any(|v| {
                     if let Some(ref rename) = v.serde_rename {
-                        let snake = enums::apply_rename_all(&v.name, e.serde_rename_all.as_deref());
-                        rename != &snake
+                        let default_wire_name =
+                            crate::codegen::naming::wire_variant_value(&v.name, None, e.serde_rename_all.as_deref());
+                        rename != &default_wire_name
                     } else {
                         false
                     }

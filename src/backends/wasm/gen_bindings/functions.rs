@@ -17,25 +17,6 @@ pub(super) fn should_have_input_dto(type_name: &str) -> bool {
     type_name.ends_with("Config")
 }
 
-/// Convert snake_case field name to camelCase.
-fn to_camel_case(snake: &str) -> String {
-    let mut result = String::new();
-    let mut capitalize_next = false;
-
-    for ch in snake.chars() {
-        if ch == '_' {
-            capitalize_next = true;
-        } else if capitalize_next {
-            result.push(ch.to_uppercase().next().unwrap());
-            capitalize_next = false;
-        } else {
-            result.push(ch);
-        }
-    }
-
-    result
-}
-
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
 /// Returns (input_dto_code, input_dto_name).
 /// Reads actual struct fields from the `ApiSurface` TypeDef.
@@ -86,7 +67,7 @@ pub(super) fn gen_input_dto_for_type_with_cfg(
             let is_skipped = field_references_excluded || !cfg_satisfied;
 
             let dto_ty = format!("Option<{}>", type_ref_to_dto_type(&f.ty, core_import));
-            let camel_case_name = to_camel_case(&f.name);
+            let camel_case_name = to_node_name(&f.name);
 
             minijinja::context! {
                 name => &f.name,

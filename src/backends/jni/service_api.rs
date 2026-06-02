@@ -12,11 +12,11 @@
 //! Thread safety: thread-attaches to JVM, calls Java handler methods with request JSON,
 //! parses response JSON. No panics — all errors propagate as JNI exceptions.
 
+use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use crate::core::jni::{bridge_method_name, jni_package, jni_symbol, service_bridge_class_name};
-use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
@@ -24,6 +24,14 @@ use std::path::PathBuf;
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
+}
+
+fn internal_symbol_component(name: &str) -> String {
+    pascal_to_snake(name)
+}
+
+fn internal_class_component(name: &str) -> String {
+    to_class_name(name)
 }
 
 /// Map a `TypeRef` to a JNI FFI type.
@@ -139,7 +147,7 @@ fn gen_service_opaque(
     service_bridge_class: &str,
 ) {
     let opaque_name = format!("{}Opaque", service.name);
-    let service_snake = service.name.to_snake_case();
+    let service_snake = internal_symbol_component(&service.name);
     let owner_path = &service.rust_path;
 
     // Define the opaque struct
@@ -208,7 +216,7 @@ fn gen_service_opaque(
 /// 4. Detaches if this thread wasn't previously attached
 fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_import: &str) {
     let trait_name = &contract.trait_name;
-    let bridge_name = format!("Jni{}Bridge", trait_name.to_upper_camel_case());
+    let bridge_name = format!("Jni{}Bridge", internal_class_component(trait_name));
     let dispatch_name = &contract.dispatch.name;
 
     // Determine wire types
@@ -382,12 +390,12 @@ fn gen_register_jni_function(
     package: &str,
     service_bridge_class: &str,
 ) {
-    let service_pascal = service.name.to_upper_camel_case();
-    let method_pascal = reg.method.to_upper_camel_case();
+    let service_pascal = internal_class_component(&service.name);
+    let method_pascal = internal_class_component(&reg.method);
     let contract_name = &reg.callback_contract;
 
     if let Some(contract) = find_contract(api, contract_name) {
-        let bridge_name = format!("Jni{}Bridge", contract_name.to_upper_camel_case());
+        let bridge_name = format!("Jni{}Bridge", internal_class_component(contract_name));
         let opaque_name = format!("{}Opaque", service.name);
         let register_method = bridge_method_name(&service.name, &format!("register_{}", reg.method));
         let symbol = jni_symbol(package, service_bridge_class, &register_method);
@@ -516,12 +524,12 @@ fn gen_register_variant_jni_function(
     package: &str,
     service_bridge_class: &str,
 ) {
-    let service_pascal = service.name.to_upper_camel_case();
+    let service_pascal = internal_class_component(&service.name);
     let variant_name = &variant.name;
     let contract_name = &reg.callback_contract;
 
     if let Some(contract) = find_contract(api, contract_name) {
-        let bridge_name = format!("Jni{}Bridge", contract_name.to_upper_camel_case());
+        let bridge_name = format!("Jni{}Bridge", internal_class_component(contract_name));
         let opaque_name = format!("{}Opaque", service.name);
         let register_method = bridge_method_name(&service.name, &format!("register_{}_{}", reg.method, variant_name));
         let symbol = jni_symbol(package, service_bridge_class, &register_method);
@@ -670,8 +678,8 @@ fn gen_entrypoint_jni_function(
     package: &str,
     service_bridge_class: &str,
 ) {
-    let service_pascal = service.name.to_upper_camel_case();
-    let ep_pascal = ep.method.to_upper_camel_case();
+    let service_pascal = internal_class_component(&service.name);
+    let ep_pascal = internal_class_component(&ep.method);
     let opaque_name = format!("{}Opaque", service.name);
     let ep_method = bridge_method_name(&service.name, &ep.method);
     let symbol = jni_symbol(package, service_bridge_class, &ep_method);

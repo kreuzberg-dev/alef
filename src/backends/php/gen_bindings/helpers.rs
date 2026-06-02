@@ -1297,13 +1297,11 @@ fn gen_string_to_enum_expr(
         // mirror of a Rust enum) follows the core enum's serde rename strategy. Match
         // against `#[serde(rename)]` first, then `#[serde(rename_all = "...")]`, then
         // the variant's raw Rust name as a fallback.
-        let wire_name = if let Some(rename) = &variant.serde_rename {
-            rename.clone()
-        } else if let Some(rename_all) = &enum_def.serde_rename_all {
-            crate::backends::php::gen_bindings::types::apply_rename_all_public(&variant.name, rename_all)
-        } else {
-            variant.name.clone()
-        };
+        let wire_name = crate::codegen::naming::wire_variant_value(
+            &variant.name,
+            variant.serde_rename.as_deref(),
+            enum_def.serde_rename_all.as_deref(),
+        );
         // Accept both the serde-renamed wire form (e.g. "Angle") and its lowercase
         // variant (e.g. "angle"). Some core enums implement Serialize/Deserialize
         // manually via a token normaliser (see UrlEscapeStyle), so the wire form on

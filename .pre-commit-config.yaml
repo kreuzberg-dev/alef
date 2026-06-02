@@ -13,6 +13,11 @@ repos:
     language: python
     types:
     - text
+  - id: no-backend-local-naming-helpers
+    name: no backend-local naming helpers
+    entry: hooks/check_backend_naming_helpers.py
+    language: python
+    pass_filenames: false
 - repo: https://github.com/Goldziher/gitfluff
   rev: v0.8.0
   hooks:

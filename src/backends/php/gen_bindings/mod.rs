@@ -9,7 +9,7 @@ use crate::codegen::conversions::ConversionConfig;
 use crate::codegen::doc_emission::{self, DocTarget, sanitize_rust_idioms};
 use crate::codegen::generators::RustBindingConfig;
 use crate::codegen::generators::{self, AsyncPattern};
-use crate::codegen::naming::to_php_name;
+use crate::codegen::naming::{to_php_name, wire_variant_value};
 use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{Language, ResolvedCrateConfig, detect_serde_available, resolve_output_dir};
@@ -36,16 +36,11 @@ fn sanitize_php_enum_case(name: &str) -> String {
 }
 
 fn php_enum_case_value(enum_def: &crate::core::ir::EnumDef, variant: &crate::core::ir::EnumVariant) -> String {
-    variant
-        .serde_rename
-        .clone()
-        .unwrap_or_else(|| match enum_def.serde_rename_all.as_deref() {
-            Some("snake_case") => heck::ToSnakeCase::to_snake_case(variant.name.as_str()),
-            Some("kebab-case") => heck::ToKebabCase::to_kebab_case(variant.name.as_str()),
-            Some("camelCase") => heck::ToLowerCamelCase::to_lower_camel_case(variant.name.as_str()),
-            Some("PascalCase") => heck::ToPascalCase::to_pascal_case(variant.name.as_str()),
-            _ => variant.name.clone(),
-        })
+    wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    )
 }
 use helpers::{gen_enum_tainted_from_binding_to_core, gen_tokio_runtime, has_enum_named_field, references_named_type};
 use types::{

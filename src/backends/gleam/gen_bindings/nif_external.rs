@@ -10,9 +10,8 @@ use super::variant_collision::variant_constructor_name;
 /// Emit a `<snake_type>_from_json(json: String) -> Result(<TypeName>, String)` NIF external
 /// for a non-opaque serde-capable struct type.
 pub(crate) fn emit_from_json_fn(ty: &TypeDef, nif_module: &str, out: &mut String) {
-    use heck::ToSnakeCase;
     let type_name = &ty.name;
-    let snake = type_name.to_snake_case();
+    let snake = gleam_public_member_name(type_name);
     let fn_name = format!("{snake}_from_json");
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_external.jinja",
@@ -174,7 +173,6 @@ pub(crate) fn emit_function(
     imports: &mut BTreeSet<&'static str>,
 ) {
     emit_cleaned_gleam_doc(out, &f.doc, "");
-    use heck::ToSnakeCase;
     out.push_str(&crate::backends::gleam::template_env::render(
         "function_external.jinja",
         minijinja::context! {
@@ -182,7 +180,7 @@ pub(crate) fn emit_function(
             name => &f.name,
         },
     ));
-    let snake_name = f.name.to_snake_case();
+    let snake_name = gleam_public_member_name(&f.name);
     let return_ty = gleam_type(&f.return_type, false, imports);
     let return_str = if let Some(err_ty) = &f.error_type {
         let resolved = resolve_gleam_error_type(err_ty, declared_errors);
@@ -291,10 +289,9 @@ pub(crate) fn emit_method(
     out: &mut String,
     imports: &mut BTreeSet<&'static str>,
 ) {
-    use heck::ToSnakeCase;
     emit_cleaned_gleam_doc(out, &method.doc, "");
-    let snake_type = type_name.to_snake_case();
-    let snake_method = method.name.to_snake_case();
+    let snake_type = gleam_public_member_name(type_name);
+    let snake_method = gleam_public_member_name(&method.name);
     let nif_fn_name = format!("{snake_type}_{snake_method}");
     out.push_str(&crate::backends::gleam::template_env::render(
         "resource_method_external.jinja",
@@ -325,4 +322,12 @@ pub(crate) fn emit_method(
             return_type => &return_str,
         },
     ));
+}
+
+fn gleam_public_member_name(name: &str) -> String {
+    crate::codegen::naming::public_host_identifier(
+        crate::core::config::Language::Gleam,
+        crate::codegen::naming::PublicIdentifierKind::Function,
+        name,
+    )
 }

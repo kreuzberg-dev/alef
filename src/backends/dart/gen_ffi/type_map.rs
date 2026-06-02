@@ -1,8 +1,9 @@
 use crate::core::ir::{ParamDef, PrimitiveType, TypeRef};
 
 use crate::backends::dart::type_map::DartMapper;
+use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::codegen::type_mapper::TypeMapper;
-use heck::ToLowerCamelCase;
+use crate::core::config::Language;
 
 /// The `dart:ffi` native C type for a function parameter (in the native typedef).
 pub(super) fn native_param_type(p: &ParamDef) -> String {
@@ -33,19 +34,23 @@ pub(super) fn dart_callable_type(p: &ParamDef) -> String {
 /// Dart public wrapper parameter declaration (e.g. `String name`).
 pub(super) fn dart_wrapper_param(p: &ParamDef) -> String {
     let ty = dart_type(&p.ty, p.optional);
-    let name = p.name.to_lower_camel_case();
+    let name = dart_param_name(&p.name);
     format!("{ty} {name}")
 }
 
 /// Argument expression to pass into the low-level `_fnName` call.
 pub(super) fn call_arg_name(p: &ParamDef) -> String {
-    let name = p.name.to_lower_camel_case();
+    let name = dart_param_name(&p.name);
     match &p.ty {
         TypeRef::String | TypeRef::Path | TypeRef::Json | TypeRef::Vec(_) | TypeRef::Map(_, _) => {
             format!("{name}Native.cast<Utf8>()")
         }
         _ => name,
     }
+}
+
+pub(super) fn dart_param_name(name: &str) -> String {
+    public_host_identifier(Language::Dart, PublicIdentifierKind::Parameter, name)
 }
 
 /// Native C return type (used in the native typedef).

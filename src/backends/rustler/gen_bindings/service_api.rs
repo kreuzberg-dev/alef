@@ -894,9 +894,7 @@ fn gen_run_nif(
                 trait_name = &reg.callback_contract
             ));
             // GAP 4: Call with handler directly
-            out.push_str(&format!(
-                "                let _ = owner.{reg_method}(handler);\n"
-            ));
+            out.push_str(&format!("                let _ = owner.{reg_method}(handler);\n"));
         }
     }
 
