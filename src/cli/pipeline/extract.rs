@@ -262,6 +262,7 @@ fn inject_declared_opaque_types(api: &mut ApiSurface, config: &ResolvedCrateConf
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             });
             debug!("Injected declared opaque type: {name} -> {rust_path}");
         }
@@ -1283,6 +1284,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         }
     }
 

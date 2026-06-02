@@ -654,6 +654,7 @@ fn extract_items(
                     binding_excluded,
                     binding_exclusion_reason,
                     is_variant_wrapper: false,
+                    has_lifetime_params: false,
                 });
             }
             syn::Item::Trait(item_trait) if is_pub(&item_trait.vis) && item_trait.generics.params.is_empty() => {
@@ -764,6 +765,7 @@ fn extract_items(
                     binding_excluded: trait_binding_excluded,
                     binding_exclusion_reason: trait_binding_exclusion_reason,
                     is_variant_wrapper: false,
+                    has_lifetime_params: false,
                 });
             }
             syn::Item::Mod(item_mod) => {

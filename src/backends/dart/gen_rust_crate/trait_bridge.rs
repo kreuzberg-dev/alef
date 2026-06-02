@@ -32,6 +32,7 @@ pub(crate) fn emit_trait_bridge(
     api: &ApiSurface,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    lifetime_type_names: &std::collections::HashSet<String>,
 ) {
     let trait_name = &trait_def.name;
     let trait_snake = trait_name.to_snake_case();
@@ -205,7 +206,7 @@ pub(crate) fn emit_trait_bridge(
         },
     ));
     for method in &own_methods {
-        emit_trait_bridge_method(out, method, source_crate_name, type_paths, &api.excluded_type_paths);
+        emit_trait_bridge_method(out, method, source_crate_name, type_paths, &api.excluded_type_paths, lifetime_type_names);
         out.push('\n');
     }
     out.push_str("}\n");
@@ -668,6 +669,7 @@ fn emit_trait_bridge_method(
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
     excluded_type_paths: &std::collections::HashMap<String, String>,
+    lifetime_type_names: &std::collections::HashSet<String>,
 ) {
     let method_name = &method.name;
 
@@ -685,7 +687,7 @@ fn emit_trait_bridge_method(
     };
     let params_sig: Vec<String> = std::iter::once(self_receiver.to_string())
         .chain(method.params.iter().map(|p| {
-            let orig_ty = trait_impl_param_type(p, source_crate_name, type_paths);
+            let orig_ty = trait_impl_param_type(p, source_crate_name, type_paths, lifetime_type_names);
             format!("{}: {orig_ty}", p.name)
         }))
         .collect();
@@ -1108,6 +1110,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         }
     }
 
@@ -1197,7 +1200,7 @@ mod tests {
         )]);
         let excluded_type_paths = type_paths.clone();
 
-        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
+        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths, &std::collections::HashSet::new());
 
         assert!(
             out.contains("serde_json::from_str(&__ret_bridge.json)?;"),
@@ -1242,7 +1245,7 @@ mod tests {
         )]);
         let excluded_type_paths = type_paths.clone();
 
-        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths);
+        emit_trait_bridge_method(&mut out, &method, "demo", &type_paths, &excluded_type_paths, &std::collections::HashSet::new());
 
         assert!(
             out.contains("serde_json::to_string(&document)?"),

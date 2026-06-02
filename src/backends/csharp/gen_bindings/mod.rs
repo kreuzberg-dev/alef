@@ -360,6 +360,7 @@ impl Backend for CsharpBackend {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     is_variant_wrapper: false,
+                    has_lifetime_params: false,
                 };
                 for (filename, content) in
                     crate::backends::csharp::gen_visitor::gen_visitor_files(&namespace, &placeholder)

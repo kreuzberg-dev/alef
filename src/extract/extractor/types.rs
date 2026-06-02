@@ -70,11 +70,21 @@ fn extract_serde_tag(attrs: &[syn::Attribute]) -> Option<String> {
 }
 
 /// Extract a public struct into a `TypeDef`.
-/// Returns `None` for generic structs — they can't be directly exposed to FFI.
+/// Returns `None` for structs with type or const generic parameters — they can't be
+/// directly exposed to FFI. Structs with only lifetime parameters (e.g. `Foo<'a>`) are
+/// accepted; `has_lifetime_params` is set to `true` so backends can emit the appropriate
+/// lifetime placeholders in `From<T<'_>>` and `T<'static>` positions.
 pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_path: &str) -> Option<TypeDef> {
-    if !item.generics.params.is_empty() {
+    // Reject structs with type or const generic params — they can't be exposed to FFI.
+    let has_non_lifetime = item
+        .generics
+        .params
+        .iter()
+        .any(|p| !matches!(p, syn::GenericParam::Lifetime(_)));
+    if has_non_lifetime {
         return None;
     }
+    let has_lifetime_params = !item.generics.params.is_empty();
     let binding_exclusion_reason = extract_binding_exclusion_reason(&item.attrs);
     let binding_excluded = binding_exclusion_reason.is_some();
     let cfg = extract_cfg_condition(&item.attrs);
@@ -139,7 +149,7 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
 
     let has_stripped_cfg_fields = fields.iter().any(|f| f.cfg.is_some());
 
-    Some(TypeDef {
+    let mut typedef = TypeDef {
         rust_path,
         original_rust_path: String::new(),
         name,
@@ -160,7 +170,10 @@ pub(crate) fn extract_struct(item: &syn::ItemStruct, crate_name: &str, module_pa
         binding_excluded,
         binding_exclusion_reason,
         is_variant_wrapper: false,
-    })
+        ..Default::default()
+    };
+    typedef.has_lifetime_params = has_lifetime_params;
+    Some(typedef)
 }
 
 /// Extract a public enum into an `EnumDef`.

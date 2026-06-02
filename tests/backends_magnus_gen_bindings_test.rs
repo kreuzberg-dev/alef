@@ -82,7 +82,8 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
@@ -256,7 +257,8 @@ fn test_type_mapping() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -402,7 +404,8 @@ fn test_generated_header() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -516,7 +519,8 @@ fn test_methods_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -797,7 +801,8 @@ fn test_opaque_type() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -872,7 +877,8 @@ fn test_default_config() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -938,7 +944,8 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "test_lib::convert".to_string(),
@@ -1075,7 +1082,8 @@ mod trait_bridge {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }
+            has_lifetime_params: false,
+}
     }
 
     fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: bool) -> MethodDef {
@@ -1408,7 +1416,8 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![EnumDef {
             name: "Result".to_string(),
@@ -1720,7 +1729,8 @@ fn test_optional_ref_string_method_returns_owned_option() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1806,7 +1816,8 @@ fn test_opaque_owned_builder_return_rewraps_arc() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1864,7 +1875,8 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![EnumDef {
             name: "Payload".to_string(),
@@ -1994,7 +2006,8 @@ fn test_field_accessor_no_double_option_when_ty_is_optional() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2071,7 +2084,8 @@ fn test_visitor_bridge_debug_not_duplicated() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let cfg = TraitBridgeConfig {
         trait_name: "HtmlVisitor".to_string(),
@@ -2194,7 +2208,8 @@ fn test_trait_bridge_options_field_error_propagation_in_generated_code() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2950,7 +2965,8 @@ fn test_explicit_re_export_list_filters_internal_types() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        },
+            has_lifetime_params: false,
+},
         // Update struct should be filtered out
         TypeDef {
             name: "ConfigUpdate".to_string(),
@@ -2973,7 +2989,8 @@ fn test_explicit_re_export_list_filters_internal_types() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        },
+            has_lifetime_params: false,
+},
         // Builder struct should be filtered out
         TypeDef {
             name: "ConfigBuilder".to_string(),
@@ -2996,7 +3013,8 @@ fn test_explicit_re_export_list_filters_internal_types() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        },
+            has_lifetime_params: false,
+},
     ];
 
     let api = ApiSurface {

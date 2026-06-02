@@ -163,7 +163,8 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -242,7 +243,8 @@ fn test_zero_default_dto_skips_functional_options() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -553,7 +555,8 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -678,7 +681,8 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),

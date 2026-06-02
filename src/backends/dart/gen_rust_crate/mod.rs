@@ -552,7 +552,21 @@ fn emit_lib_rs(
         }
         if let Some(trait_def) = api.types.iter().find(|t| t.name == bridge_cfg.trait_name && t.is_trait) {
             content.push('\n');
-            emit_trait_bridge(&mut content, trait_def, bridge_cfg, api, source_crate_name, &type_paths);
+            let lifetime_type_names: std::collections::HashSet<String> = api
+                .types
+                .iter()
+                .filter(|t| t.has_lifetime_params)
+                .map(|t| t.name.clone())
+                .collect();
+            emit_trait_bridge(
+                &mut content,
+                trait_def,
+                bridge_cfg,
+                api,
+                source_crate_name,
+                &type_paths,
+                &lifetime_type_names,
+            );
         }
     }
 
@@ -744,10 +758,15 @@ fn emit_rust_struct_field(out: &mut String, cfg: Option<&str>, field_name: &str,
 /// - Other fields: `.into()` or direct copy
 fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
     let name = &ty.name;
-    let core_ty = if ty.rust_path.is_empty() {
+    let core_ty_base = if ty.rust_path.is_empty() {
         format!("{source_crate_name}::{name}")
     } else {
         ty.rust_path.replace('-', "_")
+    };
+    let core_ty = if ty.has_lifetime_params {
+        format!("{core_ty_base}<'_>")
+    } else {
+        core_ty_base
     };
 
     out.push_str(&crate::backends::dart::template_env::render(
@@ -2604,10 +2623,16 @@ fn emit_from_json_fn(out: &mut String, ty: &TypeDef, source_crate_name: &str) {
     // snake_case function name: e.g. ChatCompletionRequest → create_chat_completion_request_from_json
     let snake = dart_rust_function_component(type_name);
     let fn_name = format!("create_{snake}_from_json");
-    let core_ty = if ty.rust_path.is_empty() {
+    let core_ty_base = if ty.rust_path.is_empty() {
         format!("{source_crate_name}::{type_name}")
     } else {
         ty.rust_path.replace('-', "_")
+    };
+    // Types with lifetime params need <'static> so serde can deserialize into an owned value.
+    let core_ty = if ty.has_lifetime_params {
+        format!("{core_ty_base}<'static>")
+    } else {
+        core_ty_base
     };
 
     out.push_str("#[frb]\n");

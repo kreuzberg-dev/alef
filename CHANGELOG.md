@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(e2e): emit named imports for wasm-bindgen harness (#131)
 - fix(napi): remove unused env parameter from app_run signature (#131)
 - fix(magnus): emit positional Ruby params for route registration (#132)
+- feat(ir): add `has_lifetime_params` field to `TypeDef`; extractor now accepts structs with lifetime-only generics (e.g. `Foo<'a>`) instead of rejecting all generic structs
+- fix(rustler): emit `(*builder).clone()` for `ResourceArc<T>` params instead of `Arc::clone(&builder)` which would require an inner `Arc` wrapper
 
 - fix(rustler): explicitly register service NIFs in init! macro list
 - fix(rustler): include service NIFs (app_run, complete_trait_call, app_into_router, per-verb registrations) in init! table (#133)

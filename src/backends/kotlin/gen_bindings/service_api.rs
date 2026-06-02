@@ -644,6 +644,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         });
         api.services[0].registrations[0].metadata_params.push(ParamDef {
             name: "builder".to_owned(),

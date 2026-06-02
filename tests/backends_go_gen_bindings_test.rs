@@ -86,7 +86,8 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "process".to_string(),
             rust_path: "test_lib::process".to_string(),
@@ -328,7 +329,8 @@ module = "github.com/test/test-lib"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let visible_type = TypeDef {
         name: "VisibleHandle".to_string(),
         rust_path: "test_lib::VisibleHandle".to_string(),
@@ -367,7 +369,8 @@ module = "github.com/test/test-lib"
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
         version: "0.1.0".to_string(),
@@ -440,7 +443,8 @@ fn test_type_mapping() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -705,7 +709,8 @@ fn test_methods_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -912,7 +917,8 @@ fn test_opaque_type() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1000,7 +1006,8 @@ fn test_default_config() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1224,7 +1231,8 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_trait_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, has_error: bool) -> MethodDef {
@@ -2000,7 +2008,8 @@ fn test_opaque_error_type_uses_value_semantics() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -2120,7 +2129,8 @@ fn test_bytes_return_emits_helper_and_no_string_free() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -2286,7 +2296,8 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    });
+        has_lifetime_params: false,
+});
     api.types.push(TypeDef {
         name: "OcrResult".to_string(),
         rust_path: "my_lib::OcrResult".to_string(),
@@ -2308,7 +2319,8 @@ fn test_trait_bridge_named_config_param_emitted_as_concrete_type() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    });
+        has_lifetime_params: false,
+});
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");
 

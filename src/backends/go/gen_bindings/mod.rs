@@ -1144,6 +1144,7 @@ module = "github.com/test/test-lib"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
         let ctor = ClientConstructorConfig {
             params: vec![ConstructorParam {

@@ -33,6 +33,7 @@ pub(super) fn trait_impl_param_type(
     p: &ParamDef,
     source_crate_name: &str,
     type_paths: &std::collections::HashMap<String, String>,
+    lifetime_type_names: &std::collections::HashSet<String>,
 ) -> String {
     if p.is_ref {
         // Reference parameters: use the slice/ref form for Bytes/Vec, plain ref for others.
@@ -75,9 +76,16 @@ pub(super) fn trait_impl_param_type(
             }
             TypeRef::Named(name) => {
                 // Named reference: resolve path and append lifetime placeholder when needed.
-                let ty_str = match type_paths.get(name) {
+                let base_path = match type_paths.get(name) {
                     Some(p) => p.clone(),
                     None => format!("{source_crate_name}::{name}"),
+                };
+                // If the core type has lifetime params, the trait method signature
+                // uses `&T<'_>` so rustc can match the trait definition exactly.
+                let ty_str = if lifetime_type_names.contains(name) {
+                    format!("{base_path}<'_>")
+                } else {
+                    base_path
                 };
                 if p.is_mut {
                     format!("&mut {ty_str}")

@@ -3315,6 +3315,8 @@ package_name = "testlib"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+
+                has_lifetime_params: false,
             }],
             functions: vec![FunctionDef {
                 name: "process".to_string(),
@@ -3592,6 +3594,8 @@ package_name = "testlib"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+
+                has_lifetime_params: false,
             }],
             functions: vec![FunctionDef {
                 name: "extract_bytes".to_string(),
@@ -3752,6 +3756,8 @@ package_name = "testlib"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -3914,6 +3920,8 @@ package_name = "testlib"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -4263,6 +4271,8 @@ exclude_languages = ["r"]
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+
+            has_lifetime_params: false,
         });
         // Add a flat data enum (has variant with data, single field)
         api.enums.push(EnumDef {
@@ -4371,6 +4381,8 @@ exclude_languages = ["r"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],

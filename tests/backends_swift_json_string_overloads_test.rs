@@ -67,7 +67,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>, has_serde: bool) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {

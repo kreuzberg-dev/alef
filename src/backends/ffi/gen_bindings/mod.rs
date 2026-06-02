@@ -974,6 +974,7 @@ visitor_callbacks = true
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![FunctionDef {
                 name: "extract".to_string(),
@@ -1457,6 +1458,7 @@ visitor_callbacks = true
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         });
         api
     }
@@ -1675,6 +1677,7 @@ sources = ["src/lib.rs"]
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![FunctionDef {
                 name: "lookup".to_string(),
@@ -2294,6 +2297,7 @@ header_name = "mylib.h"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -2377,6 +2381,7 @@ header_name = "mylib.h"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
         // The type referenced by the Named field
         let named_type = TypeDef {
@@ -2400,6 +2405,7 @@ header_name = "mylib.h"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
         ApiSurface {
             crate_name: "my-lib".to_string(),
@@ -2726,6 +2732,7 @@ type = "ChatRequest"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -2854,6 +2861,7 @@ type = "*const std::ffi::c_char"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -3104,6 +3112,7 @@ type = "*const std::ffi::c_char"
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
+            has_lifetime_params: false,
         };
 
         let code = gen_field_accessor(
@@ -3220,6 +3229,7 @@ type = "*const std::ffi::c_char"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -3304,6 +3314,7 @@ type = "*const std::ffi::c_char"
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
+                has_lifetime_params: false,
             }],
             functions: vec![],
             enums: vec![],
@@ -3358,6 +3369,7 @@ type = "*const std::ffi::c_char"
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     is_variant_wrapper: false,
+                    has_lifetime_params: false,
                 },
                 // Opaque RouteBuilder with static new constructor
                 TypeDef {
@@ -3427,6 +3439,7 @@ type = "*const std::ffi::c_char"
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     is_variant_wrapper: false,
+                    has_lifetime_params: false,
                 },
             ],
             functions: vec![],

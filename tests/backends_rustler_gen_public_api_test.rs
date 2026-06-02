@@ -153,7 +153,8 @@ fn test_generate_public_api_creates_all_files() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
@@ -307,7 +308,8 @@ fn test_native_ex_has_all_nif_stubs() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![FunctionDef {
             name: "convert".to_string(),
             rust_path: "my_lib::convert".to_string(),
@@ -456,7 +458,8 @@ fn test_struct_module_has_defstruct() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![EnumDef {
             name: "HeadingStyle".to_string(),
@@ -575,7 +578,8 @@ fn test_main_module_has_method_wrappers() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -689,7 +693,8 @@ fn test_opaque_types_not_get_struct_module() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1217,7 +1222,8 @@ fn test_defstruct_string_fields_default_to_nil() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
-        }],
+            has_lifetime_params: false,
+}],
         functions: vec![],
         enums: vec![],
         errors: vec![],
@@ -1721,7 +1727,8 @@ fn opaque_static_constructor_wraps_return_in_struct() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let api = ApiSurface {
         crate_name: "demo".into(),

@@ -70,7 +70,8 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
@@ -95,7 +96,8 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_config() -> ResolvedCrateConfig {
@@ -658,7 +660,8 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    }
+        has_lifetime_params: false,
+}
 }
 
 fn make_config_with_bridge(bridge_trait_name: &str) -> ResolvedCrateConfig {
@@ -1490,7 +1493,8 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     // A free function that takes ProcessConfig as input forces a From<Mirror> for Core impl.
     let process_fn = FunctionDef {
@@ -1649,7 +1653,8 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         binding_excluded: false,
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
-    };
+        has_lifetime_params: false,
+};
 
     let process_fn = FunctionDef {
         name: "process".to_string(),
