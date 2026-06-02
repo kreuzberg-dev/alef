@@ -536,29 +536,23 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
                  {wire_name}: {req_path},\n    \
              ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
                  Box::pin(async move {{\n            \
-                     // Call the Ruby proc with the GVL via spawn_blocking.\n            \
-                     // Ruby procs are synchronous, so we block on the spawned task.\n            \
-                     let outcome: {wire_output} = async move {{\n                \
+                     // Call the Ruby proc with the GVL re-acquired directly.\n            \
+                     // SAFETY: `app_run` releases the GVL via `rb_thread_call_without_gvl`\n            \
+                     // and drives a `new_current_thread` Tokio runtime inside that callback.\n            \
+                     // Every async task therefore runs on the same OS thread that released\n            \
+                     // the GVL; `call_ruby_proc_with_gvl` re-acquires it safely from here.\n            \
+                     // Using spawn_blocking would create a non-Ruby OS thread from which\n            \
+                     // `rb_thread_call_with_gvl` would abort the process.\n            \
+                     let outcome: {wire_output} = (|| {{\n                \
                          // Serialize the request to JSON\n                \
                          let req_json = serde_json::to_string(&{wire_name})\n                    \
                              .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let resp_json = tokio::task::spawn_blocking({{\n                    \
-                             let proc_handle = self.proc_handle.clone();\n                    \
-                             let req_json = req_json.clone();\n                    \
-                             move || {{\n                        \
-                                 // SAFETY: rb_sys::rb_thread_call_with_gvl acquires the GVL.\n                        \
-                                 // We pass a callback that will be invoked with the GVL held.\n                        \
-                                 call_ruby_proc_with_gvl(&proc_handle, &req_json)\n                \
-                             }}\n            \
-                         }})\n            \
-                         .await\n            \
-                         .map_err(|e| Box::new(e) as {box_err})??;\n\n            \
+                         let resp_json = call_ruby_proc_with_gvl(&self.proc_handle, &req_json)?;\n\n            \
                          // Deserialize the JSON result back into the wire response DTO.\n            \
                          let response: {resp_path} = serde_json::from_str(&resp_json)\n                \
                              .map_err(|e| Box::new(e) as {box_err})?;\n            \
                          Ok(response)\n        \
-                     }}\n        \
-                     .await;\n\n        \
+                     }})();\n\n        \
                      {tail}\n        \
                  }})\n    \
              }}\n\
@@ -567,7 +561,7 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
 
     // Emit the helper function that safely calls a Ruby proc with the GVL acquired
     out.push_str("/// Call a Ruby proc with the GVL acquired via rb_sys.\n");
-    out.push_str("/// This function is called from a tokio spawn_blocking task (non-GVL context).\n");
+    out.push_str("/// Called from within a `rb_thread_call_without_gvl` callback (same OS thread).\n");
     out.push_str("fn call_ruby_proc_with_gvl(\n");
     out.push_str("    proc_handle: &Opaque<Value>,\n");
     out.push_str("    req_json: &str,\n");
@@ -1390,8 +1384,8 @@ mod tests {
         let surface = make_fixture_surface();
         let output = gen_service_rb(&surface, "MyCrate");
         assert!(
-            output.contains("def with_timeout(timeout_ms: Integer)"),
-            "expected `with_timeout` configurator:\n{output}"
+            output.contains("def with_timeout(timeout_ms)"),
+            "expected `with_timeout` configurator with positional param:\n{output}"
         );
         assert!(
             output.contains("self"),
