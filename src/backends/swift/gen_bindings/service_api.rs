@@ -140,6 +140,88 @@ fn typeref_to_rust_ffi_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Collect unique wrapper-constructor extern declarations from all registration variants.
+///
+/// For each `WrapperConstructorCall` on a `RegistrationVariant` (e.g. `RouteBuilder::new(method, path)`),
+/// this emits an extern "Rust" free function declaration like:
+///   `fn route_builder_new(method: &Method, path: String) -> RouteBuilder`
+///
+/// This is needed because swift-bridge represents enums as opaque classes (not mirrored Swift enums),
+/// so `Method.Get` is invalid Swift syntax. Instead, the variant shorthand methods call
+/// `routeBuilderNew(try methodFromJson("\"Get\""), path)` and delegate to the base registration.
+///
+/// Returns a deduplicated list of minijinja context values for the template.
+fn collect_wrapper_constructor_externs(service: &ServiceDef) -> Vec<minijinja::Value> {
+    use crate::core::ir::WrapperConstructorArg;
+    use std::collections::HashSet;
+
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut result: Vec<minijinja::Value> = Vec::new();
+
+    for reg in &service.registrations {
+        for variant in &reg.variants {
+            let Some(wc) = &variant.wrapper_call else { continue };
+            // Deduplicate by function name (wrapper_type_snake_new).
+            let fn_snake = format!(
+                "{}_new",
+                wc.wrapper_type_name.to_snake_case()
+            );
+            if !seen.insert(fn_snake.clone()) {
+                continue;
+            }
+            let fn_camel = fn_snake.to_lower_camel_case();
+
+            // Build argument list for the extern declaration.
+            // Fixed args with enum-typed value_expr become `&EnumType` params (opaque ref).
+            // Free args become their declared type.
+            let args: Vec<minijinja::Value> = wc
+                .args
+                .iter()
+                .map(|arg| match arg {
+                    WrapperConstructorArg::Fixed { param_name, value_expr } => {
+                        // value_expr is e.g. "source_crate::Method::Get". Extract the type name.
+                        // Format is `crate::TypeName::Variant` — split at last `::` twice.
+                        let rust_type = if let Some(last_colon) = value_expr.rfind("::") {
+                            if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
+                                // "source_crate::Method::Get" → "Method"
+                                value_expr[second_colon + 2..last_colon].to_string()
+                            } else {
+                                // "Method::Get" → take before the "::"
+                                value_expr[..last_colon].to_string()
+                            }
+                        } else {
+                            value_expr.clone()
+                        };
+                        // Use `&TypeName` so swift-bridge maps it to `TypeNameRef` (opaque ref param).
+                        minijinja::context! {
+                            name => param_name,
+                            rust_type => format!("&{rust_type}"),
+                        }
+                    }
+                    WrapperConstructorArg::Free { param } => {
+                        let rust_type = typeref_to_rust_ffi_type(&param.ty);
+                        minijinja::context! {
+                            name => &param.name,
+                            rust_type => rust_type,
+                        }
+                    }
+                })
+                .collect();
+
+            result.push(minijinja::context! {
+                fn_snake => &fn_snake,
+                fn_camel => fn_camel,
+                wrapper_type_name => &wc.wrapper_type_name,
+                wrapper_type_path => &wc.wrapper_type_path,
+                constructor_method => &wc.constructor_method,
+                args => args,
+            });
+        }
+    }
+
+    result
+}
+
 /// Generate Rust extern "Rust" declarations for a service (INSIDE the bridge module).
 /// These are appended to the `#[swift_bridge::bridge] mod ffi { ... }` block in lib.rs.
 /// Registration callbacks are excluded — they go outside the bridge via `generate_rust_callback_c_functions`.
@@ -221,6 +303,14 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
     // `<service>_raw_ptr` helper needed by the @_silgen_name registration shims).
     let service_snake = service.name.to_snake_case();
     let service_camel = service_snake.to_lower_camel_case();
+
+    // Collect unique WrapperConstructorCall signatures from all registration variants.
+    // These become `route_builder_new`-style free functions in the extern "Rust" block
+    // so Swift can construct wrapper metadata params (e.g. RouteBuilder) without
+    // relying on non-existent static enum member syntax (swift-bridge enums are opaque
+    // classes, not mirrored Swift enums with static members).
+    let wrapper_constructors = collect_wrapper_constructor_externs(service);
+
     out.push_str(&crate::backends::swift::template_env::render(
         "rust_extern_service_methods.rs.jinja",
         minijinja::context! {
@@ -229,6 +319,7 @@ fn gen_service_rust_extern_blocks(service: &ServiceDef, api: &ApiSurface) -> Str
             service_camel => &service_camel,
             configurators => configurators,
             entrypoints => entrypoints,
+            wrapper_constructors => wrapper_constructors,
         },
     ));
 
@@ -547,40 +638,6 @@ fn gen_registration_variant(
         })
         .collect();
 
-    // Build wrapper call args from the variant's wrapper_call recipe
-    let wrapper_call_args: Vec<String> = if let Some(wrapper_call) = &variant.wrapper_call {
-        wrapper_call
-            .args
-            .iter()
-            .map(|arg| match arg {
-                WrapperConstructorArg::Fixed {
-                    param_name: _,
-                    value_expr,
-                } => {
-                    // value_expr is e.g. "mylib::Method::Connect". Convert the
-                    // Rust enum path to swift-bridge's mirrored access:
-                    // "mylib::Method::Connect" → "RustBridge.Method.Connect".
-                    // The variant case is preserved (not lowercased) because
-                    // swift-bridge mirrors enum variants with their original Rust case.
-                    if let Some(last_colon) = value_expr.rfind("::") {
-                        let enum_variant = &value_expr[last_colon + 2..];
-                        if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
-                            let type_name = &value_expr[second_colon + 2..last_colon];
-                            format!("RustBridge.{type_name}.{enum_variant}")
-                        } else {
-                            format!("RustBridge.{enum_variant}")
-                        }
-                    } else {
-                        value_expr.clone()
-                    }
-                }
-                WrapperConstructorArg::Free { param } => param.name.clone(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
-
     let doc = if let Some(doc_str) = &variant.doc {
         format_swift_comment(doc_str, 4)
     } else {
@@ -589,18 +646,88 @@ fn gen_registration_variant(
         format_swift_comment(&default_doc, 4)
     };
 
-    out.push_str(&crate::backends::swift::template_env::render(
-        "swift_registration_variant.swift.jinja",
-        minijinja::context! {
-            doc => &doc,
-            variant_name => variant_name,
-            signature_params => signature_params,
-            service_snake => service_snake,
-            service_camel => &service_camel,
-            base_method_name => &reg.method,
-            wrapper_call_args => wrapper_call_args,
-        },
-    ));
+    // When the variant has a WrapperConstructorCall, emit a method that:
+    //   1. Constructs the wrapper type using the bridge factory (e.g. routeBuilderNew)
+    //   2. Delegates to the base Swift registration method (e.g. self.route(handler, builder:))
+    //
+    // This avoids the invalid `RustBridge.Method.Get` syntax — swift-bridge generates enums as
+    // opaque classes, not mirrored Swift enums with static member constants. The
+    // `<type>FromJson("\"Variant\"")` factory constructs an opaque instance from its serde
+    // wire name, then the wrapper constructor factory combines it with free args.
+    if let Some(wrapper_call) = &variant.wrapper_call {
+        // Build the argument expression for the wrapper constructor factory call.
+        // Fixed args: use `try <TypeFromJson>("\"Variant\"")` factory syntax.
+        // Free args: use the param name directly.
+        let factory_fn_camel = format!("{}_new", wrapper_call.wrapper_type_name.to_snake_case())
+            .to_lower_camel_case();
+        let factory_args: Vec<String> = wrapper_call
+            .args
+            .iter()
+            .map(|arg| match arg {
+                WrapperConstructorArg::Fixed { param_name: _, value_expr } => {
+                    // value_expr is e.g. "source_crate::Method::Get"
+                    // Extract type name and variant name for the from_json factory call.
+                    if let Some(last_colon) = value_expr.rfind("::") {
+                        let variant_str = &value_expr[last_colon + 2..];
+                        if let Some(second_colon) = value_expr[..last_colon].rfind("::") {
+                            let type_name = &value_expr[second_colon + 2..last_colon];
+                            // type_name "Method" → factory "methodFromJson"
+                            let factory_name = format!(
+                                "{}FromJson",
+                                type_name.chars().next().map(|c| c.to_lowercase().to_string()).unwrap_or_default()
+                                    + &type_name[1..]
+                            );
+                            format!("try {factory_name}(\"\\\"{variant_str}\\\"\")")
+                        } else {
+                            // Fallback: just the variant name as a string
+                            format!("\"{variant_str}\"")
+                        }
+                    } else {
+                        value_expr.clone()
+                    }
+                }
+                WrapperConstructorArg::Free { param } => param.name.clone(),
+            })
+            .collect();
+        let factory_args_str = factory_args.join(", ");
+        // The wrapper param name in the base method signature (e.g. "builder" for RouteBuilder).
+        let base_param_name = &wrapper_call.metadata_param;
+        let base_method_camel = reg.method.to_lower_camel_case();
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_registration_variant_delegate.swift.jinja",
+            minijinja::context! {
+                doc => &doc,
+                variant_name => variant_name,
+                signature_params => signature_params,
+                factory_fn_camel => factory_fn_camel,
+                factory_args_str => factory_args_str,
+                wrapper_type_name => &wrapper_call.wrapper_type_name,
+                base_param_name => base_param_name,
+                base_method_camel => base_method_camel,
+            },
+        ));
+    } else {
+        // No wrapper call — fall through to the direct C-callback invocation pattern.
+        let wrapper_call_args: Vec<String> = variant
+            .signature_params
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_registration_variant.swift.jinja",
+            minijinja::context! {
+                doc => &doc,
+                variant_name => variant_name,
+                signature_params => signature_params,
+                service_snake => service_snake,
+                service_camel => &service_camel,
+                base_method_name => &reg.method,
+                wrapper_call_args => wrapper_call_args,
+            },
+        ));
+    }
 }
 
 fn gen_entrypoint_method(

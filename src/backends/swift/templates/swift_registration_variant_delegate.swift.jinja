@@ -1,0 +1,15 @@
+{%- if doc %}
+{{ doc }}{%- endif %}
+    public func {{ variant_name }}(_ handler: @escaping (String) -> String{% if signature_params %}, {% for param in signature_params %}{{ param.name }}: {{ param.swift_type }}{{ "," if not loop.last else "" }}{% endfor %}{% endif %}) throws {
+        // Construct the wrapper metadata param (e.g. RouteBuilder) from the fixed enum arg
+        // and any free args. swift-bridge generates enums as opaque classes — there are no
+        // static member constants (e.g. `RustBridge.Method.Get` is invalid). Instead,
+        // each opaque enum type has a `<type>FromJson` factory that parses a serde JSON
+        // string into an opaque instance. The wrapper constructor factory `{{ factory_fn_camel }}`
+        // is a bridge-declared free function that calls the Rust wrapper's `new` method.
+        let __builder = try RustBridge.{{ factory_fn_camel }}({{ factory_args_str }})
+        // Delegate to the base registration method, passing the constructed wrapper as the
+        // `{{ base_param_name }}` metadata param. This reuses all the handler boxing and
+        // trampoline logic from the base method without duplicating it.
+        try {{ base_method_camel }}(handler, {{ base_param_name }}: __builder)
+    }
