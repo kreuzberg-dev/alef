@@ -158,6 +158,34 @@ fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface
     out.push_str(&format!("export class {class_name} {{\n"));
     out.push_str("  private _registrations: Array<[string, any[], (...args: any[]) => any]> = [];\n\n");
 
+    // Static factory method for Node.js binding compatibility
+    {
+        let ctor = &service.constructor;
+        let mut params = Vec::new();
+        for p in &ctor.params {
+            let ty = typescript_type_annotation(&p.ty);
+            if p.optional {
+                params.push(format!("{}: {} = undefined", p.name, ty));
+            } else {
+                params.push(format!("{}: {}", p.name, ty));
+            }
+        }
+
+        let param_sig = params.join(", ");
+        out.push_str("  /**\n");
+        out.push_str(&format!("   * Create a new {class_name} instance.\n"));
+        out.push_str("   */\n");
+        if param_sig.is_empty() {
+            out.push_str(&format!("  static new(): {class_name} {{\n"));
+            out.push_str(&format!("    return new {class_name}();\n"));
+        } else {
+            out.push_str(&format!("  static new({param_sig}): {class_name} {{\n"));
+            let params_for_ctor: Vec<&str> = ctor.params.iter().map(|p| p.name.as_str()).collect();
+            out.push_str(&format!("    return new {class_name}({});\n", params_for_ctor.join(", ")));
+        }
+        out.push_str("  }\n\n");
+    }
+
     // Constructor
     {
         let ctor = &service.constructor;
