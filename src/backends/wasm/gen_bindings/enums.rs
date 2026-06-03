@@ -723,6 +723,8 @@ mod tests {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 })
                 .collect(),
             doc: String::new(),
@@ -822,6 +824,8 @@ mod tests {
             doc: String::new(),
             is_default: false,
             serde_rename: Some(tag.to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         };
 
         EnumDef {
@@ -937,6 +941,8 @@ mod tests {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: Some("active".to_string()),
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -945,6 +951,8 @@ mod tests {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: Some("inactive".to_string()),
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: String::new(),
@@ -1007,6 +1015,8 @@ mod tests {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: Some("basic".to_string()),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             doc: String::new(),
             cfg: None,
@@ -1067,6 +1077,8 @@ mod tests {
                 doc: String::new(),
                 is_default: false,
                 serde_rename: Some("http".to_string()),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             doc: String::new(),
             cfg: None,

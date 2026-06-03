@@ -85,6 +85,8 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
             is_default: i == 0,
             serde_rename: None,
             is_tuple: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         })
         .collect();
 

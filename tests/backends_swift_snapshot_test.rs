@@ -124,6 +124,8 @@ fn make_basic_api() -> ApiSurface {
                     doc: "Active state.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -132,6 +134,8 @@ fn make_basic_api() -> ApiSurface {
                     doc: "Inactive state.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Processing status.".to_string(),
@@ -328,6 +332,8 @@ fn snapshot_conversion_enum_with_data() {
                     doc: "Success variant.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Error".to_string(),
@@ -336,6 +342,8 @@ fn snapshot_conversion_enum_with_data() {
                     doc: "Error variant.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Result enum with data.".to_string(),
@@ -1558,6 +1566,8 @@ fn snapshot_enum_variant_optional_field() {
                     doc: "A data event carrying an optional chunk.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 // Variant with optional String field -- same extractor form.
                 EnumVariant {
@@ -1567,6 +1577,8 @@ fn snapshot_enum_variant_optional_field() {
                     doc: "An error event with an optional message.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 // Variant with non-optional field -- must stay bare.
                 EnumVariant {
@@ -1576,6 +1588,8 @@ fn snapshot_enum_variant_optional_field() {
                     doc: "Stream completed with item count.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Streaming event enum.".to_string(),
@@ -1675,6 +1689,8 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     doc: "Plain text content.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Parts".to_string(),
@@ -1683,6 +1699,8 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     doc: "Array of parts.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Untagged content enum.".to_string(),

@@ -120,20 +120,22 @@ pub(super) fn gen_opaque_struct_methods(
     mutex_types: &AHashSet<String>,
     streaming_item_types: &ahash::AHashMap<String, String>,
     wasm_skipped_methods: &AHashSet<String>,
+    bridge_type_aliases: &AHashSet<String>,
 ) -> String {
     let js_name = format!("{prefix}{}", typ.name);
     let mut impl_builder = ImplBuilder::new(&js_name);
 
-    // The VisitorHandle bridge module (__alef_wasm_bridge_*) is only emitted
+    // Bridge handle modules (__alef_wasm_bridge_*) are only emitted
     // under #[cfg(target_arch = "wasm32")], so guard its impl block identically
     // to avoid "unresolved module" errors when compiling on host targets.
-    if typ.name == "VisitorHandle" {
+    let is_bridge_type_alias = bridge_type_aliases.contains(typ.name.as_str());
+    if is_bridge_type_alias {
         impl_builder.add_attr("cfg(target_arch = \"wasm32\")");
     }
     impl_builder.add_attr("wasm_bindgen");
 
-    // Special handling for VisitorHandle: add a constructor if no methods exist.
-    if typ.name == "VisitorHandle" && typ.methods.is_empty() {
+    // Special handling for bridge handles: add a constructor if no methods exist.
+    if is_bridge_type_alias && typ.methods.is_empty() {
         let constructor = crate::backends::wasm::template_env::render(
             "gen_visitor_handle_constructor",
             minijinja::context! {

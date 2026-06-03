@@ -188,7 +188,17 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
-    let variants: Vec<_> = item.variants.iter().map(extract_enum_variant).collect();
+    // Extract all variants, then drop any that are explicitly excluded from the binding
+    // surface (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).  Excluded
+    // variants carry internal types that are intentionally not part of the public API;
+    // filtering them here prevents every downstream backend and the validator from having
+    // to independently handle the exclusion.
+    let variants: Vec<_> = item
+        .variants
+        .iter()
+        .map(extract_enum_variant)
+        .filter(|v| !v.binding_excluded)
+        .collect();
 
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let serde_tag = extract_serde_tag(&item.attrs);

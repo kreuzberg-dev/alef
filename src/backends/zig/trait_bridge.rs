@@ -22,7 +22,7 @@
 use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
-use heck::ToSnakeCase;
+use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
 use std::fmt::Write as _;
 
@@ -608,36 +608,39 @@ pub fn emit_trait_bridge(
     } else {
         // Options-field binding: emit a vtable -> handle helper that wraps the
         // C callbacks struct into the trait-object handle expected by the
-        // generated `ConversionOptionsBuilder.{field}` setter. The upstream
+        // generated options-field setter. The upstream
         // FFI must export `{prefix}_{trait_snake}_handle_from_callbacks` with
         // the standard `extern "C" fn(*const T) -> *mut Handle` shape.
         let ctor_fn = format!("c.{prefix}_{snake}_handle_from_callbacks");
-        let handle_type = bridge_cfg.type_alias.as_deref().unwrap_or("VisitorHandle").to_string();
-        let _ = writeln!(
-            out,
-            "/// Wrap a `I{trait_name}` vtable into a `{handle_type}` suitable for the"
-        );
-        let _ = writeln!(
-            out,
-            "/// generated options-field setter (e.g. `ConversionOptionsBuilder.visitor`)."
-        );
-        let _ = writeln!(
-            out,
-            "/// The returned handle owns the vtable's function pointers and must be"
-        );
-        let _ = writeln!(
-            out,
-            "/// released with the matching `{prefix}_visitor_handle_free` once the"
-        );
-        let _ = writeln!(out, "/// containing options object is no longer needed.");
-        let _ = writeln!(
-            out,
-            "pub fn {snake}_handle_from_vtable(callbacks: c.HTMHtmVisitorCallbacks) ?{handle_type} {{"
-        );
-        let _ = writeln!(out, "    var _cb = callbacks;");
-        let _ = writeln!(out, "    return @ptrCast({ctor_fn}(&_cb));");
-        let _ = writeln!(out, "}}");
-        let _ = writeln!(out);
+        if let Some(handle_type) = bridge_cfg.type_alias.as_deref() {
+            let callbacks_type = format!(
+                "c.{}{}VisitorCallbacks",
+                prefix.to_uppercase(),
+                prefix.to_upper_camel_case()
+            );
+            let _ = writeln!(
+                out,
+                "/// Wrap a `I{trait_name}` vtable into a `{handle_type}` suitable for the"
+            );
+            let _ = writeln!(out, "/// generated options-field setter.");
+            let _ = writeln!(
+                out,
+                "/// The returned handle owns the vtable's function pointers and must be"
+            );
+            let _ = writeln!(
+                out,
+                "/// released with the matching `{prefix}_visitor_handle_free` once the"
+            );
+            let _ = writeln!(out, "/// containing options object is no longer needed.");
+            let _ = writeln!(
+                out,
+                "pub fn {snake}_handle_from_vtable(callbacks: {callbacks_type}) ?{handle_type} {{"
+            );
+            let _ = writeln!(out, "    var _cb = callbacks;");
+            let _ = writeln!(out, "    return @ptrCast({ctor_fn}(&_cb));");
+            let _ = writeln!(out, "}}");
+            let _ = writeln!(out);
+        }
     }
 
     // -------------------------------------------------------------------------

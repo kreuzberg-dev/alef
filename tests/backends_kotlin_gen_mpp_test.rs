@@ -450,6 +450,8 @@ fn mpp_sealed_enum_in_common_main() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "PlainText".to_string(),
@@ -458,6 +460,8 @@ fn mpp_sealed_enum_in_common_main() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             cfg: None,

@@ -56,6 +56,13 @@ pub fn sanitized_public_api_diagnostics(api: &ApiSurface) -> Vec<SanitizedPublic
             continue;
         }
         for variant in &enum_def.variants {
+            // Skip variants that are explicitly excluded from the binding surface.
+            // Excluded variants are internal-only and their field types are intentionally
+            // not part of the public API; walking them would produce false-positive
+            // lossy-sanitization diagnostics.
+            if variant.binding_excluded {
+                continue;
+            }
             for field in &variant.fields {
                 if !field.binding_excluded {
                     collect_field_diagnostic(
@@ -388,10 +395,7 @@ mod tests {
                 variants: vec![EnumVariant {
                     name: "Created".to_string(),
                     fields: vec![sanitized_field("payload", "InternalPayload")],
-                    doc: String::new(),
-                    is_default: false,
-                    serde_rename: None,
-                    is_tuple: false,
+                    ..EnumVariant::default()
                 }],
                 doc: String::new(),
                 cfg: None,
@@ -432,6 +436,50 @@ mod tests {
         assert_eq!(
             paths,
             vec!["field Event::Created.payload", "field Error::Invalid.source"]
+        );
+    }
+
+    #[test]
+    fn skips_binding_excluded_enum_variants_with_sanitized_fields() {
+        // Regression: a variant marked `#[cfg_attr(alef, alef(skip))]` or
+        // `#[doc(hidden)]` wraps an internal type that sanitizes to String.  The
+        // validator must not flag it because the entire variant is excluded.
+        let excluded_variant = EnumVariant {
+            name: "Code".to_string(),
+            fields: vec![sanitized_field("_0", "CodeMetadataInner")],
+            binding_excluded: true,
+            binding_exclusion_reason: Some("alef(skip)".to_string()),
+            ..EnumVariant::default()
+        };
+        // A non-excluded variant with a clean (non-sanitized) field must pass.
+        let public_variant = EnumVariant {
+            name: "Document".to_string(),
+            ..EnumVariant::default()
+        };
+
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "FormatMetadata".to_string(),
+                rust_path: "sample::FormatMetadata".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![excluded_variant, public_variant],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let diagnostics = sanitized_public_api_diagnostics(&api);
+        assert!(
+            diagnostics.is_empty(),
+            "binding-excluded variant must not produce diagnostics; got: {diagnostics:?}"
         );
     }
 }

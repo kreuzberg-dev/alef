@@ -755,6 +755,7 @@ pub fn gen_bridge_function(
 /// Generate a wrapper function for options-field binding (bridge visitor injection).
 /// This function accepts the visitor as a separate parameter, wraps it as a VisitorHandle,
 /// injects it into the options struct, and calls the core function.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_options_field_bridge_function(
     api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,

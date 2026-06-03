@@ -320,6 +320,8 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     doc: "A plain-text document.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 // Struct variant with multiple named fields
                 EnumVariant {
@@ -332,6 +334,8 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     doc: "A structured document.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "A document for input.".to_string(),
@@ -418,6 +422,8 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     doc: "A file path pointing to a document.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 // Struct variant: OcrDocument::Encoded { data: String, mime: String }
                 EnumVariant {
@@ -430,6 +436,8 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     doc: "Base64-encoded document bytes.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "A document for OCR.".to_string(),
@@ -506,6 +514,8 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "Base64".to_string(),
@@ -517,6 +527,8 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         doc: String::new(),
@@ -623,6 +635,8 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "JsonObject".to_string(),
@@ -631,6 +645,8 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "JsonSchema".to_string(),
@@ -639,6 +655,8 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 doc: String::new(),
                 is_default: false,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         doc: String::new(),

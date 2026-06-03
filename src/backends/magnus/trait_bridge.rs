@@ -924,17 +924,22 @@ pub fn gen_options_field_bridge_function(
     // if it's a `ConversionOptions` Ruby class instance → clone + .into() to core;
     // otherwise treat as visitor object and wire into options.
     let options_name = &func.params[options_param_idx].name;
-    let options_type = {
+    let Some(options_field) = bridge_cfg.resolved_options_field() else {
+        return String::new();
+    };
+    let Some(options_type) = ({
         let raw = &func.params[options_param_idx].ty;
         let inner = match raw {
             TypeRef::Optional(b) => b.as_ref(),
             other => other,
         };
         if let TypeRef::Named(n) = inner {
-            n.clone()
+            Some(n.as_str())
         } else {
-            "ConversionOptions".to_string()
+            bridge_cfg.options_type.as_deref()
         }
+    }) else {
+        return String::new();
     };
     let visitor_extract = format!(
         "let {options_name}_core = match visitor {{\n    \
@@ -958,7 +963,7 @@ pub fn gen_options_field_bridge_function(
          let bridge = {struct_name}::new(v);\n            \
          let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path};\n            \
          let mut opts = {core_import}::{options_type}::default();\n            \
-         opts.visitor = Some(handle);\n            \
+         opts.{options_field} = Some(handle);\n            \
          opts\n        \
          }}\n    \
          }},\n    \
@@ -969,6 +974,7 @@ pub fn gen_options_field_bridge_function(
         core_import = core_import,
         options_name = options_name,
         options_type = options_type,
+        options_field = options_field,
     );
 
     // Build call args: non-options params + the _core options (wrapped in Some)

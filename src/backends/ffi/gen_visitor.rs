@@ -13,8 +13,7 @@
 /// All `HtmlVisitor` trait methods are covered. The callback struct field
 /// order matches the trait definition order (and therefore the Go binding's
 /// expected layout).
-use heck::ToPascalCase;
-use heck::ToSnakeCase;
+use heck::{ToPascalCase, ToSnakeCase, ToUpperCamelCase};
 
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, ParamDef, TypeRef};
@@ -335,13 +334,22 @@ pub fn gen_visitor_bindings(
     function: Option<&FunctionDef>,
 ) -> String {
     let pascal_prefix = prefix.to_pascal_case();
+    let visit_prefix = prefix.to_uppercase();
     let specs = callback_specs_from_trait(trait_def);
     let trait_path = trait_def.rust_path.replace('-', "_");
     let options_type = function
         .and_then(|func| visitor_options_param(func, bridge_cfg))
         .and_then(|param| named_type_ref(&param.ty))
-        .or_else(|| bridge_cfg.and_then(|cfg| cfg.options_type.as_deref()))
-        .unwrap_or("ConversionOptions");
+        .or_else(|| bridge_cfg.and_then(|cfg| cfg.options_type.as_deref()));
+    let options_type_fallback;
+    let options_type = match options_type {
+        Some(options_type) => options_type,
+        None => {
+            let trait_stem = trait_def.name.strip_suffix("Visitor").unwrap_or(&trait_def.name);
+            options_type_fallback = format!("{trait_stem}Options");
+            &options_type_fallback
+        }
+    };
     let options_field = bridge_cfg
         .and_then(|cfg| cfg.resolved_options_field())
         .unwrap_or("visitor");
@@ -359,7 +367,7 @@ pub fn gen_visitor_bindings(
                 core_import,
                 bridge_cfg,
                 embed_visitor_in_options,
-                &options_field,
+                options_field,
             )
         })
         .unwrap_or_else(|| {
@@ -368,7 +376,7 @@ pub fn gen_visitor_bindings(
                 core_import,
                 &options_path,
                 embed_visitor_in_options,
-                &options_field,
+                options_field,
             )
         });
 
@@ -378,15 +386,15 @@ pub fn gen_visitor_bindings(
 // ---------------------------------------------------------------------------
 
 /// Visit-result code: continue with default conversion.
-pub const HTM_VISIT_CONTINUE: i32 = 0;
+pub const {visit_prefix}_VISIT_CONTINUE: i32 = 0;
 /// Visit-result code: skip this element entirely (no output).
-pub const HTM_VISIT_SKIP: i32 = 1;
+pub const {visit_prefix}_VISIT_SKIP: i32 = 1;
 /// Visit-result code: preserve the original HTML verbatim.
-pub const HTM_VISIT_PRESERVE_HTML: i32 = 2;
+pub const {visit_prefix}_VISIT_PRESERVE_HTML: i32 = 2;
 /// Visit-result code: use `out_custom` / `out_len` as custom Markdown output.
-pub const HTM_VISIT_CUSTOM: i32 = 3;
+pub const {visit_prefix}_VISIT_CUSTOM: i32 = 3;
 /// Visit-result code: abort conversion; `out_custom` contains the error message.
-pub const HTM_VISIT_ERROR: i32 = 4;
+pub const {visit_prefix}_VISIT_ERROR: i32 = 4;
 
 /// Opaque context passed to every C callback.
 ///
@@ -658,6 +666,7 @@ pub unsafe extern "C" fn {prefix}_options_set_visitor_handle(
         VISIT_RESULT_CUSTOM = VISIT_RESULT_CUSTOM,
         VISIT_RESULT_ERROR = VISIT_RESULT_ERROR,
         prefix = prefix,
+        visit_prefix = visit_prefix,
         pascal_prefix = pascal_prefix,
         core_import = core_import,
         trait_path = trait_path,
@@ -820,7 +829,7 @@ impl LegacyVisitorFunctionSpec {
             fn_name: format!("{prefix}_convert_with_visitor"),
             ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
             param_conversions: legacy_html_options_conversions(options_path),
-            return_type: format!("{core_import}::ConversionResult"),
+            return_type: format!("{core_import}::{}Result", prefix.to_upper_camel_case()),
             call,
         }
     }
@@ -836,12 +845,12 @@ struct LegacyNoVisitorFunctionSpec {
 
 impl LegacyNoVisitorFunctionSpec {
     fn conversion(prefix: &str, core_import: &str) -> Self {
-        let options_path = format!("{core_import}::options::ConversionOptions");
+        let options_path = format!("{core_import}::options::{}Options", prefix.to_upper_camel_case());
         Self {
             fn_name: format!("{prefix}_convert"),
             ffi_params: format!("html: *const std::ffi::c_char,\n    options: *const {options_path},"),
             param_conversions: legacy_html_options_conversions(&options_path),
-            return_type: format!("{core_import}::ConversionResult"),
+            return_type: format!("{core_import}::{}Result", prefix.to_upper_camel_case()),
             call: format!("    match {core_import}::convert(html_str, options_rs, None) {{"),
         }
     }
@@ -903,10 +912,11 @@ fn visitor_function_spec(
                 .and_then(|param| named_type_ref(&param.ty))
                 .map(|name| rust_named_path(core_import, name))
             else {
+                let fallback_options_path = format!("{core_import}::{}Options", func.name.to_upper_camel_case());
                 return LegacyVisitorFunctionSpec::conversion(
                     prefix,
                     core_import,
-                    "ConversionOptions",
+                    &fallback_options_path,
                     true,
                     options_field,
                 );

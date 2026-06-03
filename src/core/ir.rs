@@ -664,7 +664,7 @@ pub struct EnumDef {
 }
 
 /// An enum variant.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnumVariant {
     pub name: String,
     pub fields: Vec<FieldDef>,
@@ -679,6 +679,13 @@ pub struct EnumVariant {
     /// False for struct variants with named fields or unit variants.
     #[serde(default)]
     pub is_tuple: bool,
+    /// True when source metadata explicitly excludes this variant from generated
+    /// polyglot binding surfaces (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    #[serde(default)]
+    pub binding_excluded: bool,
+    /// Human-readable reason for `binding_excluded`, used in diagnostics.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binding_exclusion_reason: Option<String>,
 }
 
 /// An error type (enum used in Result<T, E>).

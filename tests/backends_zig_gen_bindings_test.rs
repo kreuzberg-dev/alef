@@ -555,6 +555,8 @@ fn enum_emits_zig_enum_or_union() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -563,6 +565,8 @@ fn enum_emits_zig_enum_or_union() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: String::new(),

@@ -901,7 +901,9 @@ impl Backend for PhpBackend {
         for bridge in &config.trait_bridges {
             if let Some(field_name) = bridge.resolved_options_field() {
                 let param_name = bridge.param_name.as_deref().unwrap_or(field_name);
-                let type_alias = bridge.type_alias.as_deref().unwrap_or("VisitorHandle");
+                let Some(type_alias) = bridge.type_alias.as_deref() else {
+                    continue;
+                };
                 let Some(options_type) = bridge.options_type.as_deref() else {
                     continue;
                 };
@@ -1142,14 +1144,11 @@ impl Backend for PhpBackend {
             // functions have optional params in the middle, we must make all params after
             // the first optional one also optional (nullable with null default).
             // This ensures e2e generated test code (which uses Rust param order) will work.
-            // Additionally, config-like parameters (Named types ending in "Config") should
-            // be treated as optional for PHP even if not explicitly marked as such in the IR.
-            // Helper: a config param is only treated as optional when its type can be
-            // constructed with zero arguments (all fields are optional in the IR).
-            let is_optional_config_param = |p: &crate::core::ir::ParamDef| -> bool {
+            // Treat required named params as optional only when IR metadata proves the
+            // target type can be constructed with zero arguments.
+            let is_optional_default_constructible_param = |p: &crate::core::ir::ParamDef| -> bool {
                 if let TypeRef::Named(name) = &p.ty {
-                    (name.ends_with("Config") || name.as_str() == "config")
-                        && no_arg_constructor_types.contains(name.as_str())
+                    no_arg_constructor_types.contains(name.as_str())
                 } else {
                     false
                 }
@@ -1157,7 +1156,7 @@ impl Backend for PhpBackend {
 
             let mut first_optional_idx = None;
             for (idx, p) in visible_params.iter().enumerate() {
-                if p.optional || is_optional_config_param(p) {
+                if p.optional || is_optional_default_constructible_param(p) {
                     first_optional_idx = Some(idx);
                     break;
                 }
@@ -1175,10 +1174,10 @@ impl Backend for PhpBackend {
                     let ptype = php_type(&p.ty);
                     // Make param optional if:
                     // 1. It's explicitly optional OR
-                    // 2. It's a config parameter with a no-arg constructor OR
-                    // 3. It comes after the first optional/config param
+                    // 2. IR says its named type has a no-arg constructor OR
+                    // 3. It comes after the first optional/default-constructible param
                     let should_be_optional = p.optional
-                        || is_optional_config_param(p)
+                        || is_optional_default_constructible_param(p)
                         || first_optional_idx.is_some_and(|first| idx >= first);
                     if should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
@@ -1202,7 +1201,7 @@ impl Backend for PhpBackend {
             // The native extension expects parameters in the order defined in the Rust function.
             // The PHP facade reorders them only in its own signature for PHP syntax compliance,
             // but must pass them in the original order when calling the native method.
-            // Config-type params that were made optional (nullable) in the facade must be
+            // Default-constructible params made optional in the facade must be
             // coerced to their default constructor when null, since the native ext requires
             // non-nullable objects.
             let call_params = visible_params
@@ -1210,9 +1209,9 @@ impl Backend for PhpBackend {
                 .enumerate()
                 .map(|(idx, p)| {
                     let should_be_optional = p.optional
-                        || is_optional_config_param(p)
+                        || is_optional_default_constructible_param(p)
                         || first_optional_idx.is_some_and(|first| idx >= first);
-                    if should_be_optional && is_optional_config_param(p) {
+                    if should_be_optional && is_optional_default_constructible_param(p) {
                         if let TypeRef::Named(type_name) = &p.ty {
                             return format!("${} ?? new {}()", p.name, type_name);
                         }

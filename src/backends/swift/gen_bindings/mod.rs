@@ -3368,6 +3368,12 @@ fn emit_inbound_protocols(
             Some(a) => a,
             None => continue,
         };
+        let Some(options_type) = bridge_cfg.options_type.as_deref() else {
+            continue;
+        };
+        let Some(field) = bridge_cfg.resolved_options_field() else {
+            continue;
+        };
         let result_type_name = bridge_cfg.result_type.as_deref().unwrap_or("VisitResult");
 
         // Locate trait def in the API surface.
@@ -3514,8 +3520,6 @@ fn emit_inbound_protocols(
         }
 
         // --- 5. Factory function ---
-        let options_type = bridge_cfg.options_type.as_deref().unwrap_or("ConversionOptions");
-        let field = bridge_cfg.resolved_options_field().unwrap_or("visitor");
         let opts_snake = options_type.to_snake_case();
         let options_fn = format!("{opts_snake}FromJsonWith{}", field.to_upper_camel_case()).to_lower_camel_case();
         out.push_str(&format!(

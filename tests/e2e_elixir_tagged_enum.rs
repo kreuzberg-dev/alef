@@ -87,6 +87,8 @@ fn build_test_enums() -> Vec<EnumDef> {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "Down".to_string(),
@@ -95,6 +97,8 @@ fn build_test_enums() -> Vec<EnumDef> {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         doc: String::new(),
@@ -141,6 +145,8 @@ fn build_test_enums() -> Vec<EnumDef> {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             // Scroll { direction: ScrollDirection }
             EnumVariant {
@@ -169,6 +175,8 @@ fn build_test_enums() -> Vec<EnumDef> {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             // Scrape (unit variant)
             EnumVariant {
@@ -178,6 +186,8 @@ fn build_test_enums() -> Vec<EnumDef> {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         doc: String::new(),

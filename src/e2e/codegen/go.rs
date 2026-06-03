@@ -200,12 +200,13 @@ impl E2eCodegen for GoCodegen {
         let needs_mock_server = groups
             .iter()
             .flat_map(|g| g.fixtures.iter())
-            .any(|f| f.needs_mock_server());
+            .any(|f| f.http.is_none() && f.needs_mock_server());
         let needs_http_tests = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
 
         let needs_main_test = has_file_fixtures
+            || needs_http_tests
             || groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
-                if f.needs_mock_server() {
+                if f.http.is_none() && f.needs_mock_server() {
                     return true;
                 }
                 let cc = e2e_config.resolve_call_for_fixture(
@@ -225,7 +226,7 @@ impl E2eCodegen for GoCodegen {
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server || needs_http_tests),
+                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server),
                 generated_header: true,
             });
 
@@ -343,9 +344,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\"bufio\"");
     }
     let _ = writeln!(out, "\t\"os\"");
-    if needs_mock_server_bootstrap {
-        let _ = writeln!(out, "\t\"os/exec\"");
-    }
+    let _ = writeln!(out, "\t\"os/exec\"");
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
     let _ = writeln!(out, "\t\"testing\"");

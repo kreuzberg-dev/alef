@@ -117,6 +117,8 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 is_default: true, // This is the default variant
                 serde_rename: None,
                 is_tuple: true,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "Custom".to_string(),
@@ -166,6 +168,8 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: true,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         Some("type".to_string()), // serde_tag makes this a sealed interface
@@ -263,6 +267,8 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 is_default: true,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "Complete".to_string(),
@@ -271,6 +277,8 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         Some("type".to_string()), // serde_tag makes this a sealed interface
