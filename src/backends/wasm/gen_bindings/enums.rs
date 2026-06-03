@@ -737,6 +737,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -847,6 +848,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -968,6 +970,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -1032,6 +1035,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -1095,6 +1099,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");

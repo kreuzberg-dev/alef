@@ -149,6 +149,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -328,6 +329,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2351,6 +2353,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2501,6 +2504,7 @@ fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) 
         serde_rename_all: serde_rename_all.map(str::to_string),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     }
 }
 
@@ -2715,6 +2719,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // Build a request struct with a required Vec<Message> field.
@@ -2881,6 +2886,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // Build a struct with:
@@ -3311,6 +3317,7 @@ fn test_wasm_js_name_on_unit_enum() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3635,6 +3642,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
         serde_rename_all: Some("snake_case".to_string()),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // Add a function that accepts NodeContent so it is treated as an input type

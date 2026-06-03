@@ -176,6 +176,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -235,6 +236,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![ErrorDef {
             name: "DemoError".into(),

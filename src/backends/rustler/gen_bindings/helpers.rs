@@ -1723,6 +1723,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_elixir_enum_module(&format_enum, "SampleCrate");
@@ -1815,6 +1816,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_elixir_enum_module(&image_source_enum, "SampleCrawler");
@@ -1934,6 +1936,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         // Simulate calling with known types available

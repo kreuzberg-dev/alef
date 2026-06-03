@@ -4154,6 +4154,7 @@ package_name = "testlib"
                 serde_rename_all: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                excluded_variants: vec![],
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -4386,6 +4387,7 @@ exclude_languages = ["r"]
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         });
         let files = backend.generate_public_api(&api, &config).unwrap();
         let namespace = files

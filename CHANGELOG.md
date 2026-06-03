@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.14] - 2026-06-03
+
+### Fixed
+
+- fix(ir): add `excluded_variants: Vec<EnumVariant>` field to `EnumDef` to carry variant-level `binding_excluded` variants that were previously filtered out entirely. The Dart FRB backend iterates this new field to emit `unreachable!()` match arms, making `From<CoreType>` impls exhaustive without altering any other backend. (`src/core/ir.rs`, `src/extract/extractor/types.rs`, `src/backends/dart/gen_rust_crate/mod.rs`)
+
 ## [0.22.13] - 2026-06-03
 
 ### Fixed

@@ -1351,6 +1351,7 @@ exclude_types = ["FfiHidden"]
                 serde_rename_all: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                excluded_variants: vec![],
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1417,6 +1418,7 @@ exclude_types = ["FfiHidden"]
                 serde_rename_all: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                excluded_variants: vec![],
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1478,6 +1480,7 @@ exclude_types = ["FfiHidden"]
             serde_rename_all: Some("lowercase".into()),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
         let out = render_enum_for_shared_doc(&en);
         assert!(out.contains("| Variant | Wire value | Description |"));
@@ -1514,6 +1517,7 @@ exclude_types = ["FfiHidden"]
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
         let out = render_enum_for_shared_doc(&en);
         // The internal heading ## should become #### (demoted by 2 levels).
@@ -1604,6 +1608,7 @@ exclude_types = ["FfiHidden"]
                     serde_rename_all: None,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    excluded_variants: vec![],
                 },
                 EnumDef {
                     name: "Unrelated".into(),
@@ -1629,6 +1634,7 @@ exclude_types = ["FfiHidden"]
                     serde_rename_all: None,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    excluded_variants: vec![],
                 },
             ],
             errors: vec![],

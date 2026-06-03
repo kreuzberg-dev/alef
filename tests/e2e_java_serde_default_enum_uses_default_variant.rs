@@ -44,6 +44,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         has_serde: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // Create an API surface with the enum
@@ -168,6 +169,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             has_serde: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         },
         EnumDef {
             name: "NoDefaultEnum".to_string(),
@@ -206,6 +208,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             has_serde: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         },
     ];
 

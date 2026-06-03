@@ -188,17 +188,15 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
     let name = item.ident.to_string();
     let doc = extract_doc_comments(&item.attrs);
 
-    // Extract all variants, then drop any that are explicitly excluded from the binding
-    // surface (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).  Excluded
-    // variants carry internal types that are intentionally not part of the public API;
-    // filtering them here prevents every downstream backend and the validator from having
-    // to independently handle the exclusion.
-    let variants: Vec<_> = item
-        .variants
-        .iter()
-        .map(extract_enum_variant)
-        .filter(|v| !v.binding_excluded)
-        .collect();
+    // Extract all variants, separating binding-excluded ones into a side list.
+    // Excluded variants carry internal types not part of the public API; keeping them
+    // out of `variants` means downstream backends and the validator never see them.
+    // However, backends that generate exhaustive Rust match expressions against the
+    // *core* type (e.g. Dart FRB `From<CoreType>`) still need to know excluded variants
+    // exist so they can emit `unreachable!()` arms. Those are stored in `excluded_variants`.
+    let all_variants: Vec<_> = item.variants.iter().map(extract_enum_variant).collect();
+    let (excluded_variants, variants): (Vec<_>, Vec<_>) =
+        all_variants.into_iter().partition(|v| v.binding_excluded);
 
     let rust_path = build_rust_path(crate_name, module_path, &name);
     let serde_tag = extract_serde_tag(&item.attrs);
@@ -212,6 +210,7 @@ pub(crate) fn extract_enum(item: &syn::ItemEnum, crate_name: &str, module_path: 
         original_rust_path: String::new(),
         name,
         variants,
+        excluded_variants,
         doc,
         cfg,
         serde_tag,

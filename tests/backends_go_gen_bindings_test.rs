@@ -157,6 +157,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -555,6 +556,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2568,6 +2570,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     });
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");

@@ -294,6 +294,7 @@ mod tests {
             has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 

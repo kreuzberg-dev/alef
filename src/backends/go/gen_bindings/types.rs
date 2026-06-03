@@ -1993,6 +1993,7 @@ mod tests {
             }],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
         let out = gen_unit_enum_type(&enum_def);
         assert!(out.contains("type Status string"));
@@ -2080,6 +2081,7 @@ mod tests {
             ],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
         let out = gen_data_enum_type(&enum_def);
         // Should emit sealed interface

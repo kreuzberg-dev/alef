@@ -1284,6 +1284,7 @@ gem_name = "my_gem"
             has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
             cfg: None,
         });
 

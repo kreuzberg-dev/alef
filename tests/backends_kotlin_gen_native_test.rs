@@ -270,6 +270,7 @@ fn native_unit_enum_emits_enum_class() {
             has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

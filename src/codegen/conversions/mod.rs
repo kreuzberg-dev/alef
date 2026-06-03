@@ -334,6 +334,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -448,6 +449,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 

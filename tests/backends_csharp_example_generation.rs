@@ -179,6 +179,7 @@ fn test_generated_code_example() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

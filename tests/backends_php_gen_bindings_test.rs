@@ -395,6 +395,7 @@ fn test_basic_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -513,6 +514,7 @@ fn type_stubs_honor_php_excludes_and_enum_wire_values() {
             serde_rename_all: Some("kebab-case".to_string()),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -668,6 +670,7 @@ fn test_enum_generation() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2303,6 +2306,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     let api = ApiSurface {
@@ -2448,6 +2452,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         serde_rename_all: Some("lowercase".to_string()),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     let config_type = TypeDef {
@@ -3088,6 +3093,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

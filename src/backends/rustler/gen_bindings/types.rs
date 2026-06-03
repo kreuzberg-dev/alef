@@ -706,6 +706,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -829,6 +830,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -959,6 +961,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_enum(&format_enum, "SampleCrate");
@@ -1085,6 +1088,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let from_core = gen_rustler_flat_data_enum_from_core(&enum_def, "sample_crate");

@@ -44,6 +44,7 @@ fn php_enum_default_variant_uses_marked_variant() {
         has_serde: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // The helper should return the #[default]-marked variant, not the first one
@@ -95,6 +96,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
         has_serde: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // Without #[default], should fall back to the first variant

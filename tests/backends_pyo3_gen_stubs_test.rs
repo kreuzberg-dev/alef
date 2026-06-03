@@ -150,6 +150,7 @@ fn test_basic_stubs() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -362,6 +363,7 @@ fn test_enum_stubs() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1089,6 +1091,7 @@ fn test_multiple_types_and_functions() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1387,6 +1390,7 @@ fn make_batch_status_enum_def() -> EnumDef {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     }
 }
 
@@ -1500,6 +1504,7 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1747,6 +1752,7 @@ fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
             serde_rename_all: Some("kebab-case".to_string()),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

@@ -475,6 +475,7 @@ fn mpp_sealed_enum_in_common_main() {
             has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

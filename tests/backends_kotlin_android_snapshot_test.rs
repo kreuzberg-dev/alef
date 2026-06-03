@@ -141,6 +141,7 @@ fn make_basic_api() -> ApiSurface {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),

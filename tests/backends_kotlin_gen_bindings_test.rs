@@ -229,6 +229,7 @@ fn unit_enum_emits_enum_class() {
             has_serde: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1307,6 +1308,7 @@ fn short_sealed_class_variant_emits_single_line() {
         has_serde: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
     let mut out = String::new();
     emit_enum_pub(&en, &mut out, "dev.sample_crate");
@@ -1347,6 +1349,7 @@ fn long_sealed_class_variant_emits_multi_line() {
         has_serde: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
     let mut out = String::new();
     emit_enum_pub(&en, &mut out, "dev.sample_crate");
