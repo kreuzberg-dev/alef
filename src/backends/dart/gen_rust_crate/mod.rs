@@ -1134,6 +1134,11 @@ fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, source_crate_na
 
     for variant in &en.variants {
         let vname = &variant.name;
+        // Variant-level binding_excluded: the variant doesn't exist in the mirror,
+        // so there's no arm to emit in From<MirrorEnum> for CoreType.
+        if variant.binding_excluded {
+            continue;
+        }
         if variant.originally_had_data_fields {
             // All fields are binding_excluded (retained in IR). The mirror variant is a
             // unit variant, but the core type still has struct/tuple fields. Reconstruct
@@ -1680,6 +1685,25 @@ fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_crate_name: &s
 
     for variant in &en.variants {
         let vname = &variant.name;
+        // Variant-level binding_excluded (e.g. #[cfg_attr(alef, alef(skip))] on the variant
+        // itself): the whole variant is excluded from the mirror enum, but the core type still
+        // has it. Emit an unreachable!() arm so the From<CoreType> match is exhaustive.
+        if variant.binding_excluded {
+            let template = if variant.is_tuple || !variant.fields.is_empty() {
+                "rust_enum_excluded_variant_tuple_arm.jinja"
+            } else {
+                "rust_enum_excluded_variant_unit_arm.jinja"
+            };
+            out.push_str(&crate::backends::dart::template_env::render(
+                template,
+                minijinja::context! {
+                    core_ty => core_ty.as_str(),
+                    vname => vname.as_str(),
+                    name => name.as_str(),
+                },
+            ));
+            continue;
+        }
         // Visible (non-binding_excluded) fields only — binding_excluded fields are retained
         // in the IR for to-core conversion but must not appear in the mirror.
         let visible_fields: Vec<&crate::core::ir::FieldDef> =

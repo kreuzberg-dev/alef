@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.13] - 2026-06-03
+
+### Fixed
+
+- fix(dart/frb): emit exhaustive `unreachable!()` match arms for variant-level `binding_excluded` enum variants in `From<CoreType>` impls. When an enum variant is excluded from the mirror via `#[doc(hidden)]` or `#[cfg_attr(alef, alef(skip))]` on the variant itself (not its fields), the core type still carries that variant, leaving the generated match non-exhaustive (E0004). Alef now emits `CoreType::Variant(..) => unreachable!("binding-excluded variant")` for tuple/struct variants and `CoreType::Variant => unreachable!(...)` for unit variants, and skips these variants in the `From<MirrorEnum>` arm. (`src/backends/dart/gen_rust_crate/mod.rs`, new templates `rust_enum_excluded_variant_tuple_arm.jinja` and `rust_enum_excluded_variant_unit_arm.jinja`)
+
 ## [0.22.12] - 2026-06-03
 
 ### Fixed
