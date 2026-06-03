@@ -950,6 +950,11 @@ mod alef_json_str_opt {
                 if !impl_block.is_empty() {
                     builder.add_item(&impl_block);
                 }
+                // Emit `impl Default for Type` when the type has a no-arg new() constructor
+                // to satisfy clippy's `new_without_default` lint
+                if should_emit_default_impl(typ, &impl_block) {
+                    builder.add_item(&emit_default_impl(&typ.name));
+                }
                 // Client constructor — emit a separate #[pymethods] impl with #[new]
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {
                     let ctor_body = generators::gen_opaque_constructor(ctor, &typ.name, &core_import, "#[new]");
@@ -1955,6 +1960,32 @@ fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, mapper: &Pyo
     Some(format!(
         "    #[new]\n    pub fn py_new({sig_params}) -> Self {{\n        {body}\n    }}\n"
     ))
+}
+
+/// Check if a type has a no-arg `pub fn new() -> Self` method (either static or constructor).
+/// This is used to determine whether we should emit an `impl Default for Type` block.
+///
+/// Returns true only when:
+/// - The type has at least one method named "new"
+/// - That method takes no parameters
+/// - The method returns `Self` (not `Result<Self>` or anything else)
+/// - No existing `impl Default` is already present in the impl_block
+fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_block: &str) -> bool {
+    // Check if Default impl already exists
+    if impl_block.contains("impl Default") {
+        return false;
+    }
+
+    // Check if there's a no-arg new() method that returns Self
+    typ.methods.iter().any(|m| {
+        m.name == "new" && m.params.is_empty() && matches!(m.return_type, crate::core::ir::TypeRef::Unit) // Methods use Unit for Self
+    })
+}
+
+/// Generate an `impl Default for Type { fn default() -> Self { Self::new() } }` block
+/// for a no-arg constructor. This satisfies clippy's `new_without_default` lint.
+fn emit_default_impl(type_name: &str) -> String {
+    format!("impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self::new()\n    }}\n}}\n")
 }
 
 /// Inject a method body into the existing `#[pymethods] impl T { ... }`
