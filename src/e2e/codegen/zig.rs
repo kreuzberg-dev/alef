@@ -598,14 +598,48 @@ pub fn build(b: *std.Build) void {
             // Registry mode: consume the published Zig package declared in
             // build.zig.zon. The tarball is a single generic source distribution
             // (contains source code + prebuilt FFI library for consumption).
+            // When the fetched package's build.zig has not yet been updated to the
+            // distributable version (which links FFI from lib/include inside the
+            // tarball), we add FFI linking here as a fallback. This ensures
+            // compatibility with both old and new published versions.
             content.push_str("\n    // Fetch the published Zig package from the registry.\n");
             let _ = writeln!(
                 content,
-                "    const {module_name}_module = b.dependency(\"{pkg_name}\", .{{"
+                "    const {pkg_name}_dep = b.dependency(\"{pkg_name}\", .{{"
             );
             content.push_str("        .target = target,\n");
             content.push_str("        .optimize = optimize,\n");
-            let _ = writeln!(content, "    }}).module(\"{module_name}\");");
+            let _ = writeln!(content, "    }});");
+            let _ = writeln!(
+                content,
+                "    const {module_name}_module = {pkg_name}_dep.module(\"{module_name}\");"
+            );
+            // Conditionally link FFI from the fetched package's bundled lib/include.
+            // If the fetched package's build.zig is the new distributable version,
+            // it already exports a module with FFI linked, and these lines are
+            // redundant but harmless. If the fetched package's build.zig is an old
+            // development version (still references ../../target/release), these
+            // lines ensure FFI linking works from the tarball's own lib/ directory.
+            let _ = writeln!(
+                content,
+                "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");"
+            );
+            let _ = writeln!(
+                content,
+                "    const {pkg_name}_include_path = {pkg_name}_dep.path(\"include\");"
+            );
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);"
+            );
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addIncludePath({pkg_name}_include_path);"
+            );
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+            );
             let _ = writeln!(content);
         }
         crate::e2e::config::DependencyMode::Local => {
@@ -3224,6 +3258,90 @@ mod zig_hash_tests {
         assert!(
             content.contains(expected_url),
             "build.zig.zon must emit the generic source tarball URL with proper repo segment; got:\n{content}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod zig_build_tests {
+    use super::{render_build_zig, ZigBuildFlags};
+    use crate::e2e::config::DependencyMode;
+
+    /// Registry mode test_app build.zig must NOT reference `../../target/release`
+    /// (the local workspace layout). Instead, it must link the FFI from the
+    /// fetched package's bundled lib/include directories, ensuring compatibility
+    /// with published tarballs.
+    #[test]
+    fn registry_mode_build_zig_links_ffi_from_bundled_paths() {
+        let test_filenames = vec!["basic_test.zig".to_string()];
+        let content = render_build_zig(
+            &test_filenames,
+            "sample_llm",
+            "sample_llm",
+            "sample_llm_ffi",
+            "../../crates/sample-llm-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Registry,
+        );
+
+        // Must NOT reference the workspace-local target directory.
+        assert!(
+            !content.contains("../../target/release"),
+            "registry mode build.zig must not reference workspace target dir, got:\n{content}"
+        );
+
+        // Must link the FFI from the dependency's bundled lib/ directory.
+        assert!(
+            content.contains("sample_llm_dep.path(\"lib\")"),
+            "registry mode build.zig must resolve FFI library path from fetched package's lib/ dir, got:\n{content}"
+        );
+
+        // Must link the C header from the dependency's bundled include/ directory.
+        assert!(
+            content.contains("sample_llm_dep.path(\"include\")"),
+            "registry mode build.zig must resolve FFI header path from fetched package's include/ dir, got:\n{content}"
+        );
+
+        // Must explicitly link the FFI system library.
+        assert!(
+            content.contains("linkSystemLibrary(\"sample_llm_ffi\""),
+            "registry mode build.zig must link the FFI system library, got:\n{content}"
+        );
+    }
+
+    /// Local mode test_app build.zig may reference `../../target/release` and
+    /// workspace-relative FFI paths (required for local development).
+    #[test]
+    fn local_mode_build_zig_uses_workspace_paths() {
+        let test_filenames = vec!["basic_test.zig".to_string()];
+        let content = render_build_zig(
+            &test_filenames,
+            "sample_llm",
+            "sample_llm",
+            "sample_llm_ffi",
+            "../../crates/sample-llm-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Local,
+        );
+
+        // In local mode, workspace paths are expected for development.
+        assert!(
+            content.contains("../../target/release"),
+            "local mode build.zig must reference workspace target dir for local development, got:\n{content}"
+        );
+
+        // Must link the FFI system library.
+        assert!(
+            content.contains("linkSystemLibrary(\"sample_llm_ffi\""),
+            "local mode build.zig must link the FFI system library, got:\n{content}"
         );
     }
 }
