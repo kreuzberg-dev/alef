@@ -103,6 +103,10 @@ fn tagged_enum_binding_to_core_expr(field_ident: &str, field_ty: &TypeRef, field
             _ => format!("val.{field_ident}.clone()"),
         },
         TypeRef::Named(_) => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
+        // Vec<Named>: binding stores Vec<BindingType>, core expects Vec<CoreType> — map with .into().
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            format!("val.{field_ident}.clone().unwrap_or_default().into_iter().map(Into::into).collect()")
+        }
         // Path (PathBuf): String → PathBuf via Into::into
         TypeRef::Path => format!("val.{field_ident}.clone().map(Into::into).unwrap_or_default()"),
         // Non-optional Map field on a tagged-enum variant: binding holds Option<JsValue>;
@@ -149,6 +153,11 @@ fn tagged_enum_core_to_binding_expr(
             _ => format!("                {field_ident}: {local}"),
         },
         TypeRef::Named(_) => format!("                {field_ident}: Some({local}.into())"),
+        // Vec<Named>: core has Vec<CoreType>, binding holds Option<Vec<BindingType>>. Map each
+        // element via Into::into and wrap with Some.
+        TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
+            format!("                {field_ident}: Some({local}.into_iter().map(Into::into).collect())")
+        }
         // Path (PathBuf): PathBuf → String via to_string_lossy
         TypeRef::Path => format!("                {field_ident}: Some({local}.to_string_lossy().to_string())"),
         // Non-optional Map field on a tagged-enum variant: binding holds Option<JsValue>, so
