@@ -544,40 +544,46 @@ fn render_makefile(
 
     if !needs_mock_server {
         // No fixtures require an HTTP mock backend; run the test binary directly.
+        let _ = writeln!(out, ".PHONY: all clean test smoke");
+        let _ = writeln!(out);
         let _ = writeln!(out, "test: $(TARGET)");
         let _ = writeln!(out, "\t./$(TARGET)");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "smoke: $(TARGET)");
+        let _ = writeln!(out, "\t./$(TARGET) --smoke");
         let _ = writeln!(out);
         let _ = writeln!(out, "clean:");
         let _ = writeln!(out, "\trm -f $(TARGET)");
         return out;
     }
 
-    // The `test:` target spawns the e2e mock-server binary, captures its
-    // assigned MOCK_SERVER_URL line on stdout, exports it for the test process,
-    // runs the suite, then tears the server down. This mirrors the per-language
-    // conftest/setup machinery used by Python, Ruby, Java, etc.
+    // The mock-server orchestration is parameterized via a `define`/`endef` macro
+    // that encapsulates build, spawn, env setup, and cleanup logic. Both `smoke`
+    // and `test` targets invoke this macro with different TEST_CMD variables.
     //
-    // The mock-server also emits MOCK_SERVERS={...json...} mapping fixture IDs to
-    // their per-fixture listener URLs (needed for fixtures like robots/sitemap that
-    // require host-root routes). We parse this with python3 and export
+    // The mock-server emits MOCK_SERVERS={...json...} mapping fixture IDs to
+    // their per-fixture listener URLs. We parse this with python3 and export
     // MOCK_SERVER_<UPPER_ID> env vars so the test binary can look them up.
     let _ = writeln!(out, "MOCK_SERVER_BIN ?= ../rust/target/release/mock-server");
     let _ = writeln!(out, "MOCK_SERVER_MANIFEST ?= ../rust/Cargo.toml");
     let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
     let _ = writeln!(out);
-    let _ = writeln!(out, "test: $(TARGET)");
+    let _ = writeln!(out, ".PHONY: all clean test smoke");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Mock-server orchestration macro: build, spawn, setup env, run $(TEST_CMD), cleanup"
+    );
+    let _ = writeln!(out, "define run_with_mock_server");
     let _ = writeln!(out, "\t@if [ -n \"$$MOCK_SERVER_URL\" ]; then \\");
-    // When MOCK_SERVER_URL is already set (e.g. run under an existing mock-server
-    // process), also parse MOCK_SERVERS env var and export per-fixture vars.
     let _ = writeln!(out, "\t\tif [ -n \"$$MOCK_SERVERS\" ]; then \\");
     let _ = writeln!(
         out,
         "\t\t\teval $$(python3 -c \"import json,os; d=json.loads(os.environ.get('MOCK_SERVERS','{{}}')); print(' '.join('export MOCK_SERVER_'+k.upper()+'='+v for k,v in d.items()))\"); \\"
     );
     let _ = writeln!(out, "\t\tfi; \\");
-    let _ = writeln!(out, "\t\t./$(TARGET); \\");
+    let _ = writeln!(out, "\t\t$(TEST_CMD); \\");
     let _ = writeln!(out, "\telse \\");
-    // Build the mock-server from the e2e/rust/ crate if the binary is missing.
     let _ = writeln!(out, "\t\tif [ ! -x \"$(MOCK_SERVER_BIN)\" ]; then \\");
     let _ = writeln!(
         out,
@@ -597,7 +603,6 @@ fn render_makefile(
     let _ = writeln!(out, "\t\tMOCK_PID=$$!; \\");
     let _ = writeln!(out, "\t\texec 9>mock_server.stdin; \\");
     let _ = writeln!(out, "\t\tMOCK_URL=\"\"; MOCK_SERVERS_JSON=\"\"; \\");
-    // Wait until MOCK_SERVER_URL appears in stdout (server is ready), bail after 5 s.
     let _ = writeln!(out, "\t\tfor _ in $$(seq 1 100); do \\");
     let _ = writeln!(out, "\t\t\tif [ -s mock_server.stdout ]; then \\");
     let _ = writeln!(
@@ -608,7 +613,6 @@ fn render_makefile(
     let _ = writeln!(out, "\t\t\tfi; \\");
     let _ = writeln!(out, "\t\t\tsleep 0.05; \\");
     let _ = writeln!(out, "\t\tdone; \\");
-    // MOCK_SERVERS line is printed after MOCK_SERVER_URL; give it a short extra read.
     let _ = writeln!(
         out,
         "\t\tMOCK_SERVERS_JSON=$$(grep -o 'MOCK_SERVERS={{.*}}' mock_server.stdout | head -1 | cut -d= -f2-); \\"
@@ -617,7 +621,6 @@ fn render_makefile(
         out,
         "\t\tif [ -z \"$$MOCK_URL\" ]; then echo 'failed to start mock-server' >&2; cat mock_server.stdout >&2; kill $$MOCK_PID 2>/dev/null || true; exit 1; fi; \\"
     );
-    // Export per-fixture MOCK_SERVER_<UPPER_ID> env vars from the JSON map.
     let _ = writeln!(
         out,
         "\t\tif [ -n \"$$MOCK_SERVERS_JSON\" ] && command -v python3 >/dev/null 2>&1; then \\"
@@ -627,12 +630,25 @@ fn render_makefile(
         "\t\t\teval $$(python3 -c \"import json,sys; d=json.loads(sys.argv[1]); print(' '.join('export MOCK_SERVER_{{}}={{}}'.format(k.upper(),v) for k,v in d.items()))\" \"$$MOCK_SERVERS_JSON\"); \\"
     );
     let _ = writeln!(out, "\t\tfi; \\");
-    let _ = writeln!(out, "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" ./$(TARGET); STATUS=$$?; \\");
+    let _ = writeln!(out, "\t\tMOCK_SERVER_URL=\"$$MOCK_URL\" $(TEST_CMD); STATUS=$$?; \\");
     let _ = writeln!(out, "\t\texec 9>&-; \\");
     let _ = writeln!(out, "\t\tkill $$MOCK_PID 2>/dev/null || true; \\");
     let _ = writeln!(out, "\t\trm -f mock_server.stdout mock_server.stdin; \\");
     let _ = writeln!(out, "\t\texit $$STATUS; \\");
     let _ = writeln!(out, "\tfi");
+    let _ = writeln!(out, "endef");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "test: $(TARGET)");
+    let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET)' $$(MAKE) -s run_with_mock_server");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "smoke: $(TARGET)");
+    let _ = writeln!(
+        out,
+        "\t@TEST_CMD='./$(TARGET) --smoke' $$(MAKE) -s run_with_mock_server"
+    );
+    let _ = writeln!(out);
+    let _ = writeln!(out, "run_with_mock_server:");
+    let _ = writeln!(out, "\t$(run_with_mock_server)");
     let _ = writeln!(out);
     let _ = writeln!(out, "clean:");
     let _ = writeln!(out, "\trm -f $(TARGET) mock_server.stdout mock_server.stdin");
