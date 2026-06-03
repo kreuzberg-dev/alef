@@ -129,6 +129,31 @@ use crate::backends::ffi::type_map::{c_return_type_with_paths, is_passthrough_re
 
 use super::helpers::{gen_ffi_unimplemented_body, gen_owned_value_to_c, null_return_value};
 
+/// Returns true when the return type requires JSON serialization of a Named type that is NOT
+/// in `serde_names` (i.e. does not derive `serde::Serialize`).
+///
+/// FFI returns `Vec<T>` and `Map<K, V>` by serializing to JSON, which requires all
+/// contained Named types to implement `serde::Serialize`. When a Named type lacks that
+/// derive, generating the JSON path would produce a compile error in the output crate.
+/// Such functions are stubbed out (emit unimplemented) instead.
+fn return_type_needs_non_serde_named(ty: &TypeRef, serde_names: &AHashSet<String>) -> bool {
+    match ty {
+        TypeRef::Vec(inner) => {
+            if let TypeRef::Named(n) = inner.as_ref() {
+                return !serde_names.contains(n.as_str());
+            }
+            false
+        }
+        TypeRef::Map(k, v) => {
+            let k_bad = matches!(k.as_ref(), TypeRef::Named(n) if !serde_names.contains(n.as_str()));
+            let v_bad = matches!(v.as_ref(), TypeRef::Named(n) if !serde_names.contains(n.as_str()));
+            k_bad || v_bad
+        }
+        TypeRef::Optional(inner) => return_type_needs_non_serde_named(inner, serde_names),
+        _ => false,
+    }
+}
+
 fn c_symbol_component(name: &str) -> String {
     pascal_to_snake(name)
 }
@@ -358,6 +383,7 @@ pub(super) fn gen_method_wrapper(
     core_import: &str,
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
 ) -> String {
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
@@ -411,7 +437,10 @@ pub(super) fn gen_method_wrapper(
     // Check if this method will be unimplemented before building params.
     // Sanitized methods with recoverable params (Vec<String> originally Vec<tuple>) are
     // re-routed through the standard JSON-roundtrip Vec conversion below.
-    let will_be_unimplemented = method.sanitized && !method_sanitized_recoverable(method);
+    // Also stub out methods returning Vec<Named> / Map where Named lacks serde::Serialize.
+    let return_needs_non_serde_named_method = return_type_needs_non_serde_named(&method.return_type, serde_names);
+    let will_be_unimplemented =
+        (method.sanitized && !method_sanitized_recoverable(method)) || return_needs_non_serde_named_method;
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -565,7 +594,9 @@ pub(super) fn gen_method_wrapper(
                 }
                 TypeRef::Named(_) if !p.optional => {
                     // Pass by value when method takes owned (Owned receiver or is_ref=false)
-                    if is_owned_receiver || !p.is_ref {
+                    if p.is_mut {
+                        format!("&mut {rs}")
+                    } else if is_owned_receiver || !p.is_ref {
                         rs
                     } else {
                         format!("&{rs}")
@@ -821,6 +852,7 @@ pub(super) fn gen_free_function(
     core_import: &str,
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
+    serde_names: &AHashSet<String>,
 ) -> String {
     let fn_name_snake = c_symbol_component(&func.name);
     let ffi_name = format!("{prefix}_{fn_name_snake}");
@@ -867,7 +899,10 @@ pub(super) fn gen_free_function(
     // Check if this function will be unimplemented before building params.
     // Sanitized funcs with recoverable params (Vec<String> originally Vec<tuple>) are
     // re-routed through the standard JSON-roundtrip Vec conversion below.
-    let will_be_unimplemented = func.sanitized && !sanitized_recoverable(func);
+    // Additionally, functions returning Vec<Named> or Map where the Named type does not
+    // derive serde::Serialize cannot be JSON-serialized and must be stubbed.
+    let return_needs_non_serde_named = return_type_needs_non_serde_named(&func.return_type, serde_names);
+    let will_be_unimplemented = (func.sanitized && !sanitized_recoverable(func)) || return_needs_non_serde_named;
 
     // Build parameter list — prefix with _ if unimplemented
     let mut params = Vec::new();
@@ -991,7 +1026,7 @@ pub(super) fn gen_free_function(
                 }
                 TypeRef::Named(_) if !p.optional => {
                     // Pass by value when function takes owned (is_ref=false)
-                    if p.is_ref { format!("&{rs}") } else { rs }
+                    if p.is_mut { format!("&mut {rs}") } else if p.is_ref { format!("&{rs}") } else { rs }
                 }
                 TypeRef::String | TypeRef::Char | TypeRef::Bytes if p.optional => {
                     // Only convert to &str slice when the core param is a reference (&str).
@@ -1493,6 +1528,7 @@ pub(super) fn gen_param_conversion_with_enums(
                         name => name.clone(),
                         fail_ret => fail_ret.to_string(),
                         is_ref => param.is_ref,
+                        is_mut => param.is_mut,
                     },
                 ));
             }
@@ -1565,4 +1601,82 @@ pub(super) fn gen_param_conversion_with_enums(
     }
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn return_type_needs_non_serde_named_vec_non_serde() {
+        // Regression: Vec<PatternMatch> where PatternMatch lacks serde must trigger
+        // unimplemented body generation instead of emitting json_or_vec_or_map path.
+        let mut serde_names: AHashSet<String> = AHashSet::new();
+        serde_names.insert("ExtractionResult".to_string());
+
+        let vec_non_serde = TypeRef::Vec(Box::new(TypeRef::Named("PatternMatch".to_string())));
+        assert!(
+            return_type_needs_non_serde_named(&vec_non_serde, &serde_names),
+            "Vec<PatternMatch> without Serialize must be detected as needing stub"
+        );
+    }
+
+    #[test]
+    fn return_type_needs_non_serde_named_vec_serde_ok() {
+        // Vec<ExtractionResult> where ExtractionResult has serde should NOT trigger stub.
+        let mut serde_names: AHashSet<String> = AHashSet::new();
+        serde_names.insert("ExtractionResult".to_string());
+
+        let vec_serde = TypeRef::Vec(Box::new(TypeRef::Named("ExtractionResult".to_string())));
+        assert!(
+            !return_type_needs_non_serde_named(&vec_serde, &serde_names),
+            "Vec<ExtractionResult> with Serialize must NOT be detected as needing stub"
+        );
+    }
+
+    #[test]
+    fn return_type_needs_non_serde_named_primitive_vec_not_affected() {
+        // Vec<String>, Vec<u64> etc. never need serde check.
+        let serde_names: AHashSet<String> = AHashSet::new();
+        assert!(!return_type_needs_non_serde_named(&TypeRef::Vec(Box::new(TypeRef::String)), &serde_names));
+        assert!(
+            !return_type_needs_non_serde_named(
+                &TypeRef::Vec(Box::new(TypeRef::Primitive(crate::core::ir::PrimitiveType::U64))),
+                &serde_names
+            )
+        );
+    }
+
+    #[test]
+    fn named_param_is_mut_emits_mut_ref_at_call_site() {
+        // Regression: Named non-optional param with is_mut=true must produce &mut rs
+        // at the call site, not &rs.
+        use crate::core::ir::ParamDef;
+
+        let p = ParamDef {
+            name: "config".to_string(),
+            ty: TypeRef::Named("TranslationConfig".to_string()),
+            optional: false,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref: false,
+            is_mut: true,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        };
+        let rs = "config_rs".to_string();
+        let _enum_names: AHashSet<String> = AHashSet::new();
+        // Simulate the call-site arm for Named non-optional with is_mut
+        let result = if p.is_mut {
+            format!("&mut {rs}")
+        } else if p.is_ref {
+            format!("&{rs}")
+        } else {
+            rs.clone()
+        };
+        assert_eq!(result, "&mut config_rs", "is_mut Named param call site must emit &mut");
+    }
 }
