@@ -235,6 +235,19 @@ pub(super) fn format_param_unused(name: &str, ty: &str, unused: bool) -> String 
     format!("{}{}: {}", prefix, name, ty)
 }
 
+/// Returns a type name in turbofish form for use before `::from(expr)`.
+///
+/// Rust requires turbofish when a type has generic parameters and sits before `::`:
+///   `Vec<T>::from(x)` is a syntax error — `Vec::<T>::from(x)` is required.
+/// Non-generic type names are returned unchanged.
+fn to_turbofish_from(type_name: &str) -> String {
+    if let Some(idx) = type_name.find('<') {
+        format!("{}::{}", &type_name[..idx], &type_name[idx..])
+    } else {
+        type_name.to_string()
+    }
+}
+
 /// Generate a free function binding with deduplication of input DTOs.
 /// Returns a string containing any generated Input DTO structs (not in emitted_input_dtos set)
 /// followed by the function code.
@@ -431,7 +444,7 @@ pub(super) fn gen_function_with_emitted_dtos(
                 }
             }
             TypeRef::Named(_) => {
-                format!("{return_type}::from(result)")
+                format!("{}::from(result)", to_turbofish_from(&return_type))
             }
             TypeRef::Unit => "result".to_string(),
             _ => "result".to_string(),
@@ -1614,5 +1627,21 @@ mod tests {
             "Field should still have cfg guard even when enabled: {}",
             code_with_layout
         );
+    }
+
+    #[test]
+    fn to_turbofish_from_inserts_turbofish_for_generic_type() {
+        assert_eq!(to_turbofish_from("Vec<WasmEntity>"), "Vec::<WasmEntity>");
+        assert_eq!(to_turbofish_from("Option<WasmFoo>"), "Option::<WasmFoo>");
+        assert_eq!(to_turbofish_from("WasmEntity"), "WasmEntity");
+        assert_eq!(to_turbofish_from("HashMap<String, i64>"), "HashMap::<String, i64>");
+    }
+
+    #[test]
+    fn to_turbofish_from_bare_named_type_is_unchanged() {
+        // A non-generic type name must pass through unchanged so bare Named returns
+        // still produce BareType::from(result), not BareType::::<>::from(result).
+        assert_eq!(to_turbofish_from("WasmEntity"), "WasmEntity");
+        assert_eq!(to_turbofish_from("ExtractionResult"), "ExtractionResult");
     }
 }

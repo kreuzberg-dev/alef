@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(wasm): turbofish in generic `::from()` return expressions. When a WASM function or method returns a generic type (`Vec<T>`, `Option<T>`) via a non-opaque Named IR type, the generated `Type<T>::from(result)` was invalid Rust syntax. Fixed by inserting `::` before the first `<`, producing `Type::<T>::from(result)`. Affects `gen_function_with_emitted_dtos` (`src/backends/wasm/gen_bindings/functions.rs`) and `gen_method` (`src/backends/wasm/gen_bindings/methods.rs`).
+- fix(dart): propagate `is_mut` for Named, opaque-handle, and Vec<Named> parameters in FRB bridge generation. When a core function takes `&mut T`, the bridge emitted immutable borrows. Now `build_named_in_from`, `build_named_in_transmute`, the opaque-handle path, and the Vec<Named>-is_ref transmute path all handle `is_mut=true`, producing `&mut` borrows or `&mut *transmute(...)` casts as appropriate (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
+- fix(dart): Vec<Named> `is_ref` parameter used raw `*const T` pointer instead of `&[T]` slice. The generated transmute produced `*const CoreT` but the core function expected `&[CoreT]`. Fixed to use `std::slice::from_raw_parts` so the pointer is wrapped in a proper slice (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
+- fix(dart): add `collect::<Vec<_>>()` turbofish in `return_transmute_expr` Vec closures. Bare `collect()` on closure-returning iter expressions triggered E0282 type inference failures when the compiler could not determine the collection target type. All four Vec<Named> closure branches now use `collect::<Vec<_>>()` (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
+- fix(dart): use `to_string_lossy().into_owned()` for `Vec<Path>` return casts. `PathBuf` does not implement `Display`, so `.to_string()` did not compile. The separate `TypeRef::Path` branch in `build_primitive_result_cast` now emits `.to_string_lossy().into_owned()` (`src/backends/dart/gen_rust_crate/bridge_fn.rs`).
+- fix(ffi): propagate `is_mut` for Named parameters in conversion template and call-site generation. `param_non_optional_named_conversion.jinja` now receives `is_mut` and emits `unsafe { &mut *name }` when true. Both the free-function and method call-site generators emit `&mut rs` for `is_mut=true` Named params (`src/backends/ffi/gen_bindings/functions.rs`, `src/backends/ffi/templates/param_non_optional_named_conversion.jinja`).
+- fix(ffi): stub out functions returning `Vec<Named>` / `Map<*, Named>` where the Named type lacks `serde::Serialize`. The JSON serialization path (`serde_json::to_string`) requires `T: Serialize`; emitting it for non-serde types caused compile errors. The codegen now builds a `serde_names` set from `TypeDef.has_serde` and stubs any function or method whose return type contains a non-serde Named type, matching the existing pattern for sanitized functions (`src/backends/ffi/gen_bindings/functions.rs`, `src/backends/ffi/gen_bindings/mod.rs`).
+
 ## [0.22.1] - 2026-06-03
 
 ### Fixed

@@ -2,5 +2,5 @@
         set_last_error(1, "Null pointer passed for parameter '{{ name }}'");
         {{ fail_ret }}
     }
-    // SAFETY: null check above guarantees {{ name }} is a valid pointer.
-    let {{ rs_name }} = {% if is_ref %}unsafe { &*{{ name }} }{% else %}unsafe { &*{{ name }} }.clone(){% endif %};
+    // SAFETY: null check above guarantees {{ name }} is a valid non-null pointer.
+    let {{ rs_name }} = {% if is_mut %}unsafe { &mut *{{ name }} }{% elif is_ref %}unsafe { &*{{ name }} }{% else %}unsafe { &*{{ name }} }.clone(){% endif %};

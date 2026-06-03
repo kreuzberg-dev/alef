@@ -177,18 +177,17 @@ pub(super) fn gen_method(
                 method_name = method.name
             )
         };
+        let return_type_tf = to_turbofish_from(&return_type);
         let body = if method.error_type.is_some() {
             format!(
                 "{let_bindings}let result = {core_call}.await\n        \
                  .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;\n    \
-                 Ok({}::from(result))",
-                return_type
+                 Ok({return_type_tf}::from(result))"
             )
         } else {
             format!(
                 "{let_bindings}let result = {core_call}.await;\n    \
-                 Ok({}::from(result))",
-                return_type
+                 Ok({return_type_tf}::from(result))"
             )
         };
         format!(
@@ -328,5 +327,18 @@ pub(super) fn gen_method(
             params.join(", "),
             return_annotation
         )
+    }
+}
+
+/// Returns a type name in turbofish form for use before `::from(expr)`.
+///
+/// Rust requires turbofish when a type has generic parameters and sits before `::`:
+///   `Vec<T>::from(x)` is a syntax error — `Vec::<T>::from(x)` is required.
+/// Non-generic type names are returned unchanged.
+fn to_turbofish_from(type_name: &str) -> String {
+    if let Some(idx) = type_name.find('<') {
+        format!("{}::{}", &type_name[..idx], &type_name[idx..])
+    } else {
+        type_name.to_string()
     }
 }

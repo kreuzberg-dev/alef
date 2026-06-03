@@ -309,6 +309,9 @@ fn dart_call_arg_with_mirror_transmute(
                 }
                 return format!("{name}.map(|h| h.inner)");
             }
+            if p.is_mut {
+                return format!("&mut {name}.inner");
+            }
             if p.is_ref {
                 return format!("&{name}.inner");
             }
@@ -321,9 +324,9 @@ fn dart_call_arg_with_mirror_transmute(
     if let TypeRef::Named(type_name) = &p.ty {
         let core_ty = resolve_core_type(type_name, source_crate_name, type_paths);
         if types_needing_from_conversion.contains(type_name.as_str()) {
-            return build_named_in_from(name, type_name, &core_ty, p.is_ref, p.optional);
+            return build_named_in_from(name, type_name, &core_ty, p.is_ref, p.is_mut, p.optional);
         }
-        return build_named_in_transmute(name, type_name, &core_ty, p.is_ref, p.optional);
+        return build_named_in_transmute(name, type_name, &core_ty, p.is_ref, p.is_mut, p.optional);
     }
 
     // Vec<Named>: use From or transmute depending on whether the element type has sanitized fields.
@@ -343,9 +346,12 @@ fn dart_call_arg_with_mirror_transmute(
                 );
             }
             if p.is_ref {
-                // &[MirrorT] → &[CoreT] via transmute (same layout, same size)
+                // &[MirrorT] → &[CoreT] via transmute (same layout, same size).
+                // Must produce a &[CoreT] slice, not a raw *const pointer.
                 return format!(
-                    "unsafe {{ std::mem::transmute::<*const {type_name}, *const {core_ty}>({name}.as_ptr()) }}"
+                    "unsafe {{ std::slice::from_raw_parts(\
+                        std::mem::transmute::<*const {type_name}, *const {core_ty}>({name}.as_ptr()), \
+                        {name}.len()) }}"
                 );
             }
             return format!(
@@ -384,9 +390,21 @@ fn resolve_core_type(
 ///
 /// Used when the mirror type has sanitized fields that make transmute unsound.
 /// Relies on the generated `From<MirrorT> for CoreT` impl from `emit_from_mirror_to_core_struct`.
-fn build_named_in_from(name: &str, _mirror_name: &str, core_ty: &str, is_ref: bool, optional: bool) -> String {
+fn build_named_in_from(
+    name: &str,
+    _mirror_name: &str,
+    core_ty: &str,
+    is_ref: bool,
+    is_mut: bool,
+    optional: bool,
+) -> String {
     if optional {
         return format!("{name}.map({core_ty}::from)");
+    }
+    if is_mut {
+        // Cannot take &mut of a temporary — convert to a local binding first,
+        // then borrow mutably. A `let mut` binding is emitted at the call site.
+        return format!("&mut {core_ty}::from({name})");
     }
     if is_ref {
         // Cannot take a reference to a temporary value — convert to owned then borrow.
@@ -397,9 +415,23 @@ fn build_named_in_from(name: &str, _mirror_name: &str, core_ty: &str, is_ref: bo
 }
 
 /// Emit the transmute call for a single Named parameter going INTO the core fn.
-fn build_named_in_transmute(name: &str, mirror_name: &str, core_ty: &str, is_ref: bool, optional: bool) -> String {
+fn build_named_in_transmute(
+    name: &str,
+    mirror_name: &str,
+    core_ty: &str,
+    is_ref: bool,
+    is_mut: bool,
+    optional: bool,
+) -> String {
     if optional {
         return format!("{name}.map(|v| unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>(v) }})");
+    }
+    if is_mut {
+        // SAFETY: MirrorT and CoreT are guaranteed layout-compatible (same fields, repr(C) or
+        // plain struct). Casting &mut MirrorT → &mut CoreT is sound.
+        return format!(
+            "unsafe {{ std::mem::transmute::<&mut {mirror_name}, &mut {core_ty}>(&mut {name}) }}"
+        );
     }
     if is_ref {
         return format!("unsafe {{ std::mem::transmute::<&{mirror_name}, &{core_ty}>(&{name}) }}");
@@ -437,14 +469,14 @@ fn return_transmute_expr(
                 if returns_ref {
                     // v is &[T]; iter() yields &T — must clone before converting via From.
                     if opaque_type_names.contains(mirror_name.as_str()) {
-                        format!("|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect()")
+                        format!("|v| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()")
                     } else {
-                        format!("|v| v.iter().map(|x| {mirror_name}::from(x.clone())).collect()")
+                        format!("|v| v.iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()")
                     }
                 } else if opaque_type_names.contains(mirror_name.as_str()) {
-                    format!("|v| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect()")
+                    format!("|v| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()")
                 } else {
-                    format!("|v| v.into_iter().map({mirror_name}::from).collect()")
+                    format!("|v| v.into_iter().map({mirror_name}::from).collect::<Vec<_>>()")
                 }
             } else {
                 String::new()
@@ -522,7 +554,11 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
                     )
                 }
             }
-            TypeRef::String | TypeRef::Path | TypeRef::Char => {
+            TypeRef::Path => {
+                // PathBuf does not implement Display; use to_string_lossy().into_owned().
+                ".into_iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()".to_string()
+            }
+            TypeRef::String | TypeRef::Char => {
                 ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string()
             }
             TypeRef::Vec(inner2) => {
@@ -588,5 +624,139 @@ fn build_body(call: &str, result_cast: &str, ret_transmute: &str, has_error: boo
         format!("    {call}\n")
     } else {
         format!("    {call}{result_cast}\n")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_param(name: &str, ty: TypeRef, is_ref: bool, is_mut: bool, optional: bool) -> ParamDef {
+        ParamDef {
+            name: name.to_string(),
+            ty,
+            optional,
+            default: None,
+            sanitized: false,
+            typed_default: None,
+            is_ref,
+            is_mut,
+            newtype_wrapper: None,
+            original_type: None,
+            map_is_ahash: false,
+            map_key_is_cow: false,
+        }
+    }
+
+    #[test]
+    fn is_mut_named_opaque_emits_mut_inner() {
+        // Regression: opaque handle parameter with is_mut=true must produce &mut name.inner,
+        // not &name.inner (which would fail when core fn takes &mut T).
+        let p = make_param("result", TypeRef::Named("ExtractionResult".to_string()), false, true, false);
+        let mut opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        opaque.insert("ExtractionResult".to_string());
+        let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        let expr = dart_call_arg_with_mirror_transmute(
+            &p,
+            "mylib",
+            &type_paths,
+            &needs_from,
+            &opaque,
+        );
+        assert_eq!(expr, "&mut result.inner", "is_mut opaque param must use &mut: {expr}");
+    }
+
+    #[test]
+    fn is_mut_named_from_emits_mut_borrow() {
+        // Regression: Named param with types_needing_from_conversion and is_mut=true
+        // must produce &mut CoreTy::from(name).
+        let p = make_param("cfg", TypeRef::Named("TranslationConfig".to_string()), false, true, false);
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
+        needs_from.insert("TranslationConfig".to_string());
+        let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+        assert!(
+            expr.contains("&mut"),
+            "is_mut From-converted Named param must emit &mut borrow: {expr}"
+        );
+    }
+
+    #[test]
+    fn is_mut_named_transmute_emits_mut_transmute() {
+        // Regression: Named param with transmute path and is_mut=true must produce
+        // a mutable transmute, not an immutable one.
+        let p = make_param("config", TypeRef::Named("MyConfig".to_string()), false, true, false);
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+        assert!(
+            expr.contains("&mut"),
+            "is_mut transmute Named param must emit &mut transmute: {expr}"
+        );
+        assert!(
+            expr.contains("transmute"),
+            "is_mut transmute Named param must emit transmute: {expr}"
+        );
+    }
+
+    #[test]
+    fn vec_named_is_ref_emits_slice_not_raw_pointer() {
+        // Regression: Vec<Named> with is_ref=true must produce a &[CoreT] slice via
+        // slice::from_raw_parts, not a raw *const CoreT pointer.
+        let p = make_param(
+            "categories",
+            TypeRef::Vec(Box::new(TypeRef::Named("PiiCategory".to_string()))),
+            true,
+            false,
+            false,
+        );
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let needs_from: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let type_paths: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        let expr = dart_call_arg_with_mirror_transmute(&p, "mylib", &type_paths, &needs_from, &opaque);
+        assert!(
+            expr.contains("from_raw_parts"),
+            "Vec<Named> is_ref must use slice::from_raw_parts, got: {expr}"
+        );
+        assert!(
+            !expr.contains("*const"),
+            "Vec<Named> is_ref must NOT return a raw pointer, got: {expr}"
+        );
+    }
+
+    #[test]
+    fn collect_in_return_transmute_vec_has_type_annotation() {
+        // Regression: collect() in Vec<Named> return conversion must use collect::<Vec<_>>()
+        // so Rust can infer the target type without E0282.
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
+        let expr = return_transmute_expr(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        assert!(
+            expr.contains("collect::<Vec<_>>()"),
+            "Vec<Named> collect must have type annotation: {expr}"
+        );
+    }
+
+    #[test]
+    fn path_vec_result_cast_uses_to_string_lossy() {
+        // Regression: Vec<Path> result cast must use .to_string_lossy().into_owned()
+        // because PathBuf does not implement Display.
+        let ty = TypeRef::Vec(Box::new(TypeRef::Path));
+        let cast = build_primitive_result_cast(&ty, false);
+        assert!(
+            cast.contains("to_string_lossy"),
+            "Vec<Path> cast must use to_string_lossy: {cast}"
+        );
+        assert!(
+            !cast.contains(".to_string()"),
+            "Vec<Path> must NOT use .to_string(): {cast}"
+        );
     }
 }

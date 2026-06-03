@@ -185,6 +185,16 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         .map(|t| t.name.clone())
         .chain(api.enums.iter().filter(|e| !e.is_copy).map(|e| e.name.clone()))
         .collect();
+    // Named types that derive serde::Serialize. Required so the JSON return path for
+    // Vec<Named> and Map<K, Named> is only emitted when serialization is actually available.
+    // Types without has_serde get a stubbed (unimplemented) body instead.
+    let serde_names: ahash::AHashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.has_serde)
+        .map(|t| t.name.clone())
+        .chain(api.enums.iter().map(|e| e.name.clone())) // enums are always representable
+        .collect();
 
     // Extract fields_c_types from e2e config if present.
     // This allows field accessors to override their return types when e2e explicitly
@@ -442,6 +452,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
                 &core_import,
                 &path_map,
                 &ffi_param_enums,
+                &serde_names,
             ));
         }
     }
@@ -663,6 +674,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             &core_import,
             &path_map,
             &ffi_param_enums,
+            &serde_names,
         ));
         // Emit a _len() companion for every function whose return type maps to *mut c_char
         // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.
