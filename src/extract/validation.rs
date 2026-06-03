@@ -406,6 +406,7 @@ mod tests {
                 serde_rename_all: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                excluded_variants: vec![],
             }],
             errors: vec![ErrorDef {
                 name: "Error".to_string(),
@@ -473,6 +474,7 @@ mod tests {
                 serde_rename_all: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                excluded_variants: vec![],
             }],
             ..ApiSurface::default()
         };

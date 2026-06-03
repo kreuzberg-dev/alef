@@ -1639,6 +1639,7 @@ mod tests {
             serde_rename_all: serde_rename_all.map(str::to_string),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 

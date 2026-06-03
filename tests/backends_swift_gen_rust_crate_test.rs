@@ -105,6 +105,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         has_serde: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     }
 }
 

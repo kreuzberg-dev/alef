@@ -452,6 +452,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }
     }
 
@@ -534,6 +535,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_enum(&e, "Js", true);
@@ -595,6 +597,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_enum(&e, "Js", true);
@@ -656,6 +659,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
 
         let result = gen_enum(&e, "Js", true);

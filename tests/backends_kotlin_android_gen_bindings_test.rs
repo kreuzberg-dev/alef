@@ -1153,6 +1153,7 @@ fn make_sealed_variants_api() -> ApiSurface {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     ApiSurface {
@@ -2103,6 +2104,7 @@ fn make_exclude_types_api() -> ApiSurface {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![ErrorDef {
             name: "TowerError".into(),
@@ -2543,6 +2545,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
     let skipped_enum = EnumDef {
         name: "SkippedMode".into(),
@@ -2568,6 +2571,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         serde_rename_all: None,
         binding_excluded: true,
         binding_exclusion_reason: Some("alef(skip)".into()),
+        excluded_variants: vec![],
     };
 
     let api = ApiSurface {

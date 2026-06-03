@@ -625,7 +625,7 @@ impl Default for ParamDef {
 }
 
 /// A public enum.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnumDef {
     pub name: String,
     pub rust_path: String,
@@ -661,7 +661,14 @@ pub struct EnumDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// Variants that were stripped from `variants` because they are variant-level
+    /// `binding_excluded` (via `#[cfg_attr(alef, alef(skip))]` or `#[doc(hidden)]`).
+    /// Retained here so backends that generate exhaustive Rust match expressions
+    /// (e.g. Dart FRB `From<CoreType>` impls) can emit `unreachable!()` arms for them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub excluded_variants: Vec<EnumVariant>,
 }
+
 
 /// An enum variant.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

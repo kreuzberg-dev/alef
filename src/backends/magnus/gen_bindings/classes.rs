@@ -1003,6 +1003,7 @@ mod tests {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         };
         let code = gen_enum(&enum_def);
         assert!(code.contains("enum Status"), "must emit enum definition");

@@ -224,6 +224,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -349,6 +350,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
     let config = make_config("test_app");
     let api = ApiSurface {

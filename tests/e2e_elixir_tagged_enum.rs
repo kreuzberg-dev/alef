@@ -112,6 +112,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         serde_rename_all: Some("snake_case".to_string()),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     // MyAction tagged enum with camelCase rename_all
@@ -204,6 +205,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         serde_rename_all: Some("camelCase".to_string()),
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: vec![],
     };
 
     vec![scroll_direction, my_action]

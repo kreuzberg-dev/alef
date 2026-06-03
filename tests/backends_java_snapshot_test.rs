@@ -299,6 +299,7 @@ fn print_generated_java_code() {
             serde_rename_all: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            excluded_variants: vec![],
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
