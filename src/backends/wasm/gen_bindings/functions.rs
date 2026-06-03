@@ -166,6 +166,8 @@ fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> Strin
     match ty {
         TypeRef::Duration => "Into::into(std::time::Duration::from_millis(v))".to_string(),
         TypeRef::Path => "Into::into(std::path::PathBuf::from(v))".to_string(),
+        // Char: binding uses String, core uses char — take the first character.
+        TypeRef::Char => "Into::into(v.chars().next().unwrap_or('\\0'))".to_string(),
         TypeRef::String if sanitized => {
             // Sanitized String field: the core type is a structured type (e.g., ConversionOptions)
             // serialized as JSON. Deserialize instead of using .into().

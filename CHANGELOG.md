@@ -7,9 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.6] - 2026-06-03
+
 ### Fixed
 
-- fix(extract): read binding-exclusion attrs on tuple-variant fields of thiserror enums. `extract_error_enum` hardcoded `binding_excluded: false` for `syn::Fields::Unnamed` variant fields, so `#[cfg_attr(alef, alef(skip))]` / `#[doc(hidden)]` on those fields had no effect — the validator still rejected variants like `Io(#[from] std::io::Error)` with `lossy_sanitized_surface`. Now mirrors the named-variant path: calls `extract_field_binding_exclusion_reason(&f.attrs, &f.ty)` and propagates the result. (`src/backends/../extract/extractor/types.rs`)
+- fix(php): skip emission of `#[serde(default = "...")]` and the associated default fn for `TypeRef::Named(_)` fields. The PHP codegen wraps the core enum as a PHP-friendly struct (e.g. `CacheBackend` becomes a struct, not the original enum), so a String-returning default fn — what the previous code emitted for `EnumVariant + Named` — does not type-check against the wrapped Named field (`expected CacheBackend, found String`). Now we only emit String-returning defaults for actual `TypeRef::String` fields and skip Named entirely; serde falls back to the type's own `Default` impl, which the core supplies. Affects `supports_serde_default_fn` (`src/backends/php/gen_bindings/types.rs`) and `typed_default_fn` (`src/backends/php/gen_bindings/mod.rs`).
+- fix(wasm): emit `chars().next().unwrap_or('\0')` in the apply-update path for `TypeRef::Char` fields. The previous catch-all `_ => "v.into()"` arm in `dto_field_conversion` failed at compile because `char: From<String>` does not exist; a `char` field on an options struct (e.g. `strong_em_symbol` in h2m's `ConversionOptions`) broke every binding that round-trips it through an Update type. (`src/backends/wasm/gen_bindings/functions.rs`)
+- fix(wasm): handle `Vec<Named>` field in tagged-enum variant on both `binding_to_core` and `core_to_binding` directions. The previous code emitted `val.entries.clone().unwrap_or_default()` (binding type) where the core expected `Vec<CoreType>`, and the reverse direction lacked a Vec arm entirely. Both directions now map elements via `Into::into`. Surfaced by h2m's `NodeContent::MetadataBlock.entries: Vec<MetadataEntry>` field. (`src/backends/wasm/gen_bindings/enums.rs`)
+- fix(extract): read binding-exclusion attrs on tuple-variant fields of thiserror enums. `extract_error_enum` hardcoded `binding_excluded: false` for `syn::Fields::Unnamed` variant fields, so `#[cfg_attr(alef, alef(skip))]` / `#[doc(hidden)]` on those fields had no effect — the validator still rejected variants like `Io(#[from] std::io::Error)` with `lossy_sanitized_surface`. Now mirrors the named-variant path: calls `extract_field_binding_exclusion_reason(&f.attrs, &f.ty)` and propagates the result. (`src/extract/extractor/types.rs`)
+- fix(napi, wasm): emit `pub mod service;` in generated `lib.rs` when the surface declares a service. Without this declaration, the generated `service.rs` (containing `#[napi]`/`#[wasm_bindgen]` `app_run` and `app_into_router` entrypoints) is never compiled, so the host language's `App.run()` wrapper fails with "is not a function" at runtime. Mirrors the existing pyo3 behavior. (`src/backends/napi/gen_bindings/mod.rs`, `src/backends/wasm/gen_bindings/mod.rs`)
 
 ## [0.22.4] - 2026-06-03
 
@@ -44,10 +50,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- fix(php): skip emission of `#[serde(default = "...")]` and the associated default fn for `TypeRef::Named(_)` fields. The PHP codegen wraps the core enum as a PHP-friendly struct (e.g. `CacheBackend` becomes a struct, not the original enum), so a String-returning default fn — what the previous code emitted for `EnumVariant + Named` — does not type-check against the wrapped Named field (`expected CacheBackend, found String`). Now we only emit String-returning defaults for actual `TypeRef::String` fields and skip Named entirely; serde falls back to the type's own `Default` impl, which the core supplies. Affects `supports_serde_default_fn` (`src/backends/php/gen_bindings/types.rs`) and `typed_default_fn` (`src/backends/php/gen_bindings/mod.rs`).
-- fix(napi, wasm): emit `pub mod service;` in generated `lib.rs` when the surface declares a service. Without this declaration, the generated `service.rs` (containing `#[napi]`/`#[wasm_bindgen]` `app_run` and `app_into_router` entrypoints) is never compiled, so the host language's `App.run()` wrapper fails with "is not a function" at runtime. Mirrors the existing pyo3 behavior. (`src/backends/napi/gen_bindings/mod.rs`, `src/backends/wasm/gen_bindings/mod.rs`)
 
 ## [0.22.5] - 2026-06-03
 
