@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- fix(sync-versions): re-apply the root `Package.swift`
+  `v__ALEF_SWIFT_VERSION__` placeholder substitution AFTER
+  `regenerate_scaffold_after_sync` runs. The binaryTarget root manifest
+  emitter introduced in v0.22.20 writes the file with the placeholder so the
+  in-VCS file stays stable across version bumps, but the scaffold-regen pass
+  inside `sync_versions` then overwrites the substituted manifest with the
+  placeholder form. Without the second pass, every `alef sync-versions` /
+  `task set-version` run leaves `Package.swift` pointing at a literal
+  `…/releases/download/v__ALEF_SWIFT_VERSION__/…` URL, breaking SwiftPM
+  resolution for downstream consumers. The checksum placeholder is
+  intentionally untouched — it is filled in by the publish flow once the
+  artifactbundle sha256 is known. (`src/cli/pipeline/version.rs`)
+- fix(scaffold/swift): replace `f.path == PathBuf::from(path)` with `f.path ==
+  std::path::Path::new(path)` in the scaffold/swift test helper. The
+  `PathBuf::from(path)` form trips `clippy::cmp_owned` ("this creates an
+  owned instance just for comparison") under `cargo clippy --all-targets
+  -- -D warnings`, blocking CI on v0.22.20. (`src/scaffold/languages/swift.rs`)
+
 ## [0.22.20] - 2026-06-04
 
 ### Fixed
