@@ -1112,6 +1112,8 @@ fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> Enu
         is_default: false,
         serde_rename: None,
         is_tuple,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
@@ -2084,6 +2086,8 @@ fn make_exclude_types_api() -> ApiSurface {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             doc: String::new(),
             cfg: None,
@@ -2520,6 +2524,8 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             is_default: false,
             serde_rename: None,
             is_tuple: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         doc: String::new(),
         cfg: None,
@@ -2542,6 +2548,8 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             is_default: false,
             serde_rename: None,
             is_tuple: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }],
         doc: String::new(),
         cfg: None,

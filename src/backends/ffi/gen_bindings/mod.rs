@@ -1121,6 +1121,8 @@ visitor_callbacks = true
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                     EnumVariant {
                         name: "Html".to_string(),
@@ -1129,6 +1131,8 @@ visitor_callbacks = true
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                 ],
                 doc: "Output format.".to_string(),
@@ -1657,6 +1661,8 @@ sources = ["src/lib.rs"]
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                     EnumVariant {
                         name: "Green".to_string(),
@@ -1665,6 +1671,8 @@ sources = ["src/lib.rs"]
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                 ],
                 doc: "Colors.".to_string(),
@@ -1849,6 +1857,8 @@ sources = ["src/lib.rs"]
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 }],
                 doc: "Diagnostic severity level.".to_string(),
                 cfg: None,
@@ -2261,8 +2271,7 @@ header_name = "mylib.h"
         assert!(lib.content.contains("ml_visitor_create"));
         assert!(lib.content.contains("ml_visitor_free"));
         assert!(lib.content.contains("ml_convert_with_visitor"));
-        // Visit result constants use HTM_ prefix (hardcoded in gen_visitor)
-        assert!(lib.content.contains("HTM_VISIT_CONTINUE"));
+        assert!(lib.content.contains("ML_VISIT_CONTINUE"));
     }
 
     #[test]
@@ -3829,6 +3838,8 @@ type = "*const std::ffi::c_char"
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                     EnumVariant {
                         name: "Post".to_string(),
@@ -3837,6 +3848,8 @@ type = "*const std::ffi::c_char"
                         doc: String::new(),
                         is_default: false,
                         serde_rename: None,
+                        binding_excluded: false,
+                        binding_exclusion_reason: None,
                     },
                 ],
                 doc: "HTTP method.".to_string(),

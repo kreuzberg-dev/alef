@@ -90,6 +90,8 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             })
             .collect(),
         doc: String::new(),

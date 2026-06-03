@@ -186,6 +186,8 @@ fn make_demo_api() -> ApiSurface {
                 doc: String::new(),
                 is_default: true,
                 serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             }],
             doc: "Available models.".to_string(),
             cfg: None,

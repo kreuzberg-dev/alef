@@ -263,6 +263,8 @@ fn print_generated_java_code() {
                     doc: "Tesseract OCR".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
@@ -271,6 +273,8 @@ fn print_generated_java_code() {
                     doc: "PaddleOCR".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "EasyOcr".to_string(),
@@ -279,6 +283,8 @@ fn print_generated_java_code() {
                     doc: "EasyOCR".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Available OCR backends".to_string(),

@@ -154,6 +154,8 @@ fn test_generated_code_example() {
                     doc: "Tesseract OCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "PaddleOcr".to_string(),
@@ -162,6 +164,8 @@ fn test_generated_code_example() {
                     doc: "PaddleOCR engine".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Available OCR backends".to_string(),

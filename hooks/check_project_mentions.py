@@ -93,8 +93,7 @@ INFRASTRUCTURE_PATTERNS = tuple(
     re.compile(re.escape(allowed), re.IGNORECASE) for allowed in ALEF_INFRASTRUCTURE_ALLOWLIST
 )
 DOMAIN_TYPE_PATTERNS = tuple(
-    (name, re.compile(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])"))
-    for name in DOWNSTREAM_DOMAIN_TYPES
+    (name, re.compile(rf"(?<![A-Za-z0-9_]){name}(?![A-Za-z0-9_])")) for name in DOWNSTREAM_DOMAIN_TYPES
 )
 DOMAIN_TYPE_SPECIAL_CASE_MARKERS = (
     "==",

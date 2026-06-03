@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.10] - 2026-06-03
+
+### Fixed
+
+- fix(extract): respect `#[cfg_attr(alef, alef(skip))]` and `#[doc(hidden)]` on enum variants; previously variant-level skip was silently ignored and the `lossy_sanitized_surface` validator would flag fields inside excluded variants as lossy. Excluded variants are now filtered out of the IR at extraction time and the validator short-circuits on `binding_excluded` variants. (`src/core/ir.rs`, `src/extract/extractor/helpers.rs`, `src/extract/extractor/types.rs`, `src/extract/validation.rs`)
+- fix(codegen): remove visitor bridge and e2e harness fallbacks that assumed downstream-shaped names, so bridge wrappers and Go test setup derive behavior from IR/config instead of fixed conversion/client names. (`src/backends`, `src/e2e/codegen`)
+
 ## [0.22.9] - 2026-06-03
 
 ### Fixed

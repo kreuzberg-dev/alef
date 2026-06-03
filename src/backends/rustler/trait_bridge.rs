@@ -874,6 +874,7 @@ pub fn gen_bridge_function(
 /// The Elixir public-API wrapper in `sample_markdown.ex` calls
 /// `Native.convert_with_visitor(html, clean_opts, visitor)` when a visitor map
 /// is present, or falls back to `Native.convert(html, opts_json)` otherwise.
+#[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_field_function(
     api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,

@@ -305,6 +305,8 @@ mod tests {
             is_default: false,
             serde_rename: None,
             is_tuple: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
         }
     }
 

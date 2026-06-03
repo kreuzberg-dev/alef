@@ -289,6 +289,8 @@ fn unit_enum_emits_dart_enum() {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
             EnumVariant {
                 name: "Inactive".to_string(),
@@ -297,6 +299,8 @@ fn unit_enum_emits_dart_enum() {
                 is_default: false,
                 serde_rename: None,
                 is_tuple: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
             },
         ],
         serde_rename_all: None,

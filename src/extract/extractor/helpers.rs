@@ -878,6 +878,9 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         Some(value_start[..end].to_string())
     });
 
+    let binding_exclusion_reason = extract_binding_exclusion_reason(&v.attrs);
+    let binding_excluded = binding_exclusion_reason.is_some();
+
     EnumVariant {
         name: v.ident.to_string(),
         fields: variant_fields,
@@ -885,6 +888,8 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         is_default: v.attrs.iter().any(|a| a.path().is_ident("default")),
         serde_rename,
         is_tuple,
+        binding_excluded,
+        binding_exclusion_reason,
     }
 }
 

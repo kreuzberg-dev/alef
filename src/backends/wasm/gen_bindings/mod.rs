@@ -381,13 +381,13 @@ impl Backend for WasmBackend {
         // `Arc<core::VisitorHandle>` in the binding layer and must not attempt From/Into
         // conversion in generated From impls.  Include them so struct fields referencing
         // these types use Default::default() instead of val.visitor.map(Into::into).
-        let bridge_type_aliases: Vec<String> = config
+        let bridge_type_aliases: AHashSet<String> = config
             .trait_bridges
             .iter()
             .filter_map(|b| b.type_alias.clone())
             .collect();
         let mut opaque_names_vec: Vec<String> = opaque_types.iter().cloned().collect();
-        opaque_names_vec.extend(bridge_type_aliases);
+        opaque_names_vec.extend(bridge_type_aliases.iter().cloned());
         let opaque_names_set: AHashSet<String> = opaque_names_vec.iter().cloned().collect();
 
         // Build adapter body map before type iteration so bodies are available for method generation.
@@ -481,6 +481,7 @@ impl Backend for WasmBackend {
                     &mutex_types,
                     &streaming_item_types,
                     &wasm_skipped_methods,
+                    &bridge_type_aliases,
                 ));
                 // Client constructor — emit a #[wasm_bindgen(constructor)] impl
                 if let Some(ctor) = config.client_constructors.get(&typ.name) {

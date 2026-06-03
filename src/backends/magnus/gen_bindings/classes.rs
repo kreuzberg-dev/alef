@@ -978,6 +978,8 @@ mod tests {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Done".to_string(),
@@ -986,6 +988,8 @@ mod tests {
                     doc: String::new(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: String::new(),

@@ -111,6 +111,8 @@ fn make_basic_api() -> ApiSurface {
                     doc: "Active state.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -119,6 +121,8 @@ fn make_basic_api() -> ApiSurface {
                     doc: "Inactive state.".to_string(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Processing status.".to_string(),

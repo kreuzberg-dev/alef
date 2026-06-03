@@ -141,6 +141,8 @@ fn enum_variants_carry_kdoc() {
                     doc: "Optimise for low latency.".into(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Accurate".into(),
@@ -149,6 +151,8 @@ fn enum_variants_carry_kdoc() {
                     doc: "Optimise for output quality.".into(),
                     is_default: false,
                     serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: "Execution mode.".into(),

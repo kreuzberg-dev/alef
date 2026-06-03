@@ -203,6 +203,8 @@ fn unit_enum_emits_enum_class() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -211,6 +213,8 @@ fn unit_enum_emits_enum_class() {
                     is_default: false,
                     serde_rename: None,
                     is_tuple: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
                 },
             ],
             doc: String::new(),
@@ -1257,6 +1261,8 @@ fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         is_default: false,
         serde_rename: None,
         is_tuple: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
     }
 }
 
