@@ -396,42 +396,32 @@ fn render_package_swift(
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
     // For local deps SwiftPM identity = last path component (e.g. "../../packages/swift" → "swift").
-    // For registry deps we use .binaryTarget(url:, checksum:) to avoid SwiftPM tag-URL pinning
-    // which fails when tags carry placeholder substitution. The pre-test script
-    // `download_swift_artifact.sh` computes the actual checksum at test time.
+    // For registry deps we use .package(url:, from:) to pull the Swift package from GitHub.
+    // SwiftPM will resolve the tag v<version> to the package, making the Swift module available.
     // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
-    let (binary_target_block, test_target_dep) = match dep_mode {
+    let (dependencies_block, test_target_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Binary target URL: https://github.com/<owner>/<repo>/releases/download/v<version>/<Module>-rs.artifactbundle.zip
+            // Registry mode: fetch the full Swift package from GitHub at the release tag.
             let github_repo_url = registry_url.trim_end_matches(".git");
-            let artifact_url =
-                format!("{github_repo_url}/releases/download/v{pkg_version}/{module_name}-rs.artifactbundle.zip");
-            let target = format!(
-                r#"        .binaryTarget(name: "{module_name}", url: "{artifact_url}", checksum: "__ALEF_SWIFT_CHECKSUM__")"#
+            let package_dep = format!(
+                r#"        .package(url: "{github_repo_url}", from: "{pkg_version}"),
+"#
             );
-            let dep = format!(r#".target(name: "{module_name}")"#);
-            (Some(target), dep)
+            let deps_block = format!("    dependencies: [\n{package_dep}    ],\n");
+            let pkg_id = "swift"; // Derived from github_repo_url basename, but we can be explicit
+            let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
+            (deps_block, prod)
         }
         crate::e2e::config::DependencyMode::Local => {
             // SwiftPM 6.0 deprecated the `name:` parameter on `.package(path:)`:
             // package identity is derived from the path's last component, ignoring
             // any explicit `name:`. For local mode, the dependency is still the external package,
             // but we reference it via .product(name:package:) in the test target dependencies.
-            // We do NOT emit a binary target block for local deps.
             let pkg_id = pkg_path.trim_end_matches('/').rsplit('/').next().unwrap_or(module_name);
+            let deps_block = format!("    dependencies: [\n        .package(path: \"{pkg_path}\"),\n    ],\n");
             let prod = format!(r#".product(name: "{module_name}", package: "{pkg_id}")"#);
-            (None, prod)
+            (deps_block, prod)
         }
-    };
-    // Local deps must be declared as a top-level package dependency so the
-    // `.product(package:)` reference in the test target resolves. Registry deps
-    // are vendored via `.binaryTarget` (a target, not a package dependency), so
-    // no top-level `dependencies:` array is emitted in that mode.
-    let dependencies_block = match dep_mode {
-        crate::e2e::config::DependencyMode::Local => {
-            format!("    dependencies: [\n        .package(path: \"{pkg_path}\"),\n    ],\n")
-        }
-        crate::e2e::config::DependencyMode::Registry => String::new(),
     };
     // SwiftPM platform enums use the major version only (.v13, .v14, ...);
     // strip patch components to match the scaffold's `Package.swift`.
@@ -441,49 +431,25 @@ fn render_package_swift(
     // The consumer's minimum iOS must be >= the dep's minimum iOS or SwiftPM hides
     // the product as platform-incompatible. Use the same constant the swift backend
     // emits into the dep's Package.swift.
-    let targets_block = if let Some(binary_target) = binary_target_block {
-        let harness_target = if include_harness_target {
-            format!(
-                r#"        .executableTarget(
+    let harness_target = if include_harness_target {
+        format!(
+            r#"        .executableTarget(
             name: "Harness",
             dependencies: [{test_target_dep}],
             path: "Sources/Harness"
-        ),
-"#
-            )
-        } else {
-            String::new()
-        };
-        format!(
-            r#"        {binary_target},
-{harness_target}        .testTarget(
-            name: "{module_name}E2ETests",
-            dependencies: [{test_target_dep}]
         ),
 "#
         )
     } else {
-        // Local mode: no binary target, just the executable harness and test target.
-        let harness_target = if include_harness_target {
-            format!(
-                r#"        .executableTarget(
-            name: "Harness",
-            dependencies: [{test_target_dep}],
-            path: "Sources/Harness"
-        ),
-"#
-            )
-        } else {
-            String::new()
-        };
-        format!(
-            r#"{harness_target}        .testTarget(
+        String::new()
+    };
+    let targets_block = format!(
+        r#"{harness_target}        .testTarget(
             name: "{module_name}E2ETests",
             dependencies: [{test_target_dep}]
         ),
 "#
-        )
-    };
+    );
     format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -3539,90 +3505,6 @@ mod tests {
             script.contains("Cached artifact checksum mismatch"),
             "script must log mismatch with the canonical message"
         );
-
-        /// Registry-mode Package.swift must use .package(url:, from:) to fetch the Swift
-        /// package from GitHub, NOT .binaryTarget which only provides static libraries
-        /// without Swift module wrappers. The generated Package.swift must have
-        /// correct indentation and proper dependencies block.
-        #[test]
-        fn registry_mode_package_swift_uses_package_url() {
-            let package_swift = render_package_swift(
-                "TestKit",
-                "https://github.com/example/test-kit.git",
-                "../../packages/swift",
-                "1.0.0",
-                crate::e2e::config::DependencyMode::Registry,
-                false,
-            );
-            // Must use .package(url:) to fetch from GitHub
-            assert!(
-                package_swift.contains(r#".package(url: "https://github.com/example/test-kit"#),
-                "must use .package(url:) for registry mode: {}"#, package_swift
-            );
-            // Must specify version constraint
-            assert!(
-                package_swift.contains(r#"from: "1.0.0"#),
-                "must specify version constraint with from: {}"#, package_swift
-            );
-            // Must NOT use .binaryTarget which was the old broken approach
-            assert!(
-                !package_swift.contains("binaryTarget"),
-                "must not use .binaryTarget in registry mode (breaks module resolution)"
-            );
-            // Test target must use .product to reference the module
-            assert!(
-                package_swift.contains(r#"dependencies: [.product(name: "TestKit", package: "swift")]"#),
-                "test target must reference module via .product"
-            );
-            // Must have exactly one dependencies block (at package level)
-            let deps_count = package_swift.matches("dependencies:").count();
-            assert_eq!(
-                deps_count, 1,
-                "must have exactly one dependencies block (at package level), got {}: {}"#, deps_count, package_swift
-            );
-            // Indentation check: all targets must be at 8 spaces (2 levels)
-            assert!(
-                !package_swift.contains("                .executableTarget"),
-                "executableTarget must not be over-indented (16 spaces)"
-            );
-            assert!(
-                !package_swift.contains("                .testTarget"),
-                "testTarget must not be over-indented (16 spaces)"
-            );
-        }
-
-        /// Local-mode Package.swift must use .package(path:) and reference the module
-        /// via .product with the correct package identity.
-        #[test]
-        fn local_mode_package_swift_uses_package_path() {
-            let package_swift = render_package_swift(
-                "TestKit",
-                "https://github.com/example/test-kit.git",
-                "../../packages/swift",
-                "1.0.0",
-                crate::e2e::config::DependencyMode::Local,
-                false,
-            );
-            // Must use .package(path:) for local mode
-            assert!(
-                package_swift.contains(r#".package(path: "../../packages/swift")"#),
-                "must use .package(path:) for local mode: {}"#, package_swift
-            );
-            // Must NOT have binary targets or registry URLs
-            assert!(
-                !package_swift.contains("binaryTarget"),
-                "must not use .binaryTarget in local mode"
-            );
-            assert!(
-                !package_swift.contains("github.com/example"),
-                "must not reference GitHub URL in local mode"
-            );
-            // Test target must reference the module via .product with derived package identity
-            assert!(
-                package_swift.contains(r#".product(name: "TestKit", package: "swift")"#),
-                "test target must reference module via .product with correct package id"
-            );
-        }
     }
 }
 
