@@ -521,15 +521,23 @@ fn render_http_test_case(out: &mut String, fixture: &Fixture) {
         .map(str::trim)
         .is_some_and(|t| t.eq_ignore_ascii_case("multipart/form-data"));
 
+    // If multipart but no request body, synthesize from body_schema
+    let effective_body = if is_multipart && http.request.body.is_none() && http.handler.body_schema.is_some() {
+        // Synthesize a minimal multipart body from the schema
+        Some(synthesize_multipart_body_from_schema(&http.handler.body_schema))
+    } else {
+        http.request.body.clone()
+    };
+
     // Determine if we need to auto-add Content-Type header for JSON body.
-    let has_body = http.request.body.is_some();
+    let has_body = effective_body.is_some();
     let has_content_type = !content_type_lower.is_empty();
     let needs_json_content_type = has_body && !is_form_body && !is_multipart && !has_content_type;
 
     let has_headers = !http.request.headers.is_empty() || needs_json_content_type || is_multipart && has_body;
 
     // Build the body entry if present.
-    let body_entry: Option<String> = http.request.body.as_ref().map(|body| {
+    let body_entry: Option<String> = effective_body.as_ref().map(|body| {
         let js_body = json_to_js(body);
         let body_is_string = matches!(body, serde_json::Value::String(_));
 
@@ -1842,6 +1850,28 @@ fn detect_cache_isolation_needs(fixtures: &[&Fixture], e2e_config: &E2eConfig) -
 fn emit_cache_isolation_setup(out: &mut String) {
     let rendered = crate::e2e::template_env::render("typescript/cache_isolation_setup.jinja", minijinja::context! {});
     out.push_str(&rendered);
+}
+
+/// Synthesize a minimal multipart/form-data body from a JSON schema.
+fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> serde_json::Value {
+    let Some(schema_val) = schema else {
+        return serde_json::Value::String(String::new());
+    };
+
+    let mut parts = Vec::new();
+    parts.push("--alef-boundary".to_string());
+
+    if let Some(props) = schema_val.get("properties").and_then(|p| p.as_object()) {
+        for (key, _prop_schema) in props {
+            parts.push(format!(
+                "Content-Disposition: form-data; name=\"{}\"\r\n\r\ntest_value\r\n--alef-boundary",
+                escape_js(key)
+            ));
+        }
+    }
+
+    parts.push("--".to_string());
+    serde_json::Value::String(parts.join("\r\n"))
 }
 
 #[cfg(test)]

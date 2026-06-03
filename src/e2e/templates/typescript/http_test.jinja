@@ -26,10 +26,10 @@
     const text = await response.text();
     expect(text).toBe("{{ text_body }}");
 {%- elif has_json_body %}
-    const data = await response.json();
+    const data = await _alefE2eDecompressAndParseJson(response);
     expect(data).toEqual({{ json_val }});
 {%- elif has_partial_body %}
-    const data = await response.json();
+    const data = await _alefE2eDecompressAndParseJson(response);
 {%- for check in partial_body_checks %}
     expect((data as Record<string, unknown>)["{{ check.key }}"]).toEqual({{ check.js_val }});
 {%- endfor %}
@@ -46,7 +46,7 @@
 {%- endif %}
 {%- endfor %}
 {%- if has_validation_errors %}
-    const body = await response.json() as { errors?: unknown[] };
+    const body = await _alefE2eDecompressAndParseJson(response) as { errors?: unknown[] };
     const errors = body.errors ?? [];
 {%- for ve in validation_errors %}
     expect((errors as Array<Record<string, unknown>>).some((e) => JSON.stringify(e["loc"]) === JSON.stringify([{{ ve.loc_js }}]) && String(e["msg"]).includes("{{ ve.escaped_msg }}"))).toBe(true);

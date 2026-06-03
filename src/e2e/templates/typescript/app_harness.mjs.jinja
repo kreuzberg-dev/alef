@@ -77,6 +77,59 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // Build RouteBuilder and register the route
   const builder = new {{ route_builder_class }}(methodEnum, fullRoute);
   app.{{ register_route_method }}(builder, handlerFn);
+
+  // If the fixture has CORS middleware configured, register an OPTIONS preflight handler
+  if (handler.middleware && handler.middleware.cors) {
+    const corsConfig = handler.middleware.cors;
+    const optionsBuilder = new {{ route_builder_class }}({{ method_enum }}.Options, fullRoute);
+
+    // Build a CORS preflight handler
+    const corsHandlerFn = (request) => {
+      const origin = request.headers?.get?.('origin') || request.headers?.origin || '';
+      const requestMethod = request.headers?.get?.('access-control-request-method') ||
+                           request.headers?.['access-control-request-method'] || '';
+      const requestHeaders = request.headers?.get?.('access-control-request-headers') ||
+                            request.headers?.['access-control-request-headers'] || '';
+
+      // Simple CORS validation: check origin and method
+      const allowedOrigins = Array.isArray(corsConfig.allow_origins) ? corsConfig.allow_origins : [];
+      const allowedMethods = Array.isArray(corsConfig.allow_methods) ? corsConfig.allow_methods : [];
+      const allowedHeaders = Array.isArray(corsConfig.allow_headers) ? corsConfig.allow_headers : [];
+
+      const isOriginAllowed = allowedOrigins.includes(origin);
+      const isMethodAllowed = !requestMethod || allowedMethods.includes(requestMethod.toUpperCase());
+      const headersArray = requestHeaders ? requestHeaders.split(',').map(h => h.trim().toUpperCase()) : [];
+      const areHeadersAllowed = headersArray.every(h =>
+        allowedHeaders.map(ah => ah.toUpperCase()).includes(h)
+      );
+
+      if (!isOriginAllowed || !isMethodAllowed || !areHeadersAllowed) {
+        return {
+          status_code: 403,
+          body: null,
+          headers: {}
+        };
+      }
+
+      const corsHeaders = {
+        'Access-Control-Allow-Origin': origin,
+        'Access-Control-Allow-Methods': requestMethod || (allowedMethods.join(', ')),
+        'Access-Control-Allow-Headers': requestHeaders || (allowedHeaders.join(', '))
+      };
+
+      if (corsConfig.max_age) {
+        corsHeaders['Access-Control-Max-Age'] = String(corsConfig.max_age);
+      }
+
+      return {
+        status_code: 204,
+        body: null,
+        headers: corsHeaders
+      };
+    };
+
+    app.{{ register_route_method }}(optionsBuilder, corsHandlerFn);
+  }
 }
 
 // Configure and start the server
