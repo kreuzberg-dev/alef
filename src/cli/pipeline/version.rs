@@ -1405,6 +1405,28 @@ pub fn sync_versions(
                 warn!("Could not regenerate scaffold after version sync: {e}");
             }
         }
+
+        // Re-apply the root `Package.swift` URL placeholder substitution after
+        // scaffold regen, because `scaffold_swift` emits the manifest with
+        // `v__ALEF_SWIFT_VERSION__` (so the file under VCS stays stable across
+        // version bumps) and `regenerate_scaffold_after_sync` overwrites the
+        // substituted file with the placeholder form. Without this second pass,
+        // every `alef sync-versions` run leaves Package.swift pointing at a
+        // literal `v__ALEF_SWIFT_VERSION__` GitHub release URL, breaking
+        // SwiftPM resolution for downstream consumers.
+        //
+        // The checksum placeholder is intentionally NOT substituted here — it
+        // is filled in by the publish flow once the artifactbundle has been
+        // built and its sha256 is known.
+        if let Ok(content) = std::fs::read_to_string("Package.swift") {
+            let new_content = content.replace("v__ALEF_SWIFT_VERSION__", &format!("v{version}"));
+            if new_content != content {
+                std::fs::write("Package.swift", &new_content)?;
+                if !updated.iter().any(|p| p == "Package.swift") {
+                    updated.push("Package.swift".to_string());
+                }
+            }
+        }
     }
 
     // If no manifest actually changed, nothing else needs refreshing — the
@@ -4799,6 +4821,84 @@ packages:
         assert!(
             swift_pkg.contains("https://example.com/alef-sample/mylib.git"),
             "repo URL must be preserved:\n{swift_pkg}"
+        );
+    }
+
+    /// `sync_versions` must substitute `v__ALEF_SWIFT_VERSION__` in the root
+    /// `Package.swift` and the substitution must SURVIVE the in-band scaffold
+    /// regen pass that runs immediately after the text-replacement loop.
+    ///
+    /// Regression: the binaryTarget root manifest emitter writes the file with
+    /// `v__ALEF_SWIFT_VERSION__` as a placeholder so the in-VCS file stays
+    /// stable across version bumps. `regenerate_scaffold_after_sync` then
+    /// overwrites the substituted manifest with the placeholder form. Without
+    /// a second-pass substitution at the end of `sync_versions`, the on-disk
+    /// `Package.swift` permanently points at the literal
+    /// `…/releases/download/v__ALEF_SWIFT_VERSION__/…` URL and SwiftPM
+    /// resolution fails for downstream consumers.
+    #[test]
+    fn sync_versions_root_package_swift_placeholder_survives_scaffold_regen() {
+        use crate::core::config::NewAlefConfig;
+        let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let original_cwd = std::env::current_dir().expect("cwd");
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let root = tmp.path();
+
+        std::fs::write(
+            root.join("Cargo.toml"),
+            "[workspace.package]\nversion = \"1.9.0-rc.17\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+        )
+        .expect("write Cargo.toml");
+
+        // Root Package.swift uses the binaryTarget placeholder shape that
+        // `scaffold_swift` emits today.
+        let root_pkg_content = concat!(
+            "// swift-tools-version: 6.0\n",
+            "import PackageDescription\n",
+            "let package = Package(name: \"MyLib\", targets: [\n",
+            "  .binaryTarget(\n",
+            "    name: \"RustBridge\",\n",
+            "    url: \"https://example.com/alef-sample/mylib/releases/download/v__ALEF_SWIFT_VERSION__/MyLib-rs.artifactbundle.zip\",\n",
+            "    checksum: \"__ALEF_SWIFT_CHECKSUM__\"\n",
+            "  ),\n",
+            "])\n",
+        );
+        std::fs::write(root.join("Package.swift"), root_pkg_content).expect("write root Package.swift");
+
+        let alef_toml = format!(
+            "[workspace]\nlanguages = [\"swift\"]\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+            root.join("Cargo.toml").display().to_string().replace('\\', "/")
+        );
+        let alef_toml_path = root.join("alef.toml");
+        std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+        let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+        let mut resolved = cfg.resolve().expect("resolve config");
+        let resolved_cfg = resolved.remove(0);
+
+        std::env::set_current_dir(root).expect("set_current_dir");
+        // no_regen=false → scaffold regen runs and would clobber the substitution
+        // without the second-pass fix.
+        let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false);
+        let _ = std::env::set_current_dir(&original_cwd);
+        sync_result.expect("sync_versions ok");
+
+        let root_pkg = std::fs::read_to_string(root.join("Package.swift")).expect("read root Package.swift");
+        assert!(
+            !root_pkg.contains("v__ALEF_SWIFT_VERSION__"),
+            "root Package.swift must not retain the version placeholder after sync_versions, got:\n{root_pkg}"
+        );
+        assert!(
+            root_pkg.contains("/releases/download/v1.9.0-rc.17/"),
+            "root Package.swift URL must point at substituted version v1.9.0-rc.17, got:\n{root_pkg}"
+        );
+        // The checksum placeholder is intentionally NOT substituted by
+        // sync-versions — the publish flow fills it in once the artifactbundle
+        // sha256 is known.
+        assert!(
+            root_pkg.contains("__ALEF_SWIFT_CHECKSUM__"),
+            "root Package.swift must retain the checksum placeholder for publish-time substitution, got:\n{root_pkg}"
         );
     }
 

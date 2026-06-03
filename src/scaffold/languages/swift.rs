@@ -456,7 +456,7 @@ mod tests {
     fn find_file<'a>(files: &'a [GeneratedFile], path: &str) -> &'a GeneratedFile {
         files
             .iter()
-            .find(|f| f.path == PathBuf::from(path))
+            .find(|f| f.path == std::path::Path::new(path))
             .unwrap_or_else(|| panic!("missing scaffolded file: {path}"))
     }
 
