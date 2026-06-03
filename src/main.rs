@@ -2386,6 +2386,10 @@ fn load_config(
     let resolved = cfg
         .resolve()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;
+    for resolved_cfg in &resolved {
+        alef::core::config::validation::validate_resolved(resolved_cfg)
+            .with_context(|| format!("invalid resolved config for crate `{}`", resolved_cfg.name))?;
+    }
     Ok((cfg.workspace, resolved))
 }
 

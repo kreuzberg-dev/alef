@@ -3,6 +3,16 @@ use std::process::Command;
 
 use walkdir::WalkDir;
 
+const SNAPSHOT_FORBIDDEN_MARKERS: &[&str] = &[
+    "kreuzberg",
+    "kreuzberglib",
+    "literllmclient",
+    "liter-llm",
+    "spikard",
+    "kreuzcrawl",
+    "html-to-markdown",
+];
+
 #[test]
 fn no_project_name_special_casing_in_enforced_files() {
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -19,6 +29,60 @@ fn no_project_name_special_casing_in_enforced_files() {
         output.status.success(),
         "project mention hook failed:\n{}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn no_downstream_project_names_in_snapshot_filenames() {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let snapshot_root = workspace_root.join("tests/snapshots");
+    let leaks: Vec<String> = WalkDir::new(snapshot_root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|entry_path| entry_path.is_file())
+        .filter_map(|entry_path| {
+            let normalized = entry_path.display().to_string().to_lowercase().replace(['_', '/'], "-");
+            SNAPSHOT_FORBIDDEN_MARKERS
+                .iter()
+                .any(|marker| normalized.contains(marker))
+                .then(|| entry_path.display().to_string())
+        })
+        .collect();
+
+    assert!(
+        leaks.is_empty(),
+        "snapshot filenames must use neutral fixture names:\n{}",
+        leaks.join("\n")
+    );
+}
+
+#[test]
+fn no_downstream_project_names_in_snapshot_content() {
+    let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let snapshot_root = workspace_root.join("tests/snapshots");
+    let mut leaks = Vec::new();
+    for entry_path in WalkDir::new(snapshot_root)
+        .into_iter()
+        .filter_map(Result::ok)
+        .map(walkdir::DirEntry::into_path)
+        .filter(|entry_path| entry_path.is_file())
+    {
+        let Ok(content) = std::fs::read_to_string(&entry_path) else {
+            continue;
+        };
+        let normalized = content.to_lowercase().replace('_', "-");
+        for marker in SNAPSHOT_FORBIDDEN_MARKERS {
+            if normalized.contains(marker) {
+                leaks.push(format!("{} contains {marker}", entry_path.display()));
+            }
+        }
+    }
+
+    assert!(
+        leaks.is_empty(),
+        "snapshot content must use neutral fixture names:\n{}",
+        leaks.join("\n")
     );
 }
 

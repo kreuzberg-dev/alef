@@ -135,6 +135,14 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
         tracing::warn!("{w}");
     }
 
+    let validation_report = crate::core::validation::validate_api_surface(&api);
+    for diagnostic in validation_report.warnings() {
+        tracing::warn!("{diagnostic}");
+    }
+    if validation_report.has_errors() {
+        anyhow::bail!("{}", validation_report.format_errors());
+    }
+
     cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
     info!(
         "Extracted {} types, {} functions, {} enums",

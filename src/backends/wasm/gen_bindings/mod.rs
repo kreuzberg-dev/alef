@@ -539,11 +539,10 @@ impl Backend for WasmBackend {
                 if !refs_excluded {
                     for p in &func.params {
                         if let TypeRef::Named(name) = &p.ty {
-                            if !opaque_types.contains(name.as_str())
-                                && functions::should_have_input_dto(name)
-                                && !emitted_input_dtos.contains(name)
-                            {
-                                if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
+                            if !opaque_types.contains(name.as_str()) && !emitted_input_dtos.contains(name) {
+                                if let Some(type_def) = api.types.iter().find(|t| t.name == *name)
+                                    && functions::should_have_input_dto(type_def)
+                                {
                                     let (dto_code, _dto_name) = functions::gen_input_dto_for_type_with_cfg(
                                         name,
                                         &core_import,

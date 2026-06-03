@@ -11,7 +11,7 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_zig, sanitize_filename};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, Fixture, FixtureGroup};
-use anyhow::Result;
+use anyhow::{Result, bail};
 use heck::{ToShoutySnakeCase, ToSnakeCase};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as FmtWrite;
@@ -83,27 +83,35 @@ impl E2eCodegen for ZigE2eCodegen {
         } else {
             false
         };
-        // Resolve the full `https://<host>/<org>/<repo>` URL.  Prefer the
-        // explicit `[e2e.registry] github_repo` override when set; otherwise
-        // fall back to `config.github_repo()` (which reads `[scaffold]
-        // repository`).  An org-only URL like `https://github.com/foo` is NOT
-        // a valid release host — the asset URL needs the repo segment.
-        let github_repo_owned = e2e_config
-            .registry
-            .github_repo
-            .clone()
-            .unwrap_or_else(|| config.github_repo());
-        let github_repo = github_repo_owned.trim_end_matches('/');
-
         // Resolve content multihash for registry mode (single generic source tarball).
         // For registry mode, we emit one dependency entry pointing to the generic
         // `{crate_name}-zig-v{version}.tar.gz` tarball (published by alef, contains
         // source code + prebuilt FFI library for all platforms).
         // For local mode, we emit a single path-based dependency.
         let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            if hash_is_stale {
+                bail!(
+                    "zig registry package hash is stale for crate `{}` version `{}`; update `[crates.e2e.registry.packages.zig].hash`",
+                    config.name,
+                    pkg_version
+                );
+            }
+            let Some(github_repo_owned) = e2e_config.registry.github_repo.as_deref() else {
+                bail!(
+                    "zig registry mode requires explicit `[crates.e2e.registry] github_repo` for crate `{}`",
+                    config.name
+                );
+            };
+            let Some(explicit_hash) = explicit_hash.as_deref() else {
+                bail!(
+                    "zig registry mode requires explicit `[crates.e2e.registry.packages.zig] hash` for crate `{}`",
+                    config.name
+                );
+            };
+            let github_repo = github_repo_owned.trim_end_matches('/');
             let mut hashes = BTreeMap::new();
             let url = format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
-            let hash = resolve_zig_hash(explicit_hash.as_deref(), &url);
+            let hash = resolve_zig_hash(Some(explicit_hash), &url);
             // Store a single entry; render_build_zig_zon will extract it as the sole dependency.
             hashes.insert("generic".to_string(), (url, hash));
             hashes
@@ -120,8 +128,6 @@ impl E2eCodegen for ZigE2eCodegen {
                 e2e_config.dep_mode,
                 &pkg_version,
                 &platform_hashes,
-                crate_name,
-                github_repo,
                 hash_is_stale,
             ),
             generated_header: false,
@@ -479,9 +485,9 @@ fn fetch_zig_hash_from_network(url: &str) -> Option<String> {
 /// 2. Cache — `~/.cache/alef/zig-hashes.json` keyed by URL.
 /// 3. Network — shells out to `zig fetch <url>`, parses the printed hash,
 ///    writes the result back to the cache, and returns it.
-/// 4. Fallback — logs a warning and returns `None` so the caller emits
-///    `.hash = "TODO"`. This covers pre-release dry-runs and offline regens
-///    where the asset isn't yet published.
+/// 4. Fallback — logs a warning and returns `None`. Registry generation
+///    requires an explicit hash before calling this helper, so this path is
+///    only available to tests and non-publishable dry-run callers.
 fn resolve_zig_hash(explicit: Option<&str>, url: &str) -> Option<String> {
     // 1. Explicit override wins.
     if let Some(h) = explicit {
@@ -521,8 +527,6 @@ fn render_build_zig_zon(
     dep_mode: crate::e2e::config::DependencyMode,
     version: &str,
     platform_hashes: &BTreeMap<String, (String, Option<String>)>,
-    crate_name: &str,
-    github_repo: &str,
     hash_is_stale: bool,
 ) -> String {
     let dep_block = match dep_mode {
@@ -531,7 +535,11 @@ fn render_build_zig_zon(
             // This matches the alef-published artifact pattern:
             // `{crate_name}-zig-v{version}.tar.gz` (source + bundled FFI for this build platform).
             // The build.zig script links against the prebuilt FFI library included in the tarball.
-            let url = format!("{github_repo}/releases/download/v{version}/{crate_name}-zig-v{version}.tar.gz");
+            let (url, hash) = platform_hashes
+                .values()
+                .next()
+                .map(|(url, hash)| (url.as_str(), hash.as_ref()))
+                .unwrap_or(("", None));
             // When hash is stale (embedded version != current crate version)
             // we omit the `.hash` field entirely. Zig will reject the .zon as
             // missing-hash and print the actual computed multihash in its
@@ -540,7 +548,7 @@ fn render_build_zig_zon(
             // the recovery path. Leaving a syntactically-broken `.hash =
             // // STALE` line bricks every downstream `zig build`, so this
             // branch must produce a still-parseable .zon.
-            match platform_hashes.values().next().and_then(|(_, h)| h.as_ref()) {
+            match hash {
                 Some(h) if hash_is_stale => format!(
                     "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{pkg_name} = .{{\n            .url = \"{url}\",\n        }},"
                 ),

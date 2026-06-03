@@ -62,6 +62,11 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         ),
     };
 
+    let repository_line = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("repository: {repository}\n"))
+        .unwrap_or_default();
     // Only emit `homepage:` when it is non-empty to keep pubspec.yaml clean.
     let homepage_line = if meta.homepage.is_empty() {
         String::new()
@@ -73,8 +78,7 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         r#"name: {name}
 description: {description}
 version: {version}
-repository: {repository}
-{homepage_line}environment:
+{repository_line}{homepage_line}environment:
   sdk: '{dart_sdk}'
 dependencies:
 {dependency_block}dev_dependencies:
@@ -84,7 +88,7 @@ dependencies:
         name = pubspec_name,
         description = meta.description,
         version = version,
-        repository = meta.repository,
+        repository_line = repository_line,
         homepage_line = homepage_line,
     );
 

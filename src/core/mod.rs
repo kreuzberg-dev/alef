@@ -9,6 +9,7 @@ pub mod ir;
 pub mod jni;
 pub mod keywords;
 pub mod template_versions;
+pub mod validation;
 pub mod version;
 
 pub use backend::{Backend, Capabilities, GeneratedFile};

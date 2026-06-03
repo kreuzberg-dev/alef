@@ -563,7 +563,8 @@ pub fn gen_bridge_function(
     use crate::core::ir::TypeRef;
 
     let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
-    let handle_path = format!("{core_import}::visitor::VisitorHandle");
+    let handle_alias = bridge_cfg.type_alias.as_deref().unwrap_or(&bridge_cfg.trait_name);
+    let handle_path = format!("{core_import}::{handle_alias}");
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
     let is_optional = bridge_param.optional || matches!(&bridge_param.ty, TypeRef::Optional(_));
@@ -776,6 +777,15 @@ pub fn gen_options_field_bridge_function(
     // Name of the visitor parameter that will be appended to the function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
     let field_name = bridge_cfg.resolved_options_field().unwrap_or(visitor_kwarg);
+    let options_type = bridge_cfg.options_type.as_deref().unwrap_or_else(|| match &options_param.ty {
+        TypeRef::Named(name) => name.as_str(),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) => name.as_str(),
+            _ => "Options",
+        },
+        _ => "Options",
+    });
+    let options_path = format!("{core_import}::{options_type}");
 
     // Build parameter list; force the options param to Option<T> if the IR didn't already,
     // and append the visitor parameter.
@@ -809,14 +819,14 @@ pub fn gen_options_field_bridge_function(
 
     // Generate options conversion with visitor injection.
     let options_convert = format!(
-        "let {options_name}_core: Option<{core_import}::ConversionOptions> = {options_name}.map(|mut o| {{\n    \
+        "let {options_name}_core: Option<{options_path}> = {options_name}.map(|mut o| {{\n    \
          o.{field_name} = None;\n    \
-         let mut result: {core_import}::ConversionOptions = o.into();\n    \
+         let mut result: {options_path} = o.into();\n    \
          result.{field_name} = {visitor_kwarg}_handle.clone();\n    \
          result\n    \
          }}).or_else(|| {{\n    \
          if {visitor_kwarg}_handle.is_some() {{\n    \
-         let mut opts = {core_import}::ConversionOptions::default();\n    \
+         let mut opts = {options_path}::default();\n    \
          opts.{field_name} = {visitor_kwarg}_handle.clone();\n    \
          Some(opts)\n    \
          }} else {{\n    \
