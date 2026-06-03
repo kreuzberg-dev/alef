@@ -337,13 +337,16 @@ fn render_main_test_go(test_documents_dir: &str, has_http_fixtures: bool) -> Str
     if has_http_fixtures {
         let _ = writeln!(out, "\t\"io\"");
         let _ = writeln!(out, "\t\"net\"");
+    } else {
+        // "net/http" is used only in the mock-server readiness poll (non-HTTP path).
+        // "strings" is used only to parse MOCK_SERVER_URL= lines (non-HTTP path).
+        let _ = writeln!(out, "\t\"net/http\"");
+        let _ = writeln!(out, "\t\"strings\"");
     }
-    let _ = writeln!(out, "\t\"net/http\"");
     let _ = writeln!(out, "\t\"os\"");
     let _ = writeln!(out, "\t\"os/exec\"");
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
-    let _ = writeln!(out, "\t\"strings\"");
     let _ = writeln!(out, "\t\"testing\"");
     let _ = writeln!(out, "\t\"time\"");
     let _ = writeln!(out, ")");
@@ -5025,6 +5028,48 @@ mod tests {
         assert!(
             out.contains("\t\"strings\""),
             "expected the `strings` import to be emitted; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
+        // When has_http_fixtures=true, the harness-pattern path uses net.DialTimeout + io.Copy.
+        // "net/http" and "strings" are NOT referenced, so they must not be imported.
+        let out = render_main_test_go("testing_data", true);
+        assert!(
+            !out.contains("\t\"net/http\""),
+            "main_test.go (http-fixtures path) must NOT import net/http; got:\n{out}"
+        );
+        assert!(
+            !out.contains("\t\"strings\""),
+            "main_test.go (http-fixtures path) must NOT import strings; got:\n{out}"
+        );
+        // But it must still import "net" and "io" for the harness path
+        assert!(out.contains("\t\"net\""), "must import net; got:\n{out}");
+        assert!(out.contains("\t\"io\""), "must import io; got:\n{out}");
+    }
+
+    #[test]
+    fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
+        // When has_http_fixtures=false, the mock-server readiness-poll path uses
+        // http.Get (net/http) and strings.HasPrefix/TrimPrefix — both must be imported.
+        let out = render_main_test_go("testing_data", false);
+        assert!(
+            out.contains("\t\"net/http\""),
+            "main_test.go (non-http path) must import net/http; got:\n{out}"
+        );
+        assert!(
+            out.contains("\t\"strings\""),
+            "main_test.go (non-http path) must import strings; got:\n{out}"
+        );
+        // And must NOT import "net" or "io" (those are http-fixtures-only)
+        assert!(
+            !out.contains("\t\"net\""),
+            "main_test.go (non-http path) must NOT import net; got:\n{out}"
+        );
+        assert!(
+            !out.contains("\t\"io\""),
+            "main_test.go (non-http path) must NOT import io; got:\n{out}"
         );
     }
 }
