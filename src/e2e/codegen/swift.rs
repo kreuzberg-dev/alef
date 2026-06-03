@@ -128,14 +128,8 @@ impl E2eCodegen for SwiftE2eCodegen {
             generated_header: false,
         });
 
-        // For registry mode, emit a pre-test script that computes the artifact checksum.
-        if matches!(e2e_config.dep_mode, crate::e2e::config::DependencyMode::Registry) {
-            files.push(GeneratedFile {
-                path: output_base.join("download_swift_artifact.sh"),
-                content: render_download_swift_artifact_script(module_name, &registry_url, &pkg_version),
-                generated_header: false,
-            });
-        }
+        // For registry mode, SwiftPM fetches the package directly from GitHub.
+        // No pre-test artifact download script is needed.
 
         // Generate the app harness executable that runs the SUT server for tests.
         // Only emit when there are HTTP fixtures; consumers without HTTP tests
@@ -507,7 +501,9 @@ let package = Package(
     )
 }
 
-/// Render a pre-test shell script that computes the Swift artifact checksum at runtime.
+/// Deprecated: no longer used after switching to .package(url:) in registry mode.
+/// Kept for historical reference and test coverage of the checksum validation pattern.
+#[allow(dead_code)]
 /// Registry-mode e2e tests use .binaryTarget(url:, checksum:) with a placeholder
 /// checksum (__ALEF_SWIFT_CHECKSUM__). This script downloads the artifact bundle,
 /// computes its SHA256 checksum, and validates that it matches the expected checksum
@@ -3520,12 +3516,9 @@ mod tests {
         );
     }
 
-    /// Regression: registry-mode download_swift_artifact.sh must validate the
-    /// cached zip's checksum against Package.swift's expected checksum before
-    /// reusing it. Without this, a version bump (e.g. rc.49 → rc.50) leaves a
-    /// stale cached zip in place — same filename, different URL contents — and
-    /// SwiftPM rejects with "checksum of downloaded artifact does not match
-    /// checksum specified by the manifest".
+    /// Regression test: The old artifact-bundle approach required checksum validation.
+    /// This test is kept as reference of the pattern used before switching to
+    /// .package(url:) which relies on SwiftPM's native GitHub release resolution.
     #[test]
     fn download_swift_artifact_script_validates_cache_checksum() {
         let script =

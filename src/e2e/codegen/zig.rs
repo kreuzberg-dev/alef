@@ -71,6 +71,16 @@ impl E2eCodegen for ZigE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
         // Explicit hash override from alef.toml takes precedence over auto-fetch.
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
+
+        // Detect if the explicit hash is stale: if it contains an embedded version
+        // string (format: `<crate>-X.Y.Z-<hash>`) and that version doesn't match
+        // the current pkg_version, warn and recommend regeneration.
+        let hash_is_stale = if let Some(ref h) = explicit_hash {
+            detect_stale_zig_hash(h, &pkg_version, &crate_name)
+        } else {
+            false
+        };
+
         // Use the crate name for constructing the release URL (hyphenated form).
         let crate_name = &config.name;
         // Resolve the full `https://<host>/<org>/<repo>` URL.  Prefer the
@@ -112,6 +122,7 @@ impl E2eCodegen for ZigE2eCodegen {
                 &platform_hashes,
                 crate_name,
                 github_repo,
+                hash_is_stale,
             ),
             generated_header: false,
         });
