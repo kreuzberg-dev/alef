@@ -664,9 +664,16 @@ pub(crate) fn gen_native_lib(
             Some((owner, a.name.to_snake_case()))
         })
         .collect();
-    for typ in api.types.iter().filter(|t| !t.is_opaque && !t.is_trait) {
+    for typ in api.types.iter().filter(|t| t.is_opaque && !t.is_trait) {
         for method in &typ.methods {
             if streaming_adapter_method_keys.contains(&(typ.name.clone(), method.name.to_snake_case())) {
+                continue;
+            }
+            // The FFI backend never exports `_default` / `_to_json` / `_from_json` for opaque
+            // types — those C functions only exist for non-opaque, serde-derivable, non-Update
+            // value types. Emitting a MethodHandle for them here would make `LIB.find(...)`
+            // throw `NoSuchElementException` at JVM clinit. Mirror the FFI's omission.
+            if matches!(method.name.as_str(), "default" | "to_json" | "from_json") {
                 continue;
             }
             let owner_snake = typ.name.to_snake_case();
