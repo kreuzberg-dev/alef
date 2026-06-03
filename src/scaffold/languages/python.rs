@@ -269,7 +269,11 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         _ => String::new(),
     };
 
-    let urls_line = format!("urls.repository = \"{}\"\n", meta.repository);
+    let urls_line = meta
+        .configured_repository
+        .as_deref()
+        .map(|repository| format!("urls.repository = \"{repository}\"\n"))
+        .unwrap_or_default();
 
     let dev_group_entries = [
         format!("\"mypy{}\"", canonicalize_pep440_specifier(tv::pypi::MYPY)),

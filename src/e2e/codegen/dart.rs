@@ -742,9 +742,11 @@ fn render_test_file(
 /// Ruby spec_helper / Java MockServerListener spawn pattern.
 ///
 /// Emitted inside an `async` `setUpAll`; the harness lives at
-/// `../app_harness.dart` relative to the `e2e/dart/test/` directory.
-/// Resolves paths relative to the test file (via `Platform.script`), which remains
-/// stable relative-path-wise even though `Platform.script` resolves to a tmpdir under `dart test`.
+/// `app_harness.dart` relative to `Directory.current`, which points to the test_app /
+/// e2e suite root because the Taskfile / harness invokes `dart test` from there.
+/// `Platform.script` is unusable here because `dart test` stages test files to a tmpdir
+/// (`/var/folders/.../T/dart_test.kernel.<random>/test.dart_<n>.dill`); relative
+/// resolves against that URI escape the source tree entirely.
 fn render_dart_sut_spawn(out: &mut String) {
     // Skip spawning any server when either `MOCK_SERVER_URL` (alef e2e
     // wrapper / `scripts/e2e/run-with-mock-server.sh`) or `SUT_URL` (external
@@ -756,7 +758,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     );
     let _ = writeln!(
         out,
-        "      final _harness = Platform.script.resolve('../app_harness.dart').toFilePath();"
+        "      final _harness = Directory.current.uri.resolve('app_harness.dart').toFilePath();"
     );
     let _ = writeln!(out, "      if (File(_harness).existsSync()) {{");
     let _ = writeln!(
@@ -799,11 +801,11 @@ fn render_dart_sut_spawn(out: &mut String) {
     );
     let _ = writeln!(
         out,
-        "        final _mockBin = Platform.script.resolve('../../rust/target/release/mock-server').toFilePath();"
+        "        final _mockBin = Directory.current.uri.resolve('../rust/target/release/mock-server').toFilePath();"
     );
     let _ = writeln!(
         out,
-        "        final _mockManifest = Platform.script.resolve('../../rust/Cargo.toml').toFilePath();"
+        "        final _mockManifest = Directory.current.uri.resolve('../rust/Cargo.toml').toFilePath();"
     );
     let _ = writeln!(out, "        if (!File(_mockBin).existsSync()) {{");
     let _ = writeln!(
@@ -817,7 +819,7 @@ fn render_dart_sut_spawn(out: &mut String) {
     let _ = writeln!(out, "        }}");
     let _ = writeln!(
         out,
-        "        final _fixturesDir = Platform.script.resolve('../../../fixtures').toFilePath();"
+        "        final _fixturesDir = Directory.current.uri.resolve('../../fixtures').toFilePath();"
     );
     let _ = writeln!(
         out,

@@ -66,6 +66,29 @@ fn reports_dash_underscore_space_and_collapsed_variants() {
 }
 
 #[test]
+fn reports_forbidden_names_embedded_in_identifiers() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let facade = dir.path().join("facade.rs");
+    let client = dir.path().join("client.rs");
+
+    fs::write(&facade, "struct KreuzbergLib;\n").expect("write facade fixture");
+    fs::write(&client, "struct LiterLlmClient;\n").expect("write client fixture");
+
+    let output = run_hook(&[&facade, &client]);
+
+    assert!(!output.status.success(), "hook should reject embedded identifiers");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden project mention `kreuzberg`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden project mention `liter-llm`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn accepts_clean_generic_code() {
     let dir = tempfile::tempdir().expect("tempdir");
     let file = dir.path().join("code.rs");

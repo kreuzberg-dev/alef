@@ -159,12 +159,7 @@ struct PackageMetadata {
 
 fn package_metadata(config: &ResolvedCrateConfig) -> PackageMetadata {
     let meta = crate::scaffold::scaffold_meta(config);
-    let repository_url = if meta.repository.is_empty() {
-        None
-    } else {
-        Some(meta.repository)
-    }
-    .map(|repository| {
+    let repository_url = meta.configured_repository.map(|repository| {
         if repository.starts_with("git+") {
             repository
         } else {

@@ -8,7 +8,6 @@ use std::path::PathBuf;
 pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     let module = config.swift_module();
-    let repository_url = config.github_repo();
     // Strip the minor version component: "13.0" → "13", "16.0" → "16".
     // Swift PackageDescription uses e.g. `.v13` and `.v16`.
     let min_macos_major = swift_min_macos(config).split('.').next().unwrap_or("13").to_string();
@@ -211,28 +210,11 @@ struct Demo {{
         module = module,
     );
 
-    // Root-level Package.swift — SwiftPM requires a `Package.swift` at the root of the
-    // git URL when resolving `.package(url: "https://github.com/.../X.git", from: "v...")`.
-    //
-    // This is the **distributed** manifest for external consumers. It uses `.binaryTarget`
-    // to reference pre-built XCFramework/artifact bundles published as release assets.
-    // No `unsafeFlags`, no source compilation required — just linking pre-built binaries.
-    //
-    // For in-tree development, developers use `packages/swift/Package.swift` directly,
-    // which contains the unsafeFlags and in-tree build workflow.
-    //
-    // The placeholder URL `https://github.com/sample_core-dev/{repo}/releases/download/{tag}/{archive}`
-    // is replaced during publish by the actual release asset URL. The checksum is computed
-    // by `swift package compute-checksum` and wired in by the release pipeline.
-    let _root_package_swift = format!(
+    // Root-level Package.swift — source-based by default. Binary distribution
+    // requires explicit release/checksum configuration and is patched by the
+    // publish flow, not guessed at scaffold time.
+    let root_package_swift = format!(
         r#"// swift-tools-version: 6.0
-// Root-level Package.swift — alef-generated for published distributions.
-//
-// This manifest uses `.binaryTarget` for pre-built XCFramework/artifact bundles.
-// External consumers depend on this via `.package(url: "...", from: "...")`.
-//
-// For in-tree development, see `packages/swift/Package.swift` and
-// `packages/swift/README.md` for the source-based workflow.
 import PackageDescription
 
 let package = Package(
@@ -245,13 +227,25 @@ let package = Package(
     .library(name: "{module}", targets: ["{module}"])
   ],
   targets: [
-    // RustBridge: pre-built binary target containing the compiled Rust library
-    // for macOS (arm64, x86_64), iOS (device, simulator), and Linux (arm64, x86_64).
-    // The binary includes C headers for swift-bridge interop.
-    .binaryTarget(
+    .target(
+      name: "RustBridgeC",
+      path: "packages/swift/Sources/RustBridgeC",
+      publicHeadersPath: "."
+    ),
+    .target(
       name: "RustBridge",
-      url: "{repository_url}/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
-      checksum: "__ALEF_SWIFT_CHECKSUM__"
+      dependencies: ["RustBridgeC"],
+      path: "packages/swift/Sources/RustBridge",
+      linkerSettings: [
+        .unsafeFlags([
+          "-Ltarget/release",
+          "-Ltarget/debug",
+        ]),
+        .linkedLibrary("{binding_underscore}"),
+        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+      ]
     ),
     .target(
       name: "{module}",
@@ -264,20 +258,13 @@ let package = Package(
         module = module,
         min_macos = min_macos_major,
         min_ios = min_ios_major,
-        repository_url = repository_url,
+        binding_underscore = binding_crate_underscore,
     );
 
     Ok(vec![
-        // Root-level Package.swift: consumer-facing manifest with .binaryTarget
-        // pointing to pre-built XCFramework/artifact bundles published as release assets.
-        // The __VERSION__ and __CHECKSUM__ placeholders are filled at release time by
-        // the publish workflow (via `gh release edit` or similar tooling).
-        //
-        // External consumers: `swift package resolve https://github.com/sample_core-dev/sample-markdown`
-        // In-tree development: `cd packages/swift && swift build`
         GeneratedFile {
             path: PathBuf::from("Package.swift"),
-            content: _root_package_swift,
+            content: root_package_swift,
             generated_header: false,
         },
         GeneratedFile {

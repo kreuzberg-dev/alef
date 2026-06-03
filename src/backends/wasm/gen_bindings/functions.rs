@@ -7,14 +7,20 @@ use crate::core::ir::{FunctionDef, TypeRef};
 use ahash::AHashSet;
 use std::collections::HashMap;
 
-/// Check if a type name represents a config-like struct that should have an Input DTO.
+/// Check if a struct should have an Input DTO for JS object deserialization.
 ///
 /// Input DTOs are needed to properly handle camelCase field name mapping via per-field
 /// #[serde(rename)] attributes. This is necessary because serde_wasm_bindgen does not
 /// honor container-level `rename_all` directives when deserializing from JsValue objects.
-/// The alef WASM backend now emits DTOs with per-field serde(rename) for all config types.
-pub(super) fn should_have_input_dto(type_name: &str) -> bool {
-    type_name.ends_with("Config")
+/// The decision is based on extracted wire metadata and field shape, not type-name suffixes.
+pub(super) fn should_have_input_dto(type_def: &crate::core::ir::TypeDef) -> bool {
+    type_def.has_default
+        && type_def.has_serde
+        && crate::codegen::shared::binding_fields(&type_def.fields).any(|field| {
+            field.serde_rename.is_some()
+                || type_def.serde_rename_all.is_some()
+                || crate::codegen::naming::to_node_name(&field.name) != field.name
+        })
 }
 
 /// Generate an Input DTO struct that deserializes from camelCase and converts to the core type.
@@ -268,14 +274,16 @@ pub(super) fn gen_function_with_emitted_dtos(
 
     for p in &func.params {
         if let TypeRef::Named(name) = &p.ty {
-            if !opaque_types.contains(name.as_str()) && should_have_input_dto(name) {
-                // Skip if already emitted (dedup)
-                if emitted_input_dtos.contains(name) {
-                    input_dto_names.insert(name.clone(), format!("{}Input", name));
-                    continue;
-                }
+            if !opaque_types.contains(name.as_str()) {
                 // Find the TypeDef for this named type
-                if let Some(type_def) = api.types.iter().find(|t| t.name == *name) {
+                if let Some(type_def) = api.types.iter().find(|t| t.name == *name)
+                    && should_have_input_dto(type_def)
+                {
+                    // Skip if already emitted (dedup)
+                    if emitted_input_dtos.contains(name) {
+                        input_dto_names.insert(name.clone(), format!("{}Input", name));
+                        continue;
+                    }
                     let (dto_code, dto_name) = gen_input_dto_for_type(name, core_import, type_def);
                     if !dto_code.is_empty() {
                         input_dtos.push_str(&dto_code);
@@ -613,7 +621,12 @@ pub(super) fn gen_function_with_emitted_dtos(
                     let err_conv = ".map_err(|e| JsValue::from_str(&e.to_string()))";
 
                     // Check if this is a config-like type that needs camelCase conversion
-                    if should_have_input_dto(name) {
+                    if api
+                        .types
+                        .iter()
+                        .find(|t| t.name == *name)
+                        .is_some_and(should_have_input_dto)
+                    {
                         // Use the Input DTO for deserialization with camelCase support
                         let input_dto_type = input_dto_names
                             .get(name)

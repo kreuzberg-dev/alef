@@ -862,8 +862,8 @@ impl Backend for ExtendrBackend {
             generated_header: false,
         });
 
-        // options.R: generated from ConversionOptions IR so all fields are present.
-        if let Some(opts_type) = api.types.iter().find(|t| t.name == "ConversionOptions" && !t.is_trait) {
+        // options.R: generated from the configured/options-like IR type so all fields are present.
+        if let Some(opts_type) = find_r_options_type(api, config) {
             let options_r = gen_conversion_options_r(opts_type);
             files.push(GeneratedFile {
                 path: PathBuf::from(&r_wrapper_dir).join("options.R"),
@@ -873,10 +873,10 @@ impl Backend for ExtendrBackend {
         }
 
         // options.rs (Rust-side): generated decode_options function that handles ExternalPtr-wrapped
-        // binding types from ConversionOptions$default() and similar constructors.
-        if let Some(opts_type) = api.types.iter().find(|t| t.name == "ConversionOptions" && !t.is_trait) {
+        // binding types from the configured/options-like type's default() and similar constructors.
+        if let Some(opts_type) = find_r_options_type(api, config) {
             let core_import = config.core_import_name();
-            let options_rs = gen_options_rs(opts_type, &core_import);
+            let options_rs = gen_options_rs(api, opts_type, &core_import);
             let rust_output_path =
                 resolve_output_dir(config.output_paths.get("r"), &config.name, "packages/r/src/rust/src");
             files.push(GeneratedFile {
@@ -905,6 +905,21 @@ impl Backend for ExtendrBackend {
             post_build: vec![],
         })
     }
+}
+
+fn find_r_options_type<'a>(api: &'a ApiSurface, config: &ResolvedCrateConfig) -> Option<&'a TypeDef> {
+    config
+        .trait_bridges
+        .iter()
+        .filter(|bridge| bridge.bind_via == crate::core::config::BridgeBinding::OptionsField)
+        .filter_map(|bridge| bridge.options_type.as_deref())
+        .find_map(|type_name| api.types.iter().find(|t| t.name == type_name && !t.is_trait))
+        .or_else(|| {
+            let input_type_names = crate::codegen::conversions::input_type_names(api);
+            api.types
+                .iter()
+                .find(|t| !t.is_trait && t.has_default && input_type_names.contains(&t.name))
+        })
 }
 
 /// Generate the `options.R` file for the R package from the `ConversionOptions` IR type.
@@ -981,33 +996,19 @@ fn gen_conversion_options_r(opts_type: &TypeDef) -> String {
 ///
 /// This allows R callers to pass `ConversionOptions$default()`, NULL, or a named list like
 /// `list(heading_style = "Atx", wrap = TRUE, wrap_width = 100L)` to convert().
-fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
+fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> String {
     let mut code = String::new();
     code.push_str("//! Option decoding for R bindings.\n\n");
     code.push_str("use extendr_api::prelude::*;\n\n");
 
-    // Generate enum decoders by inspecting field types
-    let mut enum_decoders = std::collections::HashSet::new();
-    for field in &opts_type.fields {
-        if let TypeRef::Named(enum_name) = &field.ty {
-            enum_decoders.insert(enum_name.clone());
-        } else if let TypeRef::Optional(inner) = &field.ty {
-            if let TypeRef::Named(enum_name) = inner.as_ref() {
-                enum_decoders.insert(enum_name.clone());
-            }
-        }
-    }
+    let type_defs: std::collections::HashMap<_, _> = api.types.iter().map(|t| (t.name.as_str(), t)).collect();
+    let enum_defs: std::collections::HashMap<_, _> = api.enums.iter().map(|e| (e.name.as_str(), e)).collect();
 
-    // Check if PreprocessingOptions is present; if so, we need the PreprocessingPreset decoder
-    let has_preprocessing = opts_type.fields.iter().any(|f| {
-        matches!(
-            &f.ty,
-            TypeRef::Named(n) if n == "PreprocessingOptions"
-        )
-    });
-    if has_preprocessing {
-        // PreprocessingPreset is a nested enum used inside PreprocessingOptions
-        enum_decoders.insert("PreprocessingPreset".to_string());
+    // Generate enum and nested struct decoders by inspecting field types.
+    let mut enum_decoders = std::collections::BTreeSet::new();
+    let mut struct_decoders = std::collections::BTreeSet::new();
+    for field in &opts_type.fields {
+        collect_option_decoder_types(&field.ty, opts_type.name.as_str(), &type_defs, &enum_defs, &mut enum_decoders, &mut struct_decoders);
     }
 
     // Helper function for list access
@@ -1023,16 +1024,21 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
 
     // Generate enum-specific decoders
     for enum_name in enum_decoders {
-        gen_enum_decoder(&mut code, &enum_name);
+        if let Some(enum_def) = enum_defs.get(enum_name.as_str()) {
+            gen_enum_decoder(&mut code, enum_def);
+        }
     }
 
-    // Generate preprocessing options decoder (if needed)
-    if has_preprocessing {
-        gen_preprocessing_decoder(&mut code);
+    for struct_name in struct_decoders {
+        if let Some(struct_def) = type_defs.get(struct_name.as_str()) {
+            gen_struct_decoder(&mut code, struct_def, &enum_defs, &type_defs);
+        }
     }
 
     // Main decode_options function
-    code.push_str("/// Decode an R ExternalPtr, NULL, or named list into ConversionOptions.\n");
+    code.push_str("/// Decode an R ExternalPtr, NULL, or named list into ");
+    code.push_str(&opts_type.name);
+    code.push_str(".\n");
     code.push_str("///\n");
     code.push_str("/// Accepts:\n");
     code.push_str("/// - ExternalPtr<ConversionOptions> (from $default() or builder methods) — unwraps and converts\n");
@@ -1040,15 +1046,21 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
     code.push_str("/// - Named list with field names matching struct fields — decodes field by field\n");
     code.push_str("///\n");
     code.push_str("/// Fields are optional: omitted fields retain their defaults. Unknown fields are ignored.\n");
-    code.push_str("pub fn decode_options(options: Robj) -> std::result::Result<crate::ConversionOptions, String> {\n");
+    code.push_str("pub fn decode_options(options: Robj) -> std::result::Result<crate::");
+    code.push_str(&opts_type.name);
+    code.push_str(", String> {\n");
     code.push_str("    if options.is_null() {\n");
-    code.push_str("        return Ok(crate::ConversionOptions::default());\n");
+    code.push_str("        return Ok(crate::");
+    code.push_str(&opts_type.name);
+    code.push_str("::default());\n");
     code.push_str("    }\n\n");
 
     code.push_str("    // Accept the wrapper struct returned by `ConversionOptions$default()` / builder methods,\n");
     code.push_str("    // which extendr exposes as an `ExternalPtr`. The binding struct is returned directly\n");
     code.push_str("    // from the #[extendr] impl methods, so unwrap it as the binding type.\n");
-    code.push_str("    if let Ok(ext) = ExternalPtr::<crate::ConversionOptions>::try_from(&options) {\n");
+    code.push_str("    if let Ok(ext) = ExternalPtr::<crate::");
+    code.push_str(&opts_type.name);
+    code.push_str(">::try_from(&options) {\n");
     code.push_str("        // Clone the binding struct and convert to core type via the generated From impl\n");
     code.push_str("        return Ok((*ext).clone().into());\n");
     code.push_str("    }\n\n");
@@ -1056,11 +1068,13 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
     code.push_str("    // Try to decode as a named list\n");
     code.push_str("    let list = List::try_from(&options)\n");
     code.push_str("        .map_err(|e| format!(\"options must be NULL, ExternalPtr, or named list: {e}\"))?;\n");
-    code.push_str("    let mut opts = crate::ConversionOptions::default();\n\n");
+    code.push_str("    let mut opts = crate::");
+    code.push_str(&opts_type.name);
+    code.push_str("::default();\n\n");
 
     // Generate field decoders
     for field in &opts_type.fields {
-        gen_field_decoder(&mut code, field);
+        gen_field_decoder(&mut code, field, &enum_defs, &type_defs);
     }
 
     code.push_str(
@@ -1072,23 +1086,44 @@ fn gen_options_rs(opts_type: &TypeDef, _core_import: &str) -> String {
     code
 }
 
-/// Generate an enum decoder function for the given enum type name.
-fn gen_enum_decoder(code: &mut String, enum_name: &str) {
-    // Map known enum types to their variants (verified against src/options/validation.rs and src/options/preprocessing.rs)
-    let variants = match enum_name {
-        "HeadingStyle" => vec!["Atx", "Underlined", "AtxClosed"],
-        "ListIndentType" => vec!["Spaces", "Tabs"],
-        "HighlightStyle" => vec!["DoubleEqual", "Html", "Bold", "None"],
-        "WhitespaceMode" => vec!["Normalized", "Strict"],
-        "NewlineStyle" => vec!["Spaces", "Backslash"],
-        "CodeBlockStyle" => vec!["Indented", "Backticks", "Tildes"],
-        "UrlEscapeStyle" => vec!["Angle", "Percent"],
-        "LinkStyle" => vec!["Inline", "Reference"],
-        "OutputFormat" => vec!["Markdown", "Djot", "Plain"],
-        "PreprocessingPreset" => vec!["Minimal", "Standard", "Aggressive"],
-        _ => return, // Unknown enum, skip
+fn collect_option_decoder_types(
+    ty: &TypeRef,
+    root_type_name: &str,
+    type_defs: &std::collections::HashMap<&str, &TypeDef>,
+    enum_defs: &std::collections::HashMap<&str, &EnumDef>,
+    enum_decoders: &mut std::collections::BTreeSet<String>,
+    struct_decoders: &mut std::collections::BTreeSet<String>,
+) {
+    let TypeRef::Named(name) = ty else {
+        if let TypeRef::Optional(inner) = ty {
+            collect_option_decoder_types(inner, root_type_name, type_defs, enum_defs, enum_decoders, struct_decoders);
+        }
+        return;
     };
+    if enum_defs.contains_key(name.as_str()) {
+        enum_decoders.insert(name.clone());
+        return;
+    }
+    let Some(type_def) = type_defs.get(name.as_str()) else {
+        return;
+    };
+    if type_def.name == root_type_name || type_def.is_opaque || type_def.is_trait {
+        return;
+    }
+    if struct_decoders.insert(type_def.name.clone()) {
+        for field in &type_def.fields {
+            collect_option_decoder_types(&field.ty, root_type_name, type_defs, enum_defs, enum_decoders, struct_decoders);
+        }
+    }
+}
 
+/// Generate an enum decoder function for the given enum definition.
+fn gen_enum_decoder(code: &mut String, enum_def: &EnumDef) {
+    if enum_def.variants.iter().any(|variant| !variant.fields.is_empty()) {
+        return;
+    }
+
+    let enum_name = &enum_def.name;
     let field_name_snake = r_function_component(enum_name);
     let fn_name = format!("decode_{}", field_name_snake);
 
@@ -1105,13 +1140,13 @@ fn gen_enum_decoder(code: &mut String, enum_name: &str) {
     code.push_str(": {e}\"))?;\n");
     code.push_str("    match s.as_str() {\n");
 
-    for variant in variants {
+    for variant in &enum_def.variants {
         code.push_str("        \"");
-        code.push_str(variant);
+        code.push_str(&variant.name);
         code.push_str("\" => Ok(crate::");
         code.push_str(enum_name);
         code.push_str("::");
-        code.push_str(variant);
+        code.push_str(&variant.name);
         code.push_str("),\n");
     }
 
@@ -1122,32 +1157,39 @@ fn gen_enum_decoder(code: &mut String, enum_name: &str) {
     code.push_str("}\n\n");
 }
 
-/// Generate decoder for PreprocessingOptions nested struct.
-fn gen_preprocessing_decoder(code: &mut String) {
-    code.push_str("/// Decode preprocessing options from an R list.\n");
-    code.push_str(
-        "fn decode_preprocessing_options(val: Robj) -> std::result::Result<crate::PreprocessingOptions, String> {\n",
-    );
+/// Generate decoder for a nested options struct.
+fn gen_struct_decoder(
+    code: &mut String,
+    typ: &TypeDef,
+    enum_defs: &std::collections::HashMap<&str, &EnumDef>,
+    type_defs: &std::collections::HashMap<&str, &TypeDef>,
+) {
+    let decoder_name = format!("decode_{}", r_function_component(&typ.name));
+    let label = r_function_component(&typ.name);
+    code.push_str("/// Decode ");
+    code.push_str(&typ.name);
+    code.push_str(" from an R list.\n");
+    code.push_str("fn ");
+    code.push_str(&decoder_name);
+    code.push_str("(val: Robj) -> std::result::Result<crate::");
+    code.push_str(&typ.name);
+    code.push_str(", String> {\n");
     code.push_str("    if val.is_null() {\n");
-    code.push_str("        return Ok(crate::PreprocessingOptions::default());\n");
+    code.push_str("        return Ok(crate::");
+    code.push_str(&typ.name);
+    code.push_str("::default());\n");
     code.push_str("    }\n");
-    code.push_str("    let list = List::try_from(&val).map_err(|e| format!(\"preprocessing: {e}\"))?;\n");
-    code.push_str("    let mut opts = crate::PreprocessingOptions::default();\n\n");
+    code.push_str("    let list = List::try_from(&val).map_err(|e| format!(\"");
+    code.push_str(&label);
+    code.push_str(": {e}\"))?;\n");
+    code.push_str("    let mut opts = crate::");
+    code.push_str(&typ.name);
+    code.push_str("::default();\n\n");
 
-    code.push_str("    if let Some(v) = list_get(&list, \"enabled\") {\n");
-    code.push_str("        opts.enabled = bool::try_from(&v).map_err(|e| format!(\"preprocessing.enabled: {e}\"))?;\n");
-    code.push_str("    }\n");
-    code.push_str("    if let Some(v) = list_get(&list, \"preset\") {\n");
-    code.push_str("        opts.preset = decode_preprocessing_preset(v)?;\n");
-    code.push_str("    }\n");
-    code.push_str("    if let Some(v) = list_get(&list, \"remove_navigation\") {\n");
-    code.push_str("        opts.remove_navigation = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_navigation: {e}\"))?;\n");
-    code.push_str("    }\n");
-    code.push_str("    if let Some(v) = list_get(&list, \"remove_forms\") {\n");
-    code.push_str(
-        "        opts.remove_forms = bool::try_from(&v).map_err(|e| format!(\"preprocessing.remove_forms: {e}\"))?;\n",
-    );
-    code.push_str("    }\n\n");
+    for field in &typ.fields {
+        gen_field_decoder(code, field, enum_defs, type_defs);
+    }
+
     code.push_str("    Ok(opts)\n");
     code.push_str("}\n\n");
 }
@@ -1176,7 +1218,12 @@ fn map_type_to_binding(ty: &crate::core::ir::TypeRef) -> crate::core::ir::TypeRe
 }
 
 /// Generate field decoding logic for a single field.
-fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
+fn gen_field_decoder(
+    code: &mut String,
+    field: &crate::core::ir::FieldDef,
+    enum_defs: &std::collections::HashMap<&str, &EnumDef>,
+    type_defs: &std::collections::HashMap<&str, &TypeDef>,
+) {
     use crate::core::ir::{PrimitiveType, TypeRef};
 
     // Map the core field type to the binding type before generating decoder logic
@@ -1327,7 +1374,7 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
             }
         }
         TypeRef::Named(enum_name) => {
-            if should_decode_enum(enum_name) {
+            if enum_defs.contains_key(enum_name.as_str()) {
                 let fn_name = format!("decode_{}", r_function_component(enum_name));
                 code.push_str("    if let Some(v) = list_get(&list, \"");
                 code.push_str(field_name_trim);
@@ -1338,26 +1385,31 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
                 code.push_str(&fn_name);
                 code.push_str("(v)?;\n");
                 code.push_str("    }\n");
-            } else if enum_name == "PreprocessingOptions" {
+            } else if type_defs.contains_key(enum_name.as_str()) {
+                let fn_name = format!("decode_{}", r_function_component(enum_name));
                 code.push_str("    if let Some(v) = list_get(&list, \"");
                 code.push_str(field_name_trim);
                 code.push_str("\") {\n");
                 code.push_str("        opts.");
                 code.push_str(field_name);
-                code.push_str(" = decode_preprocessing_options(v)?;\n");
+                code.push_str(" = ");
+                code.push_str(&fn_name);
+                code.push_str("(v)?;\n");
                 code.push_str("    }\n");
             }
         }
         TypeRef::Optional(inner) => {
             match inner.as_ref() {
-                TypeRef::Named(enum_name) if enum_name == "PreprocessingOptions" => {
-                    // PreprocessingOptions wrapped in Option
+                TypeRef::Named(name) if type_defs.contains_key(name.as_str()) => {
+                    let fn_name = format!("decode_{}", r_function_component(name));
                     code.push_str("    if let Some(v) = list_get(&list, \"");
                     code.push_str(field_name_trim);
                     code.push_str("\") {\n");
                     code.push_str("        opts.");
                     code.push_str(field_name);
-                    code.push_str(" = decode_preprocessing_options(v)?;\n");
+                    code.push_str(" = Some(");
+                    code.push_str(&fn_name);
+                    code.push_str("(v)?);\n");
                     code.push_str("    }\n");
                 }
                 TypeRef::Primitive(_prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
@@ -1395,22 +1447,6 @@ fn gen_field_decoder(code: &mut String, field: &crate::core::ir::FieldDef) {
         }
         _ => {} // Skip other types
     }
-}
-
-/// Check if a named type is a known enum that needs a decoder.
-fn should_decode_enum(name: &str) -> bool {
-    matches!(
-        name,
-        "HeadingStyle"
-            | "ListIndentType"
-            | "HighlightStyle"
-            | "WhitespaceMode"
-            | "NewlineStyle"
-            | "CodeBlockStyle"
-            | "UrlEscapeStyle"
-            | "LinkStyle"
-            | "OutputFormat"
-    )
 }
 
 /// Convert a CamelCase type name to snake_case for function names.

@@ -1860,7 +1860,7 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let emission = crate::e2e::codegen::emit_test_backend("csharp", trait_bridge, &methods, fixture);
+                    let emission = emit_test_backend_with_class_name(trait_bridge, &methods, fixture, class_name);
                     // setup_block is a private nested class declaration — must be at class
                     // scope in C#, not inside the method body.
                     class_decls.push(emission.setup_block);
@@ -3824,6 +3824,15 @@ pub fn emit_test_backend(
     methods: &[&crate::core::ir::MethodDef],
     fixture: &crate::e2e::fixture::Fixture,
 ) -> super::TestBackendEmission {
+    emit_test_backend_with_class_name(trait_bridge, methods, fixture, "GeneratedBinding")
+}
+
+fn emit_test_backend_with_class_name(
+    trait_bridge: &crate::core::config::TraitBridgeConfig,
+    methods: &[&crate::core::ir::MethodDef],
+    fixture: &crate::e2e::fixture::Fixture,
+    class_name: &str,
+) -> super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
 
     let defaults = language_defaults("csharp");
@@ -3899,7 +3908,7 @@ pub fn emit_test_backend(
     // pollutes subsequent tests in the same xUnit test run. Emit a cleanup unregister
     // keyed by the stub's Name property — same value we wrote into the stub above.
     let escaped_plugin_name = plugin_name.replace('\\', "\\\\").replace('"', "\\\"");
-    let teardown_block = format!("KreuzbergLib.Unregister{trait_pascal}(\"{escaped_plugin_name}\");");
+    let teardown_block = format!("{class_name}.Unregister{trait_pascal}(\"{escaped_plugin_name}\");");
 
     super::TestBackendEmission {
         setup_block: setup,
@@ -4053,7 +4062,7 @@ mod tests {
         };
 
         let methods = vec![&method];
-        let emission = super::emit_test_backend(&bridge, &methods, &fixture);
+        let emission = super::emit_test_backend_with_class_name(&bridge, &methods, &fixture, "FixtureFacade");
 
         // The generated code must reference the synthetic interface name.
         assert!(
@@ -4074,13 +4083,20 @@ mod tests {
             "ProcessImage",
             "ExtractBytes",
             "sample_crate",
+            "KreuzbergLib",
         ] {
             assert!(
                 !emission.setup_block.contains(name),
                 "setup_block must not contain domain name '{name}', got:\n{}",
                 emission.setup_block
             );
+            assert!(
+                !emission.teardown_block.contains(name),
+                "teardown_block must not contain domain name '{name}', got:\n{}",
+                emission.teardown_block
+            );
         }
+        assert_eq!(emission.teardown_block, "FixtureFacade.UnregisterTestTrait(\"my_fixture\");");
     }
 
     #[test]

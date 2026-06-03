@@ -57,7 +57,6 @@ PROJECT_NAMES = {
 
 INFRASTRUCTURE_ALLOWLIST = (
     "kreuzberg-dev",
-    "kreuzberg-dev/",
     "kreuzberg-bot",
     "github.com/kreuzberg-dev/",
     "https://github.com/kreuzberg-dev/",
@@ -65,13 +64,12 @@ INFRASTRUCTURE_ALLOWLIST = (
     "docs.<repo>.kreuzberg.dev",
     "context-kreuzberg-brand-and-docs",
     "kreuzberg, inc.",
-    "kreuzberg.dev",
 )
 
 
 def build_pattern(parts: tuple[str, ...]) -> Pattern[str]:
     body = r"[\s_-]*".join(re.escape(part) for part in parts)
-    return re.compile(rf"(?<![A-Za-z0-9]){body}(?![A-Za-z0-9])", re.IGNORECASE)
+    return re.compile(rf"(?<![a-z0-9]){body}(?![a-z0-9])")
 
 
 PATTERNS = {name: build_pattern(parts) for name, parts in PROJECT_NAMES.items()}
@@ -107,6 +105,12 @@ def mask_allowed_infrastructure(line: str) -> str:
     return masked
 
 
+def normalize_for_project_mentions(line: str) -> str:
+    with_acronym_boundaries = re.sub(r"(?<=[A-Z])(?=[A-Z][a-z])", " ", line)
+    with_camel_boundaries = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", with_acronym_boundaries)
+    return with_camel_boundaries.lower()
+
+
 def violations_for_file(path: Path) -> list[str]:
     if not is_enforced_path(path):
         return []
@@ -117,7 +121,7 @@ def violations_for_file(path: Path) -> list[str]:
 
     violations: list[str] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
-        masked_line = mask_allowed_infrastructure(line)
+        masked_line = normalize_for_project_mentions(mask_allowed_infrastructure(line))
         for name, pattern in PATTERNS.items():
             if pattern.search(masked_line):
                 violations.append(f"{path}:{line_number}: forbidden project mention `{name}`")
