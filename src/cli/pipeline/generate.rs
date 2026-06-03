@@ -478,6 +478,27 @@ pub fn write_scaffold_files_with_overwrite(
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("failed to create directory {}", parent.display()))?;
         }
+        // Binary file path: same as in `write_files`. Without this branch the
+        // scaffold writer writes the base64 STRING into the .jar file, so
+        // every `task <lang>:smoke` invocation hits "ClassNotFoundException:
+        // GradleWrapperMain" because the jar isn't a real zip archive.
+        let is_jar_file = full_path.extension().is_some_and(|ext| ext == "jar");
+        if is_jar_file {
+            let binary_content = base64::engine::general_purpose::STANDARD
+                .decode(&file.content)
+                .with_context(|| format!("failed to decode base64 for {}", full_path.display()))?;
+            if let Ok(existing) = std::fs::read(&full_path) {
+                if existing == binary_content {
+                    debug!("  unchanged: {}", full_path.display());
+                    continue;
+                }
+            }
+            std::fs::write(&full_path, &binary_content)
+                .with_context(|| format!("failed to write binary file {}", full_path.display()))?;
+            count += 1;
+            debug!("  wrote (binary): {}", full_path.display());
+            continue;
+        }
         let normalized = normalize_content(&full_path, &file.content);
         // Skip the write when on-disk bytes already match the normalized output.
         // `std::fs::write` is unconditional truncate+write, which updates mtime
