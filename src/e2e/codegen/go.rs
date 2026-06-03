@@ -240,7 +240,7 @@ impl E2eCodegen for GoCodegen {
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server),
+                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server, has_http_fixtures),
                 generated_header: true,
             });
 
@@ -348,7 +348,7 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
 /// The harness is expected at `cmd/harness/main.go` (built as `./harness` binary).
 /// The harness prints `Harness listening on HOST:PORT` on stdout; we poll TCP port availability.
 /// On readiness, we export SUT_URL so all test files can call `os.Getenv("SUT_URL")`.
-fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bool) -> String {
+fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bool, has_http_fixtures: bool) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
@@ -358,7 +358,10 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\"bufio\"");
     }
     let _ = writeln!(out, "\t\"os\"");
-    let _ = writeln!(out, "\t\"os/exec\"");
+    // Only import os/exec if we need to spawn a process (mock-server or harness).
+    if needs_mock_server_bootstrap || has_http_fixtures {
+        let _ = writeln!(out, "\t\"os/exec\"");
+    }
     let _ = writeln!(out, "\t\"path/filepath\"");
     let _ = writeln!(out, "\t\"runtime\"");
     let _ = writeln!(out, "\t\"testing\"");
@@ -367,8 +370,8 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\"net/http\"");
         let _ = writeln!(out, "\t\"strings\"");
         let _ = writeln!(out, "\t\"time\"");
-    } else {
-        // HTTP-fixture harness path: uses io, net.DialTimeout for readiness polling.
+    } else if has_http_fixtures {
+        // HTTP-fixture harness path: uses fmt, io, net.DialTimeout for readiness polling.
         let _ = writeln!(out, "\t\"fmt\"");
         let _ = writeln!(out, "\t\"io\"");
         let _ = writeln!(out, "\t\"net\"");
@@ -493,6 +496,13 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t}}");
         let _ = writeln!(out);
+        let _ = writeln!(out, "\tos.Exit(m.Run())");
+        let _ = writeln!(out, "}}");
+        return out;
+    }
+    // Harness-spawn path: only emit when HTTP fixtures are present.
+    if !has_http_fixtures {
+        // No mock-server bootstrap and no HTTP fixtures: just exit after chdir.
         let _ = writeln!(out, "\tos.Exit(m.Run())");
         let _ = writeln!(out, "}}");
         return out;
