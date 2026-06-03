@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.22.17] - 2026-06-03
+
+### Fixed
+
 - fix(napi): silence `clippy::only_used_in_recursion` on `gen_metadata_extraction`'s `core_import` parameter — it is consumed only by the recursive call but is structurally part of the helper's signature, so a targeted `#[allow]` is preferable to threading it through every caller. (`src/backends/napi/gen_bindings/service_api.rs`)
 - fix(test): annotate `e2e::fixture::test_fixture_without_mock_response` with `#[test]` so it actually runs and is no longer reported as dead code under `-D warnings`. (`src/e2e/fixture.rs`)
 - fix(e2e/ruby): remove the leading `-` from the jinja comment block at the top of the ruby `app_harness.rb` template. The `{#- ... #}` form strips the preceding newline, concatenating the shebang and the `# frozen_string_literal: true` magic comment onto a single line (`#!/usr/bin/env ruby# frozen_string_literal: true`). The plain `{# ... #}` form preserves the newline so each line gets its own row, satisfying both the shebang requirement and Ruby's frozen-string-literal pragma resolution. (`src/e2e/templates/ruby/app_harness.rb.jinja`)
