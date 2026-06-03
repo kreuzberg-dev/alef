@@ -2231,7 +2231,10 @@ type_prefix = "Js"
         )
         .unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
-        assert_eq!(canonical_ts_type_name("node", "JsParseConfig", &resolved), "ParseConfig");
+        assert_eq!(
+            canonical_ts_type_name("node", "JsParseConfig", &resolved),
+            "ParseConfig"
+        );
         assert_eq!(
             canonical_ts_type_name("wasm", "WasmParseConfig", &resolved),
             "WasmParseConfig"

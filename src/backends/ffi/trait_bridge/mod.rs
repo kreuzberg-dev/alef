@@ -1032,10 +1032,7 @@ mod tests {
             errors: vec![],
             excluded_type_paths: {
                 let mut m = ::std::collections::HashMap::new();
-                m.insert(
-                    "HiddenDoc".to_string(),
-                    "my_lib::internal::HiddenDoc".to_string(),
-                );
+                m.insert("HiddenDoc".to_string(), "my_lib::internal::HiddenDoc".to_string());
                 m
             },
             excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1368,10 +1365,7 @@ mod tests {
             errors: vec![],
             excluded_type_paths: {
                 let mut m = ::std::collections::HashMap::new();
-                m.insert(
-                    "HiddenDoc".to_string(),
-                    "my_lib::internal::HiddenDoc".to_string(),
-                );
+                m.insert("HiddenDoc".to_string(), "my_lib::internal::HiddenDoc".to_string());
                 m
             },
             excluded_trait_names: ::std::collections::HashSet::new(),

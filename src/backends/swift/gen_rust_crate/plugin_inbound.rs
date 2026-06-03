@@ -440,6 +440,7 @@ pub(crate) fn emit_plugin_error_helper(source_crate: &str, error_type: &str, err
 }
 
 /// Emit one `impl Trait for SwiftWrapper` method body.
+#[allow(clippy::too_many_arguments)]
 fn emit_inbound_method_impl(
     out: &mut String,
     method: &MethodDef,
