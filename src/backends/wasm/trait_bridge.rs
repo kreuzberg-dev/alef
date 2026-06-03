@@ -353,7 +353,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -370,7 +370,7 @@ pub fn gen_trait_bridge(
 
     let bridge = if is_visitor_bridge {
         let mut out = String::with_capacity(8192);
-        let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
+        let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", bridge_cfg);
         let trait_path = trait_type.rust_path.replace('-', "_");
         gen_visitor_bridge(
             &mut out,
@@ -411,7 +411,7 @@ pub fn gen_trait_bridge(
     // trait would have async_trait-rewritten signatures while the impl uses bare `async fn`,
     // producing E0195 lifetime mismatches. The bridge is also conceptually wasm-only:
     // it wraps `wasm_bindgen::JsValue` and is invoked from the JS register_* entry point.
-    let mod_name = format!("__alef_wasm_bridge_{}", bridge_cfg.trait_name.to_lowercase());
+    let mod_name = wasm_bridge_module_name(bridge_cfg);
     let gated = format!(
         "#[cfg(target_arch = \"wasm32\")]\nmod {mod_name} {{\n    use super::*;\n\n{body}\n}}\n#[cfg(target_arch = \"wasm32\")]\npub use {mod_name}::*;",
         mod_name = mod_name,
@@ -563,7 +563,7 @@ pub fn gen_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
@@ -753,7 +753,7 @@ pub fn gen_bridge_function(
 }
 
 /// Generate a wrapper function for options-field binding (bridge visitor injection).
-/// This function accepts the visitor as a separate parameter, wraps it as a VisitorHandle,
+/// This function accepts the bridge object as a separate parameter, wraps it as the configured handle,
 /// injects it into the options struct, and calls the core function.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_options_field_bridge_function(
@@ -768,7 +768,7 @@ pub fn gen_options_field_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Wasm{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
@@ -814,7 +814,7 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())";
 
-    // Generate visitor wrapping (wrap the visitor parameter into a VisitorHandle).
+    // Generate bridge wrapping (wrap the extra host parameter into the configured handle).
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n    \
          let bridge = {struct_name}::new(v);\n    \
@@ -931,4 +931,34 @@ pub fn gen_options_field_bridge_function(
         js_name_attr => js_name_attr,
     };
     crate::backends::wasm::template_env::render("gen_bridge_function", ctx)
+}
+
+pub(crate) fn wasm_bridge_module_name(bridge_cfg: &TraitBridgeConfig) -> String {
+    format!("__alef_wasm_bridge_{}", bridge_cfg.trait_name.to_lowercase())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn visitor_handle_constructor_uses_configured_bridge_names() {
+        let bridge = TraitBridgeConfig {
+            trait_name: "XmlWalker".to_string(),
+            type_alias: Some("WalkerHandle".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+        let code = crate::backends::wasm::template_env::render(
+            "gen_visitor_handle_constructor",
+            minijinja::context! {
+                struct_name => "WasmWalkerHandle",
+                module_name => wasm_bridge_module_name(&bridge),
+                bridge_struct_name => crate::codegen::generators::trait_bridge::bridge_wrapper_name("Wasm", &bridge),
+            },
+        );
+
+        assert!(code.contains("__alef_wasm_bridge_xmlwalker::WasmXmlWalkerBridge::new(visitor)"));
+        assert!(!code.contains("__alef_wasm_bridge_htmlvisitor"));
+        assert!(!code.contains("WasmHtmlVisitorBridge"));
+    }
 }

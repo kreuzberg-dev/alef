@@ -3,18 +3,15 @@
 use crate::codegen::generators;
 use crate::codegen::shared::{binding_fields, function_params};
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::config::{Language, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, ReceiverKind, TypeRef};
 use ahash::AHashSet;
 
 use crate::backends::magnus::type_map::MagnusMapper;
 
-/// Check if a field contains a type that cannot be safely passed across thread boundaries.
-/// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
-/// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
-fn is_thread_unsafe_field(field: &FieldDef) -> bool {
-    matches!(&field.ty, TypeRef::Named(name) if name == "VisitorHandle")
-        || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
+/// Check if a field contains a bridge handle that cannot be safely passed across thread boundaries.
+fn is_thread_unsafe_field(field: &FieldDef, trait_bridges: &[TraitBridgeConfig]) -> bool {
+    crate::codegen::generators::trait_bridge::is_bridge_handle_type_ref(&field.ty, trait_bridges)
 }
 
 /// Check if the last parameter is a struct type with has_default (typically a config struct).
@@ -1065,7 +1062,7 @@ pub(super) fn gen_module_init(
         if !typ.is_opaque {
             for field in binding_fields(&typ.fields) {
                 // Skip thread-unsafe fields (e.g., VisitorHandle) that cannot be used in Magnus methods
-                if is_thread_unsafe_field(field) {
+                if is_thread_unsafe_field(field, &config.trait_bridges) {
                     continue;
                 }
                 lines.push(crate::backends::magnus::template_env::render(

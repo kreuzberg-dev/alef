@@ -373,7 +373,7 @@ impl Backend for CsharpBackend {
                 }
             }
             // IVisitor.cs and VisitorCallbacks.cs were removed from gen_visitor_files() in favour
-            // of the HtmlVisitorBridge path in TraitBridges.cs.  Delete any stale copies left
+            // of the configured bridge path in TraitBridges.cs. Delete any stale copies left
             // over from earlier generator runs.
             delete_superseded_visitor_files(&base_path)?;
         } else {
@@ -537,6 +537,7 @@ impl Backend for CsharpBackend {
                         &custom_converter_enums,
                         &lang_rename_all,
                         &bridge_type_aliases,
+                        &config.trait_bridges,
                         &exception_class_name,
                         &excluded_types,
                         &tagged_union_enums,
@@ -662,7 +663,7 @@ fn gen_directory_build_props() -> String {
 }
 
 /// Delete `IVisitor.cs` and `VisitorCallbacks.cs` when visitor_callbacks is enabled but the
-/// modern `HtmlVisitorBridge` / `TraitBridges.cs` path supersedes them.
+/// modern configured bridge / `TraitBridges.cs` path supersedes them.
 /// These files are no longer emitted by `gen_visitor_files()` but may exist on disk from older
 /// generator runs.
 fn delete_superseded_visitor_files(base_path: &std::path::Path) -> anyhow::Result<()> {

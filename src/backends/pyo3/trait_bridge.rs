@@ -377,7 +377,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -395,7 +395,7 @@ pub fn gen_trait_bridge(
 
     if is_visitor_bridge {
         let trait_path = trait_type.rust_path.replace('-', "_");
-        let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+        let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
         let code = gen_visitor_bridge(trait_type, bridge_cfg, &struct_name, &trait_path, &type_paths);
         BridgeOutput { imports: vec![], code }
     } else {
@@ -422,7 +422,7 @@ pub fn gen_trait_bridge(
 /// tries to call the corresponding Python method, falling back to the default if absent.
 ///
 /// This pattern is used for traits where:
-/// - All methods have default implementations (e.g., `HtmlVisitor`)
+/// - All methods have default implementations
 /// - No registration function is needed (per-call construction via `type_alias`)
 /// - No super-trait forwarding
 fn gen_visitor_bridge(
@@ -505,7 +505,7 @@ fn gen_visitor_method(
     let sig = sig_parts.join(", ");
 
     // Determine the return type for this visitor method.
-    // All HtmlVisitor methods return VisitResult (a Named type from the core crate).
+    // Visitor-style methods may return a named type from the core crate.
     // Use the fully-qualified path from type_paths when available.
     let ret_ty = match &method.return_type {
         TypeRef::Named(n) => type_paths.get(n).cloned().unwrap_or_else(|| n.clone()),
@@ -638,7 +638,7 @@ pub fn trait_bridge_imports(configs: &[TraitBridgeConfig]) -> Vec<&'static str> 
 /// Before calling the core function the bridge is constructed:
 /// ```rust,ignore
 /// let visitor = visitor.map(|v| {
-///     let bridge = PyHtmlVisitorBridge::new(v);
+///     let bridge = Py{TraitName}Bridge::new(v);
 ///     std::sync::Arc::new(std::sync::Mutex::new(bridge)) as core_crate::callbacks::VisitorHandle
 /// });
 /// ```
@@ -658,7 +658,7 @@ pub fn gen_bridge_function(
     use crate::codegen::generators::AsyncPattern;
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     // Build the param name for the bridge param
@@ -968,7 +968,7 @@ pub fn gen_bridge_function(
 ///
 /// The generated function adds an extra `visitor: Option<Py<PyAny>>` parameter.
 /// When the caller supplies `visitor`, it is wrapped in `Py{Trait}Bridge`, boxed
-/// into the core `VisitorHandle`, and injected onto a copy of the options struct
+/// into the configured core handle, and injected onto a copy of the options struct
 /// before the core function is called.  When `visitor` is `None` the options
 /// struct is forwarded unchanged.
 ///
@@ -990,16 +990,16 @@ pub fn gen_bridge_field_function(
     use crate::codegen::generators::AsyncPattern;
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Py{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Py", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
     // Name of the visitor kwarg that will be appended to the Rust function signature.
     let visitor_kwarg = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
-    // Name of the options parameter (e.g. "options")
+    // Name of the options parameter.
     let options_param = &bridge_match.param_name;
-    // Rust type of the options parameter (e.g. "ConversionOptions")
+    // Rust type of the options parameter.
     let options_type = &bridge_match.options_type;
-    // The field on the options struct that holds the bridge handle (e.g. "visitor")
+    // The field on the options struct that holds the bridge handle.
     let field_name = &bridge_match.field_name;
     let param_is_optional = bridge_match.param_is_optional;
 
@@ -1033,7 +1033,7 @@ pub fn gen_bridge_field_function(
 
     // --- Build function body ---
 
-    // 1. Wrap the visitor kwarg into a VisitorHandle
+    // 1. Wrap the extra bridge kwarg into the configured handle type.
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n        \
          let bridge = {struct_name}::new(v);\n        \

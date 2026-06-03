@@ -5,8 +5,8 @@
 //!
 //! 1. Async trait methods generate `async` stub methods with `Future<R>` returns
 //! 2. Sync trait methods generate non-async stubs with direct return types
-//! 3. Return type mapping preserves async wrappers (generates `Future<T>` not `Future<InternalDocument>`)
-//! 4. Internal-only types (like `InternalDocument`) are mapped to explicit bridge carriers
+//! 3. Return type mapping preserves async wrappers (generates `Future<T>` not an unbridged named type)
+//! 4. Internal-only named types are mapped to explicit bridge carriers
 //! 5. Wrapper fields use appropriate initialization (factory call without eager construction)
 //! 6. Unimplemented trait methods throw `UnimplementedError()` instead of returning empty defaults
 
@@ -149,20 +149,20 @@ mod plugin_trait_stub_generation {
     }
 
     #[test]
-    fn internal_document_type_maps_to_bridge_type() {
+    fn internal_record_type_maps_to_bridge_type() {
         let bridge = make_trait_bridge("TestExtractor", Some("Plugin"));
-        // Simulate a method that returns InternalDocument, which must preserve the
+        // Simulate a method that returns a hidden named type, which must preserve the
         // Rust trait contract through an explicit bridge carrier.
-        let method_with_internal = make_method("extract", true, TypeRef::Named("InternalDocument".to_string()), vec![]);
+        let method_with_internal = make_method("extract", true, TypeRef::Named("InternalRecord".to_string()), vec![]);
         let methods = [&method_with_internal];
         let fixture = make_fixture("extract_test", Some("test-extractor"));
 
         let emission = emit_test_backend_dart(&bridge, &methods, &fixture);
 
         assert!(
-            emission.setup_block.contains("Future<InternalDocumentBridge>")
-                || emission.setup_block.contains("Future< InternalDocumentBridge >"),
-            "InternalDocument return type must be mapped to InternalDocumentBridge, got:\n{}",
+            emission.setup_block.contains("Future<InternalRecordBridge>")
+                || emission.setup_block.contains("Future< InternalRecordBridge >"),
+            "InternalRecord return type must be mapped to InternalRecordBridge, got:\n{}",
             emission.setup_block
         );
     }

@@ -87,6 +87,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
             is_tuple: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            originally_had_data_fields: false,
         })
         .collect();
 
@@ -105,6 +106,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         has_serde: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        excluded_variants: Vec::new(),
     }
 }
 

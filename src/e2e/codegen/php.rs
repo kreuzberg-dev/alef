@@ -2919,7 +2919,7 @@ mod trait_bridge_tests {
         let extract_bytes = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes), ("mime_type", TypeRef::String)],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("InternalRecord".to_string()),
             false,
         );
 
@@ -2933,8 +2933,8 @@ mod trait_bridge_tests {
             emission.setup_block
         );
         assert!(
-            !emission.setup_block.contains("new InternalDocument"),
-            "setup_block must not reference undefined type InternalDocument, got:\n{}",
+            !emission.setup_block.contains("new InternalRecord"),
+            "setup_block must not reference undefined type InternalRecord, got:\n{}",
             emission.setup_block
         );
     }
@@ -2952,7 +2952,7 @@ mod trait_bridge_tests {
         let extract_bytes = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes)],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("InternalRecord".to_string()),
             false,
         );
 
@@ -2993,9 +2993,9 @@ mod trait_bridge_tests {
             vec![
                 ("content", TypeRef::Bytes),
                 ("mime_type", TypeRef::String),
-                ("config", TypeRef::Named("ExtractionConfig".to_string())),
+                ("config", TypeRef::Named("ParseConfig".to_string())),
             ],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("InternalRecord".to_string()),
             false,
         );
 
@@ -3154,9 +3154,9 @@ mod trait_bridge_tests {
             vec![
                 ("content", TypeRef::Bytes),
                 ("mime_type", TypeRef::String),
-                ("config", TypeRef::Named("ExtractionConfig".to_string())),
+                ("config", TypeRef::Named("ParseConfig".to_string())),
             ],
-            TypeRef::Named("ExtractionResult".to_string()),
+            TypeRef::Named("ParseResult".to_string()),
             false,
         );
 

@@ -545,6 +545,7 @@ mod tests {
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
             plugin_error_constructor: None,
+            lifetime_type_names: Default::default(),
         }
     }
 

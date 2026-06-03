@@ -568,13 +568,13 @@ mod tests {
 
     #[test]
     fn method_signature_split() {
-        let long = "    public static ExtractionResult extractFile(final java.nio.file.Path path, final String mimeType, final ExtractionConfig config) throws SampleCrateRsException {\n";
+        let long = "    public static ParseResult parseFile(final java.nio.file.Path path, final String mimeType, final ParseConfig config) throws DemoRsException {\n";
         let out = wrap_long_java_lines(long);
         for line in out.lines() {
             assert!(line.len() <= MAX_LINE_LEN, "line too long ({}): {line}", line.len());
         }
-        assert!(out.contains("extractFile(\n"));
-        assert!(out.contains("throws SampleCrateRsException"));
+        assert!(out.contains("parseFile(\n"));
+        assert!(out.contains("throws DemoRsException"));
     }
 
     #[test]

@@ -145,7 +145,15 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         format!(",\n  \"keywords\": [{}]", entries.join(", "))
     };
 
-    let (vendor, package_name) = composer_package_name(config, &meta);
+    let (vendor, package_name) = if let Some(pkg) = config.php.as_ref().and_then(|p| p.composer_package.as_ref()) {
+        let parts: Vec<&str> = pkg.split('/').collect();
+        match parts.as_slice() {
+            [v, p] => (v.to_string(), p.to_string()),
+            _ => composer_package_name(config, &meta),
+        }
+    } else {
+        composer_package_name(config, &meta)
+    };
 
     // Composer manifests are emitted twice with one structural difference: the
     // PSR-4 autoload src path. The package manifest at `{pkg_dir}/composer.json`

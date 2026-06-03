@@ -158,6 +158,11 @@ pub struct ResolvedCrateConfig {
     pub custom_files: HashMap<String, Vec<PathBuf>>,
     pub custom_modules: CustomModulesConfig,
     pub custom_registrations: CustomRegistrationsConfig,
+    /// Validation diagnostic codes downgraded from errors to warnings for this
+    /// crate. Set via `suppress_validation_codes` in `[[crates]]`. Generation
+    /// proceeds when every error matches a suppressed code; unmatched errors
+    /// still fail.
+    pub suppress_validation_codes: Vec<String>,
 }
 
 impl ResolvedCrateConfig {

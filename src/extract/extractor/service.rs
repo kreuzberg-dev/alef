@@ -761,6 +761,7 @@ pub trait IntoHandler {}
                     },
                 ],
                 skip_languages: vec![],
+                host_app_inner_accessor: None,
             }],
             handler_contracts: vec![HandlerContractConfig {
                 trait_name: "Handler".to_string(),
@@ -870,6 +871,7 @@ pub trait IntoHandler {}
                 registrations: vec![],
                 entrypoints: vec![],
                 skip_languages: vec![],
+                host_app_inner_accessor: None,
             }],
             ..Default::default()
         };

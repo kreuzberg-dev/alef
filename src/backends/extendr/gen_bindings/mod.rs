@@ -1616,6 +1616,7 @@ fn gen_extendr_bridge_field_function(
     let field_name = &bridge_match.field_name;
     let handle_path =
         crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_match.bridge, core_import);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_match.bridge);
 
     // Build the param list for the Rust function signature.
     // Non-options params are emitted with the closest extendr-convertible Rust type
@@ -1655,7 +1656,7 @@ fn gen_extendr_bridge_field_function(
         "    let {field_name}_handle: Option<{handle_path}> = {field_name}_robj\n"
     ));
     body.push_str(&format!(
-        "        .map(|v| Arc::new(Mutex::new(RHtmlVisitorBridge::new(v))) as {handle_path});\n"
+        "        .map(|v| Arc::new(Mutex::new({struct_name}::new(v))) as {handle_path});\n"
     ));
 
     // Decode options into the R-local options type, convert to the core type via the

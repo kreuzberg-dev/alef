@@ -315,7 +315,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -331,7 +331,7 @@ pub fn gen_trait_bridge(
         && trait_type.methods.iter().all(|m| m.has_default_impl);
 
     if is_visitor_bridge {
-        let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+        let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
         let trait_path = trait_type.rust_path.replace('-', "_");
         let code = gen_visitor_bridge(
             trait_type,
@@ -595,7 +595,7 @@ pub fn gen_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
@@ -844,7 +844,7 @@ pub fn gen_options_field_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Js{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let options_param = &func.params[options_param_idx];
     let options_name = &options_param.name;
@@ -895,7 +895,7 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))";
 
-    // Generate visitor wrapping (wrap the visitor parameter into a VisitorHandle).
+    // Generate bridge wrapping (wrap the extra host parameter into the configured handle).
     // This mirrors PyO3's approach: take visitor as a separate parameter and wrap it.
     let visitor_wrap = format!(
         "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.and_then(|v| {{\n    \
@@ -907,8 +907,8 @@ pub fn gen_options_field_bridge_function(
 
     // Generate options conversion with visitor injection.
     // The From<JsConversionOptions> impl post-processes the visitor field to forward
-    // val.visitor through JsHtmlVisitorBridge, so we let the From impl handle it.
-    // The separate visitor kwarg (if provided) overrides options.visitor.
+    // the configured field through the generated bridge, so we let the From impl handle it.
+    // The separate bridge kwarg, when provided, overrides the configured options field.
     let options_convert = format!(
         "let {options_name}_core: Option<{options_path}> = {options_name}.map(|o| {{\n    \
          let mut result: {options_path} = o.into();\n    \

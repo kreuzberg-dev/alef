@@ -2010,18 +2010,18 @@ mod tests {
 
     #[test]
     fn derive_nested_types_maps_optional_named_field() {
-        let config_type = make_type("ExtractionConfig", vec![]);
+        let config_type = make_type("ParseConfig", vec![]);
         let request_type = make_type(
-            "ExtractionRequest",
+            "ParseRequest",
             vec![make_field(
                 "config",
-                TypeRef::Optional(Box::new(TypeRef::Named("ExtractionConfig".to_string()))),
+                TypeRef::Optional(Box::new(TypeRef::Named("ParseConfig".to_string()))),
             )],
         );
         let type_defs = vec![config_type, request_type];
 
-        let derived = derive_nested_types_for_wasm("WasmExtractionRequest", &type_defs, "Wasm");
-        assert_eq!(derived.get("config"), Some(&"WasmExtractionConfig".to_string()));
+        let derived = derive_nested_types_for_wasm("WasmParseRequest", &type_defs, "Wasm");
+        assert_eq!(derived.get("config"), Some(&"WasmParseConfig".to_string()));
     }
 
     #[test]
@@ -2231,13 +2231,10 @@ type_prefix = "Js"
         )
         .unwrap();
         let resolved = cfg.resolve().unwrap().remove(0);
+        assert_eq!(canonical_ts_type_name("node", "JsParseConfig", &resolved), "ParseConfig");
         assert_eq!(
-            canonical_ts_type_name("node", "JsExtractionConfig", &resolved),
-            "ExtractionConfig"
-        );
-        assert_eq!(
-            canonical_ts_type_name("wasm", "WasmExtractionConfig", &resolved),
-            "WasmExtractionConfig"
+            canonical_ts_type_name("wasm", "WasmParseConfig", &resolved),
+            "WasmParseConfig"
         );
     }
 

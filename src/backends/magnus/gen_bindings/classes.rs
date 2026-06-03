@@ -4,6 +4,7 @@ use crate::codegen::builder::ImplBuilder;
 use crate::codegen::generators;
 use crate::codegen::shared::{binding_fields, function_params};
 use crate::codegen::type_mapper::TypeMapper;
+use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::AHashSet;
 
@@ -24,12 +25,9 @@ pub(super) fn has_content_string_field(typ: &TypeDef) -> bool {
     })
 }
 
-/// Check if a field contains a type that cannot be safely passed across thread boundaries.
-/// Magnus's #[magnus::wrap] requires Send + Sync bounds. Fields containing types like
-/// VisitorHandle (Rc<RefCell<dyn HtmlVisitor>>) are !Send + !Sync and must be excluded.
-fn is_thread_unsafe_field(field: &FieldDef) -> bool {
-    matches!(&field.ty, TypeRef::Named(name) if name == "VisitorHandle")
-        || matches!(field.ty, TypeRef::Optional(ref inner) if matches!(inner.as_ref(), TypeRef::Named(name) if name == "VisitorHandle"))
+/// Check if a field contains a bridge handle that cannot be safely passed across thread boundaries.
+fn is_thread_unsafe_field(field: &FieldDef, trait_bridges: &[TraitBridgeConfig]) -> bool {
+    crate::codegen::generators::trait_bridge::is_bridge_handle_type_ref(&field.ty, trait_bridges)
 }
 
 /// Generate an opaque Magnus-wrapped struct with inner Arc or Arc<Mutex<>>.
@@ -343,6 +341,7 @@ pub(super) fn gen_struct(
     module_name: &str,
     _api: &crate::core::ir::ApiSurface,
     generates_default: bool,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
     let class_path = format!("{}::{}", module_name, typ.name);
 
@@ -351,7 +350,7 @@ pub(super) fn gen_struct(
         .fields
         .iter()
         .filter(|f| !f.binding_excluded)
-        .filter(|f| !is_thread_unsafe_field(f))
+        .filter(|f| !is_thread_unsafe_field(f, trait_bridges))
         .cloned()
         .collect();
 
@@ -390,6 +389,7 @@ pub(super) fn gen_struct_methods(
     opaque_types: &AHashSet<String>,
     core_import: &str,
     _generates_default: bool,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
     let mut impl_builder = ImplBuilder::new(&typ.name);
 
@@ -401,7 +401,7 @@ pub(super) fn gen_struct_methods(
             .fields
             .iter()
             .filter(|f| !f.binding_excluded)
-            .filter(|f| !is_thread_unsafe_field(f))
+            .filter(|f| !is_thread_unsafe_field(f, trait_bridges))
             .cloned()
             .collect();
 
@@ -421,7 +421,7 @@ pub(super) fn gen_struct_methods(
 
     for field in binding_fields(&typ.fields) {
         // Skip thread-unsafe fields (e.g., VisitorHandle)
-        if is_thread_unsafe_field(field) {
+        if is_thread_unsafe_field(field, trait_bridges) {
             continue;
         }
         impl_builder.add_method(&gen_field_accessor(field, mapper));
@@ -771,22 +771,25 @@ fn field_type_for_serde(field: &FieldDef) -> String {
     }
 }
 
-/// Bridge handle types that cannot cross the Send + Sync boundary required by Magnus.
-/// Their fields are excluded from binding structs and From impls.
-const THREAD_UNSAFE_BRIDGE_TYPES: &[&str] = &["VisitorHandle"];
-
 /// Generate a From impl for binding → core conversion that excludes thread-unsafe fields.
 ///
 /// Fields whose type references a bridge handle (e.g. `VisitorHandle`) are dropped via
 /// `ConversionConfig::exclude_types`, which filters at codegen time. The previous
 /// post-processing line filter broke when the IR's `cfg` was stripped for active
 /// features, leaving the field present and emitted into the From body.
-pub(super) fn gen_from_binding_to_core_filtered(typ: &TypeDef, core_import: &str) -> String {
-    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
+pub(super) fn gen_from_binding_to_core_filtered(
+    typ: &TypeDef,
+    core_import: &str,
+    trait_bridges: &[TraitBridgeConfig],
+) -> String {
+    if !binding_fields(&typ.fields).any(|field| is_thread_unsafe_field(field, trait_bridges)) {
         return crate::codegen::conversions::gen_from_binding_to_core(typ, core_import);
     }
 
-    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let exclude_owned: Vec<String> = trait_bridges
+        .iter()
+        .filter_map(|bridge| bridge.type_alias.clone())
+        .collect();
     let cfg = crate::codegen::conversions::ConversionConfig {
         exclude_types: exclude_owned.as_slice(),
         ..Default::default()
@@ -800,12 +803,16 @@ pub(super) fn gen_from_core_to_binding_filtered(
     typ: &TypeDef,
     core_import: &str,
     opaque_types: &AHashSet<String>,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> String {
-    if !binding_fields(&typ.fields).any(is_thread_unsafe_field) {
+    if !binding_fields(&typ.fields).any(|field| is_thread_unsafe_field(field, trait_bridges)) {
         return crate::codegen::conversions::gen_from_core_to_binding(typ, core_import, opaque_types);
     }
 
-    let exclude_owned: Vec<String> = THREAD_UNSAFE_BRIDGE_TYPES.iter().map(|s| (*s).to_string()).collect();
+    let exclude_owned: Vec<String> = trait_bridges
+        .iter()
+        .filter_map(|bridge| bridge.type_alias.clone())
+        .collect();
     let cfg = crate::codegen::conversions::ConversionConfig {
         exclude_types: exclude_owned.as_slice(),
         opaque_types: Some(opaque_types),
@@ -836,13 +843,14 @@ pub(super) fn gen_magnus_default_impl(typ: &TypeDef, core_import: &str) -> Strin
 pub(super) fn gen_struct_default_impl_explicit(
     typ: &TypeDef,
     type_mapper: &dyn Fn(&TypeRef) -> String,
+    trait_bridges: &[TraitBridgeConfig],
 ) -> Option<String> {
     // Filter out thread-unsafe fields (e.g., VisitorHandle) that cannot be used with Magnus wrap,
     // matching the filtering done in gen_struct
     let filtered_fields: Vec<FieldDef> = typ
         .fields
         .iter()
-        .filter(|f| !f.binding_excluded && !is_thread_unsafe_field(f))
+        .filter(|f| !f.binding_excluded && !is_thread_unsafe_field(f, trait_bridges))
         .cloned()
         .collect();
 
@@ -1027,7 +1035,7 @@ mod tests {
             services: vec![],
             handler_contracts: vec![],
         };
-        let code = gen_struct(&typ, &mapper, "TestLib", &api, false);
+        let code = gen_struct(&typ, &mapper, "TestLib", &api, false, &[]);
         assert!(code.contains("magnus::wrap"), "struct must have magnus::wrap");
         assert!(code.contains("struct Config"), "must emit struct Config");
     }

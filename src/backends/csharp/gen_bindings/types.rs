@@ -8,6 +8,7 @@ use super::{
 use crate::backends::csharp::type_map::{csharp_type, csharp_type_for_dto_field};
 use crate::codegen::naming::{csharp_type_name, to_csharp_name};
 use crate::codegen::shared::binding_fields;
+use crate::core::config::TraitBridgeConfig;
 use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::ir::{DefaultValue, MethodDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
@@ -347,7 +348,7 @@ fn gen_opaque_streaming_method(
     let item_pascal = csharp_type_name(&meta.item_type);
 
     // Resolve the request parameter: first Named parameter is the JSON-serialised request payload.
-    // (Streaming adapters in sample-llm pass exactly one `req: ChatCompletionRequest` argument.)
+    // Streaming adapters pass exactly one named request payload argument.
     let req_param = method.params.iter().find(|p| matches!(&p.ty, TypeRef::Named(_)));
     let (req_pascal, req_param_name) = match req_param {
         Some(p) => match &p.ty {
@@ -724,6 +725,26 @@ fn gen_opaque_method(
     out
 }
 
+fn bridge_config_for_field<'a>(
+    field_type: &TypeRef,
+    trait_bridges: &'a [TraitBridgeConfig],
+) -> Option<&'a TraitBridgeConfig> {
+    trait_bridges.iter().find(|bridge| {
+        bridge
+            .type_alias
+            .as_deref()
+            .is_some_and(|alias| field_type_matches_alias(field_type, alias))
+    })
+}
+
+fn field_type_matches_alias(field_type: &TypeRef, alias: &str) -> bool {
+    match field_type {
+        TypeRef::Named(name) => name == alias,
+        TypeRef::Optional(inner) => field_type_matches_alias(inner, alias),
+        _ => false,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn gen_record_type(
     typ: &TypeDef,
@@ -735,6 +756,7 @@ pub(super) fn gen_record_type(
     custom_converter_enums: &HashSet<String>,
     _lang_rename_all: &str,
     bridge_type_aliases: &HashSet<String>,
+    trait_bridges: &[TraitBridgeConfig],
     exception_class: &str,
     excluded_types: &HashSet<String>,
     tagged_union_enums: &HashSet<String>,
@@ -788,12 +810,16 @@ pub(super) fn gen_record_type(
         }
 
         // Check if this field is a visitor bridge (bridge_type_alias field).
-        // If so, generate special handling: IHtmlVisitor? with [JsonIgnore] instead of VisitorHandle?.
-        let is_visitor_bridge = match &field.ty {
-            TypeRef::Named(n) => bridge_type_aliases.contains(n),
-            TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if bridge_type_aliases.contains(n)),
-            _ => false,
-        };
+        // If so, generate special handling: I{TraitName}? with [JsonIgnore] instead of the raw handle alias.
+        let visitor_bridge = bridge_config_for_field(&field.ty, trait_bridges);
+        let is_visitor_bridge = visitor_bridge.is_some()
+            || match &field.ty {
+                TypeRef::Named(n) => bridge_type_aliases.contains(n),
+                TypeRef::Optional(inner) => {
+                    matches!(inner.as_ref(), TypeRef::Named(n) if bridge_type_aliases.contains(n))
+                }
+                _ => false,
+            };
 
         // Non-optional byte[] fields must be serialized as JSON int arrays, not base64.
         // Emit [JsonConverter(typeof(ByteArrayToIntArrayConverter))] for these fields.
@@ -864,11 +890,14 @@ pub(super) fn gen_record_type(
             complex_enums.contains(&pascal) || excluded_types.contains(&pascal)
         });
 
-        // Special handling for visitor bridge fields: always map to IHtmlVisitor?
+        // Special handling for visitor bridge fields: always map to the configured visitor interface.
         if is_visitor_bridge {
+            let interface_name = visitor_bridge
+                .map(|bridge| format!("I{}", csharp_type_name(&bridge.trait_name)))
+                .unwrap_or_else(|| "IVisitor".to_string());
             out.push_str(&render(
                 "visitor_bridge_property.jinja",
-                minijinja::context! { cs_name },
+                minijinja::context! { cs_name, interface_name },
             ));
             out.push('\n');
             continue;
@@ -1530,4 +1559,102 @@ pub(crate) fn gen_byte_array_to_int_array_converter(namespace: &str) -> String {
     out.push_str("}\n");
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::{BridgeBinding, TraitBridgeConfig};
+    use crate::core::ir::FieldDef;
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            is_boxed: false,
+            type_rust_path: None,
+            original_type: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: Default::default(),
+            vec_inner_core_wrapper: Default::default(),
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn record_type(fields: Vec<FieldDef>) -> TypeDef {
+        TypeDef {
+            name: "RenderOptions".to_string(),
+            rust_path: "demo::RenderOptions".to_string(),
+            original_rust_path: "demo::RenderOptions".to_string(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            doc: String::new(),
+            cfg: None,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }
+    }
+
+    #[test]
+    fn record_type_maps_configured_bridge_alias_to_trait_interface() {
+        let typ = record_type(vec![
+            field(
+                "walker",
+                TypeRef::Optional(Box::new(TypeRef::Named("WalkerHandle".to_string()))),
+            ),
+            field("visitor_count", TypeRef::Primitive(PrimitiveType::U32)),
+        ]);
+        let bridge = TraitBridgeConfig {
+            trait_name: "XmlWalker".to_string(),
+            type_alias: Some("WalkerHandle".to_string()),
+            bind_via: BridgeBinding::OptionsField,
+            options_type: Some("RenderOptions".to_string()),
+            options_field: Some("walker".to_string()),
+            ..TraitBridgeConfig::default()
+        };
+        let aliases = HashSet::from(["WalkerHandle".to_string()]);
+
+        let code = gen_record_type(
+            &typ,
+            &[],
+            "Demo",
+            "demo",
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+            "snake_case",
+            &aliases,
+            &[bridge],
+            "DemoException",
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+
+        assert!(code.contains("public IXmlWalker? Walker { get; init; } = null;"));
+        assert!(code.contains("public uint VisitorCount"));
+        assert!(!code.contains("IHtmlVisitor"));
+        assert!(!code.contains("VisitorHandle"));
+    }
 }

@@ -326,6 +326,12 @@ pub(crate) fn emit_inbound_wrapper(
             wrapper_name => &wrapper_name,
         },
     ));
+    let lifetime_type_names: std::collections::HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.has_lifetime_params)
+        .map(|t| t.name.clone())
+        .collect();
     for method in &trait_def.methods {
         emit_inbound_method_impl(
             &mut out,
@@ -335,6 +341,7 @@ pub(crate) fn emit_inbound_wrapper(
             type_paths,
             error_type,
             emit_plugin,
+            &lifetime_type_names,
         );
     }
     out.push_str("}\n\n");
@@ -441,6 +448,7 @@ fn emit_inbound_method_impl(
     type_paths: &std::collections::HashMap<String, String>,
     error_type: &str,
     emit_plugin: bool,
+    lifetime_type_names: &std::collections::HashSet<String>,
 ) {
     // For Plugin super-trait bridges: methods with a default impl are left to the
     // trait's own default (e.g. `as_sync_extractor` returning `Option<&dyn Sync…>`
@@ -487,6 +495,16 @@ fn emit_inbound_method_impl(
                 TypeRef::Vec(inner) => {
                     let elem = inbound_native_ty_owned(inner, source_crate, type_paths);
                     format!("[{elem}]")
+                }
+                TypeRef::Named(name) => {
+                    // Append `<'_>` when the core type has a lifetime parameter so the
+                    // impl Trait signature matches the trait definition exactly.
+                    let base = resolve_named_path(name, source_crate, type_paths);
+                    if lifetime_type_names.contains(name.as_str()) {
+                        format!("{base}<'_>")
+                    } else {
+                        base
+                    }
                 }
                 other => inbound_native_ty(other, source_crate, type_paths),
             }

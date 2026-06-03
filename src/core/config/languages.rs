@@ -317,6 +317,11 @@ pub struct PhpConfig {
     /// All generated code is wrapped in `#[cfg(feature = "...")]`.
     #[serde(default)]
     pub feature_gate: Option<String>,
+    /// Override composer package name (vendor/package-name) for composer.json generation.
+    /// When absent, vendor/package is derived from the repository URL.
+    /// Format: "vendor/package-name" (e.g., "example/sample-lib").
+    #[serde(default)]
+    pub composer_package: Option<String>,
     /// Output directory for generated PHP facade / stubs (e.g., `packages/php/src/`).
     #[serde(default)]
     pub stubs: Option<StubsConfig>,

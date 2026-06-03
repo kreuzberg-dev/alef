@@ -84,7 +84,9 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
 
     if !clean && cache::is_ir_cached(&config.name, &cache_key) {
         info!("Using cached IR");
-        return cache::read_cached_ir(&config.name).context("failed to read cached IR");
+        let api = cache::read_cached_ir(&config.name).context("failed to read cached IR")?;
+        validate_extracted_api(&api, &config.suppress_validation_codes)?;
+        return Ok(api);
     }
 
     let mut api = extract_raw(config, config_path)?;
@@ -141,13 +143,7 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // the IR so adapter codegen can still look up parameter info.
     mark_adapter_handled_methods(&mut api, config);
 
-    let validation_report = crate::core::validation::validate_api_surface(&api);
-    for diagnostic in validation_report.warnings() {
-        tracing::warn!("{diagnostic}");
-    }
-    if validation_report.has_errors() {
-        anyhow::bail!("{}", validation_report.format_errors());
-    }
+    validate_extracted_api(&api, &config.suppress_validation_codes)?;
 
     cache::write_ir_cache(&config.name, &api, &cache_key).context("failed to write IR cache")?;
     info!(
@@ -158,6 +154,30 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     );
 
     Ok(api)
+}
+
+fn validate_extracted_api(api: &ApiSurface, suppress_codes: &[String]) -> anyhow::Result<()> {
+    let validation_report = crate::core::validation::validate_api_surface(api);
+    for diagnostic in validation_report.warnings() {
+        tracing::warn!("{diagnostic}");
+    }
+    // Partition error-level diagnostics: those whose code matches a suppressed
+    // entry are downgraded to warnings and logged; the rest remain as errors.
+    let (suppressed, fatal): (Vec<_>, Vec<_>) = validation_report
+        .errors()
+        .partition(|d| suppress_codes.iter().any(|code| code == &d.code.to_string()));
+    for diagnostic in suppressed {
+        tracing::warn!("[suppressed] {diagnostic}");
+    }
+    if !fatal.is_empty() {
+        let formatted = fatal
+            .iter()
+            .map(|d| format!("- [{}] {}", d.code, d.reason))
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!("{}", formatted);
+    }
+    Ok(())
 }
 
 /// Shared raw extraction logic: parse sources, produce raw `ApiSurface`.
@@ -670,6 +690,9 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
         TypeRef::Map(k, v) => {
+            if contains_ambiguous_bare_value(k) || contains_ambiguous_bare_value(v) {
+                return true;
+            }
             // Sanitize inner key and value types (e.g. Named("str") → String) so
             // backends receive clean Map(String, Json) rather than Map(Named("str"), Json).
             // However, the Map *structure itself* is always valid — all backends have explicit
@@ -681,6 +704,15 @@ fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enu
             sanitize_type_ref(v, known_types, known_enums);
             false
         }
+        _ => false,
+    }
+}
+
+fn contains_ambiguous_bare_value(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(name) => name == "Value" || name == "JsonValue",
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => contains_ambiguous_bare_value(inner),
+        TypeRef::Map(key, value) => contains_ambiguous_bare_value(key) || contains_ambiguous_bare_value(value),
         _ => false,
     }
 }
@@ -1196,6 +1228,7 @@ fn apply_path_mappings(api: &mut ApiSurface, config: &ResolvedCrateConfig) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::ir::{FunctionDef, ParamDef};
 
     /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
     /// but must NOT mark the Map itself as sanitized. Returning sanitized=true for a
@@ -1241,6 +1274,56 @@ mod tests {
                 && matches!(v.as_ref(), TypeRef::Json)),
             "Map(String, Json) must not be mutated when already clean"
         );
+    }
+
+    #[test]
+    fn sanitize_map_with_bare_value_is_reported_as_sanitized() {
+        let mut ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Value".to_string())));
+
+        let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
+
+        assert!(
+            sanitized,
+            "ambiguous bare Value inside Map must not be silently accepted"
+        );
+        assert!(
+            matches!(&ty, TypeRef::Map(_, value) if matches!(value.as_ref(), TypeRef::Named(name) if name == "Value")),
+            "ambiguous bare Value must remain visible for validation, got {ty:?}"
+        );
+    }
+
+    #[test]
+    fn validate_cached_ir_surface_rejects_ambiguous_bare_value() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![FunctionDef {
+                name: "decode".to_string(),
+                rust_path: "sample_lib::decode".to_string(),
+                original_rust_path: String::new(),
+                params: vec![ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Named("Value".to_string()),
+                    ..ParamDef::default()
+                }],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let error = validate_extracted_api(&api, &[]).expect_err("cached IR must be validated before reuse");
+
+        assert!(error.to_string().contains("json_value_resolution_ambiguous"));
     }
 
     /// Map(String, String) — the old case that was already handled correctly downstream —

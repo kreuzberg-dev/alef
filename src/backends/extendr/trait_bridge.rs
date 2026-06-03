@@ -310,7 +310,7 @@ pub fn gen_trait_bridge(
     error_constructor: &str,
     api: &crate::core::ir::ApiSurface,
 ) -> BridgeOutput {
-    let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_cfg);
     let trait_path = trait_type.rust_path.replace('-', "_");
 
     // Build type name → rust_path lookup (owned HashMap for use with new generator)
@@ -323,7 +323,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -603,7 +603,7 @@ pub fn gen_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("R{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("R", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
@@ -633,7 +633,7 @@ pub fn gen_bridge_function(
 
     let err_conv = ".map_err(|e| extendr_api::Error::Other(e.to_string()))";
 
-    // Bridge wrapping: Option<Robj> → Option<VisitorHandle>
+    // Bridge wrapping: Option<Robj> -> Option<configured handle>
     // We always treat it as optional since R passes NULL for missing visitors.
     let bridge_wrap = if is_optional {
         format!(

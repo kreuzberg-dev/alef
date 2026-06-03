@@ -1,6 +1,6 @@
 #[wasm_bindgen(constructor)]
 pub fn new(visitor: wasm_bindgen::JsValue) -> {{ struct_name }} {
-    let bridge = __alef_wasm_bridge_htmlvisitor::WasmHtmlVisitorBridge::new(visitor);
+    let bridge = {{ module_name }}::{{ bridge_struct_name }}::new(visitor);
     let handle = std::sync::Arc::new(std::sync::Mutex::new(bridge));
     Self {
         inner: std::sync::Arc::new(handle),
