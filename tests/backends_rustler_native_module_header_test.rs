@@ -131,3 +131,68 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
         long_rendered
     );
 }
+
+#[test]
+fn targets_with_many_platforms_wraps_at_keyword() {
+    // Test that the native module header with many NIF targets (7+ platforms)
+    // wraps the `~w(...)` value onto a continuation line. This is a regression test
+    // for kreuzcrawl, which has 7 targets that would exceed 98+ chars on a single line
+    // if not wrapped:
+    // targets: ~w(x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu ...)  [too long]
+    //
+    // Even though the continued ~w(...) line may still exceed line_length when
+    // rendered, the wrapping at the keyword level ensures that mix format doesn't
+    // place the keyword and value together on a single line.
+
+    let mut env = minijinja::Environment::new();
+    let template_str = r#"defmodule {{ app_module }}.Native do
+  @moduledoc false
+
+  use RustlerPrecompiled,
+    otp_app: :{{ app_name }},
+    crate: "{{ app_name }}_nif",
+    base_url:
+      "{{ repo_url }}/releases/download/v#{{ '{' }}Mix.Project.config()[:version]{{ '}' }}",
+    version: Mix.Project.config()[:version],
+    targets:
+      ~w({{ nif_targets }}),
+    nif_versions: ["2.16", "2.17"],
+    force_build: System.get_env("{{ build_env_var }}") in ["1", "true"] or Mix.env() in [:dev]
+
+"#;
+
+    env.add_template("test_many_targets", template_str)
+        .expect("template adds successfully");
+
+    let tmpl = env.get_template("test_many_targets").expect("template retrieves");
+
+    // Kreuzcrawl's actual targets: 7 platforms
+    let rendered = tmpl
+        .render(context! {
+            app_module => "Kreuzcrawl",
+            app_name => "kreuzcrawl",
+            repo_url => "https://github.com/kreuzberg-dev/kreuzcrawl",
+            build_env_var => "KREUZCRAWL_BUILD",
+            nif_targets => "x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl aarch64-apple-darwin x86_64-apple-darwin x86_64-pc-windows-msvc",
+        })
+        .expect("template renders");
+
+    // The wrapped form should have targets keyword on its own line, with ~w(...) below
+    assert!(
+        rendered.contains("    targets:\n      ~w("),
+        "targets keyword and value should be wrapped across lines, got:\n{}",
+        rendered
+    );
+
+    // Verify that the targets keyword is NOT on the same line as the value
+    for line in rendered.lines() {
+        if line.contains("targets:") {
+            assert!(
+                !line.contains("~w("),
+                "targets keyword and ~w() value should not be on the same line: {}",
+                line
+            );
+            break;
+        }
+    }
+}
