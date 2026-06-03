@@ -756,6 +756,7 @@ issues = "https://issues.example.invalid/demo"
             custom_files: Default::default(),
             custom_modules: Default::default(),
             custom_registrations: Default::default(),
+            suppress_validation_codes: Vec::new(),
         };
 
         let cfg_a = make_cfg("alpha", vec![a]);
@@ -853,6 +854,7 @@ issues = "https://issues.example.invalid/demo"
                     custom_files: Default::default(),
                     custom_modules: Default::default(),
                     custom_registrations: Default::default(),
+                    suppress_validation_codes: Vec::new(),
                 }
             };
 
@@ -953,6 +955,7 @@ issues = "https://issues.example.invalid/demo"
                     custom_files: Default::default(),
                     custom_modules: Default::default(),
                     custom_registrations: Default::default(),
+                    suppress_validation_codes: Vec::new(),
                 }
             };
 
@@ -1044,6 +1047,7 @@ issues = "https://issues.example.invalid/demo"
                 custom_files: Default::default(),
                 custom_modules: Default::default(),
                 custom_registrations: Default::default(),
+                suppress_validation_codes: Vec::new(),
             }
         };
 
