@@ -1161,24 +1161,29 @@ impl Backend for PhpBackend {
 
             // Determine optionality for each param, then reorder: required first, optional second.
             // PHP 8.1 deprecates required parameters after optional ones, so we must sort.
-            let mut params_with_optionality: Vec<(&crate::core::ir::ParamDef, bool)> = visible_params
+            // Store indices to track original IR order.
+            // We need visible_params twice (for signature reordering and for native call args in IR order),
+            // so we clone the references.
+            let visible_params_clone = visible_params.clone();
+            let mut params_with_optionality_and_idx: Vec<(usize, &crate::core::ir::ParamDef, bool)> = visible_params_clone
                 .into_iter()
-                .map(|p| {
+                .enumerate()
+                .map(|(idx, p)| {
                     // Make param optional if:
                     // 1. It's explicitly optional OR
                     // 2. IR says its named type has a no-arg constructor
                     let should_be_optional = p.optional || is_optional_default_constructible_param(p);
-                    (p, should_be_optional)
+                    (idx, p, should_be_optional)
                 })
                 .collect();
 
             // Sort: required params first (false), then optional params (true).
             // This ensures PHP 8.1+ doesn't complain about required params after optional ones.
-            params_with_optionality.sort_by_key(|(_, is_optional)| *is_optional);
+            params_with_optionality_and_idx.sort_by_key(|(_, _, is_optional)| *is_optional);
 
-            let params: Vec<String> = params_with_optionality
+            let params: Vec<String> = params_with_optionality_and_idx
                 .iter()
-                .map(|(p, should_be_optional)| {
+                .map(|(_, p, should_be_optional)| {
                     let ptype = php_type(&p.ty);
                     if *should_be_optional {
                         format!("?{} ${} = null", ptype, p.name)
@@ -1201,14 +1206,13 @@ impl Backend for PhpBackend {
             // CRITICAL: Pass parameters to the native function in their ORIGINAL IR order,
             // not in the reordered wrapper signature order.
             // The wrapper signature is reordered for PHP 8.1 compliance (required first),
-            // but the native extension method (KreuzcrawlApi::scrape) expects parameters
+            // but the native extension method expects parameters
             // in the original IR order (as registered via #[php_impl]).
             // When IR has optional params before required ones, the two orders differ.
             // Example: IR is (engine: Option<Engine>, url: String)
             //   → Wrapper signature: (string $url, ?Engine $engine = null) [reordered]
             //   → Native call: ($engine ?? new Engine(), $url) [IR order]
-            // Build call args from visible_params (original order), not from
-            // the reordered params_with_optionality.
+            // Build call args by iterating visible_params in original IR order.
             let call_params = visible_params
                 .iter()
                 .map(|p| {
