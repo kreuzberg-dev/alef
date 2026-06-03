@@ -1491,7 +1491,7 @@ pub(crate) fn render_registry_version(lang: &str, workspace_version: &str, exist
 /// Returns `Some(new_hash)` if the version component changed, `None` otherwise.
 fn update_zig_package_hash(existing_hash: &str, old_version: &str, new_version: &str) -> Option<String> {
     // Zig hash format: `<name>-<version>-<base64sha>`, e.g.
-    // `liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`
+    // `sample_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`
     // We need to find the version component and replace it.
     // The version is sandwiched between the second-to-last and last dash (before the base64).
     //
@@ -1503,8 +1503,8 @@ fn update_zig_package_hash(existing_hash: &str, old_version: &str, new_version: 
 
     // The base64 part (last segment) is always non-semver and doesn't contain dashes.
     // Find the position of the old version within the split parts.
-    // For a hash like `liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`,
-    // after split: ["liter_llm", "1.4.0", "rc.50", "Jfgk_..."]
+    // For a hash like `sample_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9`,
+    // after split: ["sample_pkg", "1.4.0", "rc.50", "Jfgk_..."]
     // We need to identify which parts compose the version.
 
     // A semver version may contain dots and dashes (e.g., "1.4.0-rc.50").
@@ -3881,11 +3881,11 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
     fn update_zig_package_hash_rc_prerelease() {
         // Zig hash format: `<name>-<version>-<base64sha>`
         // When syncing from rc.50 to rc.53, only the version part should change.
-        let existing = "liter_llm-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9";
+        let existing = "sample_pkg-1.4.0-rc.50-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9";
         let result = update_zig_package_hash(existing, "1.4.0-rc.50", "1.4.0-rc.53");
         assert_eq!(
             result,
-            Some("liter_llm-1.4.0-rc.53-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9".to_string()),
+            Some("sample_pkg-1.4.0-rc.53-Jfgk_HsxAQAl3_LX7NCs1l27EHcYVF9dieEDCVAwUxK9".to_string()),
             "rc prerelease version must be substituted in hash"
         );
     }
@@ -3893,11 +3893,11 @@ checksum = "5f0e2c6ed6606019b4e29e69dbaba95b11854410e5347d525002456dbbb786b6"
     #[test]
     fn update_zig_package_hash_release_version() {
         // Zig hash from rc.53 to stable 1.4.0
-        let existing = "liter_llm-1.4.0-rc.53-AbCd_XyZ123456789";
+        let existing = "sample_pkg-1.4.0-rc.53-AbCd_XyZ123456789";
         let result = update_zig_package_hash(existing, "1.4.0-rc.53", "1.4.0");
         assert_eq!(
             result,
-            Some("liter_llm-1.4.0-AbCd_XyZ123456789".to_string()),
+            Some("sample_pkg-1.4.0-AbCd_XyZ123456789".to_string()),
             "release version must substitute prerelease"
         );
     }

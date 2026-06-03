@@ -38,8 +38,8 @@ impl {{ struct_name }} {
 
 // SAFETY: WebAssembly is single-threaded — there is exactly one thread per wasm
 // instance, so `JsValue` is never actually accessed from multiple threads
-// simultaneously. These impls are required to satisfy the `Arc<Mutex<dyn
-// HtmlVisitor + Send>>` type alias for `VisitorHandle`.
+// simultaneously. These impls are required to satisfy bridge handle aliases backed
+// by `Arc<Mutex<dyn Trait + Send>>`.
 unsafe impl Send for {{ struct_name }} {}
 // SAFETY: see Send impl above.
 unsafe impl Sync for {{ struct_name }} {}

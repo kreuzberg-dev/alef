@@ -70,7 +70,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods referencing them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods referencing them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -87,7 +87,7 @@ pub fn gen_trait_bridge(
 
     if is_visitor_bridge {
         // Visitor pattern: use the old visitor bridge code
-        let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
+        let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", bridge_cfg);
         let mut out = String::with_capacity(8192);
         gen_visitor_bridge(
             &mut out,
@@ -689,7 +689,7 @@ pub fn gen_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
     let param_name = &func.params[bridge_param_idx].name;
     let bridge_param = &func.params[bridge_param_idx];
@@ -880,9 +880,9 @@ pub fn gen_bridge_function(
 
 /// Generate an options_field visitor bridge function for Magnus.
 ///
-/// This function accepts the visitor as an optional second argument separate from options.
-/// Since VisitorHandle is excluded from the binding, we create options internally and wire
-/// the visitor directly into it.
+/// This function accepts the configured bridge object as an optional argument separate from options.
+/// Since the bridge handle is excluded from the binding, we create options internally and wire
+/// the bridge object directly into it.
 pub fn gen_options_field_bridge_function(
     api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,
@@ -894,10 +894,10 @@ pub fn gen_options_field_bridge_function(
 ) -> String {
     use crate::core::ir::TypeRef;
 
-    let struct_name = format!("Rb{}Bridge", bridge_cfg.trait_name);
+    let struct_name = crate::codegen::generators::trait_bridge::bridge_wrapper_name("Rb", bridge_cfg);
     let handle_path = crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, core_import);
 
-    // Find non-options parameters (typically just the first parameter like 'html')
+    // Find non-options parameters.
     let non_option_params: Vec<_> = func
         .params
         .iter()
@@ -905,13 +905,14 @@ pub fn gen_options_field_bridge_function(
         .filter(|(idx, _)| *idx != options_param_idx)
         .collect();
 
-    // Build parameter list: non-options params + optional visitor
+    // Build parameter list: non-options params + optional bridge object.
     let mut sig_parts = Vec::new();
     for (_, p) in &non_option_params {
         let ty = mapper.map_type(&p.ty);
         sig_parts.push(format!("{}: {}", p.name, ty));
     }
-    sig_parts.push("visitor: Option<magnus::Value>".to_string());
+    let bridge_param_name = bridge_cfg.param_name.as_deref().unwrap_or("visitor");
+    sig_parts.push(format!("{bridge_param_name}: Option<magnus::Value>"));
 
     let _params_str = sig_parts.join(", ");
     let return_type = mapper.map_type(&func.return_type);
@@ -920,9 +921,9 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), e.to_string()))";
 
-    // Generate dispatch: if second arg is a Hash → deserialize as ConversionOptions;
-    // if it's a `ConversionOptions` Ruby class instance → clone + .into() to core;
-    // otherwise treat as visitor object and wire into options.
+    // Generate dispatch: if the bridge/options arg is a Hash, deserialize it as the
+    // configured options type; if it is the options Ruby class instance, clone and
+    // convert it to core; otherwise treat it as the bridge object and wire it into options.
     let options_name = &func.params[options_param_idx].name;
     let Some(options_field) = bridge_cfg.resolved_options_field() else {
         return String::new();
@@ -942,7 +943,7 @@ pub fn gen_options_field_bridge_function(
         return String::new();
     };
     let visitor_extract = format!(
-        "let {options_name}_core = match visitor {{\n    \
+        "let {options_name}_core = match {bridge_param_name} {{\n    \
          Some(v) if !v.is_nil() => {{\n        \
          if magnus::RHash::from_value(v).is_some() {{\n            \
          let json = v.funcall::<_, _, String>(\"to_json\", ()).map_err(|e| {{\n                \
@@ -975,10 +976,11 @@ pub fn gen_options_field_bridge_function(
         options_name = options_name,
         options_type = options_type,
         options_field = options_field,
+        bridge_param_name = bridge_param_name,
     );
 
     // Build call args: non-options params + the _core options (wrapped in Some)
-    // The core function expects Option<ConversionOptions>, so always wrap in Some
+    // The core function expects the options parameter, so always wrap the generated value in Some.
     let call_args: String = non_option_params
         .iter()
         .map(|(_, p)| match &p.ty {
@@ -1070,7 +1072,9 @@ pub fn gen_options_field_bridge_function(
         out.push_str(&p.name);
     }
     out.push_str(",) = args.required;\n");
-    out.push_str("    let (visitor,) = args.optional;\n");
+    out.push_str("    let (");
+    out.push_str(bridge_param_name);
+    out.push_str(",) = args.optional;\n");
     out.push_str("    ");
     out.push_str(&body);
     out.push('\n');

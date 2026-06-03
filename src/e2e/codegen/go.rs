@@ -3988,7 +3988,7 @@ pub fn emit_test_backend(
 
 /// Like [`emit_test_backend`] but with type-qualification context.
 ///
-/// `excluded_types` — names of binding-excluded types (e.g. `InternalDocument`) that should
+/// `excluded_types` — names of binding-excluded types (for example, `InternalRecord`) that should
 /// be substituted with `json.RawMessage` in method signatures.  These types exist in the Rust
 /// IR but are never emitted as Go structs; the trait-bridge interface serialises them to JSON.
 ///
@@ -4553,30 +4553,25 @@ mod trait_bridge_tests {
     /// - Normal methods are emitted with proper type qualification
     #[test]
     fn test_go_stub_skips_excluded_return_types() {
-        // Method 1: returns InternalDocument directly → should be SKIPPED
+        // Method 1: returns an excluded named type directly -> should be SKIPPED
         let excluded_return_method = make_method(
-            "get_internal_doc",
+            "get_internal_record",
             vec![],
-            TypeRef::Named("InternalDocument".to_string()),
+            TypeRef::Named("InternalRecord".to_string()),
             false,
         );
 
-        // Method 2: returns Result<InternalDocument> → should be EMITTED
+        // Method 2: returns Result<ExcludedType> -> should be EMITTED
         // (Result wrapping is handled by binding generation)
         let result_return_method = make_method(
             "extract_bytes",
             vec![("content", TypeRef::Bytes)],
-            TypeRef::Named("InternalDocument".to_string()), // In IR; becomes json.RawMessage in binding
-            true,                                           // has_error_type = true
+            TypeRef::Named("InternalRecord".to_string()), // In IR; becomes json.RawMessage in binding
+            true,                                         // has_error_type = true
         );
 
         // Method 3: normal method with non-excluded types → should be EMITTED
-        let normal_method = make_method(
-            "get_config",
-            vec![],
-            TypeRef::Named("ExtractionConfig".to_string()),
-            false,
-        );
+        let normal_method = make_method("get_config", vec![], TypeRef::Named("ParseConfig".to_string()), false);
 
         let trait_bridge = TraitBridgeConfig {
             trait_name: "DocumentExtractor".to_string(),
@@ -4589,7 +4584,7 @@ mod trait_bridge_tests {
         let methods = vec![&excluded_return_method, &result_return_method, &normal_method];
 
         let mut excluded = std::collections::HashSet::new();
-        excluded.insert("InternalDocument");
+        excluded.insert("InternalRecord");
 
         let enum_names = std::collections::HashSet::new();
         let emission =
@@ -4597,7 +4592,7 @@ mod trait_bridge_tests {
 
         // Method returning directly excluded type must NOT appear in stub.
         assert!(
-            !emission.setup_block.contains("get_internal_doc"),
+            !emission.setup_block.contains("get_internal_record"),
             "method with directly excluded return type must be skipped, got:\n{}",
             emission.setup_block
         );
@@ -4618,8 +4613,8 @@ mod trait_bridge_tests {
 
         // Normal method's return type must be qualified with import alias.
         assert!(
-            emission.setup_block.contains("myproject.ExtractionConfig"),
-            "named type ExtractionConfig must be qualified as myproject.ExtractionConfig, got:\n{}",
+            emission.setup_block.contains("myproject.ParseConfig"),
+            "named type ParseConfig must be qualified as myproject.ParseConfig, got:\n{}",
             emission.setup_block
         );
     }

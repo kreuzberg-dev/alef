@@ -193,16 +193,28 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
     let mut diagnostics = Vec::new();
 
     for function in &api.functions {
+        if function.binding_excluded {
+            continue;
+        }
         let item_path = format!("function {}", function.name);
         collect_function_diagnostics(api, &known_names, &item_path, function, &mut diagnostics);
     }
 
     for typ in &api.types {
+        if typ.binding_excluded {
+            continue;
+        }
         for method in &typ.methods {
+            if method.binding_excluded {
+                continue;
+            }
             let item_path = format!("method {}.{}", typ.name, method.name);
             collect_method_diagnostics(api, &known_names, &item_path, method, &mut diagnostics);
         }
         for field in &typ.fields {
+            if field.binding_excluded {
+                continue;
+            }
             collect_type_ref_diagnostics(
                 api,
                 &known_names,
@@ -210,6 +222,54 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
                 &field.ty,
                 &mut diagnostics,
             );
+        }
+    }
+    for enum_def in &api.enums {
+        if enum_def.binding_excluded {
+            continue;
+        }
+        for variant in &enum_def.variants {
+            if variant.binding_excluded {
+                continue;
+            }
+            for field in &variant.fields {
+                if field.binding_excluded {
+                    continue;
+                }
+                collect_type_ref_diagnostics(
+                    api,
+                    &known_names,
+                    &format!("enum variant {}.{}", enum_def.name, variant.name),
+                    &field.ty,
+                    &mut diagnostics,
+                );
+            }
+        }
+    }
+    for error_def in &api.errors {
+        if error_def.binding_excluded {
+            continue;
+        }
+        for method in &error_def.methods {
+            if method.binding_excluded {
+                continue;
+            }
+            let item_path = format!("error method {}.{}", error_def.name, method.name);
+            collect_method_diagnostics(api, &known_names, &item_path, method, &mut diagnostics);
+        }
+        for variant in &error_def.variants {
+            for field in &variant.fields {
+                if field.binding_excluded {
+                    continue;
+                }
+                collect_type_ref_diagnostics(
+                    api,
+                    &known_names,
+                    &format!("error variant {}.{}", error_def.name, variant.name),
+                    &field.ty,
+                    &mut diagnostics,
+                );
+            }
         }
     }
 
@@ -234,10 +294,9 @@ fn collect_function_diagnostics(
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     if function.sanitized {
-        diagnostics.push(ValidationDiagnostic::warning(
+        diagnostics.push(ValidationDiagnostic::error(
             ValidationCode::BackendStubPath,
             api.crate_name.clone(),
-            None,
             Some(item_path.to_string()),
             "function signature was sanitized and may require backend stub generation",
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
@@ -263,10 +322,9 @@ fn collect_method_diagnostics(
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     if method.sanitized {
-        diagnostics.push(ValidationDiagnostic::warning(
+        diagnostics.push(ValidationDiagnostic::error(
             ValidationCode::BackendStubPath,
             api.crate_name.clone(),
-            None,
             Some(item_path.to_string()),
             "method signature was sanitized and may require backend stub generation",
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
@@ -292,23 +350,23 @@ fn collect_type_ref_diagnostics(
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     match ty {
-        TypeRef::Named(name) if name == "Value" => diagnostics.push(ValidationDiagnostic::warning(
-            ValidationCode::JsonValueResolutionAmbiguous,
-            api.crate_name.clone(),
-            None,
-            Some(item_path.to_string()),
-            "bare `Value` cannot prove it is serde_json::Value",
-            "import or expose serde_json::Value with a resolved path, or configure the type explicitly",
-        )),
+        TypeRef::Named(name) if name == "Value" || name == "JsonValue" => {
+            diagnostics.push(ValidationDiagnostic::error(
+                ValidationCode::JsonValueResolutionAmbiguous,
+                api.crate_name.clone(),
+                Some(item_path.to_string()),
+                format!("bare `{name}` cannot prove it is serde_json::Value"),
+                "import or expose serde_json::Value with a resolved path, or configure the type explicitly",
+            ))
+        }
         TypeRef::Named(name) if !known_names.contains(name.as_str()) => {
-            diagnostics.push(ValidationDiagnostic::warning(
+            diagnostics.push(ValidationDiagnostic::error(
                 ValidationCode::UnknownNamedType,
                 api.crate_name.clone(),
-                None,
                 Some(item_path.to_string()),
                 format!("named type `{name}` is not present in the extracted API surface"),
                 "include the type in the public API, configure it as opaque/excluded, or add a bridge rule",
-            ))
+            ));
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
             collect_type_ref_diagnostics(api, known_names, item_path, inner, diagnostics);
@@ -324,7 +382,10 @@ fn collect_type_ref_diagnostics(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
+    use crate::core::ir::{
+        ApiSurface, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, TypeDef,
+        TypeRef,
+    };
 
     fn function_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> FunctionDef {
         FunctionDef {
@@ -342,6 +403,50 @@ mod tests {
             returns_ref: false,
             returns_cow: false,
             return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn field_def(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            optional: false,
+            default: None,
+            doc: String::new(),
+            sanitized: false,
+            original_type: None,
+            is_boxed: false,
+            type_rust_path: None,
+            cfg: None,
+            typed_default: None,
+            core_wrapper: Default::default(),
+            vec_inner_core_wrapper: Default::default(),
+            newtype_wrapper: None,
+            serde_rename: None,
+            serde_flatten: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn method_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            params,
+            return_type,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
         }
@@ -423,7 +528,7 @@ mod tests {
     }
 
     #[test]
-    fn api_surface_validation_warns_for_unknown_named_types() {
+    fn api_surface_validation_errors_for_unknown_named_types() {
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),
             functions: vec![function_def(
@@ -440,9 +545,9 @@ mod tests {
 
         let report = validate_api_surface(&api);
 
-        assert!(!report.has_errors());
+        assert!(report.has_errors());
         assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == ValidationSeverity::Warning
+            diagnostic.severity == ValidationSeverity::Error
                 && diagnostic.code == ValidationCode::UnknownNamedType
                 && diagnostic.item_path.as_deref() == Some("function render param settings")
                 && diagnostic.reason.contains("RenderSettings")
@@ -450,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn api_surface_validation_warns_for_ambiguous_bare_json_value() {
+    fn api_surface_validation_errors_for_ambiguous_bare_json_value() {
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),
             functions: vec![function_def(
@@ -467,15 +572,68 @@ mod tests {
 
         let report = validate_api_surface(&api);
 
+        assert!(report.has_errors());
         assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == ValidationSeverity::Warning
+            diagnostic.severity == ValidationSeverity::Error
                 && diagnostic.code == ValidationCode::JsonValueResolutionAmbiguous
                 && diagnostic.item_path.as_deref() == Some("function decode param payload")
         }));
     }
 
     #[test]
-    fn api_surface_validation_warns_for_backend_stub_paths() {
+    fn api_surface_validation_errors_for_ambiguous_bare_json_value_alias() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![function_def(
+                "decode",
+                vec![ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Named("JsonValue".to_string()),
+                    ..ParamDef::default()
+                }],
+                TypeRef::String,
+            )],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::JsonValueResolutionAmbiguous
+                && diagnostic.item_path.as_deref() == Some("function decode param payload")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_ambiguous_bare_json_value_inside_map() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![function_def(
+                "decode",
+                vec![ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Named("Value".to_string()))),
+                    ..ParamDef::default()
+                }],
+                TypeRef::String,
+            )],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::JsonValueResolutionAmbiguous
+                && diagnostic.item_path.as_deref() == Some("function decode param payload")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_backend_stub_paths() {
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),
             functions: vec![FunctionDef {
@@ -487,10 +645,160 @@ mod tests {
 
         let report = validate_api_surface(&api);
 
+        assert!(report.has_errors());
         assert!(report.diagnostics.iter().any(|diagnostic| {
-            diagnostic.severity == ValidationSeverity::Warning
+            diagnostic.severity == ValidationSeverity::Error
                 && diagnostic.code == ValidationCode::BackendStubPath
                 && diagnostic.item_path.as_deref() == Some("function render")
         }));
+    }
+
+    #[test]
+    fn api_surface_validation_skips_binding_excluded_functions() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![FunctionDef {
+                sanitized: true,
+                binding_excluded: true,
+                ..function_def(
+                    "stream",
+                    vec![ParamDef {
+                        name: "payload".to_string(),
+                        ty: TypeRef::Named("Value".to_string()),
+                        ..ParamDef::default()
+                    }],
+                    TypeRef::Named("Hidden".to_string()),
+                )
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(
+            !report.has_errors(),
+            "excluded functions must not block generation: {report:?}"
+        );
+    }
+
+    #[test]
+    fn api_surface_validation_skips_adapter_excluded_sanitized_methods() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            types: vec![TypeDef {
+                name: "Client".to_string(),
+                methods: vec![MethodDef {
+                    sanitized: true,
+                    binding_excluded: true,
+                    binding_exclusion_reason: Some("handled by adapter".to_string()),
+                    ..method_def(
+                        "stream",
+                        vec![ParamDef {
+                            name: "payload".to_string(),
+                            ty: TypeRef::Named("Value".to_string()),
+                            ..ParamDef::default()
+                        }],
+                        TypeRef::Named("Hidden".to_string()),
+                    )
+                }],
+                ..TypeDef::default()
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(
+            !report.has_errors(),
+            "adapter-excluded sanitized methods must not block generation: {report:?}"
+        );
+    }
+
+    #[test]
+    fn api_surface_validation_checks_enum_and_error_variant_fields() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            enums: vec![EnumDef {
+                name: "Event".to_string(),
+                variants: vec![EnumVariant {
+                    name: "Created".to_string(),
+                    fields: vec![field_def("payload", TypeRef::Named("MissingPayload".to_string()))],
+                    ..EnumVariant::default()
+                }],
+                ..EnumDef::default()
+            }],
+            errors: vec![ErrorDef {
+                name: "SampleError".to_string(),
+                rust_path: "sample_lib::SampleError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![ErrorVariant {
+                    name: "Invalid".to_string(),
+                    fields: vec![field_def("metadata", TypeRef::Named("JsonValue".to_string()))],
+                    ..ErrorVariant::default()
+                }],
+                doc: String::new(),
+                methods: Vec::new(),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::UnknownNamedType
+                && diagnostic.item_path.as_deref() == Some("enum variant Event.Created")
+                && diagnostic.reason.contains("MissingPayload")
+        }));
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.severity == ValidationSeverity::Error
+                && diagnostic.code == ValidationCode::JsonValueResolutionAmbiguous
+                && diagnostic.item_path.as_deref() == Some("error variant SampleError.Invalid")
+        }));
+    }
+
+    #[test]
+    fn api_surface_validation_skips_binding_excluded_variant_fields() {
+        let mut excluded_field = field_def("metadata", TypeRef::Named("JsonValue".to_string()));
+        excluded_field.binding_excluded = true;
+        excluded_field.binding_exclusion_reason = Some("alef(skip)".to_string());
+
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            enums: vec![EnumDef {
+                name: "Event".to_string(),
+                variants: vec![EnumVariant {
+                    name: "Created".to_string(),
+                    fields: vec![excluded_field.clone()],
+                    ..EnumVariant::default()
+                }],
+                ..EnumDef::default()
+            }],
+            errors: vec![ErrorDef {
+                name: "SampleError".to_string(),
+                rust_path: "sample_lib::SampleError".to_string(),
+                original_rust_path: String::new(),
+                variants: vec![ErrorVariant {
+                    name: "Invalid".to_string(),
+                    fields: vec![excluded_field],
+                    ..ErrorVariant::default()
+                }],
+                doc: String::new(),
+                methods: Vec::new(),
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(
+            !report.has_errors(),
+            "excluded variant fields must not block generation: {report:?}"
+        );
     }
 }

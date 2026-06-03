@@ -893,7 +893,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         // The conversion generator emits `__result.visitor = Default::default();` in binding→core
         // conversions because the raw JS napi::bindgen_prelude::Object is not Clone-able.
         // This post-process detects that pattern in the JS→Rust direction and replaces it with
-        // code that wraps val.visitor into a JsHtmlVisitorBridge and then into the core Rc<RefCell<>> type.
+        // code that wraps the configured field into the generated bridge and then into the core handle type.
         //
         // Key: only fix `impl From<Js{type}>` (binding→core), NOT `impl From<core_type>` (core→binding).
         // The core→binding direction correctly uses Default because the Rc<RefCell<>> is opaque to JS.
@@ -950,20 +950,21 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
 
                     if impl_end > 0 {
                         let impl_block = &impl_body[..impl_end];
-                        let pattern = "__result.visitor = Default::default();";
+                        let pattern = format!("__result.{field_name} = Default::default();");
 
-                        if let Some(rel_pos) = impl_block.find(pattern) {
+                        if let Some(rel_pos) = impl_block.find(&pattern) {
                             let pos = from_impl_start + rel_pos;
                             let before = &content[..pos];
                             let after = &content[pos + pattern.len()..];
 
-                            // Build the replacement that wraps val.visitor into JsHtmlVisitorBridge
-                            // and then into the core Arc<Mutex<...>> type.
+                            // Build the replacement that wraps the configured field into the configured bridge.
                             let handle_path =
                                 crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge, &core_import);
+                            let struct_name =
+                                crate::codegen::generators::trait_bridge::bridge_wrapper_name("Js", bridge);
                             let replacement = format!(
-                                "__result.visitor = val.{field_name}.and_then(|obj| {{\n            \
-                                    JsHtmlVisitorBridge::new(obj).ok().map(|bridge| {{\n                \
+                                "__result.{field_name} = val.{field_name}.and_then(|obj| {{\n            \
+                                    {struct_name}::new(obj).ok().map(|bridge| {{\n                \
                                         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n            \
                                     }})\n        \
                                 }});"

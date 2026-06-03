@@ -8,7 +8,7 @@
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::ToSnakeCase;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Everything needed to generate a trait bridge for one trait.
 pub struct TraitBridgeSpec<'a> {
@@ -50,7 +50,7 @@ impl<'a> TraitBridgeSpec<'a> {
 
     /// Wrapper struct name: `{prefix}{TraitName}Bridge` (e.g., `PythonOcrBackendBridge`).
     pub fn wrapper_name(&self) -> String {
-        format!("{}{}Bridge", self.wrapper_prefix, self.trait_def.name)
+        bridge_wrapper_name(self.wrapper_prefix, self.bridge_config)
     }
 
     /// Snake-case version of the trait name (e.g., `"ocr_backend"`).
@@ -506,6 +506,19 @@ pub fn bridge_handle_path(api: &ApiSurface, bridge: &TraitBridgeConfig, core_imp
         .unwrap_or_else(|| format!("{core_import}::{alias}"))
 }
 
+/// Generate a backend visitor bridge wrapper name from configuration.
+pub fn bridge_wrapper_name(prefix: &str, bridge: &TraitBridgeConfig) -> String {
+    format!("{}{}Bridge", prefix, bridge.trait_name)
+}
+
+/// Return true when a type reference points at any configured bridge handle alias.
+pub fn is_bridge_handle_type_ref(ty: &TypeRef, bridges: &[TraitBridgeConfig]) -> bool {
+    bridges
+        .iter()
+        .filter_map(|bridge| bridge.type_alias.as_deref())
+        .any(|alias| field_type_matches_alias(ty, alias))
+}
+
 /// Result of trait bridge generation: imports (to be added via `builder.add_import`)
 /// and the code body (to be added via `builder.add_item`).
 pub struct BridgeOutput {
@@ -706,6 +719,69 @@ pub fn format_param_type(param: &ParamDef, type_paths: &HashMap<String, String>)
     // Wrap in Option<> when the parameter is optional (e.g. `title: Option<&str>`).
     // The TypeRef::Optional arm above returns early, so this only fires for the
     // `optional: true` IR flag pattern where ty is the unwrapped inner type.
+    if param.optional {
+        format!("Option<{base}>")
+    } else {
+        base
+    }
+}
+
+/// Like [`format_param_type`] but emits `<'_>` after named types whose Rust definition
+/// carries a lifetime parameter (e.g. `NodeContext<'a>`).
+///
+/// `lifetime_type_names` is the set of type names (from `TypeDef.has_lifetime_params`)
+/// that require a lifetime argument in the trait impl method signature so it matches
+/// the original trait definition exactly.  Pass an empty set to get the same output
+/// as `format_param_type`.
+pub fn format_param_type_with_lifetimes(
+    param: &ParamDef,
+    type_paths: &HashMap<String, String>,
+    lifetime_type_names: &HashSet<String>,
+) -> String {
+    use crate::core::ir::TypeRef;
+    let base = if param.is_ref {
+        let mutability = if param.is_mut { "mut " } else { "" };
+        match &param.ty {
+            TypeRef::String => format!("&{mutability}str"),
+            TypeRef::Bytes => format!("&{mutability}[u8]"),
+            TypeRef::Path => format!("&{mutability}std::path::Path"),
+            TypeRef::Vec(inner) => format!("&{mutability}[{}]", format_type_ref(inner, type_paths)),
+            TypeRef::Named(name) => {
+                let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                // Append `<'_>` when the core type has a lifetime parameter so the impl
+                // signature matches the trait definition exactly.
+                let qualified = if lifetime_type_names.contains(name.as_str()) {
+                    format!("{qualified}<'_>")
+                } else {
+                    qualified
+                };
+                format!("&{mutability}{qualified}")
+            }
+            TypeRef::Optional(inner) => {
+                let inner_type_str = match inner.as_ref() {
+                    TypeRef::String => format!("&{mutability}str"),
+                    TypeRef::Bytes => format!("&{mutability}[u8]"),
+                    TypeRef::Path => format!("&{mutability}std::path::Path"),
+                    TypeRef::Vec(v) => format!("&{mutability}[{}]", format_type_ref(v, type_paths)),
+                    TypeRef::Named(name) => {
+                        let qualified = type_paths.get(name.as_str()).cloned().unwrap_or_else(|| name.clone());
+                        let qualified = if lifetime_type_names.contains(name.as_str()) {
+                            format!("{qualified}<'_>")
+                        } else {
+                            qualified
+                        };
+                        format!("&{mutability}{qualified}")
+                    }
+                    other => format_type_ref(other, type_paths),
+                };
+                return format!("Option<{inner_type_str}>");
+            }
+            other => format_type_ref(other, type_paths),
+        }
+    } else {
+        format_type_ref(&param.ty, type_paths)
+    };
+
     if param.optional {
         format!("Option<{base}>")
     } else {
@@ -981,6 +1057,14 @@ mod tests {
         }
     }
 
+    fn make_alias_bridge(trait_name: &str, alias: &str) -> TraitBridgeConfig {
+        TraitBridgeConfig {
+            trait_name: trait_name.to_string(),
+            type_alias: Some(alias.to_string()),
+            ..TraitBridgeConfig::default()
+        }
+    }
+
     fn make_type_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         TypeDef {
             name: name.to_string(),
@@ -1078,6 +1162,29 @@ mod tests {
             binding_exclusion_reason: None,
             original_type: None,
         }
+    }
+
+    #[test]
+    fn bridge_wrapper_name_uses_configured_trait_name() {
+        let bridge = make_alias_bridge("XmlWalker", "WalkerHandle");
+        assert_eq!(bridge_wrapper_name("Js", &bridge), "JsXmlWalkerBridge");
+    }
+
+    #[test]
+    fn is_bridge_handle_type_ref_matches_configured_alias_only() {
+        let bridges = vec![make_alias_bridge("XmlWalker", "WalkerHandle")];
+        assert!(is_bridge_handle_type_ref(
+            &TypeRef::Optional(Box::new(TypeRef::Named("WalkerHandle".to_string()))),
+            &bridges
+        ));
+        assert!(!is_bridge_handle_type_ref(
+            &TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
+            &bridges
+        ));
+        assert!(!is_bridge_handle_type_ref(
+            &TypeRef::Named("RenderOptions".to_string()),
+            &bridges
+        ));
     }
 
     fn make_param(name: &str, ty: TypeRef, is_ref: bool) -> ParamDef {

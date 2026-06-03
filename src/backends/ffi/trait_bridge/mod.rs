@@ -23,7 +23,7 @@ use crate::codegen::generators::trait_bridge::{TraitBridgeSpec, gen_bridge_plugi
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, TypeDef, TypeRef};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use helpers::prim_to_c;
 
@@ -52,6 +52,12 @@ pub struct FfiBridgeGenerator {
     /// `format!`-style constructor that doesn't depend on a specific error
     /// variant shape.
     pub plugin_error_constructor: Option<String>,
+    /// Set of type names (from `TypeDef.has_lifetime_params`) that carry a
+    /// lifetime parameter in their Rust definition (e.g. `NodeContext<'a>`).
+    /// When a trait method parameter references one of these types with `is_ref=true`,
+    /// the generated trait impl signature emits `&Type<'_>` so it matches the
+    /// trait definition exactly.
+    pub lifetime_type_names: HashSet<String>,
 }
 
 impl FfiBridgeGenerator {
@@ -193,7 +199,7 @@ pub fn gen_trait_bridge(
                 .iter()
                 .map(|e| (e.name.clone(), e.rust_path.replace('-', "_"))),
         )
-        // Include excluded types so trait methods that reference them (e.g. `&InternalDocument`)
+        // Include excluded types so trait methods that reference them (for example, `&HiddenDoc`)
         // are qualified with the full Rust path rather than emitting the bare type name.
         .chain(
             api.excluded_type_paths
@@ -202,12 +208,20 @@ pub fn gen_trait_bridge(
         )
         .collect();
 
+    let lifetime_type_names: HashSet<String> = api
+        .types
+        .iter()
+        .filter(|t| t.has_lifetime_params)
+        .map(|t| t.name.clone())
+        .collect();
+
     let generator = FfiBridgeGenerator {
         prefix: prefix.to_string(),
         core_import: core_import.to_string(),
         type_paths: type_paths.clone(),
         error_type: error_type.to_string(),
         plugin_error_constructor: plugin_error_constructor.map(str::to_string),
+        lifetime_type_names,
     };
 
     let wrapper_prefix = to_class_name(prefix);
@@ -289,12 +303,12 @@ pub fn gen_trait_bridge(
 ///
 /// - `prefix`: C symbol prefix, e.g. `"htm"`.
 /// - `pascal_prefix`: PascalCase prefix, e.g. `"Htm"`.
-/// - `trait_name`: Rust trait name, e.g. `"HtmlVisitor"`.
+/// - `trait_name`: Rust trait name.
 pub fn gen_bridge_new_free(prefix: &str, pascal_prefix: &str, trait_name: &str) -> String {
     let bridge_name = format!("{pascal_prefix}{trait_name}Bridge");
     let vtable_name = format!("{pascal_prefix}{trait_name}VTable");
 
-    // snake_case: e.g. "HtmHtmlVisitorBridge" → "htm_html_visitor_bridge"
+    // snake_case: e.g. "DemoXmlWalkerBridge" -> "demo_xml_walker_bridge"
     let bridge_snake = ffi_symbol_component(&bridge_name);
     let fn_new = format!("{prefix}_{bridge_snake}_new");
     let fn_free = format!("{prefix}_{bridge_snake}_free");
@@ -345,7 +359,7 @@ pub unsafe extern "C" fn {fn_free}(ptr: *mut {bridge_name}) {{
 /// Convert a PascalCase identifier to snake_case for C symbol generation.
 ///
 /// Consecutive uppercase letters are treated as a single word to match cbindgen's
-/// behaviour (e.g. `HtmHtmlVisitorBridge` → `htm_html_visitor_bridge`).
+/// behaviour (for example, `DemoXmlWalkerBridge` -> `demo_xml_walker_bridge`).
 fn ffi_symbol_component(s: &str) -> String {
     pascal_to_snake(s)
 }
@@ -969,15 +983,15 @@ mod tests {
     /// (present in `api.excluded_type_paths`), the generated trait impl must use the
     /// fully-qualified Rust path, not the bare type name.
     ///
-    /// Example: `fn render(&self, doc: &InternalDocument)` must emit
-    /// `&my_lib::internal::InternalDocument`, not `&InternalDocument`.
+    /// Example: an excluded `HiddenDoc` argument must emit the fully-qualified
+    /// Rust path, not the bare type name.
     #[test]
     fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
         let internal_doc_method = MethodDef {
             name: "render".to_string(),
             params: vec![crate::core::ir::ParamDef {
                 name: "doc".to_string(),
-                ty: TypeRef::Named("InternalDocument".to_string()),
+                ty: TypeRef::Named("HiddenDoc".to_string()),
                 optional: false,
                 default: None,
                 sanitized: false,
@@ -1008,7 +1022,7 @@ mod tests {
         let trait_def = make_trait_def("Renderer", vec![internal_doc_method]);
         let bridge_cfg = sample_bridge_cfg("Renderer");
 
-        // Include InternalDocument as an excluded type path
+        // Include HiddenDoc as an excluded type path.
         let api = ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
@@ -1019,8 +1033,8 @@ mod tests {
             excluded_type_paths: {
                 let mut m = ::std::collections::HashMap::new();
                 m.insert(
-                    "InternalDocument".to_string(),
-                    "my_lib::internal::InternalDocument".to_string(),
+                    "HiddenDoc".to_string(),
+                    "my_lib::internal::HiddenDoc".to_string(),
                 );
                 m
             },
@@ -1041,12 +1055,12 @@ mod tests {
         );
 
         assert!(
-            code.contains("&my_lib::internal::InternalDocument"),
+            code.contains("&my_lib::internal::HiddenDoc"),
             "excluded type must be fully-qualified, not bare;\n\
              actual code:\n{code}"
         );
         assert!(
-            !code.contains("&InternalDocument"),
+            !code.contains("&HiddenDoc"),
             "bare type reference must not appear in generated trait impl;\n\
              actual code:\n{code}"
         );
@@ -1100,6 +1114,7 @@ mod tests {
             type_paths: ::std::collections::HashMap::new(),
             error_type: "MyError".to_string(),
             plugin_error_constructor: None,
+            lifetime_type_names: ::std::collections::HashSet::new(),
         };
 
         // Sync body (inside_closure = false): must use MyError::from, not Box::from
@@ -1195,7 +1210,7 @@ mod tests {
     ///
     /// FFI's vtable bridge intentionally emits every trait method (including those with
     /// `has_default_impl = true`) so the vtable can forward them — this is required for
-    /// visitor traits like `HtmlVisitor` where every method has a default. The only way
+    /// visitor-style traits where every method has a default. The only way
     /// to opt out of vtable forwarding (and fall back to the trait's own default) is to
     /// list the method in `ffi_skip_methods`.
     #[test]
@@ -1326,7 +1341,7 @@ mod tests {
                 map_key_is_cow: false,
                 vec_inner_is_ref: false,
             }],
-            return_type: TypeRef::Named("InternalDocument".to_string()),
+            return_type: TypeRef::Named("HiddenDoc".to_string()),
             is_async: true,
             is_static: false,
             error_type: Some("Box<dyn std::error::Error + Send + Sync>".to_string()),
@@ -1354,8 +1369,8 @@ mod tests {
             excluded_type_paths: {
                 let mut m = ::std::collections::HashMap::new();
                 m.insert(
-                    "InternalDocument".to_string(),
-                    "my_lib::internal::InternalDocument".to_string(),
+                    "HiddenDoc".to_string(),
+                    "my_lib::internal::HiddenDoc".to_string(),
                 );
                 m
             },
@@ -1377,7 +1392,7 @@ mod tests {
 
         // Signature must use the fully-qualified path, not String.
         assert!(
-            code.contains("-> std::result::Result<my_lib::internal::InternalDocument,"),
+            code.contains("-> std::result::Result<my_lib::internal::HiddenDoc,"),
             "async method return type must be qualified excluded type in signature;\n\
              actual code:\n{code}"
         );
@@ -1387,10 +1402,10 @@ mod tests {
              actual code:\n{code}"
         );
 
-        // Closure body must deserialize JSON back to InternalDocument, not pass String through.
+        // Closure body must deserialize JSON back to the excluded core type, not pass String through.
         assert!(
-            code.contains("serde_json::from_str::<my_lib::internal::InternalDocument>"),
-            "async closure body must deserialize JSON to InternalDocument;\n\
+            code.contains("serde_json::from_str::<my_lib::internal::HiddenDoc>"),
+            "async closure body must deserialize JSON to HiddenDoc;\n\
              actual code:\n{code}"
         );
         assert!(
@@ -1402,7 +1417,7 @@ mod tests {
 
     /// Regression: `gen_ffi_trait_impl` was calling `format_type_ref` which ignores
     /// `is_ref`/`is_mut`, causing `&[u8]` → `Vec<u8>`, `&str` → `String`, `&Path` →
-    /// `PathBuf`, `&InternalDocument` → `InternalDocument` in the trait impl method
+    /// `PathBuf`, and excluded named references in the trait impl method
     /// signatures.  The fix uses `format_param_type` which respects those flags.
     #[test]
     fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
@@ -1499,6 +1514,109 @@ mod tests {
         assert!(
             code.contains("path: &std::path::Path"),
             "is_ref Path param must be &std::path::Path in trait impl, not PathBuf;\n\
+             actual code:\n{code}"
+        );
+    }
+
+    /// Named types with `has_lifetime_params = true` (e.g. `NodeContext<'a>`) must be
+    /// emitted as `&Type<'_>` in the FFI trait impl method signature so it matches the
+    /// trait definition exactly. Without `<'_>`, rustc rejects the impl because the
+    /// concrete struct is `NodeContext<'_>` but the generated method omits the lifetime.
+    #[test]
+    fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
+        use crate::core::ir::{ParamDef, TypeDef};
+
+        let method = MethodDef {
+            name: "visit_element".to_string(),
+            params: vec![ParamDef {
+                name: "context".to_string(),
+                ty: TypeRef::Named("NodeContext".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true, // &NodeContext<'_> in the trait definition
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: true, // visitor method — has default but FFI still emits it
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let trait_def = make_trait_def("HtmlVisitor", vec![method]);
+        let bridge_cfg = sample_bridge_cfg("HtmlVisitor");
+
+        // Include NodeContext as a type with lifetime params.
+        let api = ApiSurface {
+            crate_name: "my-lib".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![TypeDef {
+                name: "NodeContext".to_string(),
+                rust_path: "my_lib::NodeContext".to_string(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: false,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: true, // <-- the key flag
+            }],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: ::std::collections::HashMap::new(),
+            excluded_trait_names: ::std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+        };
+
+        let code = gen_trait_bridge(
+            &trait_def,
+            &bridge_cfg,
+            "htm",
+            "my_lib",
+            "MyError",
+            "MyError::from({msg})",
+            None,
+            &api,
+        );
+
+        // The trait impl method signature must use &my_lib::NodeContext<'_>, not bare &NodeContext.
+        assert!(
+            code.contains("context: &my_lib::NodeContext<'_>"),
+            "lifetime-parameterized Named type must be &Type<'_> in trait impl signature;\n\
+             actual code:\n{code}"
+        );
+        assert!(
+            !code.contains("context: &my_lib::NodeContext,") && !code.contains("context: &my_lib::NodeContext\n"),
+            "bare &NodeContext without lifetime placeholder must NOT appear in trait impl;\n\
              actual code:\n{code}"
         );
     }

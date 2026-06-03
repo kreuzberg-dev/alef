@@ -282,6 +282,7 @@ mod tests {
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
             plugin_error_constructor: None,
+            lifetime_type_names: std::collections::HashSet::new(),
         }
     }
 
@@ -510,6 +511,7 @@ mod tests {
             plugin_error_constructor: Some(
                 "my_lib::MyError::Plugin { message: msg, plugin_name: String::new() }".to_string(),
             ),
+            lifetime_type_names: std::collections::HashSet::new(),
         };
         let bridge_cfg = TraitBridgeConfig {
             trait_name: "Backend".to_string(),

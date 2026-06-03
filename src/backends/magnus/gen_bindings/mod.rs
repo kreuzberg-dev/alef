@@ -323,6 +323,7 @@ impl Backend for MagnusBackend {
                     &module_name,
                     api,
                     has_explicit_impl_default,
+                    &config.trait_bridges,
                 ));
                 if generates_default {
                     // Use Magnus-specific Default impl that delegates to core type's Default
@@ -332,7 +333,9 @@ impl Backend for MagnusBackend {
                 } else if has_explicit_impl_default {
                     // Generate explicit impl Default using field-level defaults
                     let map_fn = |ty: &crate::core::ir::TypeRef| mapper.map_type(ty);
-                    if let Some(impl_str) = classes::gen_struct_default_impl_explicit(typ, &map_fn) {
+                    if let Some(impl_str) =
+                        classes::gen_struct_default_impl_explicit(typ, &map_fn, &config.trait_bridges)
+                    {
                         builder.add_item(&impl_str);
                     }
                 }
@@ -342,6 +345,7 @@ impl Backend for MagnusBackend {
                     &opaque_types,
                     &core_import,
                     has_explicit_impl_default,
+                    &config.trait_bridges,
                 ));
             }
         }
@@ -472,7 +476,11 @@ impl Backend for MagnusBackend {
             let is_relaxed = crate::codegen::conversions::can_generate_conversion(typ, &core_to_binding);
             if is_strict && input_types.contains(&typ.name) {
                 // Use custom From impl generator that filters thread-unsafe fields (e.g., VisitorHandle)
-                builder.add_item(&classes::gen_from_binding_to_core_filtered(typ, &core_import));
+                builder.add_item(&classes::gen_from_binding_to_core_filtered(
+                    typ,
+                    &core_import,
+                    &config.trait_bridges,
+                ));
             }
             if is_relaxed {
                 // Use custom From impl generator that filters thread-unsafe fields (e.g., VisitorHandle)
@@ -480,6 +488,7 @@ impl Backend for MagnusBackend {
                     typ,
                     &core_import,
                     &opaque_types,
+                    &config.trait_bridges,
                 ));
             }
         }

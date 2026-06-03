@@ -765,7 +765,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
     // - OptionsField bridge: VTable + options setter + correct convert implementation.
     // - FunctionParam bridge (legacy): VisitorCallbacks struct + convert_with_visitor.
     //
-    // When both flags are active simultaneously (e.g. sample-markdown with
+    // When both flags are active simultaneously (for example, mixed callback modes with
     // `visitor_callbacks = true` and an `[[trait_bridges]]` entry using
     // `bind_via = "options_field"`), we emit BOTH:
     //   1. The OptionsField vtable / options-setter / {prefix}_convert  (used by Go, C)
@@ -2602,8 +2602,8 @@ header_name = "mylib.h"
     ///   - The visitor-callbacks symbols: {prefix}_visitor_create, {prefix}_visitor_free,
     ///     {prefix}_convert_with_visitor
     ///
-    /// This is the configuration used by sample-markdown where Go/C use the OptionsField
-    /// path and Java uses the callbacks-struct path.
+    /// This mirrors mixed-backend configurations where Go/C use the OptionsField path
+    /// and Java uses the callbacks-struct path.
     #[test]
     fn test_both_options_field_and_visitor_callbacks_emit_both_symbol_sets() {
         let config = resolved_one(
@@ -2624,13 +2624,13 @@ trait_name = "HtmlVisitor"
 type_alias = "VisitorHandle"
 param_name = "visitor"
 bind_via = "options_field"
-options_type = "ConversionOptions"
+options_type = "BridgeOptions"
 "#,
         );
         let mut api = visitor_api();
         api.types.push(TypeDef {
-            name: "ConversionOptions".to_string(),
-            rust_path: "my_lib::ConversionOptions".to_string(),
+            name: "BridgeOptions".to_string(),
+            rust_path: "my_lib::BridgeOptions".to_string(),
             fields: vec![],
             is_clone: true,
             ..TypeDef::default()
@@ -2655,7 +2655,7 @@ options_type = "ConversionOptions"
                 },
                 ParamDef {
                     name: "options".to_string(),
-                    ty: TypeRef::Optional(Box::new(TypeRef::Named("ConversionOptions".to_string()))),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("BridgeOptions".to_string()))),
                     optional: true,
                     ..ParamDef::default()
                 },

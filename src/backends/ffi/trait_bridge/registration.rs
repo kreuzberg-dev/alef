@@ -1,6 +1,8 @@
 //! Constructor generation and extern "C" registration/unregistration functions.
 
-use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec, format_param_type};
+use crate::codegen::generators::trait_bridge::{
+    TraitBridgeGenerator, TraitBridgeSpec, format_param_type_with_lifetimes,
+};
 use crate::core::ir::{MethodDef, TypeRef};
 
 use super::FfiBridgeGenerator;
@@ -170,7 +172,7 @@ impl FfiBridgeGenerator {
     /// Unlike the shared `gen_bridge_trait_impl` which filters out methods with default
     /// implementations, this function generates all methods (including defaults) because
     /// the FFI vtable pattern requires each method to forward through the vtable.
-    /// This is critical for visitor traits like `HtmlVisitor` where all methods have
+    /// This is critical for visitor-style traits where all methods have
     /// default implementations.
     pub(super) fn gen_ffi_trait_impl(&self, spec: &TraitBridgeSpec) -> String {
         use crate::codegen::generators::trait_bridge::{format_return_type, gen_bridge_plugin_impl};
@@ -208,11 +210,19 @@ impl FfiBridgeGenerator {
             };
 
             // Build params (excluding self), respecting is_ref/is_mut so that
-            // &[u8], &str, &Path, and &InternalDocument are emitted correctly.
+            // &[u8], &str, &Path, and excluded named types are emitted correctly.
+            // Use the lifetime-aware variant so that Named types with `has_lifetime_params`
+            // (e.g. `NodeContext<'a>`) are emitted as `&Type<'_>` to match the trait def.
             let params: Vec<String> = method
                 .params
                 .iter()
-                .map(|p| format!("{}: {}", p.name, format_param_type(p, &spec.type_paths)))
+                .map(|p| {
+                    format!(
+                        "{}: {}",
+                        p.name,
+                        format_param_type_with_lifetimes(p, &spec.type_paths, &self.lifetime_type_names)
+                    )
+                })
                 .collect();
 
             let all_params = if receiver.is_empty() {
@@ -529,6 +539,7 @@ mod tests {
             type_paths: HashMap::new(),
             error_type: "MyError".to_string(),
             plugin_error_constructor: None,
+            lifetime_type_names: std::collections::HashSet::new(),
         }
     }
 
