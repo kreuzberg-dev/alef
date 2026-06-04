@@ -304,7 +304,8 @@ ktlint_standard_argument-list-wrapping = disabled\n\
 ktlint_standard_max-line-length = disabled\n\
 ktlint_standard_function-literal = disabled\n\
 ktlint_standard_trailing-comma-on-call-site = disabled\n\
-ktlint_standard_trailing-comma-on-declaration-site = disabled\n\n\
+ktlint_standard_trailing-comma-on-declaration-site = disabled\n\
+ktlint_standard_statement-wrapping = disabled\n\n\
 [*.gradle.kts]\nindent_style = space\nindent_size = 2\n\
 ktlint_standard_class-signature = disabled\n\
 ktlint_standard_function-signature = disabled\n\
@@ -322,7 +323,8 @@ ktlint_standard_argument-list-wrapping = disabled\n\
 ktlint_standard_max-line-length = disabled\n\
 ktlint_standard_function-literal = disabled\n\
 ktlint_standard_trailing-comma-on-call-site = disabled\n\
-ktlint_standard_trailing-comma-on-declaration-site = disabled\n";
+ktlint_standard_trailing-comma-on-declaration-site = disabled\n\
+ktlint_standard_statement-wrapping = disabled\n";
 
     let gradle_properties = "org.gradle.parallel=true\nkotlin.code.style=official\n";
 
