@@ -1526,6 +1526,7 @@ mod alef_json_str_opt {
             &extra_init_imports,
             &capsule_types,
             &config.adapters,
+            &config.opaque_types,
         );
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),

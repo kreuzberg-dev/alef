@@ -109,6 +109,7 @@ pub(super) fn gen_init_py(
     extra_init_imports: &std::collections::BTreeMap<String, Vec<String>>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
     adapters: &[crate::core::config::AdapterConfig],
+    opaque_types: &std::collections::HashMap<String, String>,
 ) -> String {
     use crate::core::ir::TypeRef;
 
@@ -253,6 +254,10 @@ pub(super) fn gen_init_py(
     // (e.g. tree_sitter.Language) instead, so the symbol does not exist in `._native` and must
     // be excluded from the import list.
     imports_from_native.retain(|n| !capsule_types.contains_key(n));
+    // Declared opaque types from `[workspace.opaque_types]` are external references not
+    // registered as #[pyclass] in the native module (companion to methods.rs:75 m.add_class
+    // gating), so they must be excluded from __init__.py public imports to avoid ImportError.
+    imports_from_native.retain(|n| !opaque_types.contains_key(n));
     // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < VisitResult).
     imports_from_native.sort_by_key(|a| a.to_lowercase());
     imports_from_native.dedup();
@@ -441,6 +446,9 @@ pub(super) fn gen_init_py(
     all_items.extend(extra_all_items);
     all_items.sort();
     all_items.dedup();
+    // Filter out declared opaque types from __all__ — they are not registered as public
+    // exports in the native module and must not appear in the public API.
+    all_items.retain(|n| !opaque_types.contains_key(n));
 
     out.push_str("\n__all__ = [\n");
     for name in &all_items {
@@ -569,7 +577,8 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
+        let opaque = std::collections::HashMap::new();
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
     }
@@ -618,7 +627,8 @@ mod tests {
         let extra = std::collections::BTreeMap::new();
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
+        let opaque = std::collections::HashMap::new();
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
 
         for symbol in [
             "ValidationError",
@@ -652,7 +662,8 @@ mod tests {
         );
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters);
+        let opaque = std::collections::HashMap::new();
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
         assert!(
             result.contains("from ._supported_languages import SupportedLanguage"),
             "missing import line in:\n{result}",
