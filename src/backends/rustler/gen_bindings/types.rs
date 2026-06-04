@@ -1026,6 +1026,7 @@ mod tests {
 
     /// Flat data enum From impls must use the enum's full `rust_path`, not
     /// the short `{core_import}::{name}` form. Regression for sample_core's
+    /// TODO(alef-generic-cleanup): replace sample_core/sample_crate extraction docx fixtures with neutral names.
     /// elixir NIF emitting `impl From<sample_core::DrawingType> for DrawingType`
     /// instead of `impl From<sample_core::extraction::docx::drawing::DrawingType>`
     /// — the short form fails to compile because DrawingType is not re-exported

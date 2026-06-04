@@ -995,6 +995,7 @@ mod tests {
 
     #[test]
     fn test_registry_no_super_trait_requires_explicit_name_param() {
+        // TODO(alef-generic-cleanup): replace TextBackend registry fixtures with neutral trait names.
         // Without super_trait, the interface has no Name property, so Register must
         // accept an explicit string name from the caller.
         let trait_def = make_trait_def("TextBackend");

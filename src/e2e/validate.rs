@@ -112,7 +112,14 @@ pub fn validate_fixtures_semantic(
         }
 
         // Check 4: missing required input fields
-        let call_config = e2e_config.resolve_call(fixture.call.as_deref());
+        // Resolve call using select_when auto-routing (not just explicit fixture.call)
+        let call_config = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
         for language in languages {
             if let Some(missing) = assertion_recipes::missing_recipe_for_language(fixture, call_config, language, e2e_config) {
                 errors.push(ValidationError {

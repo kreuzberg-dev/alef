@@ -787,11 +787,26 @@ pub fn gen_static_method(
     // Adjust call_args to use converted variables when lifetime bindings were emitted.
     // Special case: for borrowed methods of lifetime types, we need to call the owned variant instead
     // because the wrapper function can't provide the lifetime required by the borrowed variant.
+    let is_borrowed_to_owned = method.name.contains("borrowed_attributes");
     let (call_args, method_name_override) = if !lifetime_bindings.is_empty() {
         let mut adjusted = call_args.clone();
         for p in &method.params {
             match &p.ty {
-                TypeRef::String | TypeRef::Map(_, _) => {
+                TypeRef::Map(_, _) => {
+                    // The original call arg for is_ref Map params is `&{name}`. When switching
+                    // from borrowed→owned, the owned method takes an owned BTreeMap, so the `&`
+                    // must be dropped. Replace `&{name}` → `{name}_converted` in that case,
+                    // and `{name}` → `{name}_converted` when no ref prefix was generated.
+                    if is_borrowed_to_owned && p.is_ref {
+                        adjusted = adjusted.replace(
+                            &format!("&{}", p.name),
+                            &format!("{}_converted", p.name),
+                        );
+                    } else {
+                        adjusted = adjusted.replace(&p.name.to_string(), &format!("{}_converted", p.name));
+                    }
+                }
+                TypeRef::String => {
                     adjusted = adjusted.replace(&p.name.to_string(), &format!("{}_converted", p.name));
                 }
                 TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
@@ -801,7 +816,7 @@ pub fn gen_static_method(
             }
         }
         // If calling a with_borrowed_* method, switch to with_owned_* since we have owned data
-        let override_name = if method.name.contains("borrowed_attributes") {
+        let override_name = if is_borrowed_to_owned {
             Some(method.name.replace("borrowed", "owned"))
         } else {
             None
