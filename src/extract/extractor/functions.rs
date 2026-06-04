@@ -48,6 +48,13 @@ fn record_unsupported_generic_impl_methods(
     }
 }
 pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path: &str) -> Option<FunctionDef> {
+    // Skip private functions — they cannot be part of the public API surface.
+    // This is a defense-in-depth measure to prevent accidental inclusion of
+    // internal helper functions even if the visibility check at the call site fails.
+    if !super::helpers::is_pub(&item.vis) {
+        return None;
+    }
+
     if !item.sig.generics.params.is_empty() {
         return None;
     }
