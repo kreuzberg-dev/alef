@@ -653,7 +653,6 @@ mod tests {
     fn function(params: Vec<ParamDef>) -> FunctionDef {
         FunctionDef {
             name: "interact".to_string(),
-            // TODO(alef-generic-cleanup): Replace sample_crawler Swift shim fixtures with neutral examples.
             rust_path: "sample_crawler::interact".to_string(),
             original_rust_path: String::new(),
             params,
@@ -698,6 +697,7 @@ mod tests {
             &type_paths,
             &enum_names,
             &no_serde_names,
+            &HashSet::new(),
             &handle_returned_types,
         );
         assert!(shim.contains("actions: Vec<String>"));
@@ -723,6 +723,7 @@ mod tests {
             &type_paths,
             &enum_names,
             &no_serde_names,
+            &HashSet::new(),
             &handle_returned_types,
         );
         assert!(shim.contains("action: String"));

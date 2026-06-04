@@ -491,12 +491,7 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
         // inconsistencies: ensures methods listed in config.exclude.methods are never emitted,
         // even if they appear in typ.methods (which should not happen post-extraction, but
         // prevents header/impl desynchronization if an excluded method somehow persists).
-        let ffi_exclude_methods: ahash::AHashSet<String> = config
-            .exclude
-            .methods
-            .iter()
-            .cloned()
-            .collect();
+        let ffi_exclude_methods: ahash::AHashSet<String> = config.exclude.methods.iter().cloned().collect();
 
         // Method wrappers — streaming adapters get a dedicated callback-based wrapper.
         for method in &typ.methods {

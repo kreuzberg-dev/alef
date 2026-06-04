@@ -70,7 +70,6 @@ const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 /// `module_name` is the bridge module stem (the `<module>_bridge_generated`
 /// directory), and `stem` is the native library file stem
 /// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `sample_project_dart`).
-/// TODO(alef-generic-cleanup): replace sample_project_dart loader examples with neutral fixture names.
 pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
     let with_loader = if source.contains(ALEF_LOADER_MARKER) {
         // Loader already injected on a prior run; keep the source verbatim but
@@ -900,7 +899,6 @@ class Foo {
 
     #[test]
     fn realistic_sample_crate_format_metadata_block_preserves_field0() {
-        // TODO(alef-generic-cleanup): replace realistic_sample_crate metadata fixtures with neutral names.
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 

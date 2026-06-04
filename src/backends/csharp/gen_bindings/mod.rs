@@ -242,7 +242,6 @@ impl Backend for CsharpBackend {
         // Two thiserror enums in the same crate can declare variants with identical
         // names (e.g. `GraphQLError::ValidationError` and `SchemaError::ValidationError`
         // in sample_project). Each variant emits `{VariantName}Exception.cs`, so without
-        // TODO(alef-generic-cleanup): replace sample_project fallback-collision example with a neutral fixture.
         // deduplication two `GeneratedFile` entries share the same `path` and the
         // parallel `write_files` step racily overwrites the file — leaving a tail of
         // bytes from whichever payload was longer past the file's logical end

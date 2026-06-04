@@ -225,7 +225,6 @@ fn gen_tagged_union(enum_def: &EnumDef, namespace: &str) -> String {
                 // Fully qualify the inner type to avoid the nested record shadowing the
                 // standalone type of the same name (e.g. `ContentPart.ImageUrl` would shadow
                 // `SampleLlm.ImageUrl` within the `ContentPart` abstract record body).
-                // TODO(alef-generic-cleanup): replace SampleLlm.ImageUrl fallback-surface example with neutral names.
                 let qualified_cs_type = format!("global::{ns}.{cs_type}");
                 out.push_str(&render(
                     "variant_record_body_header.jinja",

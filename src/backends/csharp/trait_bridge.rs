@@ -4,7 +4,6 @@
 //! 1. P/Invoke declarations for trait bridge registration/unregistration functions
 //! 2. Managed `interface I{TraitName}` with Plugin lifecycle + trait methods
 //! 3. Bridge class `{TraitName}Bridge` implementing marshal helpers, delegate rooting, and vtable construction
-//! TODO(alef-generic-cleanup): Replace fixed TextBackend example names with configurable fixture names.
 //! 4. Static registration helpers: `RegisterTextBackend(ITextBackend impl)`, `UnregisterTextBackend(string name)`
 
 use crate::backends::csharp::type_map::csharp_type;
@@ -859,7 +858,6 @@ fn _to_json_string(_obj: &dyn std::any::Any) -> String {
 mod tests {
     use super::*;
 
-    // TODO(alef-generic-cleanup): replace sample_crate/SampleCrate/TextBackend fixtures with neutral names.
     fn make_trait_def(name: &str) -> TypeDef {
         TypeDef {
             name: name.to_string(),
@@ -995,7 +993,6 @@ mod tests {
 
     #[test]
     fn test_registry_no_super_trait_requires_explicit_name_param() {
-        // TODO(alef-generic-cleanup): replace TextBackend registry fixtures with neutral trait names.
         // Without super_trait, the interface has no Name property, so Register must
         // accept an explicit string name from the caller.
         let trait_def = make_trait_def("TextBackend");
@@ -1280,7 +1277,6 @@ mod tests {
     /// using .ToFfiJson() extension method.
     #[test]
     fn test_trait_method_enum_return_uses_toffijson_serialization() {
-        // TODO(alef-generic-cleanup): replace PostProcessor trait-bridge fixtures with neutral names.
         let mut trait_def = make_trait_def("PostProcessor");
         trait_def.methods.push(crate::core::ir::MethodDef {
             name: "processing_stage".to_string(),

@@ -121,7 +121,9 @@ pub fn validate_fixtures_semantic(
             &fixture.input,
         );
         for language in languages {
-            if let Some(missing) = assertion_recipes::missing_recipe_for_language(fixture, call_config, language, e2e_config) {
+            if let Some(missing) =
+                assertion_recipes::missing_recipe_for_language(fixture, call_config, language, e2e_config)
+            {
                 errors.push(ValidationError {
                     file: fixture.source.clone(),
                     message: format!(

@@ -807,10 +807,7 @@ pub fn gen_static_method(
                     // must be dropped. Replace `&{name}` → `{name}_converted` in that case,
                     // and `{name}` → `{name}_converted` when no ref prefix was generated.
                     if is_borrowed_to_owned && p.is_ref {
-                        adjusted = adjusted.replace(
-                            &format!("&{}", p.name),
-                            &format!("{}_converted", p.name),
-                        );
+                        adjusted = adjusted.replace(&format!("&{}", p.name), &format!("{}_converted", p.name));
                     } else {
                         adjusted = adjusted.replace(&p.name.to_string(), &format!("{}_converted", p.name));
                     }

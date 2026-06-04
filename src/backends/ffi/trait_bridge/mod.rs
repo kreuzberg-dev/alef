@@ -382,7 +382,6 @@ mod tests {
     use super::*;
     use crate::core::ir::*;
 
-    // TODO(alef-generic-cleanup): replace OcrBackend trait-bridge examples with neutral fixture names.
     fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         TypeDef {
             name: name.to_string(),
@@ -1154,7 +1153,6 @@ mod tests {
     /// populated at construction time.
     #[test]
     fn bug3_returns_ref_vec_string_emits_slice_ref_and_cache_field() {
-        // TODO(alef-generic-cleanup): replace DocumentExtractor/sample_crate fixtures with neutral names.
         let method = MethodDef {
             name: "supported_mime_types".to_string(),
             params: vec![],

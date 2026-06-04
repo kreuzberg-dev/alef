@@ -1164,7 +1164,6 @@ mod tests {
 
     #[test]
     fn test_optional_bytes_result_emits_out_param_pattern() {
-        // TODO(alef-generic-cleanup): replace SampleCrateError Java FFI fixtures with neutral names.
         // Bytes with error_type → out-param convention: i32 return + 3 trailing out-params.
         let func = FunctionDef {
             name: "get_data".to_string(),
@@ -1451,7 +1450,6 @@ mod tests {
 
     #[test]
     fn clear_fn_body_references_singular_native_lib_handle() {
-        // TODO(alef-generic-cleanup): replace clear_ocr_backends Java FFI fixtures with neutral names.
         // Regression: a trait-bridge `clear_fn` is the plural core Rust function
         // name, but the FFI export and the `NativeLib`
         // handle constant are the singular trait-derived form

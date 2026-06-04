@@ -951,7 +951,6 @@ mod tests {
 
     #[test]
     fn emit_trait_bridge_emits_clear_fn_when_configured() {
-        // TODO(alef-generic-cleanup): replace sample_crate/OcrBackend clear_fn fixtures with neutral names.
         let trait_def = make_trait_def(
             "OcrBackend",
             vec![make_method(
@@ -1409,7 +1408,6 @@ mod tests {
 
     #[test]
     fn vtable_preserves_named_types_for_c_abi_compatibility() {
-        // TODO(alef-generic-cleanup): replace DocumentExtractor/InternalDocument/ExtractionResult fixtures with neutral names.
         // Test that VTable signatures do NOT substitute excluded types.
         // The vtable is a C ABI struct and must preserve the exact C types.
         let mut excluded = std::collections::HashSet::new();
