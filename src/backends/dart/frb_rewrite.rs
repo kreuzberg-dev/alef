@@ -70,6 +70,7 @@ const ALEF_LOADER_MARKER: &str = "_alefResolveExternalLibrary";
 /// `module_name` is the bridge module stem (the `<module>_bridge_generated`
 /// directory), and `stem` is the native library file stem
 /// (`kDefaultExternalLibraryLoaderConfig.stem`, e.g. `sample_project_dart`).
+/// TODO(alef-generic-cleanup): replace sample_project_dart loader examples with neutral fixture names.
 pub fn rewrite_frb_external_library_loader(source: &str, package_name: &str, module_name: &str, stem: &str) -> String {
     let with_loader = if source.contains(ALEF_LOADER_MARKER) {
         // Loader already injected on a prior run; keep the source verbatim but
@@ -395,6 +396,11 @@ fn variant_regex() -> &'static Regex {
 ///   SyncTask(...).request,
 /// );
 /// ```
+///
+/// Additionally, fixes FRB 2.x bug where `class RustLibApiImpl implements RustLibApi async`
+/// is generated with an invalid `async` keyword in the class declaration. FRB generates this
+/// incorrectly when the base class or mixin has async methods. The `async` keyword is only
+/// valid on function declarations, not class declarations.
 pub fn fix_handler_executor_calls(source: &str) -> String {
     // Strip the erroneous `.executeSync()` and `.executeNormal()` method calls
     // on callback function parameters. Replace them with direct invocation.
@@ -411,7 +417,12 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
     // Pattern 3: Remove duplicate awaits (FRB may emit `return await` which becomes `return await await handler`)
     result = result.replace("await await handler", "await handler");
 
-    // Pattern 4: Ensure closures/functions containing `await handler` are marked as async.
+    // Pattern 4: Fix FRB 2.x bug where class declarations have invalid `async` keyword.
+    // `class RustLibApiImpl implements RustLibApi async {` → `class RustLibApiImpl implements RustLibApi {`
+    // The `async` keyword is only valid on functions, not class declarations.
+    result = result.replace(" implements RustLibApi async {", " implements RustLibApi {");
+
+    // Pattern 5: Ensure closures/functions containing `await handler` are marked as async.
     // Fix patterns like: `({...}) {` to `({...}) async {` when body contains `await handler`.
     // This handles synchronous closure signatures that were not originally async.
     result = ensure_handler_closures_are_async(&result);
@@ -889,6 +900,7 @@ class Foo {
 
     #[test]
     fn realistic_sample_crate_format_metadata_block_preserves_field0() {
+        // TODO(alef-generic-cleanup): replace realistic_sample_crate metadata fixtures with neutral names.
         let input = r#"sealed class FormatMetadata with _$FormatMetadata {
   const FormatMetadata._();
 
@@ -1206,6 +1218,45 @@ Future<Response> handleRoute(RouteData route) {
         assert!(
             !out.contains("await await"),
             "should not have duplicate awaits, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_calls_removes_invalid_async_from_class_declaration() {
+        let input = r#"class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi async {
+  RustLibApiImpl({
+    required super.handler,
+    required super.wire,
+    required super.generalizedFrbRustBinding,
+    required super.portManager,
+  });
+
+  @override
+  int crateServiceApiAppConnect({
+    required App that,
+    required String path,
+    required FutureOr<String> Function(String) handler,
+  }) async {
+    return await handler("test");
+  }
+}
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // Verify the invalid `async` keyword is removed from class declaration
+        assert!(
+            !out.contains("implements RustLibApi async {"),
+            "class declaration should not have `async` keyword, got:\n{out}"
+        );
+        assert!(
+            out.contains("implements RustLibApi {"),
+            "class declaration should have closing brace without `async`, got:\n{out}"
+        );
+
+        // Verify the method can still be async
+        assert!(
+            out.contains(") async {") || out.contains("async {"),
+            "method signatures should still be able to use `async`, got:\n{out}"
         );
     }
 

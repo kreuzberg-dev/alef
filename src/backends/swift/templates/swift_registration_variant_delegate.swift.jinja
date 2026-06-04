@@ -7,7 +7,7 @@
         // each opaque enum type has a `<type>FromJson` factory that parses a serde JSON
         // string into an opaque instance. The wrapper constructor factory `{{ factory_fn_camel }}`
         // is a bridge-declared free function that calls the Rust wrapper's `new` method.
-        let __builder = try RustBridge.{{ factory_fn_camel }}({{ factory_args_str }})
+        let __builder = RustBridge.{{ factory_fn_camel }}({{ factory_args_str }})
         // Delegate to the base registration method, passing the constructed wrapper as the
         // `{{ base_param_name }}` metadata param. This reuses all the handler boxing and
         // trampoline logic from the base method without duplicating it.
