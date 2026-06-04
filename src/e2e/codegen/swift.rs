@@ -101,7 +101,10 @@ impl E2eCodegen for SwiftE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
 
         // The Swift module name: UpperCamelCase of the package name.
-        let module_name = pkg_name.as_str();
+        // Swift convention requires module names to be PascalCase (capitalized).
+        // Ensure capitalization even if pkg_name was provided explicitly as lowercase.
+        let module_name_str = pkg_name.to_upper_camel_case();
+        let module_name = module_name_str.as_str();
 
         // Resolve the registry URL: derive from the configured repository when
         // available (with a `.git` suffix per SwiftPM convention). Falls back
