@@ -600,6 +600,14 @@ pub(super) fn gen_opaque_static_constructor(
     let type_snake = c_symbol_component(&typ.name);
     let type_name = &typ.name;
     let qualified = core_type_path(typ, core_import);
+    // Types with lifetime parameters (e.g. `NodeContext<'a>`) require an explicit lifetime
+    // in `*mut T` return positions. Use `'static` because the FFI constructor produces
+    // heap-allocated, fully-owned values with no borrowed data.
+    let return_qualified = if typ.has_lifetime_params {
+        format!("{qualified}<'static>")
+    } else {
+        qualified.clone()
+    };
     let ffi_fn_name = format!("{prefix}_{type_snake}_new");
     let will_be_unimplemented = method.sanitized;
 
@@ -640,7 +648,7 @@ pub(super) fn gen_opaque_static_constructor(
     };
 
     out.push_str(&format!(
-        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {qualified} {{\n",
+        "{}#[no_mangle]\npub unsafe extern \"C\" fn {}(\n{}\n) -> *mut {return_qualified} {{\n",
         allow_clippy,
         ffi_fn_name,
         ffi_params.join(",\n")
