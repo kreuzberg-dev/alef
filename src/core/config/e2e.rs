@@ -319,7 +319,6 @@ pub struct E2eConfig {
     /// Repo-root-relative directory holding binary file fixtures referenced by
     /// `file_path` / `bytes` fixture args (default: "test_documents").
     ///
-    /// TODO(alef-generic-cleanup): replace stale sample-domain examples with neutral fixture names.
     /// Backends that emit chdir / setup hooks for file-based fixtures resolve
     /// the relative path from the test-emission directory via
     /// [`E2eConfig::test_documents_relative_from`]. The default matches the
@@ -928,7 +927,6 @@ fn default_returns_result() -> bool {
 /// based on the fixture's id, category, tags, or input shape.  All set fields must
 /// match (logical AND); a condition with no fields set never matches.
 ///
-/// TODO(alef-generic-cleanup): replace stale domain-shaped routing examples with neutral fixtures.
 /// ```toml
 /// [e2e.calls.batch_scrape]
 /// select_when = { input_has = "batch_urls" }
@@ -1060,7 +1058,6 @@ pub struct ArgMapping {
     /// (e.g. `"f32"`, `"String"`) so the codegen emits `Vec<element_type>` annotation.
     #[serde(default)]
     pub element_type: Option<String>,
-    /// TODO(alef-generic-cleanup): replace stale sample-domain type examples with neutral names.
     /// Override the Go slice element type for `json_object` array args.
     ///
     /// When set, the Go e2e codegen uses this as the element type instead of the default
@@ -1594,7 +1591,6 @@ pub struct PackageRef {
     /// When present in registry mode, alef emits one lazy dependency per platform.
     #[serde(default)]
     pub platform_hashes: BTreeMap<String, String>,
-    /// TODO(alef-generic-cleanup): replace sample-domain Homebrew examples with neutral fixture names.
     /// Homebrew tap name (e.g., `"sample_core-dev/tap"`).
     ///
     /// Used by the `homebrew` test_app generator.

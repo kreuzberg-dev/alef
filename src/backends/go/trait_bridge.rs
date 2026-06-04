@@ -1263,7 +1263,6 @@ fn capitalize(s: &str) -> String {
 mod tests {
     use super::*;
 
-    // TODO(alef-generic-cleanup): replace sample_crate/OcrBackend/PostProcessor naming fixtures with neutral names.
     #[test]
     fn test_vtable_struct_name_derivation() {
         // Test the pattern: {CRATE_UPPER}{CratePascal}{TraitPascal}VTable
@@ -1401,7 +1400,6 @@ mod tests {
 
     #[test]
     fn substitute_excluded_types_replaces_excluded_named_with_json() {
-        // TODO(alef-generic-cleanup): replace ExtractionConfig/ExtractionResult/InternalDocument fixtures with neutral names.
         let mut excluded = HashSet::new();
         excluded.insert("InternalDocument");
         // Excluded named type collapses to Json so the Go trait-bridge interface

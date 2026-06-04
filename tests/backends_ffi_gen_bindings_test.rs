@@ -169,7 +169,6 @@ fn make_api() -> ApiSurface {
 
 #[test]
 fn test_gen_trait_bridge_vtable_is_repr_c() {
-    // TODO(alef-generic-cleanup): Replace OcrBackend trait bridge fixtures with neutral trait examples.
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = make_bridge_cfg("OcrBackend");
     let api = make_api();
@@ -320,7 +319,6 @@ fn test_gen_trait_bridge_vtable_string_param_maps_to_c_char_ptr() {
 
 #[test]
 fn test_gen_trait_bridge_register_fn_name_follows_prefix_register_trait_snake_pattern() {
-    // TODO(alef-generic-cleanup): Replace register_ocr_backend bridge fixtures with neutral registry examples.
     let trait_def = make_trait_def("OcrBackend", vec![make_method("process", TypeRef::String, true, false)]);
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
@@ -411,7 +409,6 @@ fn test_gen_trait_bridge_unregister_fn_is_generated() {
 
 #[test]
 fn test_gen_trait_bridge_no_exported_registration_fn_when_not_configured() {
-    // TODO(alef-generic-cleanup): Replace markdown visitor fixture names with neutral trait bridge examples.
     let trait_def = make_trait_def(
         "HtmlVisitor",
         vec![make_method("visit_node", TypeRef::Unit, false, true)],
@@ -1027,7 +1024,6 @@ ffi = "crates/mylib-ffi/src/"
 "#,
     );
 
-    // TODO(alef-generic-cleanup): Replace sample-llm regression references with neutral fixture names.
     // `completion_cost(model: &str) -> Option<f64>` is the canonical example that
     // triggered clippy::manual_unwrap_or in sample-llm-ffi.
     let api = ApiSurface {

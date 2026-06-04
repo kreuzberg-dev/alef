@@ -170,7 +170,7 @@ for fixture_id, fixture in _FIXTURES.items():
             return cors_handler_fn
 
         # Register the OPTIONS handler
-        options_method = getattr({{ method_enum_class }}, "Options", None)
+        options_method = getattr({{ method_enum_class }}, "OPTIONS", None)
         if options_method is not None:
             options_builder = {{ route_builder_class }}(options_method, full_route)
             app.{{ register_route_method }}(options_builder)(make_cors_preflight_handler(cors_config))

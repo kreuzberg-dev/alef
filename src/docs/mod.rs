@@ -1199,7 +1199,6 @@ exclude_types = ["FfiHidden"]
         let mut api = make_minimal_api("1.2.3");
         api.functions = vec![
             make_function("interact", vec![], TypeRef::Unit, false, None),
-            // TODO(alef-generic-cleanup): Replace scrape fixture function with a neutral generated-docs example.
             make_function("scrape", vec![], TypeRef::Unit, false, None),
             make_function("ffi_only", vec![], TypeRef::Unit, false, None),
         ];
@@ -1324,7 +1323,6 @@ exclude_types = ["FfiHidden"]
                 original_rust_path: String::new(),
                 variants: vec![
                     EnumVariant {
-                        // TODO(alef-generic-cleanup): Replace Markdown fixture variant with a neutral generated-docs example.
                         name: "Markdown".to_string(),
                         fields: vec![],
                         doc: "Markdown output.".to_string(),

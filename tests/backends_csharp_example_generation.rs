@@ -26,7 +26,6 @@ namespace = "SampleCrate"
 fn test_generated_code_example() {
     let backend = CsharpBackend;
 
-    // TODO(alef-generic-cleanup): Replace sample_crate/ExtractionConfig/OCR example fixtures with neutral names.
     let api = ApiSurface {
         crate_name: "sample_crate".to_string(),
         version: "0.1.0".to_string(),
@@ -143,7 +142,6 @@ fn test_generated_code_example() {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
-        // TODO(alef-generic-cleanup): Replace OCR-shaped fixture names with neutral backend examples.
         enums: vec![EnumDef {
             name: "OcrBackend".to_string(),
             rust_path: "sample_crate::OcrBackend".to_string(),

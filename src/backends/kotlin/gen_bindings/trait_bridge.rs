@@ -10,7 +10,6 @@
 //!
 //! Given a trait bridge configured as:
 //!
-//! TODO(alef-generic-cleanup): Replace fixed TextBackend/dev.sample_core examples with neutral fixture names.
 //! ```toml
 //! [[trait_bridges]]
 //! trait_name      = "TextBackend"
@@ -48,7 +47,6 @@ use super::{to_lower_camel, to_pascal_case};
 /// Emits thin Kotlin wrapper functions that delegate registration, unregistration,
 /// and clear operations to the generated Java bridge class for a trait.
 pub struct KotlinJvmBridgeGenerator {
-    /// TODO(alef-generic-cleanup): Replace dev.sample_core package example with a neutral fixture name.
     /// Java package (e.g. `"dev.sample_core"`) — used to qualify the bridge class.
     pub java_package: String,
 }

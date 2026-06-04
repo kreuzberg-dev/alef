@@ -104,7 +104,6 @@ exclude_types = ["HiddenConfig"]
 
 #[test]
 fn php_native_and_facade_allow_null_default_config_param() {
-    // TODO(alef-generic-cleanup): Replace ExtractionConfig fixture names with neutral DTO examples.
     let backend = PhpBackend;
     let api = ApiSurface {
         crate_name: "test-lib".to_string(),
@@ -279,7 +278,6 @@ fn php_serde_defaults_are_generated_from_typed_default_metadata() {
 
 #[test]
 fn test_basic_generation() {
-    // TODO(alef-generic-cleanup): Replace OCR enum fixture names with neutral enum examples.
     let backend = PhpBackend;
 
     // Create test API surface
@@ -1901,7 +1899,6 @@ fn make_async_method_php(name: &str, return_type: TypeRef) -> MethodDef {
 }
 
 fn make_node_context_php() -> TypeDef {
-    // TODO(alef-generic-cleanup): Replace markdown visitor DTO names with neutral fixture concepts.
     TypeDef {
         name: "NodeContext".to_string(),
         rust_path: "my_lib::NodeContext".to_string(),
@@ -2081,7 +2078,6 @@ fn test_php_visitor_bridge_has_php_obj_field() {
 fn test_php_plugin_bridge_produces_wrapper_struct_with_inner_and_cached_name() {
     use alef::backends::php::trait_bridge::gen_trait_bridge;
 
-    // TODO(alef-generic-cleanup): Replace OCR-shaped plugin bridge fixtures with neutral trait names.
     let trait_def = make_trait_def_php(
         "OcrBackend",
         vec![make_method_php("process", TypeRef::String, true, false)],
@@ -2337,7 +2333,6 @@ fn test_php_visitor_bridge_has_send_sync_impls() {
     );
 }
 
-/// TODO(alef-generic-cleanup): Replace sample-llm fixture references with neutral enum examples.
 /// Regression test: tagged data enums with tuple variants holding distinct inner types
 /// must produce per-variant flat field names, not a shared `_0` field that collapses all
 /// variant types to the first one.  Mirrors the `Message` enum in sample-llm:
@@ -3158,7 +3153,6 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     is_tuple: false,
                     originally_had_data_fields: false,
                 },
-                // TODO(alef-generic-cleanup): Replace Markdown output-format fixture names with neutral variants.
                 EnumVariant {
                     name: "Markdown".to_string(),
                     fields: vec![],
@@ -3577,7 +3571,6 @@ fn has_default_struct_emits_delegating_impl_not_derived_default() {
     use alef::codegen::generators::{AsyncPattern, RustBindingConfig, gen_struct_with_per_field_attrs};
     use alef::core::ir::FieldDef;
 
-    // TODO(alef-generic-cleanup): Replace CrawlConfig defaulting fixture names with neutral DTO examples.
     let typ = TypeDef {
         name: "CrawlConfig".to_string(),
         rust_path: "test_lib::CrawlConfig".to_string(),

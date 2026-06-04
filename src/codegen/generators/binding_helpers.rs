@@ -1643,7 +1643,6 @@ fn gen_lossy_binding_to_core_fields_inner(
                         )
                     }
                 }
-                // TODO(alef-generic-cleanup): Replace downstream-shaped type examples with neutral fixture names.
                 // Named values: each value needs Into conversion to bridge the binding wrapper
                 // type into the core type (e.g. PyExtractionPattern → ExtractionPattern).
                 TypeRef::Named(_) => {

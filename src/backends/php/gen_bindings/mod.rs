@@ -298,7 +298,6 @@ impl Backend for PhpBackend {
 
         // PhpBytes wrapper: accepts PHP binary strings without UTF-8 validation.
         // ext-php-rs's String FromZval rejects non-UTF-8 strings, so binary content
-        // TODO(alef-generic-cleanup): Replace document-specific binary examples with neutral data examples.
         // (PDFs, images, etc.) gets "Invalid value given for argument" errors. This
         // wrapper reads the raw bytes via `zend_str()` and exposes them as Vec<u8>.
         builder.add_item(
@@ -2406,7 +2405,6 @@ mod tests {
     /// Test that PHP wrapper param signatures preserve required-ness from the Rust API.
     ///
     /// Before the fix: Required params after an optional param were being made optional.
-    /// TODO(alef-generic-cleanup): Replace scrape/CrawlEngineHandle examples with neutral fixture names.
     /// Example: `scrape(?CrawlEngineHandle $engine = null, ?string $url = null)`
     /// when the Rust API required both `engine: CrawlEngineHandle` and `url: String`.
     ///

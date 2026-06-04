@@ -133,7 +133,6 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
         }],
-        // TODO(alef-generic-cleanup): Replace extraction/OCR enum fixture names with neutral examples.
         enums: vec![EnumDef {
             name: "Backend".to_string(),
             rust_path: "test_lib::Backend".to_string(),
@@ -958,7 +957,6 @@ fn test_named_option_param_emits_magnus_value_with_to_json() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        // TODO(alef-generic-cleanup): Replace conversion-shaped option fixtures with neutral DTO names.
         types: vec![TypeDef {
             name: "ConversionOptions".to_string(),
             rust_path: "test_lib::ConversionOptions".to_string(),
@@ -1088,7 +1086,6 @@ mod trait_bridge {
         ApiSurface {
             crate_name: "my-lib".to_string(),
             version: "1.0.0".to_string(),
-            // TODO(alef-generic-cleanup): Replace markdown visitor DTO names with neutral fixture concepts.
             types: vec![TypeDef {
                 name: "NodeContext".to_string(),
                 rust_path: "my_lib::NodeContext".to_string(),
@@ -1372,7 +1369,6 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_emits_struct_when_register_fn_configured() {
-        // TODO(alef-generic-cleanup): Replace sample_crate/OcrBackend plugin fixtures with neutral examples.
         let trait_def = make_trait_def(
             "OcrBackend",
             vec![make_method("recognize", TypeRef::String, true, false)],
@@ -1428,7 +1424,6 @@ mod trait_bridge {
 
     #[test]
     fn test_plugin_bridge_emits_plugin_impl() {
-        // TODO(alef-generic-cleanup): Replace PostProcessor plugin fixtures with neutral examples.
         let trait_def = make_trait_def(
             "PostProcessor",
             vec![make_method("process", TypeRef::String, true, false)],
@@ -2247,7 +2242,6 @@ fn test_visitor_bridge_debug_not_duplicated() {
         binding_exclusion_reason: None,
     };
 
-    // TODO(alef-generic-cleanup): Replace sample-markdown fixture names with neutral visitor examples.
     let trait_def = TypeDef {
         name: "HtmlVisitor".to_string(),
         rust_path: "sample_markdown_rs::visitor::HtmlVisitor".to_string(),

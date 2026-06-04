@@ -16,7 +16,6 @@ use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 use serde_json::json;
 
 fn config_toml() -> &'static str {
-    // TODO(alef-generic-cleanup): replace kreuzcrawl Zig fixture names with neutral ones.
     r#"
 [workspace]
 languages = ["zig"]

@@ -170,7 +170,6 @@ mod plugin_trait_stub_generation {
 
     #[test]
     fn wrapper_instance_awaits_async_factory_call() {
-        // TODO(alef-generic-cleanup): replace OcrBackend/createOcrBackendDartImpl fixtures with neutral names.
         let bridge = make_trait_bridge("OcrBackend", Some("Plugin"));
         let method = make_method("process", true, TypeRef::Named("String".to_string()), vec![]);
         let methods = [&method];

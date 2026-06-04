@@ -2257,10 +2257,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
 fn function_with_vec_tagged_enum_param_uses_json_deserial() {
     let tagged_enum = make_tagged_enum(
         "PageAction",
-        vec![
-            ("Click", vec!["selector"]),
-            ("TypeText", vec!["selector", "text"]),
-        ],
+        vec![("Click", vec!["selector"]), ("TypeText", vec!["selector", "text"])],
     );
 
     let api = ApiSurface {

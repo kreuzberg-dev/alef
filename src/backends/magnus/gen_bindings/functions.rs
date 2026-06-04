@@ -1017,8 +1017,8 @@ pub(super) fn gen_module_init(
             && !config.client_constructors.contains_key(&typ.name)
             && typ.methods.iter().any(|m| m.name == "new" && m.receiver.is_none());
         // Opaque types must always be registered even with zero instance methods,
-        // so consumer code can reference the class (e.g., `Spikard::App`) and
-        // dynamically attach methods at runtime.
+        // so consumer code can reference the class and dynamically attach methods
+        // at runtime.
         let class_used = typ.is_opaque
             || (!typ.is_opaque && !typ.fields.is_empty())
             || typ.methods.iter().any(|m| !m.is_static)
