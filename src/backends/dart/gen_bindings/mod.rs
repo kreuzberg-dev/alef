@@ -155,11 +155,19 @@ impl Backend for DartBackend {
             body.push_str("}\n");
         }
 
-        // Ensure `dart:typed_data` is imported whenever the body references a
-        // typed-list constructor in a default-value literal. `empty_vec_literal`
-        // emits these without threading imports through, so we scan post-hoc.
+        // Ensure flutter_rust_bridge's generalized typed-list types are imported
+        // when the body references a typed-list constructor in a default-value
+        // literal. `empty_vec_literal` emits `Int64List(0)`, `Uint8List(0)`, or
+        // `Float64List(0)` for empty-Vec defaults of widened-integer / byte /
+        // float element types, but the literal sites don't thread the imports
+        // set through, leaving these unresolved. We import FRB's generalized
+        // typed-list module (not `dart:typed_data`) because FRB's generated
+        // structs use FRB's `Int64List`, not the SDK's — the two are not
+        // assignable to each other.
         if body.contains("Int64List(") || body.contains("Uint8List(") || body.contains("Float64List(") {
-            imports.insert("import 'dart:typed_data';".to_string());
+            imports.insert(
+                "import 'package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart';".to_string(),
+            );
         }
 
         let mut content = String::new();

@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - fix(swift): allow `unreachable_patterns` in generated `kreuzcrawl-swift` Rust crate. The swift backend emits a defensive `_ => unreachable!(...)` arm at the end of every `From<core::Enum> for shim::Enum` impl to guard against non-exhaustive upstream enums, but when the upstream enum is already exhaustive (no `#[non_exhaustive]`), `-D warnings` rejects the now-redundant arm. The fix extends the existing `#![allow(unused_variables, unreachable_code)]` blanket attribute at the top of `packages/swift/rust/src/lib.rs` and `src/extern_callbacks.rs` to also allow `unreachable_patterns`. (`src/backends/swift/gen_rust_crate/mod.rs`)
 
+- fix(dart): import flutter_rust_bridge's generalized typed-list module (not `dart:typed_data`) when the binding body references `Int64List(0)` / `Uint8List(0)` / `Float64List(0)` empty-Vec defaults. The SDK's `dart:typed_data::Int64List` and FRB's `generalized_typed_data._io::Int64List` are not assignable to each other, so importing the SDK form left `argument_type_not_assignable` errors at every FRB ctor call site that takes a typed list. Switching to `package:flutter_rust_bridge/flutter_rust_bridge_for_generated.dart` brings the FRB-compatible types into scope. Supersedes the prior fix `0af313b8f` which imported the wrong module. (`src/backends/dart/gen_bindings/mod.rs`)
+
+- fix(wasm): allow `unreachable_patterns` in generated `crates/kreuzcrawl-wasm/src/lib.rs`. Wasm backend emits a defensive `_ => ::std::todo!(...)` arm at the end of every `From<core::Enum>` conversion. When the upstream enum is exhaustive, `-D warnings` rejects the redundant arm. Extends the inner allow attribute to include `unreachable_patterns`. (`src/backends/wasm/gen_bindings/mod.rs`)
+
 ## [0.23.0] - 2026-06-04
 
 ### Fixed
