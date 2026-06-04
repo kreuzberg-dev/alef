@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- fix(validation): allow `&mut self` methods on opaque types to return opaque handles without
+  triggering `BackendStubPath`. The validator's `non_delegatable_ref_mut` branch previously fired
+  whenever a `&mut self` method (without a trait source) returned an opaque type, regardless of
+  whether the receiver itself was an opaque handle. All backends handle the canonical pattern
+  `OpaqueType::method(&mut self) -> Option<OtherOpaque>` via the direct inner-call path
+  (e.g. `self.inner.method()`), so no stub generation is required. The diagnostic now only
+  fires when the *receiver type* is non-opaque and therefore lacks an inner-call path. The
+  fix allows patterns like `Parser::parse(&mut self, ...) -> Option<Tree>` where both `Parser`
+  and `Tree` are opaque handles. Non-opaque-receiver cases (e.g. a builder struct's `&mut self`
+  method returning an opaque result) remain errors as before.
+  (`src/core/validation/mod.rs`)
+
 ## [0.22.33] - 2026-06-04
 
 ### Fixed

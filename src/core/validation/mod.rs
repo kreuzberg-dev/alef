@@ -225,7 +225,15 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
                 continue;
             }
             let item_path = format!("method {}.{}", typ.name, method.name);
-            collect_method_diagnostics(api, &known_names, &opaque_names, &item_path, method, &mut diagnostics);
+            collect_method_diagnostics(
+                api,
+                &known_names,
+                &opaque_names,
+                &item_path,
+                method,
+                typ.is_opaque,
+                &mut diagnostics,
+            );
         }
         for field in &typ.fields {
             if field.binding_excluded {
@@ -271,7 +279,16 @@ fn backend_readiness_diagnostics(api: &ApiSurface) -> Vec<ValidationDiagnostic> 
                 continue;
             }
             let item_path = format!("error method {}.{}", error_def.name, method.name);
-            collect_method_diagnostics(api, &known_names, &opaque_names, &item_path, method, &mut diagnostics);
+            // Error types are never opaque — they are always transparent error enums/structs.
+            collect_method_diagnostics(
+                api,
+                &known_names,
+                &opaque_names,
+                &item_path,
+                method,
+                false,
+                &mut diagnostics,
+            );
         }
         for variant in &error_def.variants {
             for field in &variant.fields {
@@ -358,6 +375,7 @@ fn collect_method_diagnostics(
     opaque_names: &AHashSet<&str>,
     item_path: &str,
     method: &MethodDef,
+    receiver_type_is_opaque: bool,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
     if method.sanitized {
@@ -369,8 +387,15 @@ fn collect_method_diagnostics(
             "exclude the item, configure an opaque/trait bridge, or expose a binding-safe DTO",
         ));
     }
-    let non_delegatable_ref_mut =
-        matches!(method.receiver, Some(ReceiverKind::RefMut)) && method.trait_source.is_none();
+    // A &mut self method without a trait source cannot be straightforwardly delegated to a
+    // free function by the backend's default path. However, when the *receiver* type is itself
+    // opaque, the backend already handles this via the direct inner-call path
+    // (e.g. `self.inner.method()`), so returning another opaque handle from such a method
+    // is a well-supported pattern. Only emit the diagnostic when the receiver is non-opaque
+    // and therefore has no inner-call path available.
+    let non_delegatable_ref_mut = matches!(method.receiver, Some(ReceiverKind::RefMut))
+        && method.trait_source.is_none()
+        && !receiver_type_is_opaque;
     if (non_delegatable_ref_mut && returns_opaque(&method.return_type, opaque_names))
         || fallback_body_would_require_opaque_return(
             method.sanitized,
@@ -455,12 +480,15 @@ fn collect_service_diagnostics(
     service: &ServiceDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
+    // Service constructors and configurators are static-like factory methods — the receiver
+    // type (the service builder) is not an opaque handle.
     collect_method_diagnostics(
         api,
         known_names,
         opaque_names,
         &format!("service {} constructor", service.name),
         &service.constructor,
+        false,
         diagnostics,
     );
     for configurator in &service.configurators {
@@ -470,6 +498,7 @@ fn collect_service_diagnostics(
             opaque_names,
             &format!("service {} configurator {}", service.name, configurator.name),
             configurator,
+            false,
             diagnostics,
         );
     }
@@ -532,12 +561,14 @@ fn collect_handler_contract_diagnostics(
     contract: &HandlerContractDef,
     diagnostics: &mut Vec<ValidationDiagnostic>,
 ) {
+    // Handler contracts are trait dispatch methods — no opaque receiver context applies.
     collect_method_diagnostics(
         api,
         known_names,
         opaque_names,
         &format!("handler contract {} dispatch", contract.trait_name),
         &contract.dispatch,
+        false,
         diagnostics,
     );
     for method in &contract.optional_methods {
@@ -550,6 +581,7 @@ fn collect_handler_contract_diagnostics(
                 contract.trait_name, method.name
             ),
             method,
+            false,
             diagnostics,
         );
     }
@@ -946,19 +978,69 @@ mod tests {
     }
 
     #[test]
-    fn api_surface_validation_errors_for_mut_method_returning_opaque_type() {
+    fn api_surface_validation_allows_opaque_receiver_mut_method_returning_opaque_type() {
+        // Parser::parse(&mut self) -> Option<Tree> is the canonical pattern: an opaque type's
+        // &mut self method returns another opaque handle. All backends handle this via the
+        // direct inner-call path (e.g. `self.inner.parse()`), so no stub is required.
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),
-            types: vec![TypeDef {
-                name: "Session".to_string(),
-                rust_path: "sample_lib::Session".to_string(),
-                is_opaque: true,
-                methods: vec![MethodDef {
-                    receiver: Some(ReceiverKind::RefMut),
-                    ..method_def("refresh", vec![], TypeRef::Named("Session".to_string()))
-                }],
-                ..TypeDef::default()
-            }],
+            types: vec![
+                TypeDef {
+                    name: "Parser".to_string(),
+                    rust_path: "sample_lib::Parser".to_string(),
+                    is_opaque: true,
+                    methods: vec![MethodDef {
+                        receiver: Some(ReceiverKind::RefMut),
+                        ..method_def(
+                            "parse",
+                            vec![],
+                            TypeRef::Optional(Box::new(TypeRef::Named("Tree".to_string()))),
+                        )
+                    }],
+                    ..TypeDef::default()
+                },
+                TypeDef {
+                    name: "Tree".to_string(),
+                    rust_path: "sample_lib::Tree".to_string(),
+                    is_opaque: true,
+                    ..TypeDef::default()
+                },
+            ],
+            ..ApiSurface::default()
+        };
+
+        let report = validate_api_surface(&api);
+
+        assert!(
+            !report.has_errors(),
+            "&mut self on opaque type returning opaque handle must not trigger BackendStubPath: {report:?}"
+        );
+    }
+
+    #[test]
+    fn api_surface_validation_errors_for_non_opaque_receiver_mut_method_returning_opaque_type() {
+        // A &mut self method on a *non-opaque* type returning an opaque handle cannot be
+        // delegated by the backend — there is no inner-call path — so this must still error.
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            types: vec![
+                TypeDef {
+                    name: "Builder".to_string(),
+                    rust_path: "sample_lib::Builder".to_string(),
+                    is_opaque: false,
+                    methods: vec![MethodDef {
+                        receiver: Some(ReceiverKind::RefMut),
+                        ..method_def("build", vec![], TypeRef::Named("Session".to_string()))
+                    }],
+                    ..TypeDef::default()
+                },
+                TypeDef {
+                    name: "Session".to_string(),
+                    rust_path: "sample_lib::Session".to_string(),
+                    is_opaque: true,
+                    ..TypeDef::default()
+                },
+            ],
             ..ApiSurface::default()
         };
 
@@ -968,7 +1050,7 @@ mod tests {
         assert!(report.diagnostics.iter().any(|diagnostic| {
             diagnostic.severity == ValidationSeverity::Error
                 && diagnostic.code == ValidationCode::BackendStubPath
-                && diagnostic.item_path.as_deref() == Some("method Session.refresh")
+                && diagnostic.item_path.as_deref() == Some("method Builder.build")
                 && diagnostic.reason.contains("Session")
         }));
     }
