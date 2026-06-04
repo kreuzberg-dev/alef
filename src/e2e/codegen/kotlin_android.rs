@@ -422,7 +422,7 @@ fn render_build_gradle_kotlin_android(
 
             println("  + jniLibs: YES")
             println("  + classes.jar: YES")
-            println("  + Android ABIs: ${{abiDirs.sorted().joinToString(\", \")}}")
+            println("  + Android ABIs: " + abiDirs.sorted().joinToString(", "))
             println("\nAAR verification PASSED!")
         }}
     }}
