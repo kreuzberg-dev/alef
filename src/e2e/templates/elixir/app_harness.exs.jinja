@@ -22,6 +22,12 @@
 fixtures_json = {{ fixtures_json }}
 {:ok, fixtures} = Jason.decode(fixtures_json)
 
+# Alias binding module names for readability
+{-# the binding module name is derived from imports #}
+alias {{ route_builder_class }}
+alias {{ method_enum_class }}
+alias {{ server_config_class }}
+
 # Create and configure the app
 app = {{ app_class }}.new()
 
@@ -51,8 +57,11 @@ app = Enum.reduce(fixtures, app, fn {fixture_id, fixture}, app_acc ->
       }
     end
 
-    # Register the handler at /fixtures/<fixture_id>{route}
-    full_route = "/fixtures/#{fixture_id}#{route}"
+    # Register the handler at /fixtures/<fixture_id>
+    # Note: the test sends requests to /fixtures/{fixture_id};
+    # the handler's route field is the intended target route the fixture simulates,
+    # not the path to register on the SUT.
+    full_route = "/fixtures/#{fixture_id}"
 
     # Build the RouteBuilder with the method and path
     method_atom = method_str |> String.downcase() |> String.to_atom()
