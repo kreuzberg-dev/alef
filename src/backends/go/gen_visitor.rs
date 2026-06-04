@@ -867,9 +867,11 @@ fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<Resul
                 .first()
                 .map(|field| {
                     let name = field.name.as_str();
-                    // If the field name is just the positional index (e.g., "0"), use a
-                    // real identifier instead. This handles unnamed tuple fields.
-                    if name.parse::<usize>().is_ok() {
+                    // If the field name is just a positional index (possibly with leading underscore),
+                    // use a real identifier instead. This handles unnamed tuple fields.
+                    // Examples: "0", "_0", "1", "_1" → all become "value"
+                    let trimmed = name.trim_start_matches('_');
+                    if trimmed.parse::<usize>().is_ok() && !trimmed.is_empty() {
                         "value"
                     } else {
                         name
