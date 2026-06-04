@@ -198,6 +198,10 @@ fn dto_field_conversion(ty: &crate::core::ir::TypeRef, sanitized: bool) -> Strin
             // serialized as JSON. Deserialize instead of using .into().
             "serde_json::from_str(&v).unwrap_or_default()".to_string()
         }
+        // Vec<T>: the core field may be a Set (HashSet, AHashSet, BTreeSet) which has no
+        // `From<Vec<T>>` impl. Leave `collect()` target-inferred from the core field so
+        // Vec→Vec and Vec→Set assignments both compile.
+        TypeRef::Vec(_) => "Into::into(v.into_iter().collect())".to_string(),
         _ => "v.into()".to_string(),
     }
 }
@@ -1554,6 +1558,22 @@ mod tests {
         assert_eq!(
             conv_sanitized, "serde_json::from_str(&v).unwrap_or_default()",
             "sanitized String should use JSON deserialization: {conv_sanitized}"
+        );
+    }
+
+    #[test]
+    fn dto_vec_field_conversion_uses_target_inferred_collect() {
+        // Regression: WASM input DTOs deserialize sequence-shaped fields as Vec<T>, but
+        // the core field may be a set-like collection. Forcing collect::<Vec<_>>() then
+        // relying on Into fails because sets do not implement From<Vec<T>>.
+        let ty = TypeRef::Vec(Box::new(TypeRef::String));
+
+        let conv = dto_field_conversion(&ty, false);
+
+        assert_eq!(conv, "Into::into(v.into_iter().collect())");
+        assert!(
+            !conv.contains("collect::<Vec<_>>()"),
+            "collection target must be inferred from the core field: {conv}"
         );
     }
 
