@@ -343,6 +343,25 @@ pub(super) fn gen_wrapper_class(
         }
     }
 
+    // Emit static wrapper methods for streaming methods on opaque types.
+    // Opaque instance methods are emitted on the opaque handle class itself (in types.rs).
+    // But we also emit static facades in the main wrapper class for convenience.
+    for typ in api.types.iter().filter(|typ| typ.is_opaque) {
+        for method in &typ.methods {
+            if !streaming_methods.contains(&method.name) {
+                continue;
+            }
+            if let Some(meta) = _streaming_methods_meta.get(&method.name) {
+                out.push_str(&gen_opaque_streaming_static_wrapper(
+                    method,
+                    &typ.name,
+                    meta,
+                    exception_name,
+                ));
+            }
+        }
+    }
+
     // Emit adapter wrapper methods for streaming adapters
     for adapter in adapters {
         if matches!(adapter.pattern, crate::core::config::AdapterPattern::Streaming) {
