@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/java**: discover an available port dynamically via a `ServerSocket` probe in the generated `HarnessMain` when `SUT_URL` is not preset, then emit `SUT_URL=http://127.0.0.1:<port>` on stdout immediately before blocking on `app.run()`. Previously, sequential test fixtures spawned the harness on a fixed port and the second spawn failed with `Address already in use`, never emitting `SUT_URL` and tripping the 15s timeout. Mirrors the ruby fix from `58741afc8`. (`src/e2e/templates/java/harness_main.jinja:47-51`)
+
 - **dart backend (FRB)**: automatically strip the invalid `async` keyword from FRB-generated class declarations in the alef-emitted `build.rs` post-processor (`fix_handler_executor_calls`), eliminating the need for consumers to apply their own band-aid fix. FRB 2.x emits `class RustLibApiImpl implements RustLibApi async {` whenever the base class has async methods, but `async` is only valid on function/method declarations in dart, so the bridge fails to compile. Same rewrite was already present in `frb_rewrite.rs:522`; this fix adds it to the build.rs path so consumers no longer have to maintain a parallel patch. (`src/backends/dart/gen_rust_crate/cargo.rs:538`)
 
 - **e2e/python — CORS OPTIONS method casing**: use `getattr(method_enum_class, "OPTIONS", None)` (uppercase, HTTP convention) instead of `"Options"` (PascalCase). The pyo3 enum exposes the variant as `Method.OPTIONS`, so the previous lookup returned `None` and the preflight handler never registered, falling through to a 405. (`src/e2e/templates/python/app_harness.py.jinja:173`)
