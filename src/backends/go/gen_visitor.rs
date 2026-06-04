@@ -30,7 +30,7 @@
 use crate::core::{
     config::TraitBridgeConfig,
     hash::{self, CommentStyle},
-    ir::{FunctionDef, TypeRef},
+    ir::{ApiSurface, EnumDef, FunctionDef, TypeDef, TypeRef},
 };
 use serde_json;
 
@@ -101,6 +101,32 @@ fn snake_to_lower_camel(s: &str) -> String {
 struct VisitorAssociatedTypes {
     context_type: String,
     result_type: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct VisitorCodecMetadata {
+    context_fields: Vec<ContextFieldMetadata>,
+    result_variants: Vec<ResultVariantMetadata>,
+    default_result_wire_name: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ContextFieldMetadata {
+    doc: String,
+    go_name: String,
+    go_type: String,
+    json_name: String,
+}
+
+#[derive(Clone, serde::Serialize)]
+struct ResultVariantMetadata {
+    code: i32,
+    helper_name: String,
+    name: String,
+    wire_name: String,
+    has_payload: bool,
+    payload_name: String,
+    payload_go_name: String,
 }
 
 fn visitor_associated_types(
@@ -312,6 +338,7 @@ fn callback_specs_from_trait(
 /// - `options_field`: configured field name on the options type that holds the bridge.
 #[allow(clippy::too_many_arguments)]
 pub fn gen_visitor_file(
+    api: &ApiSurface,
     pkg_name: &str,
     ffi_prefix: &str,
     ffi_header: &str,
@@ -339,6 +366,7 @@ pub fn gen_visitor_file(
         return String::new();
     }
     let mut out = String::with_capacity(32_768);
+    let codec_metadata = visitor_codec_metadata(api, &associated_types);
 
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
 
@@ -414,11 +442,8 @@ pub fn gen_visitor_file(
         minijinja::context! {
             context_type => associated_types.context_type.as_str(),
             result_type => associated_types.result_type.as_str(),
-            result_continue_fn => result_helper_name(&associated_types.result_type, "Continue"),
-            result_skip_fn => result_helper_name(&associated_types.result_type, "Skip"),
-            result_preserve_fn => result_helper_name(&associated_types.result_type, "PreserveHTML"),
-            result_custom_fn => result_helper_name(&associated_types.result_type, "Custom"),
-            result_error_fn => result_helper_name(&associated_types.result_type, "Error"),
+            context_fields => codec_metadata.context_fields,
+            result_variants => codec_metadata.result_variants,
         },
     ));
     out.push('\n');
@@ -512,6 +537,8 @@ pub fn gen_visitor_file(
         "encode_visit_result.jinja",
         minijinja::context! {
             result_type => associated_types.result_type.as_str(),
+            result_variants => codec_metadata.result_variants,
+            default_result_wire_name => codec_metadata.default_result_wire_name,
         },
     ));
     out.push('\n');
@@ -750,6 +777,136 @@ fn go_visitor_bridge_function_component(name: &str) -> String {
 
 fn result_helper_name(result_type: &str, variant: &str) -> String {
     format!("{result_type}{variant}")
+}
+
+fn visitor_codec_metadata(api: &ApiSurface, associated_types: &VisitorAssociatedTypes) -> VisitorCodecMetadata {
+    let context_fields = api
+        .types
+        .iter()
+        .find(|type_def| type_def.name == associated_types.context_type)
+        .map(context_fields_from_type)
+        .unwrap_or_else(default_context_fields);
+    let result_variants = api
+        .enums
+        .iter()
+        .find(|enum_def| enum_def.name == associated_types.result_type)
+        .map(|enum_def| result_variants_from_enum(enum_def, &associated_types.result_type))
+        .unwrap_or_else(|| default_result_variants(&associated_types.result_type));
+    let default_result_wire_name = result_variants
+        .first()
+        .map(|variant| variant.wire_name.clone())
+        .unwrap_or_else(|| "Continue".to_string());
+    VisitorCodecMetadata {
+        context_fields,
+        result_variants,
+        default_result_wire_name,
+    }
+}
+
+fn context_fields_from_type(type_def: &TypeDef) -> Vec<ContextFieldMetadata> {
+    type_def
+        .fields
+        .iter()
+        .map(|field| {
+            let go_name = crate::codegen::naming::to_go_name(&field.name);
+            let go_type = if field.optional {
+                crate::backends::go::type_map::go_optional_type(&field.ty).into_owned()
+            } else {
+                crate::backends::go::type_map::go_type(&field.ty).into_owned()
+            };
+            let json_name =
+                crate::codegen::naming::wire_field_name(&field.name, None, type_def.serde_rename_all.as_deref());
+            ContextFieldMetadata {
+                doc: field.doc.lines().next().unwrap_or("").trim().to_string(),
+                go_name,
+                go_type,
+                json_name,
+            }
+        })
+        .collect()
+}
+
+fn default_context_fields() -> Vec<ContextFieldMetadata> {
+    [
+        ("NodeType", "NodeType", "node_type", "Coarse-grained node type tag."),
+        ("TagName", "string", "tag_name", "Element tag name."),
+        ("Depth", "uint", "depth", "Traversal depth."),
+        ("IndexInParent", "uint", "index_in_parent", "0-based sibling index."),
+        (
+            "ParentTag",
+            "*string",
+            "parent_tag",
+            "Parent element tag name, or nil at the root.",
+        ),
+        (
+            "IsInline",
+            "bool",
+            "is_inline",
+            "True when this element is treated as inline.",
+        ),
+    ]
+    .into_iter()
+    .map(|(go_name, go_type, json_name, doc)| ContextFieldMetadata {
+        doc: doc.to_string(),
+        go_name: go_name.to_string(),
+        go_type: go_type.to_string(),
+        json_name: json_name.to_string(),
+    })
+    .collect()
+}
+
+fn result_variants_from_enum(enum_def: &EnumDef, result_type: &str) -> Vec<ResultVariantMetadata> {
+    enum_def
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(code, variant)| {
+            let has_payload = !variant.fields.is_empty();
+            let payload_name = variant
+                .fields
+                .first()
+                .map(|field| field.name.as_str())
+                .unwrap_or("value")
+                .to_string();
+            ResultVariantMetadata {
+                code: code as i32,
+                helper_name: result_helper_name(result_type, &crate::codegen::naming::to_go_name(&variant.name)),
+                name: crate::codegen::naming::to_go_name(&variant.name),
+                wire_name: crate::codegen::naming::wire_variant_value(
+                    &variant.name,
+                    variant.serde_rename.as_deref(),
+                    enum_def.serde_rename_all.as_deref(),
+                ),
+                has_payload,
+                payload_go_name: crate::codegen::naming::go_param_name(&payload_name),
+                payload_name,
+            }
+        })
+        .collect()
+}
+
+fn default_result_variants(result_type: &str) -> Vec<ResultVariantMetadata> {
+    [
+        ("Continue", "Continue", false, "value"),
+        ("Skip", "Skip", false, "value"),
+        ("PreserveHTML", "PreserveHtml", false, "value"),
+        ("Custom", "Custom", true, "custom"),
+        ("Error", "Error", true, "message"),
+    ]
+    .into_iter()
+    .enumerate()
+    .map(
+        |(code, (name, wire_name, has_payload, payload_name))| ResultVariantMetadata {
+            code: code as i32,
+            helper_name: result_helper_name(result_type, name),
+            name: name.to_string(),
+            wire_name: wire_name.to_string(),
+            has_payload,
+            payload_name: payload_name.to_string(),
+            payload_go_name: crate::codegen::naming::go_param_name(payload_name),
+        },
+    )
+    .collect()
 }
 
 fn named_type_name(ty: &TypeRef) -> Option<&str> {

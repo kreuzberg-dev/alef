@@ -442,13 +442,9 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
             // closing `}) async {` farther on is the real body-opener, which
             // already carries `async`. Mutating the opening line produces the
             // malformed `methodName( async {` that fails to parse.
-            let parens_balanced = line.chars().filter(|c| *c == '(').count()
-                == line.chars().filter(|c| *c == ')').count();
-            if parens_balanced
-                && line.contains('{')
-                && !line.trim().starts_with("//")
-                && !line.contains("async")
-            {
+            let parens_balanced =
+                line.chars().filter(|c| *c == '(').count() == line.chars().filter(|c| *c == ')').count();
+            if parens_balanced && line.contains('{') && !line.trim().starts_with("//") && !line.contains("async") {
                 let fixed = if line.contains(") {") {
                     line.replace(") {", ") async {")
                 } else if line.ends_with("{")

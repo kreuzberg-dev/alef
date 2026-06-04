@@ -981,7 +981,8 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
     let _is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     // `result_is_simple = true` means the dart return is a scalar/bytes value
     // (e.g. `Uint8List` for speech/file_content), not a struct. Field-based
     // assertions like `audio.not_empty` collapse to whole-result checks so we

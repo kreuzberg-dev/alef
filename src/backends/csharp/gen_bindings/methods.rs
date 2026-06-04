@@ -60,8 +60,14 @@ fn sanitize_doc_for_csharp(doc: &str) -> String {
 fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: &str, _api: &ApiSurface) -> String {
     let adapter_name = &adapter.name;
     let method_name = to_csharp_name(adapter_name);
-    let item_type = adapter.item_type.as_deref().unwrap_or("object");
+    let Some(owner_type) = adapter.owner_type.as_deref() else {
+        return String::new();
+    };
+    let Some(item_type) = adapter.item_type.as_deref() else {
+        return String::new();
+    };
     let cs_item_type = csharp_type_name(item_type);
+    let owner_cs_name = csharp_type_name(owner_type);
 
     // Build visible parameters: engine + request params
     let mut param_parts = vec!["IntPtr engine".to_string()];
@@ -114,11 +120,11 @@ fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: 
     }
     let cleanup_code = cleanup_lines.join("\n");
 
-    // Build the iterator handle FFI protocol: CrawlEngineHandle{AdapterName}Start/Next/Free
+    // Build the iterator handle FFI protocol: {OwnerType}{AdapterName}Start/Next/Free
     let adapter_cs_name = to_csharp_name(adapter_name);
-    let start_method = format!("CrawlEngineHandle{}Start", adapter_cs_name);
-    let next_method = format!("CrawlEngineHandle{}Next", adapter_cs_name);
-    let free_method = format!("CrawlEngineHandle{}Free", adapter_cs_name);
+    let start_method = format!("{owner_cs_name}{adapter_cs_name}Start");
+    let next_method = format!("{owner_cs_name}{adapter_cs_name}Next");
+    let free_method = format!("{owner_cs_name}{adapter_cs_name}Free");
 
     format!(
         "    public static async IAsyncEnumerable<{cs_item_type}> {method_name}({params_decl})\n    {{\n\
@@ -490,9 +496,7 @@ fn gen_wrapper_function(
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
-        // Config parameters are optional in practice (callers often omit them and expect defaults)
-        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
+        if param.optional && !param_type.ends_with('?') {
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
@@ -517,14 +521,9 @@ fn gen_wrapper_function(
 
     out.push_str(")\n    {\n");
 
-    // Null checks for required string/object parameters
-    // Skip config parameters — they are optional by convention and will be defaulted
+    // Null checks for required string/object parameters.
     for param in &visible_params {
-        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if !param.optional
-            && !is_optional_by_convention
-            && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes)
-        {
+        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }
@@ -858,8 +857,7 @@ fn gen_bridge_field_wrapper_function(
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
-        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
+        if param.optional && !param_type.ends_with('?') {
             out.push_str(&format!("{param_type}? {param_name}"));
         } else {
             out.push_str(&format!("{param_type} {param_name}"));
@@ -1131,9 +1129,7 @@ fn gen_wrapper_method(
     for (i, param) in visible_params.iter().enumerate() {
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
-        // Config parameters are optional in practice (callers often omit them and expect defaults)
-        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if (param.optional || is_optional_by_convention) && !param_type.ends_with('?') {
+        if param.optional && !param_type.ends_with('?') {
             out.push_str(
                 render(
                     "param_decl_optional.jinja",
@@ -1158,14 +1154,9 @@ fn gen_wrapper_method(
 
     out.push_str(")\n    {\n");
 
-    // Null checks for required string/object parameters
-    // Skip config parameters — they are optional by convention and will be defaulted
+    // Null checks for required string/object parameters.
     for param in &visible_params {
-        let is_optional_by_convention = param.name == "config" && matches!(param.ty, TypeRef::Named(_));
-        if !param.optional
-            && !is_optional_by_convention
-            && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes)
-        {
+        if !param.optional && matches!(param.ty, TypeRef::String | TypeRef::Named(_) | TypeRef::Bytes) {
             let param_name = param.name.to_lower_camel_case();
             out.push_str(&render("null_check.jinja", minijinja::context! { param_name }));
         }

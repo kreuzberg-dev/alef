@@ -491,15 +491,15 @@ fn snapshot_trait_bridge_inbound() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "OcrConfig".to_string(),
-                rust_path: "demo::OcrConfig".to_string(),
+                name: "ImageConfig".to_string(),
+                rust_path: "demo::ImageConfig".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("language", TypeRef::String, false)],
                 methods: vec![],
                 is_opaque: false,
                 is_clone: true,
                 is_copy: false,
-                doc: "OCR configuration.".to_string(),
+                doc: "Image configuration.".to_string(),
                 cfg: None,
                 is_trait: false,
                 has_default: true,
@@ -514,8 +514,8 @@ fn snapshot_trait_bridge_inbound() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "ExtractionResult".to_string(),
-                rust_path: "demo::ExtractionResult".to_string(),
+                name: "ProcessingResult".to_string(),
+                rust_path: "demo::ProcessingResult".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("text", TypeRef::String, false)],
                 methods: vec![],
@@ -537,8 +537,8 @@ fn snapshot_trait_bridge_inbound() {
                 has_lifetime_params: false,
             },
             TypeDef {
-                name: "OcrBackend".to_string(),
-                rust_path: "demo::plugins::OcrBackend".to_string(),
+                name: "ImageProcessor".to_string(),
+                rust_path: "demo::plugins::ImageProcessor".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![
@@ -562,7 +562,7 @@ fn snapshot_trait_bridge_inbound() {
                             },
                             ParamDef {
                                 name: "config".into(),
-                                ty: TypeRef::Named("OcrConfig".to_string()),
+                                ty: TypeRef::Named("ImageConfig".to_string()),
                                 optional: false,
                                 default: None,
                                 sanitized: false,
@@ -576,7 +576,7 @@ fn snapshot_trait_bridge_inbound() {
                                 vec_inner_is_ref: false,
                             },
                         ],
-                        TypeRef::Named("ExtractionResult".to_string()),
+                        TypeRef::Named("ProcessingResult".to_string()),
                         true,
                         true,
                     ),
@@ -605,7 +605,7 @@ fn snapshot_trait_bridge_inbound() {
                 is_opaque: false,
                 is_clone: false,
                 is_copy: false,
-                doc: "OCR backend plugin trait.".to_string(),
+                doc: "Image backend plugin trait.".to_string(),
                 cfg: None,
                 is_trait: true,
                 has_default: false,
@@ -638,7 +638,7 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [[crates.trait_bridges]]
-trait_name = "OcrBackend"
+trait_name = "ImageProcessor"
 super_trait = "demo::plugins::Plugin"
 registry_getter = "demo::plugins::registry::get_ocr_backend_registry"
 register_fn = "register_ocr_backend"
@@ -765,7 +765,7 @@ fn snapshot_tuple_field_as_vec() {
 ///
 /// This locks down the public shape of the streaming codepath. Changes to the
 /// emitted Rust shim or Swift wrapper require a deliberate snapshot review —
-/// not a blanket accept — because downstream consumers (sample_crawler, sample-llm)
+/// not a blanket accept — because downstream consumers with streaming fixtures
 /// depend on the exact Swift surface for their hand-written facade layer.
 #[test]
 fn snapshot_streaming_adapter() {
@@ -935,9 +935,9 @@ fn snapshot_first_class_struct_optional_field() {
 /// and the resulting handle is threaded into a struct field on an options type.
 ///
 /// This exercises the bidirectional `From` impl emission:
-///   - `From<inner_path> for VisitorHandle`  (factory: `VisitorHandle::from(__inner)`)
-///   - `From<VisitorHandle> for inner_path`  (helper: `<inner_path>::from(h)`)
-///   - `From<core_options_path> for ConversionOptions`  (helper: `ConversionOptions::from(__core)`)
+///   - `From<inner_path> for CallbackHandle`  (factory: `CallbackHandle::from(__inner)`)
+///   - `From<CallbackHandle> for inner_path`  (helper: `<inner_path>::from(h)`)
+///   - `From<core_options_path> for RenderOptions`  (helper: `RenderOptions::from(__core)`)
 ///
 /// Without these three impls the generated lib.rs does not compile (E0308 / E0277).
 #[test]
@@ -948,8 +948,8 @@ fn snapshot_trait_bridge_inbound_options_field() {
         types: vec![
             // The type alias — a newtype wrapping the inner Arc<Mutex<dyn Trait + Send>> path.
             TypeDef {
-                name: "VisitorHandle".to_string(),
-                rust_path: "demo::visitor::VisitorHandle".to_string(),
+                name: "CallbackHandle".to_string(),
+                rust_path: "demo::visitor::CallbackHandle".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![],
@@ -972,8 +972,8 @@ fn snapshot_trait_bridge_inbound_options_field() {
             },
             // The options type that receives the visitor via a field.
             TypeDef {
-                name: "ConversionOptions".to_string(),
-                rust_path: "demo::options::ConversionOptions".to_string(),
+                name: "RenderOptions".to_string(),
+                rust_path: "demo::options::RenderOptions".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![make_field("timeout_ms", TypeRef::Primitive(PrimitiveType::U32), false)],
                 methods: vec![],
@@ -996,8 +996,8 @@ fn snapshot_trait_bridge_inbound_options_field() {
             },
             // The visitor trait implemented by Swift.
             TypeDef {
-                name: "HtmlVisitor".to_string(),
-                rust_path: "demo::visitor::HtmlVisitor".to_string(),
+                name: "MarkupVisitor".to_string(),
+                rust_path: "demo::visitor::MarkupVisitor".to_string(),
                 original_rust_path: String::new(),
                 fields: vec![],
                 methods: vec![make_method(
@@ -1043,11 +1043,11 @@ name = "demo"
 sources = ["src/lib.rs"]
 
 [[crates.trait_bridges]]
-trait_name = "HtmlVisitor"
-type_alias = "VisitorHandle"
+trait_name = "MarkupVisitor"
+type_alias = "CallbackHandle"
 param_name = "visitor"
 bind_via = "options_field"
-options_type = "ConversionOptions"
+options_type = "RenderOptions"
 "#;
     let cfg: NewAlefConfig = toml::from_str(toml).expect("test config must parse");
     let config = cfg.resolve().expect("test config must resolve").remove(0);
@@ -1063,22 +1063,22 @@ options_type = "ConversionOptions"
     assert!(
         lib_rs
             .content
-            .contains("impl From<demo::visitor::VisitorHandle> for VisitorHandle"),
-        "forward From impl (core→wrapper) must be emitted for VisitorHandle:\n{}",
+            .contains("impl From<demo::visitor::CallbackHandle> for CallbackHandle"),
+        "forward From impl (core→wrapper) must be emitted for CallbackHandle:\n{}",
         lib_rs.content
     );
     assert!(
         lib_rs
             .content
-            .contains("impl From<VisitorHandle> for demo::visitor::VisitorHandle"),
-        "reverse From impl (wrapper→core) must be emitted for VisitorHandle:\n{}",
+            .contains("impl From<CallbackHandle> for demo::visitor::CallbackHandle"),
+        "reverse From impl (wrapper→core) must be emitted for CallbackHandle:\n{}",
         lib_rs.content
     );
     assert!(
         lib_rs
             .content
-            .contains("impl From<demo::options::ConversionOptions> for ConversionOptions"),
-        "forward From impl (core→wrapper) must be emitted for ConversionOptions:\n{}",
+            .contains("impl From<demo::options::RenderOptions> for RenderOptions"),
+        "forward From impl (core→wrapper) must be emitted for RenderOptions:\n{}",
         lib_rs.content
     );
 

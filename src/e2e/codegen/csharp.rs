@@ -12,7 +12,7 @@ use crate::e2e::escape::{escape_csharp, sanitize_filename, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, HttpFixture, ValidationErrorExpectation};
 use anyhow::Result;
-use heck::{ToLowerCamelCase, ToUpperCamelCase};
+use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::hash::{Hash, Hasher};
@@ -38,14 +38,17 @@ fn resolve_handle_config_type(
 }
 
 fn resolve_csharp_streaming_item_type(
+    call_config: &crate::e2e::config::CallConfig,
     adapters: &[crate::core::config::extras::AdapterConfig],
     function_name: &str,
 ) -> Option<String> {
-    adapters
-        .iter()
-        .find(|adapter| adapter.name == function_name)
-        .and_then(|adapter| adapter.item_type.as_deref())
-        .map(str::to_string)
+    let function_name_snake = function_name.to_snake_case();
+    crate::e2e::codegen::recipe::streaming_item_type(
+        call_config,
+        adapters,
+        &[function_name, function_name_snake.as_str()],
+    )
+    .map(str::to_string)
 }
 
 /// C# e2e code generator.
@@ -971,7 +974,7 @@ fn render_test_method(
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    if crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming) {
+    if crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled()) {
         render_streaming_test_method(
             out,
             fixture,
@@ -986,12 +989,12 @@ fn render_test_method(
             adapters,
             config,
             type_defs,
-            resolve_csharp_streaming_item_type(adapters, &raw_function_name).as_deref(),
+            resolve_csharp_streaming_item_type(call_config, adapters, &raw_function_name).as_deref(),
         );
         return;
     }
 
-    let _is_streaming = call_config.streaming.unwrap_or(false);
+    let _is_streaming = call_config.streaming_enabled().unwrap_or(false);
     let effective_function_name = {
         let mut name = cs_overrides
             .and_then(|o| o.function.as_ref())

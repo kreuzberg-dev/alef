@@ -1048,7 +1048,8 @@ fn render_test_method(
     let is_async = call_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
 
     let streaming_adapter = if is_streaming && !expects_error {
         resolve_streaming_adapter(config, call_config, &function_name, client_factory)

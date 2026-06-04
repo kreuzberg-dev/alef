@@ -1419,7 +1419,8 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     }
 
     // Detect streaming fixtures (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
 
     // Determine the streaming item type for this call (used when draining the channel).
     // Find the first streaming adapter matching the function name (e.g., crawl_stream → CrawlEvent).
@@ -1428,17 +1429,9 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
     use heck::ToSnakeCase;
     let fn_snake = function_name.to_snake_case();
     let base_snake = base_function_name.to_snake_case();
-    let streaming_item_type = if is_streaming {
-        adapters
-            .iter()
-            .filter(|a| matches!(a.pattern, crate::core::config::extras::AdapterPattern::Streaming))
-            .find(|a| a.name == fn_snake || a.name == base_snake)
-            .and_then(|a| a.item_type.as_deref())
-            .and_then(|t| t.rsplit("::").next())
-            .unwrap_or("Item") // Fallback if no matching adapter is declared
-    } else {
-        "Item" // Unused, but needed for type consistency
-    };
+    let streaming_item_type = is_streaming
+        .then(|| crate::e2e::codegen::recipe::streaming_item_type(call_config, adapters, &[&fn_snake, &base_snake]))
+        .flatten();
 
     // Check if any assertion actually uses the result variable.
     // If all assertions are skipped (field not on result type), use `_` to avoid
@@ -1560,10 +1553,17 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
         let _ = writeln!(out, "\t}}");
         // For streaming fixtures: drain the channel into a []T slice.
         if is_streaming {
-            let _ = writeln!(out, "\tvar chunks []{import_alias}.{streaming_item_type}");
-            let _ = writeln!(out, "\tfor chunk := range stream {{");
-            let _ = writeln!(out, "\t\tchunks = append(chunks, chunk)");
-            let _ = writeln!(out, "\t}}");
+            if let Some(streaming_item_type) = streaming_item_type {
+                let _ = writeln!(out, "\tvar chunks []{import_alias}.{streaming_item_type}");
+                let _ = writeln!(out, "\tfor chunk := range stream {{");
+                let _ = writeln!(out, "\t\tchunks = append(chunks, chunk)");
+                let _ = writeln!(out, "\t}}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "\t// skipped: streaming fixture requires adapter item_type for Go e2e codegen"
+                );
+            }
         }
         if result_is_simple && has_usable_assertion && result_binding != "_" {
             if result_is_array {
@@ -1724,6 +1724,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
                                 result_is_simple,
                                 result_is_array,
                                 is_streaming,
+                                streaming_item_type,
                             );
                             continue;
                         }
@@ -1741,6 +1742,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
                             result_is_simple,
                             result_is_array,
                             is_streaming,
+                            streaming_item_type,
                         );
                         for line in nil_buf.lines() {
                             let _ = writeln!(out, "\t{line}");
@@ -1757,6 +1759,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
                             result_is_simple,
                             result_is_array,
                             is_streaming,
+                            streaming_item_type,
                         );
                     }
                     continue;
@@ -1773,6 +1776,7 @@ fn render_test_function(out: &mut String, fixture: &Fixture, context: GoTestFunc
             result_is_simple,
             result_is_array,
             is_streaming,
+            streaming_item_type,
         );
     }
 
@@ -2463,6 +2467,7 @@ fn render_assertion(
     result_is_simple: bool,
     result_is_array: bool,
     is_streaming: bool,
+    streaming_item_type: Option<&str>,
 ) {
     // Handle synthetic / derived fields before the is_valid_for_result check
     // so they are never treated as struct field accesses on the result.
@@ -2669,7 +2674,13 @@ fn render_assertion(
         if let Some(f) = &assertion.field {
             if !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
                 if let Some(expr) =
-                    crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "go", "chunks")
+                    crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
+                        f,
+                        "go",
+                        "chunks",
+                        None,
+                        streaming_item_type,
+                    )
                 {
                     match assertion.assertion_type.as_str() {
                         "count_min" => {

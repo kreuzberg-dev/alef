@@ -39,55 +39,55 @@ fn __alef_tokio_runtime() -> &'static ::tokio::runtime::Runtime {
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
-        type VisitorHandle;
+        type CallbackHandle;
     }
 
     extern "Rust" {
-        type ConversionOptions;
+        type RenderOptions;
         #[swift_bridge(init)]
-        fn new(timeout_ms: u32) -> ConversionOptions;
+        fn new(timeout_ms: u32) -> RenderOptions;
         #[swift_bridge(swift_name = "timeoutMs")]
         fn timeout_ms(&self) -> u32;
     }
 
     extern "Rust" {
-        type HtmlVisitorBox;
-        fn alef_phantom_vec_html_visitor() -> Vec<HtmlVisitorBox>;
-        fn html_visitor_call_visit_node(this: &HtmlVisitorBox, tag: String) -> ();
+        type MarkupVisitorBox;
+        fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox>;
+        fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> ();
     }
 
     extern "Swift" {
-        type SwiftHtmlVisitorBox;
+        type SwiftMarkupVisitorBox;
         fn alef_visit_node(&self, tag: String) -> ();
     }
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "makeHtmlVisitorHandle")]
-         fn make_html_visitor_handle(swift_box: SwiftHtmlVisitorBox) -> VisitorHandle;
+         #[swift_bridge(swift_name = "makeMarkupCallbackHandle")]
+         fn make_markup_callback_handle(swift_box: SwiftMarkupVisitorBox) -> CallbackHandle;
 
     }
 
     extern "Rust" {
 
          #[swift_bridge(swift_name = "conversionOptionsFromJsonWithVisitor")]
-         fn conversion_options_from_json_with_visitor(json: String, visitor: Option<VisitorHandle>) -> Result<ConversionOptions, String>;
+         fn render_options_from_json_with_visitor(json: String, visitor: Option<CallbackHandle>) -> Result<RenderOptions, String>;
 
     }
 
     extern "Rust" {
         #[swift_bridge(swift_name = "conversionOptionsFromJson")]
-        fn conversion_options_from_json(json: String) -> Result<ConversionOptions, String>;
+        fn render_options_from_json(json: String) -> Result<RenderOptions, String>;
     }
 }
 
 
-pub struct VisitorHandle(pub demo::visitor::VisitorHandle);
+pub struct CallbackHandle(pub demo::visitor::CallbackHandle);
 
-pub struct ConversionOptions(pub demo::options::ConversionOptions);
-impl ConversionOptions {
-    pub fn new(timeout_ms: u32) -> ConversionOptions {
-        ConversionOptions(demo::options::ConversionOptions {
+pub struct RenderOptions(pub demo::options::RenderOptions);
+impl RenderOptions {
+    pub fn new(timeout_ms: u32) -> RenderOptions {
+        RenderOptions(demo::options::RenderOptions {
             timeout_ms,
         })
     }
@@ -96,10 +96,10 @@ impl ConversionOptions {
     }
 }
 
-pub struct HtmlVisitorBox(pub Box<dyn demo::visitor::HtmlVisitor + Send + Sync>);
+pub struct MarkupVisitorBox(pub Box<dyn demo::visitor::MarkupVisitor + Send + Sync>);
 #[doc(hidden)]
-pub fn alef_phantom_vec_html_visitor() -> Vec<HtmlVisitorBox> { Vec::new() }
-pub fn html_visitor_call_visit_node(this: &HtmlVisitorBox, tag: String) -> () {
+pub fn alef_phantom_vec_markup_visitor() -> Vec<MarkupVisitorBox> { Vec::new() }
+pub fn markup_visitor_call_visit_node(this: &MarkupVisitorBox, tag: String) -> () {
     this.0.visit_node(tag)
 }
 
@@ -129,24 +129,24 @@ where
         Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
     }
 }
-/// Rust-side wrapper around a Swift class implementing the `HtmlVisitor` protocol.
+/// Rust-side wrapper around a Swift class implementing the `MarkupVisitor` protocol.
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
 /// the underlying ARC reference for the lifetime of this struct. Send + Sync are
 /// asserted unsafely: Swift classes used as trait bridges must be thread-safe.
-pub struct SwiftHtmlVisitorWrapper {
-    inner: ffi::SwiftHtmlVisitorBox,
+pub struct SwiftMarkupVisitorWrapper {
+    inner: ffi::SwiftMarkupVisitorBox,
 }
-unsafe impl Send for SwiftHtmlVisitorWrapper {}
-unsafe impl Sync for SwiftHtmlVisitorWrapper {}
+unsafe impl Send for SwiftMarkupVisitorWrapper {}
+unsafe impl Sync for SwiftMarkupVisitorWrapper {}
 
-impl SwiftHtmlVisitorWrapper {
-    /// Construct a new wrapper from a Swift `SwiftHtmlVisitorBox` handle.
-    pub fn new(inner: ffi::SwiftHtmlVisitorBox) -> Self {
+impl SwiftMarkupVisitorWrapper {
+    /// Construct a new wrapper from a Swift `SwiftMarkupVisitorBox` handle.
+    pub fn new(inner: ffi::SwiftMarkupVisitorBox) -> Self {
         Self { inner }
     }
 }
-impl demo::visitor::HtmlVisitor for SwiftHtmlVisitorWrapper {
+impl demo::visitor::MarkupVisitor for SwiftMarkupVisitorWrapper {
     fn visit_node(&self, tag: str) -> () {
         self.inner.alef_visit_node(tag);
     }
@@ -154,36 +154,36 @@ impl demo::visitor::HtmlVisitor for SwiftHtmlVisitorWrapper {
 }
 
 
-impl From<demo::visitor::VisitorHandle> for VisitorHandle {
-    fn from(v: demo::visitor::VisitorHandle) -> Self { Self(v) }
+impl From<demo::visitor::CallbackHandle> for CallbackHandle {
+    fn from(v: demo::visitor::CallbackHandle) -> Self { Self(v) }
 }
-impl From<VisitorHandle> for demo::visitor::VisitorHandle {
-    fn from(v: VisitorHandle) -> Self { v.0 }
+impl From<CallbackHandle> for demo::visitor::CallbackHandle {
+    fn from(v: CallbackHandle) -> Self { v.0 }
 }
-impl From<demo::options::ConversionOptions> for ConversionOptions {
-    fn from(v: demo::options::ConversionOptions) -> Self { Self(v) }
-}
-
-/// Construct a `VisitorHandle` from a Swift `SwiftHtmlVisitorBox` handle.
-/// Called by Swift e2e tests via `makeHtmlVisitorHandle(...)` to build a
-/// `VisitorHandle` that can be passed to the options-with-visitor helper.
-pub fn make_html_visitor_handle(swift_box: ffi::SwiftHtmlVisitorBox) -> VisitorHandle {
-    let __wrapper = SwiftHtmlVisitorWrapper::new(swift_box);
-    let __inner: demo::visitor::VisitorHandle = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));
-    VisitorHandle::from(__inner)
+impl From<demo::options::RenderOptions> for RenderOptions {
+    fn from(v: demo::options::RenderOptions) -> Self { Self(v) }
 }
 
-/// Deserialise a `ConversionOptions` from JSON and attach a visitor handle to its
-/// `visitor` field. Used by Swift e2e tests to thread a `VisitorHandle` into the
+/// Construct a `CallbackHandle` from a Swift `SwiftMarkupVisitorBox` handle.
+/// Called by Swift e2e tests via `makeMarkupCallbackHandle(...)` to build a
+/// `CallbackHandle` that can be passed to the options-with-visitor helper.
+pub fn make_markup_callback_handle(swift_box: ffi::SwiftMarkupVisitorBox) -> CallbackHandle {
+    let __wrapper = SwiftMarkupVisitorWrapper::new(swift_box);
+    let __inner: demo::visitor::CallbackHandle = ::std::sync::Arc::new(::std::sync::Mutex::new(__wrapper));
+    CallbackHandle::from(__inner)
+}
+
+/// Deserialise a `RenderOptions` from JSON and attach a visitor handle to its
+/// `visitor` field. Used by Swift e2e tests to thread a `CallbackHandle` into the
 /// conversion call without needing a mutable post-construction setter.
-pub fn conversion_options_from_json_with_visitor(json: String, visitor: Option<VisitorHandle>) -> Result<ConversionOptions, String> {
-    let mut __core: demo::options::ConversionOptions = ::serde_json::from_str(&json).map_err(|e| e.to_string())?;
-    __core.visitor = visitor.map(|h| <demo::visitor::VisitorHandle>::from(h));
-    Ok(ConversionOptions::from(__core))
+pub fn render_options_from_json_with_visitor(json: String, visitor: Option<CallbackHandle>) -> Result<RenderOptions, String> {
+    let mut __core: demo::options::RenderOptions = ::serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    __core.visitor = visitor.map(|h| <demo::visitor::CallbackHandle>::from(h));
+    Ok(RenderOptions::from(__core))
 }
 
-pub fn conversion_options_from_json(json: String) -> Result<ConversionOptions, String> {
-    serde_json::from_str::<demo::options::ConversionOptions>(&json)
-        .map(ConversionOptions)
+pub fn render_options_from_json(json: String) -> Result<RenderOptions, String> {
+    serde_json::from_str::<demo::options::RenderOptions>(&json)
+        .map(RenderOptions)
         .map_err(|e| e.to_string())
 }

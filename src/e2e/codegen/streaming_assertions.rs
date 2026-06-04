@@ -1,6 +1,6 @@
 //! Shared streaming-virtual-fields module for e2e test codegen.
 //!
-//! Chat-stream fixtures assert on "virtual" fields that don't exist on the
+//! Streaming fixtures assert on "virtual" fields that don't exist on the
 //! stream result type itself — `chunks`, `chunks.length`, `stream_content`,
 //! `stream_complete`, `no_chunks_after_done`, `tool_calls`, `finish_reason`.
 //! These fields resolve against the *collected* list of chunks produced by
@@ -38,9 +38,9 @@ pub const STREAMING_VIRTUAL_FIELDS: &[&str] = &[
     "no_chunks_after_done",
     "tool_calls",
     "finish_reason",
-    // Crawl-stream event-variant predicates: resolve against the collected
-    // `chunks` list where each item is a tagged-union CrawlEvent (`page` /
-    // `error` / `complete`). `event_count_min` is a synonym for the chunk
+    // Event-stream variant predicates: resolve against the collected `chunks`
+    // list where each item is a tagged union with `page` / `error` / `complete`
+    // variants. `event_count_min` is a synonym for the chunk
     // count, used with `greater_than_or_equal` to assert "at least N events".
     "stream.has_page_event",
     "stream.has_error_event",
@@ -165,31 +165,24 @@ impl StreamingFieldResolver {
     /// for the `stream.has_*_event` branches that emit a streaming union type
     /// path.
     ///
-    /// This is a backward-compatible wrapper; it forwards to
-    /// [`Self::accessor_with_streaming_context`] with the legacy default item
-    /// type `"CrawlEvent"` so existing callers continue to emit correct code for
-    /// sample-crawler without changes. Consumers whose streaming union type differs
-    /// should call [`Self::accessor_with_streaming_context`] directly.
+    /// This wrapper does not guess an event item type. Event-variant fields
+    /// return `None` unless callers use [`Self::accessor_with_streaming_context`]
+    /// with an explicit or adapter-inferred `item_type`.
     pub fn accessor_with_module_qualifier(
         field: &str,
         lang: &str,
         chunks_var: &str,
         module_qualifier: Option<&str>,
     ) -> Option<String> {
-        // Pass the legacy default item type so the `stream.has_*_event` branches
-        // continue to work for callers that predate the generic API.
-        Self::accessor_with_streaming_context(field, lang, chunks_var, module_qualifier, Some("CrawlEvent"))
+        Self::accessor_with_streaming_context(field, lang, chunks_var, module_qualifier, None)
     }
 
     /// Same as [`Self::accessor_with_module_qualifier`] but also accepts the
-    /// unqualified name of the streaming union item type (e.g. `"CrawlEvent"`
-    /// for sample-crawler, or any other tagged-union name a consumer defines).
+    /// unqualified name of the streaming union item type.
     ///
-    /// When `item_type` is `None` the `stream.has_*_event` branches fall back
-    /// to the legacy default supplied by the originating consumer — callers
-    /// that do not know their item type should pass `None` and the function
-    /// returns `None` for those branches, so the assertion is skipped rather
-    /// than emitting a reference to an unknown type.
+    /// When `item_type` is `None` the `stream.has_*_event` branches return
+    /// `None`, so the call site can skip or diagnose the assertion rather than
+    /// emitting a reference to an unknown downstream type.
     pub fn accessor_with_streaming_context(
         field: &str,
         lang: &str,
@@ -840,7 +833,7 @@ impl StreamingFieldResolver {
     }
 }
 
-/// Identifies a `CrawlEvent` variant for `stream.has_*_event` accessors.
+/// Identifies a tagged stream event variant for `stream.has_*_event` accessors.
 #[derive(Debug, Clone, Copy)]
 enum EventVariant {
     Page,
@@ -872,8 +865,8 @@ impl EventVariant {
 /// Emit a language-native boolean expression that is `true` iff any chunk in
 /// `chunks_var` matches the given streaming-union variant.
 ///
-/// `item_type` is the unqualified name of the streaming union type (e.g.
-/// `"CrawlEvent"` for sample-crawler).  `module_qualifier` is the per-project
+/// `item_type` is the unqualified name of the streaming union type.
+/// `module_qualifier` is the per-project
 /// module/namespace prefix required by Rust and C# to form a fully-qualified
 /// type path.
 ///
@@ -1218,6 +1211,42 @@ mod tests {
         assert!(!is_streaming_virtual_field("usage"));
         assert!(!is_streaming_virtual_field("usage.total_tokens"));
         assert!(!is_streaming_virtual_field("usage.prompt_tokens"));
+    }
+
+    #[test]
+    fn event_variant_accessor_requires_stream_item_type() {
+        assert_eq!(
+            StreamingFieldResolver::accessor_with_module_qualifier(
+                "stream.has_page_event",
+                "rust",
+                "chunks",
+                Some("sample_recipe"),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn event_variant_accessor_uses_configured_stream_item_type() {
+        let rust = StreamingFieldResolver::accessor_with_streaming_context(
+            "stream.has_page_event",
+            "rust",
+            "chunks",
+            Some("sample_recipe"),
+            Some("Event"),
+        )
+        .expect("configured item type emits rust event predicate");
+        assert!(rust.contains("sample_recipe::Event::Page"), "rust predicate: {rust}");
+
+        let go = StreamingFieldResolver::accessor_with_streaming_context(
+            "stream.has_complete_event",
+            "go",
+            "chunks",
+            None,
+            Some("Event"),
+        )
+        .expect("configured item type emits go event predicate");
+        assert!(go.contains("pkg.EventComplete"), "go predicate: {go}");
     }
 
     #[test]

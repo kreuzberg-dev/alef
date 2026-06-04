@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.30] - 2026-06-04
+
+### Fixed
+
+- fix(extendr): remove spurious `.ok()` call on `List::names()` return value in the R options decoder. `List::names()` returns `Option<StrIter>`, not a `Result`, so `.ok()` is a method-not-found compile error. The generator now emits just `let names = list.names();` without the erroneous `.ok()`. (`src/backends/extendr/gen_bindings/mod.rs:1035`)
+- fix(extendr): correct enum decoder error message format strings from `'{{}}'` (escaped braces that swallow the format argument) to `'{}'` (single braces that consume the variable). The format string was doubling braces to escape them, but in a `format!()` context the doubled braces became a literal `{}` in the output and the variable was never used, triggering clippy/rustc "argument never used" errors. (`src/backends/extendr/gen_bindings/mod.rs:1187`)
+- fix(extendr): cast `Option<f64>` values back to their original integer types when decoding `Option<u64>` and `Option<usize>` fields. The R binding layer maps these large integers to `Option<f64>` (since R has no native u64/usize), but when assigning to the core options field, the f64 must be cast to the original type. Previously the codegen was assigning `Some(f64_val)` directly, causing a type mismatch. The decoder now emits `Some(f64_val as usize)` to restore the correct type. (`src/backends/extendr/gen_bindings/mod.rs:1448-1467`)
+- fix(extendr): skip visitor field entirely in the R options decoder — R has no visitor concept (visitor is wired through a separate trait bridge mechanism), so codegen should not emit any visitor field decoding logic. The generator now checks `if field.name == "visitor"` and returns early, preventing the emission of non-existent `decode_visitor_handle` helper function calls and undefined field assignments. (`src/backends/extendr/gen_bindings/mod.rs:1253-1268`)
+
+## [0.22.28] - 2026-06-04
+
 ### Fixed
 
 - fix(e2e/rust): emit `Cargo.toml` with alphabetically sorted `[dependencies]` and `[package.metadata.cargo-machete]` immediately after `[package]`, matching cargo-sort canonical form so `prek run --all-files` is idempotent. (`src/e2e/codegen/rust/cargo_toml.rs`)

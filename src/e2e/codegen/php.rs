@@ -1402,7 +1402,8 @@ fn render_test_method(
     };
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
 
     // Determine if there are usable assertions.
     // For streaming fixtures: streaming virtual fields count as usable.

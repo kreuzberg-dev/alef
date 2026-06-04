@@ -655,7 +655,8 @@ fn render_spec_file(
             let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
             let has_not_error = fixture.assertions.iter().any(|a| a.assertion_type == "not_error");
             let has_usable = has_usable_assertion(fixture, field_resolver, result_is_simple);
-            let is_streaming = super::streaming_assertions::resolve_is_streaming(fixture, fixture_call.streaming);
+            let is_streaming =
+                super::streaming_assertions::resolve_is_streaming(fixture, fixture_call.streaming_enabled());
 
             // Ruby has FFI access to the Rust core, so it can execute non-HTTP
             // fixtures. Render tests for all fixtures that have error assertions,
@@ -707,6 +708,12 @@ fn render_spec_file(
                     .find(|a| a.name == fixture_call.function.as_str())
                     .and_then(|a| a.request_type.as_deref())
                     .map(|rt| rt.rsplit("::").next().unwrap_or(rt).to_string());
+                let streaming_item_type_owned = crate::e2e::codegen::recipe::streaming_item_type(
+                    fixture_call,
+                    adapters,
+                    &[fixture_call.function.as_str()],
+                )
+                .map(str::to_string);
                 let example = if is_streaming {
                     render_chat_stream_example(
                         fixture,
@@ -720,6 +727,7 @@ fn render_spec_file(
                         fixture_client_factory,
                         &fixture_extra_args,
                         adapter_req_type_owned.as_deref(),
+                        streaming_item_type_owned.as_deref(),
                         config,
                         type_defs,
                     )
@@ -1214,6 +1222,7 @@ fn render_chat_stream_example(
     client_factory: Option<&str>,
     extra_args: &[String],
     adapter_request_type: Option<&str>,
+    streaming_item_type: Option<&str>,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
 ) -> String {
@@ -1318,7 +1327,7 @@ fn render_chat_stream_example(
 
     // Render assertions on the local aggregator vars.
     for assertion in &fixture.assertions {
-        emit_chat_stream_assertion(&mut out, assertion, e2e_config);
+        emit_chat_stream_assertion(&mut out, assertion, e2e_config, streaming_item_type);
     }
 
     // Always assert that the stream completed cleanly so non-empty test bodies
@@ -1345,7 +1354,12 @@ fn render_chat_stream_example(
 /// variable produced by [`render_chat_stream_example`]. Pseudo-fields like
 /// `chunks` / `stream_content` / `stream_complete` resolve to the in-block locals,
 /// not response accessors.
-fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_config: &E2eConfig) {
+fn emit_chat_stream_assertion(
+    out: &mut String,
+    assertion: &Assertion,
+    _e2e_config: &E2eConfig,
+    streaming_item_type: Option<&str>,
+) {
     let atype = assertion.assertion_type.as_str();
     if atype == "not_error" || atype == "error" {
         return;
@@ -1363,7 +1377,11 @@ fn emit_chat_stream_assertion(out: &mut String, assertion: &Assertion, _e2e_conf
 
     // Use StreamingFieldResolver to compute field expressions from chunks.
     let expr_opt = crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
-        field, "ruby", "chunks", None, None,
+        field,
+        "ruby",
+        "chunks",
+        None,
+        streaming_item_type,
     );
 
     let (expr, kind) = match (field, expr_opt) {

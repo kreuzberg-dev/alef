@@ -3,32 +3,24 @@ func encodeVisitResult(r {{ result_type }}, outResult **C.char) C.int32_t {
 	// serde_json deserialiser can decode it correctly.
 	var jsonStr string
 	switch r.Code {
-	case 1:
-		jsonStr = `"Skip"`
-	case 2:
-		jsonStr = `"PreserveHtml"`
-	case 3:
-		if r.Custom != nil {
-			b, err := json.Marshal(*r.Custom)
+{% for variant in result_variants %}
+	case {{ variant.code }}:
+{% if variant.has_payload %}
+		if r.Value != nil {
+			b, err := json.Marshal(*r.Value)
 			if err != nil {
 				b = []byte(`""`)
 			}
-			jsonStr = `{"Custom":` + string(b) + `}`
+			jsonStr = `{"{{ variant.wire_name }}":` + string(b) + `}`
 		} else {
-			jsonStr = `{"Custom":""}`
+			jsonStr = `{"{{ variant.wire_name }}":""}`
 		}
-	case 4:
-		if r.Custom != nil {
-			b, err := json.Marshal(*r.Custom)
-			if err != nil {
-				b = []byte(`""`)
-			}
-			jsonStr = `{"Error":` + string(b) + `}`
-		} else {
-			jsonStr = `{"Error":""}`
-		}
-	default: // 0 = Continue and any unknown code
-		jsonStr = `"Continue"`
+{% else %}
+		jsonStr = `"{{ variant.wire_name }}"`
+{% endif %}
+{% endfor %}
+	default:
+		jsonStr = `"{{ default_result_wire_name }}"`
 	}
 	*outResult = C.CString(jsonStr)
 	return C.int32_t(r.Code)

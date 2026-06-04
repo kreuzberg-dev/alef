@@ -949,7 +949,8 @@ fn render_test_case(
     };
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
 
     // Streaming-error detection: a fixture that calls a streaming function with an
     // error assertion (e.g. 401, 400 content-policy) — the upstream rejects before
@@ -959,7 +960,7 @@ fn render_test_case(
     // before the expect wrapper exits.
     //
     // Triggers in two cases:
-    // - Declared streaming call (`call_config.streaming = true`) + error fixture.
+    // - Declared streaming call (`call_config.streaming_enabled() = true`) + error fixture.
     // - Heuristic name-based detection (function name contains "stream") for
     //   fixtures that pre-date the explicit `streaming` flag.
     let is_streaming_error_call = expects_error && (is_streaming || function_name.to_lowercase().contains("stream"));

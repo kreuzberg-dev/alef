@@ -221,6 +221,7 @@ impl Backend for GoBackend {
 
             let visitor_content = if let (Some(vt), Some(visitor_func)) = (visitor_trait, visitor_function) {
                 strip_trailing_whitespace(&crate::backends::go::gen_visitor::gen_visitor_file(
+                    api,
                     &pkg_name,
                     &ffi_prefix,
                     &ffi_header,

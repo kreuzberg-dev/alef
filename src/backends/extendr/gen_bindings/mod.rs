@@ -1032,7 +1032,7 @@ fn gen_options_rs(api: &ApiSurface, opts_type: &TypeDef, _core_import: &str) -> 
     // Helper function for list access
     code.push_str("/// Helper: extract and convert a value from an R list by name.\n");
     code.push_str("fn list_get(list: &List, key: &str) -> Option<Robj> {\n");
-    code.push_str("    let names = list.names().ok();\n");
+    code.push_str("    let names = list.names();\n");
     code.push_str("    names\n");
     code.push_str("        .iter()\n");
     code.push_str("        .zip(list.iter())\n");
@@ -1184,7 +1184,7 @@ fn gen_enum_decoder(code: &mut String, enum_def: &EnumDef) {
 
     code.push_str("        _ => Err(format!(\"");
     code.push_str(&field_name_snake);
-    code.push_str(": unknown variant '{{}}'\", s)),\n");
+    code.push_str(": unknown variant '{}'\", s)),\n");
     code.push_str("    }\n");
     code.push_str("}\n\n");
 }
@@ -1257,6 +1257,11 @@ fn gen_field_decoder(
     type_defs: &std::collections::HashMap<&str, &TypeDef>,
 ) {
     use crate::core::ir::{PrimitiveType, TypeRef};
+
+    // Skip visitor field — R has no visitor concept; it remains at default None
+    if field.name == "visitor" {
+        return;
+    }
 
     // Map the core field type to the binding type before generating decoder logic
     let binding_ty = map_type_to_binding(&field.ty);
@@ -1445,8 +1450,14 @@ fn gen_field_decoder(
                     code.push_str("(v)?);\n");
                     code.push_str("    }\n");
                 }
-                TypeRef::Primitive(_prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
-                    // R maps these types to Option<f64> in the binding layer
+                TypeRef::Primitive(prim @ (PrimitiveType::U64 | PrimitiveType::Usize)) => {
+                    // R maps these types to Option<f64> in the binding layer, but the core
+                    // field uses the original integer type, so cast f64 back to the core type.
+                    let core_ty = match prim {
+                        PrimitiveType::U64 => "u64",
+                        PrimitiveType::Usize => "usize",
+                        _ => unreachable!(),
+                    };
                     code.push_str("    if let Some(v) = list_get(&list, \"");
                     code.push_str(field_name_trim);
                     code.push_str("\") {\n");
@@ -1456,7 +1467,9 @@ fn gen_field_decoder(
                     code.push_str(": {e}\"))?;\n");
                     code.push_str("            opts.");
                     code.push_str(field_name);
-                    code.push_str(" = Some(f64_val);\n");
+                    code.push_str(" = Some(f64_val as ");
+                    code.push_str(core_ty);
+                    code.push_str(");\n");
                     code.push_str("        }\n");
                     code.push_str("    }\n");
                 }

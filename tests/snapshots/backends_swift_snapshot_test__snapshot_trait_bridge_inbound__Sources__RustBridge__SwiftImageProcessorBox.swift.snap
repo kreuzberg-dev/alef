@@ -9,12 +9,12 @@ expression: "&file.content"
 import Foundation
 import RustBridge
 
-/// Opaque box class retained by Rust via `Unmanaged<SwiftOcrBackendBox>.passRetained`.
-/// Wraps `any SwiftOcrBackendBridge` and exposes `alef_*` FFI shim methods.
+/// Opaque box class retained by Rust via `Unmanaged<SwiftImageProcessorBox>.passRetained`.
+/// Wraps `any SwiftImageProcessorBridge` and exposes `alef_*` FFI shim methods.
 /// swift-bridge @_cdecl shims call these methods directly.
-public final class SwiftOcrBackendBox {
-    private let bridge: any SwiftOcrBackendBridge
-    public init(_ bridge: any SwiftOcrBackendBridge) { self.bridge = bridge }
+public final class SwiftImageProcessorBox {
+    private let bridge: any SwiftImageProcessorBridge
+    public init(_ bridge: any SwiftImageProcessorBridge) { self.bridge = bridge }
 
     // MARK: Plugin super-trait shims
 

@@ -1,6 +1,6 @@
 use alef::backends::go::gen_visitor::gen_visitor_file;
 use alef::core::config::{BridgeBinding, TraitBridgeConfig};
-use alef::core::ir::{FunctionDef, ParamDef, TypeRef};
+use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FieldDef, FunctionDef, ParamDef, TypeDef, TypeRef};
 
 /// Smoke test: gen_visitor_file produces output with the expected prefix structure.
 /// The exact C struct name depends on `vtable_trait_name` and `ffi_prefix`.
@@ -63,6 +63,7 @@ fn test_visitor_file_emits_prefixed_struct() {
     };
 
     let output = gen_visitor_file(
+        &ApiSurface::default(),
         "mypkg",
         "htm",
         "my_lib.h",
@@ -137,6 +138,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
     };
 
     let output = gen_visitor_file(
+        &ApiSurface::default(),
         "mypkg",
         "krz",
         "my_lib.h",
@@ -212,6 +214,7 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
     };
 
     let output = gen_visitor_file(
+        &ApiSurface::default(),
         "mypkg",
         "krz",
         "my_lib.h",
@@ -225,6 +228,78 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
     );
 
     assert!(output.is_empty());
+    assert!(!output.contains("type NodeContext struct"));
+    assert!(!output.contains("type VisitResult struct"));
+}
+
+#[test]
+fn test_visitor_file_uses_ir_context_fields_and_result_enum_wire_names() {
+    let trait_def = trait_def(
+        "SyntaxVisitor",
+        vec![method(
+            "visit_token",
+            vec![
+                param("_ctx", TypeRef::Named("ParseContext".to_string()), false),
+                param("_token", TypeRef::String, false),
+            ],
+            TypeRef::Named("WalkOutcome".to_string()),
+        )],
+    );
+    let mut api = ApiSurface::default();
+    api.types.push(context_type(
+        "ParseContext",
+        vec![
+            field("rule_name", TypeRef::String, false),
+            field(
+                "byte_offset",
+                TypeRef::Primitive(alef::core::ir::PrimitiveType::Usize),
+                false,
+            ),
+            field("source_path", TypeRef::String, true),
+        ],
+    ));
+    api.enums.push(result_enum(
+        "WalkOutcome",
+        vec![
+            variant("Proceed", None, false),
+            variant("StopHere", None, false),
+            variant("ReplaceWith", Some("replacement"), true),
+            variant("Diagnostic", Some("message"), true),
+        ],
+        Some("snake_case"),
+    ));
+
+    let output = gen_visitor_file(
+        &api,
+        "parser",
+        "prs",
+        "parser.h",
+        "../ffi",
+        "..",
+        "SyntaxVisitor",
+        "visitor",
+        &trait_def,
+        &bridge_config(
+            "SyntaxVisitor",
+            "ParseOptions",
+            "visitor",
+            "SyntaxVisitorHandle",
+            Some("ParseContext"),
+            Some("WalkOutcome"),
+        ),
+        &bridge_function("parse", "source", "options", "ParseOptions", "ParseTree"),
+    );
+
+    assert!(output.contains("type ParseContext struct"));
+    assert!(output.contains("RuleName string `json:\"rule_name\"`"));
+    assert!(output.contains("ByteOffset uint `json:\"byte_offset\"`"));
+    assert!(output.contains("SourcePath *string `json:\"source_path\"`"));
+    assert!(output.contains("type WalkOutcome struct"));
+    assert!(output.contains("func WalkOutcomeProceed() WalkOutcome"));
+    assert!(output.contains("func WalkOutcomeReplaceWith(replacement string) WalkOutcome"));
+    assert!(output.contains("jsonStr = `\"stop_here\"`"));
+    assert!(output.contains("jsonStr = `{\"replace_with\":` + string(b) + `}`"));
+    assert!(!output.contains("PreserveHTML"));
     assert!(!output.contains("type NodeContext struct"));
     assert!(!output.contains("type VisitResult struct"));
 }
@@ -280,6 +355,118 @@ fn bridge_function(
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+    }
+}
+
+fn trait_def(name: &str, methods: Vec<alef::core::ir::MethodDef>) -> TypeDef {
+    TypeDef {
+        name: name.to_string(),
+        rust_path: format!("sample::{name}"),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods,
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    }
+}
+
+fn method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> alef::core::ir::MethodDef {
+    alef::core::ir::MethodDef {
+        name: name.to_string(),
+        params,
+        return_type,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(alef::core::ir::ReceiverKind::RefMut),
+        sanitized: false,
+        trait_source: None,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: true,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    }
+}
+
+fn context_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
+    let mut type_def = trait_def(name, vec![]);
+    type_def.is_trait = false;
+    type_def.fields = fields;
+    type_def
+}
+
+fn field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
+    FieldDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: alef::core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    }
+}
+
+fn result_enum(name: &str, variants: Vec<EnumVariant>, serde_rename_all: Option<&str>) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("sample::{name}"),
+        original_rust_path: String::new(),
+        variants,
+        doc: String::new(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: false,
+        serde_rename_all: serde_rename_all.map(str::to_string),
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+    }
+}
+
+fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVariant {
+    EnumVariant {
+        name: name.to_string(),
+        fields: payload_field
+            .map(|field_name| vec![field(field_name, TypeRef::String, false)])
+            .unwrap_or_default(),
+        doc: String::new(),
+        is_default: false,
+        serde_rename: None,
+        is_tuple,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        originally_had_data_fields: payload_field.is_some(),
     }
 }
 

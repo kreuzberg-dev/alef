@@ -8,8 +8,8 @@ expression: "&file.content"
 import Foundation
 import RustBridge
 
-/// OCR configuration.
-public struct OcrConfig: Codable, Sendable, Hashable {
+/// Image configuration.
+public struct ImageConfig: Codable, Sendable, Hashable {
     public let language: String
     public init(language: String) {
         self.language = language
@@ -23,18 +23,18 @@ public struct OcrConfig: Codable, Sendable, Hashable {
     }
 }
 
-// MARK: - Internal FFI conversions for OcrConfig
-internal extension OcrConfig {
-    init(_ rb: RustBridge.OcrConfigRef) throws {
+// MARK: - Internal FFI conversions for ImageConfig
+internal extension ImageConfig {
+    init(_ rb: RustBridge.ImageConfigRef) throws {
         self.language = rb.language().toString()
     }
-    func intoRust() throws -> RustBridge.OcrConfig {
-        return RustBridge.OcrConfig(RustString(self.language))
+    func intoRust() throws -> RustBridge.ImageConfig {
+        return RustBridge.ImageConfig(RustString(self.language))
     }
 }
 
 /// Result of extraction.
-public struct ExtractionResult: Codable, Sendable, Hashable {
+public struct ProcessingResult: Codable, Sendable, Hashable {
     public let text: String
     public init(text: String) {
         self.text = text
@@ -48,13 +48,13 @@ public struct ExtractionResult: Codable, Sendable, Hashable {
     }
 }
 
-// MARK: - Internal FFI conversions for ExtractionResult
-internal extension ExtractionResult {
-    init(_ rb: RustBridge.ExtractionResultRef) throws {
+// MARK: - Internal FFI conversions for ProcessingResult
+internal extension ProcessingResult {
+    init(_ rb: RustBridge.ProcessingResultRef) throws {
         self.text = rb.text().toString()
     }
-    func intoRust() throws -> RustBridge.ExtractionResult {
-        return RustBridge.ExtractionResult(RustString(self.text))
+    func intoRust() throws -> RustBridge.ProcessingResult {
+        return RustBridge.ProcessingResult(RustString(self.text))
     }
 }
 
@@ -63,14 +63,14 @@ internal extension ExtractionResult {
 // First-class struct types (Codable) use JSONDecoder directly.
 // Opaque RustBridge types forward to RustBridge.
 
-public func ocrConfigFromJson(_ json: String) throws -> OcrConfig {
+public func ocrConfigFromJson(_ json: String) throws -> ImageConfig {
     let data = json.data(using: .utf8) ?? Data()
-    return try JSONDecoder().decode(OcrConfig.self, from: data)
+    return try JSONDecoder().decode(ImageConfig.self, from: data)
 }
 
-public func extractionResultFromJson(_ json: String) throws -> ExtractionResult {
+public func extractionResultFromJson(_ json: String) throws -> ProcessingResult {
     let data = json.data(using: .utf8) ?? Data()
-    return try JSONDecoder().decode(ExtractionResult.self, from: data)
+    return try JSONDecoder().decode(ProcessingResult.self, from: data)
 }
 
 // MARK: - Trait Bridge Registration Forwarders
@@ -78,20 +78,20 @@ public func extractionResultFromJson(_ json: String) throws -> ExtractionResult 
 // `register_*` / `unregister_*` / `clear_*` plugin registration entry
 // points so consumers do not need to `import RustBridge` for plugin work.
 
-/// Register an inbound `OcrBackend` plugin implementation. The Swift
-/// host wraps a `OcrBackend` conformer in a `SwiftOcrBackendBox` adapter
+/// Register an inbound `ImageProcessor` plugin implementation. The Swift
+/// host wraps a `ImageProcessor` conformer in a `SwiftImageProcessorBox` adapter
 /// (see `Sources/RustBridge/Plugins.swift`); pass the wrapped instance to
 /// register the plugin in the global registry.
-public func registerOcrBackend(_ swiftBox: SwiftOcrBackendBox) throws {
-    try RustBridge.registerOcrBackend(swiftBox)
+public func registerImageProcessor(_ swiftBox: SwiftImageProcessorBox) throws {
+    try RustBridge.registerImageProcessor(swiftBox)
 }
 
-/// Unregister a previously-registered `OcrBackend` plugin by name.
-public func unregisterOcrBackend(_ name: String) throws {
-    try RustBridge.unregisterOcrBackend(name)
+/// Unregister a previously-registered `ImageProcessor` plugin by name.
+public func unregisterImageProcessor(_ name: String) throws {
+    try RustBridge.unregisterImageProcessor(name)
 }
 
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
-extension RustBridge.OcrConfig: @unchecked Sendable {}
+extension RustBridge.ImageConfig: @unchecked Sendable {}
 // swift-bridge opaque type used across Task.detached boundaries — Rust type is Send + Sync.
-extension RustBridge.ExtractionResult: @unchecked Sendable {}
+extension RustBridge.ProcessingResult: @unchecked Sendable {}
