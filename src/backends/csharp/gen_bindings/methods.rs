@@ -64,9 +64,15 @@ fn gen_opaque_streaming_static_wrapper(
     let method_name = to_csharp_name(&method.name);
     let item_type = csharp_type_name(&meta.item_type);
 
-    // Emit XML doc comment
+    // Emit XML doc comment. Multi-paragraph rustdoc (blank-line-separated)
+    // must have `/// ` prefixed on every line, otherwise C# parses the
+    // unprefixed continuation lines as raw code.
     out.push_str("    /// <summary>\n");
-    out.push_str(&format!("    /// {}\n", &method.doc));
+    for line in method.doc.lines() {
+        out.push_str("    /// ");
+        out.push_str(line);
+        out.push('\n');
+    }
     out.push_str("    /// </summary>\n");
     out.push_str(&format!(
         "    /// <param name=\"engine\">Opaque handle to {}</param>\n",
