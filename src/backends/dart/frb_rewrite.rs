@@ -436,28 +436,31 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
             (i..std::cmp::min(i + 10, lines.len())).any(|j| lines[j].contains("await handler("));
 
         if contains_await_handler {
-            // Check if this line ends a function/closure signature and opens a body
-            // Patterns to handle:
-            // 1. `(...) {` (anonymous/closure start)
-            // 2. `methodName(...) {` (method start)
-            // 3. `(...) => ...` (arrow function, might need conversion)
-
-            // For now, focus on the most common pattern: function signature ending with ) {
-            if line.contains('{') && !line.trim().starts_with("//") && !line.contains("async") {
-                // Check if this is likely a function/closure signature line
-                if (line.contains("(") && line.contains(")")) || line.trim().ends_with("{") {
-                    // Insert `async` before the opening brace
-                    let fixed = if line.contains(") {") {
-                        line.replace(") {", ") async {")
-                    } else if line.ends_with("{") && !line.trim().starts_with("}") {
-                        format!("{} async {{", line.trim_end_matches('{').trim_end())
-                    } else {
-                        line.to_string()
-                    };
-                    result.push_str(&fixed);
+            // Only insert `async` on a line whose `(` and `)` are balanced —
+            // otherwise this is the OPENING of a multi-line named-parameter
+            // block (`methodName({` … `}) async {` several lines down) and the
+            // closing `}) async {` farther on is the real body-opener, which
+            // already carries `async`. Mutating the opening line produces the
+            // malformed `methodName( async {` that fails to parse.
+            let parens_balanced = line.chars().filter(|c| *c == '(').count()
+                == line.chars().filter(|c| *c == ')').count();
+            if parens_balanced
+                && line.contains('{')
+                && !line.trim().starts_with("//")
+                && !line.contains("async")
+            {
+                let fixed = if line.contains(") {") {
+                    line.replace(") {", ") async {")
+                } else if line.ends_with("{")
+                    && line.contains('(')
+                    && line.contains(')')
+                    && !line.trim().starts_with("}")
+                {
+                    format!("{} async {{", line.trim_end_matches('{').trim_end())
                 } else {
-                    result.push_str(line);
-                }
+                    line.to_string()
+                };
+                result.push_str(&fixed);
             } else {
                 result.push_str(line);
             }
