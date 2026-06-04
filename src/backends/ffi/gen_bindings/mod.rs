@@ -487,8 +487,25 @@ fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateConfig) -> S
             }
         }
 
+        // Build exclude set for FFI method emission. Defense-in-depth against API surface
+        // inconsistencies: ensures methods listed in config.exclude.methods are never emitted,
+        // even if they appear in typ.methods (which should not happen post-extraction, but
+        // prevents header/impl desynchronization if an excluded method somehow persists).
+        let ffi_exclude_methods: ahash::AHashSet<String> = config
+            .exclude
+            .methods
+            .iter()
+            .cloned()
+            .collect();
+
         // Method wrappers — streaming adapters get a dedicated callback-based wrapper.
         for method in &typ.methods {
+            // Check if this method is excluded by config.exclude.methods.
+            let method_key = format!("{}.{}", typ.name, method.name);
+            if ffi_exclude_methods.contains(&method_key) {
+                continue;
+            }
+
             // Skip methods with generic type parameters or builder-style returns.
             // These are handled via the service-API registration path instead.
             if should_skip_method_wrapper(method, typ, &path_map) {
