@@ -38,7 +38,7 @@ expect_gt({{ expr }}, {{ r_val }})
 # skipped: unsupported assertion type on synthetic field 'embedding_dimensions'
 {%- endif %}
 {%- elif assertion_kind == "keywords" %}
-# skipped: field '{{ field_name }}' not available on R ExtractionResult
+# skipped: field '{{ field_name }}' not available on R result type
 {%- elif assertion_kind == "skipped" %}
 # skipped: field '{{ field_name }}' not available on result type
 {%- elif assertion_kind == "result_is_simple" %}

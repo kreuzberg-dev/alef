@@ -696,7 +696,25 @@ impl client::TestClientRenderer for CSharpTestClientRenderer {
             let content_type = ctx.content_type.unwrap_or("application/json");
             let json_str = serde_json::to_string(body).unwrap_or_default();
             let escaped = escape_csharp(&json_str);
-            out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
+
+            // For multipart/form-data with boundary, use ByteArrayContent with explicit header
+            // because StringContent constructor rejects boundary in MediaType.
+            if content_type.contains("multipart/form-data") && content_type.contains("boundary=") {
+                // Extract the base content type and boundary parameter
+                let boundary_pos = content_type.find("boundary=").unwrap_or(0);
+                let boundary_value = &content_type[boundary_pos + 9..];
+
+                out.push_str("        var multipartBytes = System.Text.Encoding.UTF8.GetBytes(\"");
+                out.push_str(&escaped);
+                out.push_str("\");\n");
+                out.push_str("        var multipartContent = new System.Net.Http.ByteArrayContent(multipartBytes);\n");
+                out.push_str("        var mediaType = new System.Net.Http.Headers.MediaTypeHeaderValue(\"multipart/form-data\");\n");
+                out.push_str(&format!("        mediaType.Parameters.Add(new System.Net.Http.Headers.NameValueHeaderValue(\"boundary\", \"{boundary_value}\"));\n"));
+                out.push_str("        multipartContent.Headers.ContentType = mediaType;\n");
+                out.push_str("        request.Content = multipartContent;\n");
+            } else {
+                out.push_str(&format!("        request.Content = new System.Net.Http.StringContent(\"{escaped}\", System.Text.Encoding.UTF8, \"{content_type}\");\n"));
+            }
         }
 
         // Add request headers (skip restricted headers that belong to Content.Headers).

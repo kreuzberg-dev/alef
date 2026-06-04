@@ -374,6 +374,27 @@ fn reports_string_literal_fallbacks_in_e2e_codegen() {
 }
 
 #[test]
+fn reports_plain_downstream_sample_literals_in_e2e_codegen() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let codegen_dir = dir.path().join("src").join("e2e").join("codegen");
+    fs::create_dir_all(&codegen_dir).expect("create e2e codegen dir");
+    let file = codegen_dir.join("zig.rs");
+    fs::write(&file, "out.push_str(\"sample-crawler\");\n").expect("write fixture");
+
+    let output = run_hook(&[&file]);
+
+    assert!(
+        !output.status.success(),
+        "hook should reject plain downstream sample literals in production e2e codegen"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream sample fixture mention `sample-crawler`"),
+        "stderr: {stderr}"
+    );
+}
+
+#[test]
 fn reports_downstream_domain_types_in_scaffold_and_publish_files() {
     let dir = tempfile::tempdir().expect("tempdir");
     let scaffold_dir = dir.path().join("src").join("scaffold");

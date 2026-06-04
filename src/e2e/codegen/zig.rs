@@ -72,6 +72,7 @@ impl E2eCodegen for ZigE2eCodegen {
             .unwrap_or_else(|| "0.1.0".to_string());
         // Explicit hash override from alef.toml takes precedence over auto-fetch.
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
+        let platform_hash_overrides = zig_pkg.as_ref().map(|p| p.platform_hashes.clone()).unwrap_or_default();
 
         // Use the crate name for constructing the release URL (hyphenated form).
         let crate_name = &config.name;
@@ -84,11 +85,9 @@ impl E2eCodegen for ZigE2eCodegen {
         } else {
             false
         };
-        // Resolve content multihash for registry mode.
-        // In registry mode, we emit multi-target lazy dependencies (Zig 0.13+), one per platform.
-        // Each target gets a separate `.url` and `.hash`. The build.zig script selects the
-        // right one based on the target triple via `b.lazyDependency(name, .{})`.
-        // For local mode, we emit a single path-based dependency.
+        // Resolve content multihashes for registry mode. A single `hash` applies only to the
+        // generic package tarball. Platform-specific release assets must provide
+        // `platform_hashes`, because Zig hashes are content-specific.
         let platform_hashes = if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             if hash_is_stale {
                 bail!(
@@ -103,37 +102,43 @@ impl E2eCodegen for ZigE2eCodegen {
                     config.name
                 );
             };
-            let Some(explicit_hash) = explicit_hash.as_deref() else {
-                bail!(
-                    "zig registry mode requires explicit `[crates.e2e.registry.packages.zig] hash` for crate `{}`",
-                    config.name
-                );
-            };
             let github_repo = github_repo_owned.trim_end_matches('/');
             let mut hashes = BTreeMap::new();
-
-            // Define all supported platforms from the publish workflow matrix.
-            let platforms = vec![
-                "linux-x86_64",
-                "linux-aarch64",
-                "macos-arm64",
-                "macos-x86_64",
-                "windows-x86_64",
-            ];
-
-            for platform in platforms {
-                let url = format!(
-                    "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
+            if platform_hash_overrides.is_empty() {
+                let Some(explicit_hash) = explicit_hash.as_deref() else {
+                    bail!(
+                        "zig registry mode requires explicit `[crates.e2e.registry.packages.zig] hash` or platform_hashes for crate `{}`",
+                        config.name
+                    );
+                };
+                let url =
+                    format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
+                hashes.insert(
+                    "generic".to_string(),
+                    (url.clone(), resolve_zig_hash(Some(explicit_hash), &url)),
                 );
-                // Use the single explicit hash from alef.toml for all platforms
-                // (the hash is computed per-platform during publish, but we store a generic one in config).
-                let hash = resolve_zig_hash(Some(explicit_hash), &url);
-                hashes.insert(platform.to_string(), (url, hash));
+            } else {
+                for platform in supported_zig_platforms() {
+                    let Some(platform_hash) = platform_hash_overrides.get(*platform) else {
+                        bail!(
+                            "zig registry mode requires `[crates.e2e.registry.packages.zig.platform_hashes.{platform}]` for crate `{}`",
+                            config.name
+                        );
+                    };
+                    let url = format!(
+                        "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
+                    );
+                    hashes.insert(
+                        platform.to_string(),
+                        (url.clone(), resolve_zig_hash(Some(platform_hash), &url)),
+                    );
+                }
             }
             hashes
         } else {
             BTreeMap::new()
         };
+        let use_platform_registry_deps = uses_platform_registry_deps(&platform_hashes);
 
         // Generate build.zig.zon (Zig package manifest).
         files.push(GeneratedFile {
@@ -314,6 +319,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     },
                     &e2e_config.test_documents_relative_from(0),
                     e2e_config.dep_mode,
+                    use_platform_registry_deps,
                 ),
                 generated_header: false,
             },
@@ -532,6 +538,20 @@ fn resolve_zig_hash(explicit: Option<&str>, url: &str) -> Option<String> {
     }
 }
 
+fn supported_zig_platforms() -> &'static [&'static str] {
+    &[
+        "linux-x86_64",
+        "linux-aarch64",
+        "macos-arm64",
+        "macos-x86_64",
+        "windows-x86_64",
+    ]
+}
+
+fn uses_platform_registry_deps(platform_hashes: &BTreeMap<String, (String, Option<String>)>) -> bool {
+    platform_hashes.keys().any(|platform| platform != "generic")
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -547,36 +567,45 @@ fn render_build_zig_zon(
 ) -> String {
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Emit multi-target lazy dependencies (Zig 0.13+), one per platform.
-            // Each platform variant is declared with .lazy = true so Zig only fetches
-            // the one matching the consumer's target triple. The build.zig script
-            // selects the right one based on the target via `b.lazyDependency(name, .{})`.
+            let use_platform_registry_deps = uses_platform_registry_deps(platform_hashes);
             let mut entries = Vec::new();
             for (platform, (url, hash_opt)) in platform_hashes {
-                let dep_name = format!("{}_{}", pkg_name, platform.replace('-', "_"));
+                let dep_name = if use_platform_registry_deps {
+                    format!("{}_{}", pkg_name, platform.replace('-', "_"))
+                } else {
+                    pkg_name.to_string()
+                };
+                let lazy_line = if use_platform_registry_deps {
+                    "\n            .lazy = true,"
+                } else {
+                    ""
+                };
                 let entry = match hash_opt {
                     Some(h) if hash_is_stale => {
                         format!(
-                            "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{dep_name} = .{{\n            .url = \"{url}\",\n            .lazy = true,\n        }},",
+                            "        // STALE hash (embedded version != current); regenerate via `alef sync-versions`\n        // expected to match crate v{version}, was: {h}\n        .{dep_name} = .{{\n            .url = \"{url}\",{lazy_line}\n        }},",
                             version = version,
                             url = url,
                             h = h,
-                            dep_name = dep_name
+                            dep_name = dep_name,
+                            lazy_line = lazy_line
                         )
                     }
                     Some(h) => {
                         format!(
-                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",\n            .lazy = true,\n        }},",
+                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .hash = \"{h}\",{lazy_line}\n        }},",
                             dep_name = dep_name,
                             url = url,
-                            h = h
+                            h = h,
+                            lazy_line = lazy_line
                         )
                     }
                     None => {
                         format!(
-                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .lazy = true,\n        }},",
+                            "        .{dep_name} = .{{\n            .url = \"{url}\",{lazy_line}\n        }},",
                             dep_name = dep_name,
-                            url = url
+                            url = url,
+                            lazy_line = lazy_line
                         )
                     }
                 };
@@ -652,6 +681,7 @@ fn render_build_zig(
     flags: ZigBuildFlags,
     test_documents_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
+    use_platform_registry_deps: bool,
 ) -> String {
     let ZigBuildFlags {
         has_file_fixtures,
@@ -660,6 +690,24 @@ fn render_build_zig(
     if test_filenames.is_empty() {
         return match dep_mode {
             crate::e2e::config::DependencyMode::Registry => {
+                if !use_platform_registry_deps {
+                    return format!(
+                        r#"const std = @import("std");
+
+pub fn build(b: *std.Build) void {{
+    const target = b.standardTargetOptions(.{{}});
+    const optimize = b.standardOptimizeOption(.{{}});
+
+    const {module_name}_module = b.dependency("{pkg_name}", .{{
+        .target = target,
+        .optimize = optimize,
+    }}).module("{module_name}");
+
+    const test_step = b.step("test", "Run tests");
+}}
+"#
+                    );
+                }
                 format!(
                     r#"const std = @import("std");
 
@@ -724,64 +772,91 @@ pub fn build(b: *std.Build) void {
     content.push_str("    const test_step = b.step(\"test\", \"Run tests\");\n");
     match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Registry mode: use multi-target lazy dependencies (Zig 0.13+).
-            // Each platform variant is declared with .lazy = true so Zig only fetches
-            // the one matching this build's target triple. The build script selects the
-            // right dependency name based on the target via `b.lazyDependency(name, .{})`.
-            content.push_str(
-                "\n    // Fetch the published Zig package from the registry (multi-target lazy dependency).\n",
-            );
-            content.push_str("    // Select the appropriate platform variant based on the target triple.\n");
-            content.push_str("    const target_os = target.result.os.tag;\n");
-            content.push_str("    const target_arch = target.result.cpu.arch;\n");
-            content.push('\n');
-            content.push_str(&format!(
-                "    const {pkg_name}_dep_name = if (target_os == .linux and target_arch == .x86_64)\n"
-            ));
-            content.push_str(&format!("        \"{pkg_name}_linux_x86_64\"\n"));
-            content.push_str("    else if (target_os == .linux and target_arch == .aarch64)\n");
-            content.push_str(&format!("        \"{pkg_name}_linux_aarch64\"\n"));
-            content.push_str("    else if (target_os == .macos and target_arch == .aarch64)\n");
-            content.push_str(&format!("        \"{pkg_name}_macos_arm64\"\n"));
-            content.push_str("    else if (target_os == .macos and target_arch == .x86_64)\n");
-            content.push_str(&format!("        \"{pkg_name}_macos_x86_64\"\n"));
-            content.push_str("    else if (target_os == .windows and target_arch == .x86_64)\n");
-            content.push_str(&format!("        \"{pkg_name}_windows_x86_64\"\n"));
-            content.push_str("    else\n");
-            content.push_str("        @compileError(\"unsupported target: \" ++ target.result.cpu.arch.genericName() ++ \" on \" ++ @tagName(target_os));\n");
-            content.push('\n');
-            let _ = writeln!(
-                content,
-                "    const {pkg_name}_dep = b.lazyDependency({pkg_name}_dep_name, .{{"
-            );
-            content.push_str("        .target = target,\n");
-            content.push_str("        .optimize = optimize,\n");
-            let _ = writeln!(content, "    }}) orelse return;");
-            let _ = writeln!(
-                content,
-                "    const {module_name}_module = {pkg_name}_dep.module(\"{module_name}\");"
-            );
-            // Conditionally link FFI from the fetched package's bundled lib/include.
-            // If the fetched package's build.zig is the new distributable version,
-            // it already exports a module with FFI linked, and these lines are
-            // redundant but harmless. If the fetched package's build.zig is an old
-            // development version (still references ../../target/release), these
-            // lines ensure FFI linking works from the tarball's own lib/ directory.
-            let _ = writeln!(content, "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");");
-            let _ = writeln!(
-                content,
-                "    const {pkg_name}_include_path = {pkg_name}_dep.path(\"include\");"
-            );
-            let _ = writeln!(content, "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);");
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.addIncludePath({pkg_name}_include_path);"
-            );
-            let _ = writeln!(
-                content,
-                "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
-            );
-            let _ = writeln!(content);
+            if !use_platform_registry_deps {
+                content.push_str("\n    // Fetch the published Zig package from the registry.\n");
+                let _ = writeln!(content, "    const {pkg_name}_dep = b.dependency(\"{pkg_name}\", .{{");
+                content.push_str("        .target = target,\n");
+                content.push_str("        .optimize = optimize,\n");
+                let _ = writeln!(content, "    }});");
+                let _ = writeln!(
+                    content,
+                    "    const {module_name}_module = {pkg_name}_dep.module(\"{module_name}\");"
+                );
+                let _ = writeln!(content, "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");");
+                let _ = writeln!(
+                    content,
+                    "    const {pkg_name}_include_path = {pkg_name}_dep.path(\"include\");"
+                );
+                let _ = writeln!(content, "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);");
+                let _ = writeln!(
+                    content,
+                    "    {module_name}_module.addIncludePath({pkg_name}_include_path);"
+                );
+                let _ = writeln!(
+                    content,
+                    "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+                );
+                let _ = writeln!(content);
+            } else {
+                // Registry mode with per-platform assets: use multi-target lazy dependencies (Zig 0.13+).
+                // Each platform variant is declared with .lazy = true so Zig only fetches
+                // the one matching this build's target triple. The build script selects the
+                // right dependency name based on the target via `b.lazyDependency(name, .{})`.
+                content.push_str(
+                    "\n    // Fetch the published Zig package from the registry (multi-target lazy dependency).\n",
+                );
+                content.push_str("    // Select the appropriate platform variant based on the target triple.\n");
+                content.push_str("    const target_os = target.result.os.tag;\n");
+                content.push_str("    const target_arch = target.result.cpu.arch;\n");
+                content.push('\n');
+                content.push_str(&format!(
+                    "    const {pkg_name}_dep_name = if (target_os == .linux and target_arch == .x86_64)\n"
+                ));
+                content.push_str(&format!("        \"{pkg_name}_linux_x86_64\"\n"));
+                content.push_str("    else if (target_os == .linux and target_arch == .aarch64)\n");
+                content.push_str(&format!("        \"{pkg_name}_linux_aarch64\"\n"));
+                content.push_str("    else if (target_os == .macos and target_arch == .aarch64)\n");
+                content.push_str(&format!("        \"{pkg_name}_macos_arm64\"\n"));
+                content.push_str("    else if (target_os == .macos and target_arch == .x86_64)\n");
+                content.push_str(&format!("        \"{pkg_name}_macos_x86_64\"\n"));
+                content.push_str("    else if (target_os == .windows and target_arch == .x86_64)\n");
+                content.push_str(&format!("        \"{pkg_name}_windows_x86_64\"\n"));
+                content.push_str("    else\n");
+                content.push_str("        @compileError(\"unsupported target: \" ++ target.result.cpu.arch.genericName() ++ \" on \" ++ @tagName(target_os));\n");
+                content.push('\n');
+                let _ = writeln!(
+                    content,
+                    "    const {pkg_name}_dep = b.lazyDependency({pkg_name}_dep_name, .{{"
+                );
+                content.push_str("        .target = target,\n");
+                content.push_str("        .optimize = optimize,\n");
+                let _ = writeln!(content, "    }}) orelse return;");
+                let _ = writeln!(
+                    content,
+                    "    const {module_name}_module = {pkg_name}_dep.module(\"{module_name}\");"
+                );
+                // Conditionally link FFI from the fetched package's bundled lib/include.
+                // If the fetched package's build.zig is the new distributable version,
+                // it already exports a module with FFI linked, and these lines are
+                // redundant but harmless. If the fetched package's build.zig is an old
+                // development version (still references ../../target/release), these
+                // lines ensure FFI linking works from the tarball's own lib/ directory.
+                let _ = writeln!(content, "    const {pkg_name}_lib_path = {pkg_name}_dep.path(\"lib\");");
+                let _ = writeln!(
+                    content,
+                    "    const {pkg_name}_include_path = {pkg_name}_dep.path(\"include\");"
+                );
+                let _ = writeln!(content, "    {module_name}_module.addLibraryPath({pkg_name}_lib_path);");
+                let _ = writeln!(
+                    content,
+                    "    {module_name}_module.addIncludePath({pkg_name}_include_path);"
+                );
+                let _ = writeln!(
+                    content,
+                    "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+                );
+                let _ = writeln!(content);
+            }
         }
         crate::e2e::config::DependencyMode::Local => {
             let _ = writeln!(
@@ -2251,8 +2326,8 @@ fn render_json_assertion(
     }
 
     // Synthesised chunk-inspection virtual fields. These are not real JSON
-    // fields but are derived predicates over the `chunks` array on
-    // `ExtractionResult`. Other backends (python, ruby, java, etc.) compute
+    // fields but are derived predicates over a result object's `chunks` array.
+    // Other backends (python, ruby, java, etc.) compute
     // these inline; zig parses to `std.json.Value`, so we compute them
     // against `result.object.get("chunks").?.array`.
     if let Some(f) = &assertion.field {
@@ -2592,7 +2667,7 @@ fn build_args_and_setup(
             continue;
         }
 
-        // The Zig wrapper accepts struct parameters (e.g. `ExtractionConfig`)
+        // The Zig wrapper accepts struct parameters
         // as JSON `[]const u8`, converting them to opaque FFI handles via the
         // `<prefix>_<snake>_from_json` helper at the binding layer. Emit the
         // fixture's configuration value as a JSON string literal, falling back
@@ -3583,6 +3658,46 @@ mod zig_hash_tests {
         );
     }
 
+    #[test]
+    fn build_zig_zon_emits_platform_hashes_as_lazy_dependencies() {
+        let mut platform_hashes = std::collections::BTreeMap::new();
+        platform_hashes.insert(
+            "linux-x86_64".to_string(),
+            (
+                "https://github.com/sample_crate-dev/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-linux-x86_64.tar.gz"
+                    .to_string(),
+                Some("1220linux".to_string()),
+            ),
+        );
+        platform_hashes.insert(
+            "macos-arm64".to_string(),
+            (
+                "https://github.com/sample_crate-dev/sample-lib/releases/download/v1.2.3/sample-lib-zig-v1.2.3-macos-arm64.tar.gz"
+                    .to_string(),
+                Some("1220macos".to_string()),
+            ),
+        );
+
+        let content = render_build_zig_zon(
+            "sample_lib",
+            "../../packages/zig",
+            DependencyMode::Registry,
+            "1.2.3",
+            &platform_hashes,
+            false,
+        );
+
+        assert!(content.contains(".sample_lib_linux_x86_64"));
+        assert!(content.contains(".sample_lib_macos_arm64"));
+        assert!(content.contains(".lazy = true"));
+        assert!(content.contains(".hash = \"1220linux\""));
+        assert!(content.contains(".hash = \"1220macos\""));
+        assert!(
+            !content.contains(".sample_lib = .{"),
+            "platform-specific registry mode must not also emit a generic dependency: {content}"
+        );
+    }
+
     /// When no hash is available (None), no fake hash may be emitted for the single generic tarball entry.
     #[test]
     fn build_zig_zon_omits_hash_when_no_hash() {
@@ -3658,6 +3773,7 @@ mod zig_build_tests {
             },
             "test_documents",
             DependencyMode::Registry,
+            false,
         );
 
         // Must NOT reference the workspace-local target directory.
@@ -3702,6 +3818,7 @@ mod zig_build_tests {
             },
             "test_documents",
             DependencyMode::Local,
+            false,
         );
 
         // In local mode, workspace paths are expected for development.

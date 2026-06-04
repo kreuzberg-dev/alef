@@ -2,7 +2,7 @@
 
 use crate::core::config::manifest_extras::ManifestExtras;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Controls whether generated e2e test projects reference the package under
 /// test via a local path (for development) or a registry version string
@@ -508,6 +508,11 @@ impl E2eConfig {
                     module: r.module.clone().or_else(|| b.module.clone()),
                     version: r.version.clone().or_else(|| b.version.clone()),
                     hash: r.hash.clone().or_else(|| b.hash.clone()),
+                    platform_hashes: if r.platform_hashes.is_empty() {
+                        b.platform_hashes.clone()
+                    } else {
+                        r.platform_hashes.clone()
+                    },
                     tap: r.tap.clone().or_else(|| b.tap.clone()),
                     cli_formula: r.cli_formula.clone().or_else(|| b.cli_formula.clone()),
                     ffi_formula: r.ffi_formula.clone().or_else(|| b.ffi_formula.clone()),
@@ -1511,11 +1516,17 @@ pub struct PackageRef {
     pub version: Option<String>,
     /// SHA-256 hash of the published tarball (Zig registry mode).
     ///
-    /// When present, emitted as `.hash = "..."` in `build.zig.zon`.
-    /// When absent in registry mode, alef emits a placeholder comment
-    /// directing the user to run `zig fetch --save <url>` to populate it.
+    /// When present without `platform_hashes`, emitted for the generic package tarball.
+    /// Multi-platform Zig release assets must use `platform_hashes` because Zig hashes are
+    /// content-specific.
     #[serde(default)]
     pub hash: Option<String>,
+    /// Platform-specific Zig package hashes keyed by platform suffix
+    /// (`linux-x86_64`, `linux-aarch64`, `macos-arm64`, `macos-x86_64`, `windows-x86_64`).
+    ///
+    /// When present in registry mode, alef emits one lazy dependency per platform.
+    #[serde(default)]
+    pub platform_hashes: BTreeMap<String, String>,
     /// Homebrew tap name (e.g., `"sample_core-dev/tap"`).
     ///
     /// Used by the `homebrew` test_app generator.
@@ -1992,6 +2003,34 @@ expect_contains = "ok"
         let resolved = cfg.resolve_package("homebrew").expect("must resolve");
         assert_eq!(resolved.cli_tests.len(), 1);
         assert_eq!(resolved.cli_tests[0].name, "registry-check");
+    }
+
+    #[test]
+    fn resolve_package_platform_hashes_registry_wins_over_base() {
+        let toml_src = r#"
+[call]
+function = "f"
+
+[packages.zig.platform_hashes]
+linux-x86_64 = "base-linux"
+
+[registry.packages.zig.platform_hashes]
+linux-x86_64 = "registry-linux"
+macos-arm64 = "registry-macos"
+"#;
+        let mut cfg: E2eConfig = toml::from_str(toml_src).expect("must deserialize");
+        cfg.dep_mode = DependencyMode::Registry;
+
+        let resolved = cfg.resolve_package("zig").expect("must resolve");
+
+        assert_eq!(
+            resolved.platform_hashes.get("linux-x86_64").map(String::as_str),
+            Some("registry-linux")
+        );
+        assert_eq!(
+            resolved.platform_hashes.get("macos-arm64").map(String::as_str),
+            Some("registry-macos")
+        );
     }
 
     #[test]
