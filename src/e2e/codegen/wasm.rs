@@ -704,12 +704,22 @@ fn render_wasm_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup], wasm
                     }
                 }
             }
+            let mut request_obj = serde_json::json!({
+                "path": &http_data.request.path,
+            });
+            // Include content_type if present so the harness can detect
+            // multipart/form-encoded bodies and synthesize them correctly.
+            if let Some(ct) = &http_data.request.content_type {
+                if let serde_json::Value::Object(ref obj) = request_obj {
+                    let mut request_map = obj.clone();
+                    request_map.insert("content_type".to_string(), serde_json::Value::String(ct.clone()));
+                    request_obj = serde_json::Value::Object(request_map);
+                }
+            }
             let fixture_json = serde_json::json!({
                 "http": {
                     "handler": handler_obj,
-                    "request": {
-                        "path": &http_data.request.path,
-                    },
+                    "request": request_obj,
                     "expected_response": {
                         "status_code": http_data.expected_response.status_code,
                         "body": &http_data.expected_response.body,
