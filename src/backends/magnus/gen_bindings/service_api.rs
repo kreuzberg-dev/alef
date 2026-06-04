@@ -92,8 +92,12 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
     out.push_str("# frozen_string_literal: true\n\n");
     out.push_str(&format!("require \"{gem_require_name}\"\n\n"));
 
-    for service in &api.services {
-        gen_service_class(&mut out, service, api, native_module_name);
+    if !api.services.is_empty() {
+        out.push_str(&format!("module {native_module_name}\n"));
+        for service in &api.services {
+            gen_service_class(&mut out, service, api, native_module_name);
+        }
+        out.push_str("end\n");
     }
 
     out
@@ -104,9 +108,9 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
     // Class comment
     if !service.doc.is_empty() {
-        out.push_str(&format_ruby_comment(&service.doc, 0));
+        out.push_str(&format_ruby_comment(&service.doc, 2));
     }
-    out.push_str(&format!("class {class_name}\n"));
+    out.push_str(&format!("  class {class_name}\n"));
 
     // initialize
     {
@@ -130,18 +134,18 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
             format!("({})", init_params.join(", "))
         };
 
-        out.push_str(&format!("  def initialize{param_sig}\n"));
+        out.push_str(&format!("    def initialize{param_sig}\n"));
         if !ctor.doc.is_empty() {
-            out.push_str(&format_ruby_comment(&ctor.doc, 4));
+            out.push_str(&format_ruby_comment(&ctor.doc, 6));
         }
-        out.push_str("    @registrations = []\n");
+        out.push_str("      @registrations = []\n");
 
         // Store constructor params as instance state
         for arg in &stored_args {
-            out.push_str(&format!("    @{arg} = {arg}\n"));
+            out.push_str(&format!("      @{arg} = {arg}\n"));
         }
 
-        out.push_str("  end\n\n");
+        out.push_str("    end\n\n");
     }
 
     // Configurator methods — positional params so callers can pass objects directly
@@ -162,17 +166,17 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         };
         let method_name = &method.name;
 
-        out.push_str(&format!("  def {method_name}{param_sig}\n"));
+        out.push_str(&format!("    def {method_name}{param_sig}\n"));
         if !method.doc.is_empty() {
-            out.push_str(&format_ruby_comment(&method.doc, 4));
+            out.push_str(&format_ruby_comment(&method.doc, 6));
         }
 
         // Store each configurator param as instance state
         for p in &method.params {
-            out.push_str(&format!("    @{} = {}\n", p.name, p.name));
+            out.push_str(&format!("      @{} = {}\n", p.name, p.name));
         }
-        out.push_str("    self\n");
-        out.push_str("  end\n\n");
+        out.push_str("      self\n");
+        out.push_str("    end\n\n");
     }
 
     // Registration methods accepting blocks
@@ -199,36 +203,36 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("  def {ep_name}{param_sig}\n"));
+                out.push_str(&format!("    def {ep_name}{param_sig}\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format_ruby_comment(&ep.doc, 4));
+                    out.push_str(&format_ruby_comment(&ep.doc, 6));
                 }
                 // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("    {native_module_name}.{native_fn}(@registrations"));
+                out.push_str(&format!("      {native_module_name}.{native_fn}(@registrations"));
                 for p in &ep.params {
                     out.push_str(&format!(", {}", p.name));
                 }
                 out.push_str(")\n");
-                out.push_str("  end\n\n");
+                out.push_str("    end\n\n");
             }
             EntrypointKind::Finalize => {
-                out.push_str(&format!("  def {ep_name}{param_sig}\n"));
+                out.push_str(&format!("    def {ep_name}{param_sig}\n"));
                 if !ep.doc.is_empty() {
-                    out.push_str(&format_ruby_comment(&ep.doc, 4));
+                    out.push_str(&format_ruby_comment(&ep.doc, 6));
                 }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("    {native_module_name}.{native_fn}(@registrations"));
+                out.push_str(&format!("      {native_module_name}.{native_fn}(@registrations"));
                 for p in &ep.params {
                     out.push_str(&format!(", {}", p.name));
                 }
                 out.push_str(")\n");
-                out.push_str("  end\n\n");
+                out.push_str("    end\n\n");
             }
         }
     }
 
-    out.push_str("end\n\n");
+    out.push_str("  end\n\n");
 }
 
 fn gen_registration_method(
@@ -262,9 +266,9 @@ fn gen_registration_method(
         format!("({}, &block)", positional_params.join(", "))
     };
 
-    out.push_str(&format!("  def {method_name}{param_sig}\n"));
+    out.push_str(&format!("    def {method_name}{param_sig}\n"));
     if !reg.doc.is_empty() {
-        out.push_str(&format_ruby_comment(&reg.doc, 4));
+        out.push_str(&format_ruby_comment(&reg.doc, 6));
     }
 
     // Collect metadata param names for the tuple
@@ -276,10 +280,10 @@ fn gen_registration_method(
     };
 
     out.push_str(&format!(
-        "    @registrations.push([\"{method_name}\", {meta_tuple}, block])\n"
+        "      @registrations.push([\"{method_name}\", {meta_tuple}, block])\n"
     ));
-    out.push_str("    self\n");
-    out.push_str("  end\n\n");
+    out.push_str("      self\n");
+    out.push_str("    end\n\n");
 
     // Also expose a positional companion `register_{method_name}(meta..., handler)`
     // so harness code and scripts can pass a callable without using Ruby block syntax.
@@ -293,16 +297,16 @@ fn gen_registration_method(
             let positional_meta: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
             format!("({}, {})", positional_meta.join(", "), reg.callback_param)
         };
-        out.push_str(&format!("  def {direct_name}{direct_param_sig}\n"));
+        out.push_str(&format!("    def {direct_name}{direct_param_sig}\n"));
         out.push_str(&format!(
-            "    # Register a {method_name} callback directly without block syntax.\n"
+            "      # Register a {method_name} callback directly without block syntax.\n"
         ));
         out.push_str(&format!(
-            "    @registrations.push([\"{method_name}\", {meta_tuple}, {callback}])\n",
+            "      @registrations.push([\"{method_name}\", {meta_tuple}, {callback}])\n",
             callback = reg.callback_param
         ));
-        out.push_str("    self\n");
-        out.push_str("  end\n\n");
+        out.push_str("      self\n");
+        out.push_str("    end\n\n");
     }
 
     // Emit registration variants (shortcuts for common patterns)
@@ -377,19 +381,19 @@ fn gen_registration_variant(
         format!("({}, &block)", free_params_sig.join(", "))
     };
 
-    out.push_str(&format!("  def {variant_name}{param_sig}\n"));
+    out.push_str(&format!("    def {variant_name}{param_sig}\n"));
 
     if let Some(doc) = &variant.doc {
-        out.push_str(&format_ruby_comment(doc, 4));
+        out.push_str(&format_ruby_comment(doc, 6));
     } else {
-        out.push_str(&format!("    # Register a handler for the {variant_name} variant.\n"));
+        out.push_str(&format!("      # Register a handler for the {variant_name} variant.\n"));
     }
 
     out.push_str(&format!(
-        "    @registrations.push([\"{variant_name}\", {meta_tuple}, block])\n"
+        "      @registrations.push([\"{variant_name}\", {meta_tuple}, block])\n"
     ));
-    out.push_str("    self\n");
-    out.push_str("  end\n\n");
+    out.push_str("      self\n");
+    out.push_str("    end\n\n");
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
