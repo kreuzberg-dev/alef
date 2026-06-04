@@ -76,6 +76,8 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Collect native function names from the API to detect duplicates later.
     let mut emitted_native_names: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Track destructor names that have been emitted to avoid duplication.
+    let mut emitted_destructor_names: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Emit one `external fun` per visible API function.
     // Every native method is annotated @Throws so typed catch blocks work in
@@ -99,7 +101,13 @@ pub fn emit_jni_bridge_object(api: &ApiSurface, config: &ResolvedCrateConfig) ->
 
     // Emit external funs for instance methods on opaque client types.
     let methods_emitted_before = body.matches("// JNI external funs for client instance methods").count();
-    emit_method_jni_external_funs(&mut body, api, &exclude_functions, &exception_class);
+    emit_method_jni_external_funs(
+        &mut body,
+        api,
+        &exclude_functions,
+        &exception_class,
+        &mut emitted_destructor_names,
+    );
     let methods_emitted_after = body.matches("// JNI external funs for client instance methods").count();
 
     // Fallback: if emit_method_jni_external_funs didn't emit the comment (no client types found),
@@ -279,11 +287,14 @@ pub fn emit_streaming_jni_external_funs(out: &mut String, config: &ResolvedCrate
 /// serialises via JSON → `String` (or `String?` for optionals).
 /// `exception_class` is the simple name of the exception class so every method gets
 /// an `@Throws` annotation that allows typed catch blocks to reach the error.
+/// Emitted destructor names are tracked in `emitted_destructor_names` to prevent
+/// duplication when handle-only types also appear in the API.
 fn emit_method_jni_external_funs(
     out: &mut String,
     api: &ApiSurface,
     exclude_functions: &std::collections::HashSet<&str>,
     exception_class: &str,
+    emitted_destructor_names: &mut std::collections::HashSet<String>,
 ) {
     let client_types: Vec<_> = api
         .types
@@ -325,6 +336,7 @@ fn emit_method_jni_external_funs(
         // DefaultClient.close() delegates to.  Destructors are infallible — no @Throws.
         let free_name = format!("nativeFree{owner_pascal}");
         out.push_str(&format!("    external fun {free_name}(handle: Long)\n"));
+        emitted_destructor_names.insert(free_name);
     }
 }
 
