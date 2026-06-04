@@ -435,6 +435,20 @@ pub(super) fn gen_method_wrapper(
         ret_type = ret_type.replace("Self", &qualified);
     }
 
+    // Types with lifetime parameters (e.g. NodeContext<'a>) require an explicit `<'static>`
+    // lifetime in return-position `*mut T` / `*const T` pointers. Append it when the return
+    // type names the enclosing type and that type has lifetime params.
+    if typ.has_lifetime_params {
+        if let TypeRef::Named(n) = &method.return_type {
+            if n == type_name {
+                let bare = format!("*mut {qualified}");
+                if ret_type == bare {
+                    ret_type = format!("*mut {qualified}<'static>");
+                }
+            }
+        }
+    }
+
     // Check if this method will be unimplemented before building params.
     // Sanitized methods with recoverable params (Vec<String> originally Vec<tuple>) are
     // re-routed through the standard JSON-roundtrip Vec conversion below.
