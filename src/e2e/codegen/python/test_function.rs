@@ -108,7 +108,8 @@ pub(super) fn render_test_function(
 
     // Streaming fixtures require async test functions so the async iterator
     // (ChatStreamIterator.__anext__) can be driven with `async for`.
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     // Streaming error tests: when a streaming call (declared via `streaming = true` or
     // heuristically detected by function name containing "stream") expects an error,
     // the Python binding returns the iterator synchronously; errors only surface when
@@ -116,7 +117,7 @@ pub(super) fn render_test_function(
     // `pytest.raises` so the error propagates before the `with` block exits.
     //
     // Triggers in two cases:
-    // - Declared streaming call (`call_config.streaming = true`) + error fixture.
+    // - Declared streaming call (`call_config.streaming_enabled() = true`) + error fixture.
     // - Heuristic name-based detection (function name contains "stream") for
     //   fixtures that pre-date the explicit `streaming` flag.
     let is_streaming_error_call =

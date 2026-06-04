@@ -41,6 +41,21 @@ pub enum ValidationCode {
     BackendStubPath,
 }
 
+/// Diagnostics that are never safe to suppress globally.
+///
+/// These codes represent known lossy or ambiguous public API surfaces. Allowing
+/// a crate-wide suppression would let generation proceed with plausible but
+/// incorrect bindings.
+pub fn is_critical_unsuppressible(code: ValidationCode) -> bool {
+    matches!(
+        code,
+        ValidationCode::UnknownNamedType
+            | ValidationCode::LossySanitizedSurface
+            | ValidationCode::JsonValueResolutionAmbiguous
+            | ValidationCode::BackendStubPath
+    )
+}
+
 impl fmt::Display for ValidationCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -288,7 +303,6 @@ fn known_type_names(api: &ApiSurface) -> AHashSet<&str> {
         .map(|typ| typ.name.as_str())
         .chain(api.enums.iter().map(|item| item.name.as_str()))
         .chain(api.errors.iter().map(|item| item.name.as_str()))
-        .chain(api.excluded_type_paths.keys().map(String::as_str))
         .collect()
 }
 
@@ -676,6 +690,36 @@ mod tests {
     }
 
     #[test]
+    fn api_surface_validation_does_not_treat_excluded_types_as_publicly_known() {
+        let mut api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![function_def(
+                "render",
+                vec![ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Named("HiddenPayload".to_string()),
+                    ..ParamDef::default()
+                }],
+                TypeRef::String,
+            )],
+            ..ApiSurface::default()
+        };
+        api.excluded_type_paths.insert(
+            "HiddenPayload".to_string(),
+            "sample_lib::internal::HiddenPayload".to_string(),
+        );
+
+        let report = validate_api_surface(&api);
+
+        assert!(report.has_errors());
+        assert!(report.diagnostics.iter().any(|diagnostic| {
+            diagnostic.code == ValidationCode::UnknownNamedType
+                && diagnostic.item_path.as_deref() == Some("function render param payload")
+                && diagnostic.reason.contains("HiddenPayload")
+        }));
+    }
+
+    #[test]
     fn api_surface_validation_errors_for_ambiguous_bare_json_value() {
         let api = ApiSurface {
             crate_name: "sample-lib".to_string(),
@@ -772,6 +816,20 @@ mod tests {
                 && diagnostic.code == ValidationCode::BackendStubPath
                 && diagnostic.item_path.as_deref() == Some("function render")
         }));
+    }
+
+    #[test]
+    fn critical_validation_codes_are_not_globally_suppressible() {
+        for code in [
+            ValidationCode::UnknownNamedType,
+            ValidationCode::LossySanitizedSurface,
+            ValidationCode::JsonValueResolutionAmbiguous,
+            ValidationCode::BackendStubPath,
+        ] {
+            assert!(is_critical_unsuppressible(code), "{code} must be fatal");
+        }
+
+        assert!(!is_critical_unsuppressible(ValidationCode::MissingPublishMetadata));
     }
 
     #[test]

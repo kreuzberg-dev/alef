@@ -813,7 +813,7 @@ pub struct CallConfig {
     ///   fixture provides a streaming `mock_response` or any assertion references
     ///   a hard-coded streaming-virtual-field name.
     #[serde(default)]
-    pub streaming: Option<bool>,
+    pub streaming: Option<StreamingConfig>,
     /// When `true`, the function returns `Option<T>`.
     #[serde(default)]
     pub result_is_option: bool,
@@ -849,6 +849,58 @@ pub struct CallConfig {
     /// when a binding exposes a language-specific wrapper type (e.g. `JsExtractionConfig`).
     #[serde(default)]
     pub options_type: Option<String>,
+}
+
+impl CallConfig {
+    /// Effective streaming opt-in/out flag, preserving the legacy
+    /// `streaming = true/false` behavior while allowing
+    /// `streaming = { item_type = "Event" }` recipes.
+    pub fn streaming_enabled(&self) -> Option<bool> {
+        self.streaming.as_ref().and_then(StreamingConfig::enabled)
+    }
+
+    /// Explicit stream item type configured on the call recipe, if any.
+    pub fn streaming_item_type(&self) -> Option<&str> {
+        self.streaming.as_ref().and_then(StreamingConfig::item_type)
+    }
+}
+
+/// E2E streaming call recipe.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum StreamingConfig {
+    /// Legacy boolean form: `streaming = true` / `streaming = false`.
+    Enabled(bool),
+    /// Recipe form: `streaming = { item_type = "Event" }` or
+    /// `[crates.e2e.call.streaming] item_type = "Event"`.
+    Recipe(StreamingRecipe),
+}
+
+impl StreamingConfig {
+    fn enabled(&self) -> Option<bool> {
+        match self {
+            Self::Enabled(value) => Some(*value),
+            Self::Recipe(recipe) => recipe.enabled,
+        }
+    }
+
+    fn item_type(&self) -> Option<&str> {
+        match self {
+            Self::Enabled(_) => None,
+            Self::Recipe(recipe) => recipe.item_type.as_deref().filter(|value| !value.is_empty()),
+        }
+    }
+}
+
+/// Structured streaming recipe options.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamingRecipe {
+    /// Optional opt-in/out equivalent to the legacy boolean form.
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    /// Concrete tagged-union stream item type used by event assertions.
+    #[serde(default)]
+    pub item_type: Option<String>,
 }
 
 fn default_result_var() -> String {
@@ -2101,5 +2153,29 @@ fields_enum = ["status"]
                 .map(String::as_str),
             Some("MetaResult")
         );
+    }
+
+    #[test]
+    fn call_streaming_recipe_deserializes_item_type() {
+        let toml = r#"
+[call]
+function = "stream_events"
+streaming = { item_type = "Event" }
+"#;
+        let cfg: E2eConfig = toml::from_str(toml).expect("must deserialize inline streaming recipe");
+        assert_eq!(cfg.call.streaming_enabled(), None);
+        assert_eq!(cfg.call.streaming_item_type(), Some("Event"));
+
+        let toml = r#"
+[call]
+function = "stream_events"
+
+[call.streaming]
+enabled = true
+item_type = "Event"
+"#;
+        let cfg: E2eConfig = toml::from_str(toml).expect("must deserialize streaming table recipe");
+        assert_eq!(cfg.call.streaming_enabled(), Some(true));
+        assert_eq!(cfg.call.streaming_item_type(), Some("Event"));
     }
 }

@@ -27,14 +27,17 @@ DOC_EXTENSIONS = {
     ".txt",
 }
 
-SKIP_PATH_PARTS = {
+BASE_SKIP_PATH_PARTS = {
     ".git",
     ".alef",
     ".cursor",
     "__pycache__",
+    "target",
+}
+
+DEFAULT_SKIP_PATH_PARTS = {
     "fixtures",
     "snapshots",
-    "target",
     "tests",
 }
 
@@ -164,15 +167,16 @@ SAMPLE_PROJECT_BEHAVIOR_MARKERS = (
 )
 
 
-def is_enforced_path(path: Path) -> bool:
+def is_enforced_path(path: Path, *, strict: bool = False) -> bool:
     normalized = path.as_posix()
     if any(normalized == policy_file or normalized.endswith(f"/{policy_file}") for policy_file in POLICY_FILES):
         return False
-    if any(part in SKIP_PATH_PARTS for part in path.parts):
+    skip_path_parts = BASE_SKIP_PATH_PARTS if strict else BASE_SKIP_PATH_PARTS | DEFAULT_SKIP_PATH_PARTS
+    if any(part in skip_path_parts for part in path.parts):
         return False
     if ".ai-rulez" in path.parts:
         return True
-    return path.suffix.lower() not in DOC_EXTENSIONS
+    return strict or path.suffix.lower() not in DOC_EXTENSIONS
 
 
 def is_production_generator_path(path: Path) -> bool:
@@ -294,8 +298,8 @@ def domain_type_violations_for_line(path: Path, line_number: int, line: str) -> 
     return violations
 
 
-def violations_for_file(path: Path) -> list[str]:
-    if not is_enforced_path(path):
+def violations_for_file(path: Path, *, strict: bool = False) -> list[str]:
+    if not is_enforced_path(path, strict=strict):
         return []
 
     content = read_text(path)
@@ -313,13 +317,20 @@ def violations_for_file(path: Path) -> list[str]:
             rust_cfg_test_depth,
         )
         violations.extend(project_violations_for_line(path, line_number, line))
+        if strict:
+            violations.extend(sample_project_violations_for_line(path, line_number, line))
         if (
             is_production_generator_path(path)
             and not in_rust_cfg_test_region
             and (is_domain_type_special_case(line) or is_split_domain_type_literal(line))
         ):
             violations.extend(domain_type_violations_for_line(path, line_number, line))
-        if is_production_generator_path(path) and not in_rust_cfg_test_region and is_sample_project_behavior_line(line):
+        if (
+            not strict
+            and is_production_generator_path(path)
+            and not in_rust_cfg_test_region
+            and is_sample_project_behavior_line(line)
+        ):
             violations.extend(sample_project_violations_for_line(path, line_number, line))
         rust_cfg_test_depth = advance_rust_cfg_test_region(line, rust_cfg_test_depth, started)
     return violations
@@ -327,6 +338,11 @@ def violations_for_file(path: Path) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Scan documentation, fixtures, snapshots, and tests for meta-enforcement.",
+    )
     parser.add_argument("files", nargs="*", help="Files to scan")
     args = parser.parse_args(argv)
 
@@ -334,7 +350,7 @@ def main(argv: list[str] | None = None) -> int:
     for raw in args.files:
         path = Path(raw)
         if path.is_file():
-            violations.extend(violations_for_file(path))
+            violations.extend(violations_for_file(path, strict=args.strict))
 
     if violations:
         for violation in violations:

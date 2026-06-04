@@ -39,35 +39,35 @@ fn __alef_tokio_runtime() -> &'static ::tokio::runtime::Runtime {
 #[swift_bridge::bridge]
 mod ffi {
     extern "Rust" {
-        type OcrConfig;
+        type ImageConfig;
         #[swift_bridge(init)]
-        fn new(language: String) -> OcrConfig;
+        fn new(language: String) -> ImageConfig;
         fn language(&self) -> String;
     }
 
     extern "Rust" {
-        type ExtractionResult;
+        type ProcessingResult;
         #[swift_bridge(init)]
-        fn new(text: String) -> ExtractionResult;
+        fn new(text: String) -> ProcessingResult;
         fn text(&self) -> String;
     }
 
     extern "Rust" {
-        type OcrBackendBox;
-        fn alef_phantom_vec_ocr_backend() -> Vec<OcrBackendBox>;
-        fn ocr_backend_call_process_image(this: &OcrBackendBox, image_bytes: Vec<u8>, config: OcrConfig) -> String;
-        fn ocr_backend_call_supports_language(this: &OcrBackendBox, lang: String) -> bool;
+        type ImageProcessorBox;
+        fn alef_phantom_vec_image_processor() -> Vec<ImageProcessorBox>;
+        fn image_processor_call_process_image(this: &ImageProcessorBox, image_bytes: Vec<u8>, config: ImageConfig) -> String;
+        fn image_processor_call_supports_language(this: &ImageProcessorBox, lang: String) -> bool;
     }
 
     extern "Rust" {
-        #[swift_bridge(swift_name = "registerOcrBackend")]
-        fn register_ocr_backend(swift_box: SwiftOcrBackendBox) -> Result<(), String>;
-        #[swift_bridge(swift_name = "unregisterOcrBackend")]
-        fn unregister_ocr_backend(name: String) -> Result<(), String>;
+        #[swift_bridge(swift_name = "registerImageProcessor")]
+        fn register_image_processor(swift_box: SwiftImageProcessorBox) -> Result<(), String>;
+        #[swift_bridge(swift_name = "unregisterImageProcessor")]
+        fn unregister_image_processor(name: String) -> Result<(), String>;
     }
 
     extern "Swift" {
-        type SwiftOcrBackendBox;
+        type SwiftImageProcessorBox;
         fn alef_name(&self) -> String;
         fn alef_version(&self) -> String;
         fn alef_initialize(&self) -> String;
@@ -78,19 +78,19 @@ mod ffi {
 
     extern "Rust" {
         #[swift_bridge(swift_name = "ocrConfigFromJson")]
-        fn ocr_config_from_json(json: String) -> Result<OcrConfig, String>;
+        fn image_config_from_json(json: String) -> Result<ImageConfig, String>;
     }
     extern "Rust" {
         #[swift_bridge(swift_name = "extractionResultFromJson")]
-        fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String>;
+        fn processing_result_from_json(json: String) -> Result<ProcessingResult, String>;
     }
 }
 
 
-pub struct OcrConfig(pub demo::OcrConfig);
-impl OcrConfig {
-    pub fn new(language: String) -> OcrConfig {
-        let mut __target: demo::OcrConfig = ::std::default::Default::default();
+pub struct ImageConfig(pub demo::ImageConfig);
+impl ImageConfig {
+    pub fn new(language: String) -> ImageConfig {
+        let mut __target: demo::ImageConfig = ::std::default::Default::default();
         {
             // Try JSON parse first (handles enum/object values); on parse failure
             // treat the raw input as a JSON string scalar so plain `String` /
@@ -100,17 +100,17 @@ impl OcrConfig {
                 .unwrap_or(::serde_json::Value::String(language.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.language = t; }
         }
-        OcrConfig(__target)
+        ImageConfig(__target)
     }
     pub fn language(&self) -> String {
         self.0.language.clone()
     }
 }
 
-pub struct ExtractionResult(pub demo::ExtractionResult);
-impl ExtractionResult {
-    pub fn new(text: String) -> ExtractionResult {
-        let mut __target: demo::ExtractionResult = ::std::default::Default::default();
+pub struct ProcessingResult(pub demo::ProcessingResult);
+impl ProcessingResult {
+    pub fn new(text: String) -> ProcessingResult {
+        let mut __target: demo::ProcessingResult = ::std::default::Default::default();
         {
             // Try JSON parse first (handles enum/object values); on parse failure
             // treat the raw input as a JSON string scalar so plain `String` /
@@ -120,23 +120,23 @@ impl ExtractionResult {
                 .unwrap_or(::serde_json::Value::String(text.clone()));
             if let Ok(t) = ::serde_json::from_value(__v) { __target.text = t; }
         }
-        ExtractionResult(__target)
+        ProcessingResult(__target)
     }
     pub fn text(&self) -> String {
         self.0.text.clone()
     }
 }
 
-pub struct OcrBackendBox(pub Box<dyn demo::plugins::OcrBackend + Send + Sync>);
+pub struct ImageProcessorBox(pub Box<dyn demo::plugins::ImageProcessor + Send + Sync>);
 #[doc(hidden)]
-pub fn alef_phantom_vec_ocr_backend() -> Vec<OcrBackendBox> { Vec::new() }
-pub fn ocr_backend_call_process_image(this: &OcrBackendBox, image_bytes: Vec<u8>, config: OcrConfig) -> String {
+pub fn alef_phantom_vec_image_processor() -> Vec<ImageProcessorBox> { Vec::new() }
+pub fn image_processor_call_process_image(this: &ImageProcessorBox, image_bytes: Vec<u8>, config: ImageConfig) -> String {
     crate::__alef_tokio_runtime().block_on(async { match this.0.process_image(&image_bytes, &config.0).await {
     Ok(v) => format!("{{\"ok\": {}}}", serde_json::to_string(&v).expect("serializable return")),
     Err(e) => format!("{{\"err\": {}}}", serde_json::to_string(&e.to_string()).expect("serializable error")),
 } })
 }
-pub fn ocr_backend_call_supports_language(this: &OcrBackendBox, lang: String) -> bool {
+pub fn image_processor_call_supports_language(this: &ImageProcessorBox, lang: String) -> bool {
     this.0.supports_language(&lang)
 }
 
@@ -166,28 +166,28 @@ where
         Err(e) => Err(plugin_error_from_string(format!("swift returned malformed envelope: {e}"))),
     }
 }
-/// Rust-side wrapper around a Swift class implementing the `OcrBackend` plugin protocol.
+/// Rust-side wrapper around a Swift class implementing the `ImageProcessor` plugin protocol.
 ///
 /// The Swift instance is held via a `swift-bridge` opaque handle that retains
 /// the underlying ARC reference for the lifetime of this struct. Send + Sync are
 /// asserted unsafely: Swift classes used as generated plugins must be thread-safe
 /// (the `Plugin` super-trait requires it), and ARC handles themselves are safe to share.
-pub struct SwiftOcrBackendWrapper {
-    inner: ffi::SwiftOcrBackendBox,
+pub struct SwiftImageProcessorWrapper {
+    inner: ffi::SwiftImageProcessorBox,
     /// Cached `Plugin::name()` — required because the trait returns `&str` but
     /// the Swift FFI shim returns an owned `String`. Populated lazily on first access.
     name_cache: ::std::sync::OnceLock<String>,
 }
-unsafe impl Send for SwiftOcrBackendWrapper {}
-unsafe impl Sync for SwiftOcrBackendWrapper {}
+unsafe impl Send for SwiftImageProcessorWrapper {}
+unsafe impl Sync for SwiftImageProcessorWrapper {}
 
-impl SwiftOcrBackendWrapper {
-    /// Construct a new wrapper from a Swift `SwiftOcrBackendBox` handle.
-    pub fn new(inner: ffi::SwiftOcrBackendBox) -> Self {
+impl SwiftImageProcessorWrapper {
+    /// Construct a new wrapper from a Swift `SwiftImageProcessorBox` handle.
+    pub fn new(inner: ffi::SwiftImageProcessorBox) -> Self {
         Self { inner, name_cache: ::std::sync::OnceLock::new() }
     }
 }
-impl demo::plugins::Plugin for SwiftOcrBackendWrapper {
+impl demo::plugins::Plugin for SwiftImageProcessorWrapper {
     fn name(&self) -> &str {
         self.name_cache.get_or_init(|| self.inner.alef_name()).as_str()
     }
@@ -205,12 +205,12 @@ impl demo::plugins::Plugin for SwiftOcrBackendWrapper {
     }
 }
 #[async_trait::async_trait]
-impl demo::plugins::OcrBackend for SwiftOcrBackendWrapper {
-    async fn process_image(&self, image_bytes: &[u8], config: &demo::OcrConfig) -> std::result::Result<demo::ExtractionResult, demo::Error> {
+impl demo::plugins::ImageProcessor for SwiftImageProcessorWrapper {
+    async fn process_image(&self, image_bytes: &[u8], config: &demo::ImageConfig) -> std::result::Result<demo::ProcessingResult, demo::Error> {
         let image_bytes = image_bytes.to_vec();
         let config = ::serde_json::to_string(&config).expect("serializable param config");
         let envelope = self.inner.alef_process_image(image_bytes, config);
-        decode_inbound_envelope::<demo::ExtractionResult>(&envelope)
+        decode_inbound_envelope::<demo::ProcessingResult>(&envelope)
     }
 
     fn supports_language(&self, lang: &str) -> bool {
@@ -220,31 +220,31 @@ impl demo::plugins::OcrBackend for SwiftOcrBackendWrapper {
 
 }
 
-/// Register a Swift class implementation as a `OcrBackend` plugin.
+/// Register a Swift class implementation as a `ImageProcessor` plugin.
 ///
 /// Wraps the Swift handle in `Arc<SwiftXxxWrapper>` and inserts it into the host registry.
 /// Errors from the registry are stringified for swift-bridge transport.
-pub fn register_ocr_backend(swift_box: ffi::SwiftOcrBackendBox) -> Result<(), String> {
-    let arc: ::std::sync::Arc<dyn demo::plugins::OcrBackend> = ::std::sync::Arc::new(SwiftOcrBackendWrapper::new(swift_box));
-    let registry = demo::plugins::registry::get_ocr_backend_registry();
+pub fn register_image_processor(swift_box: ffi::SwiftImageProcessorBox) -> Result<(), String> {
+    let arc: ::std::sync::Arc<dyn demo::plugins::ImageProcessor> = ::std::sync::Arc::new(SwiftImageProcessorWrapper::new(swift_box));
+    let registry = demo::plugins::registry::get_image_processor_registry();
     let mut guard = registry.write();
     guard.register(arc).map_err(|e| e.to_string())
 }
-/// Unregister a previously-registered `OcrBackend` plugin by name.
-pub fn unregister_ocr_backend(name: String) -> Result<(), String> {
-    let registry = demo::plugins::registry::get_ocr_backend_registry();
+/// Unregister a previously-registered `ImageProcessor` plugin by name.
+pub fn unregister_image_processor(name: String) -> Result<(), String> {
+    let registry = demo::plugins::registry::get_image_processor_registry();
     let mut guard = registry.write();
     guard.remove(&name).map_err(|e| e.to_string())
 }
 
 
-pub fn ocr_config_from_json(json: String) -> Result<OcrConfig, String> {
-    serde_json::from_str::<demo::OcrConfig>(&json)
-        .map(OcrConfig)
+pub fn image_config_from_json(json: String) -> Result<ImageConfig, String> {
+    serde_json::from_str::<demo::ImageConfig>(&json)
+        .map(ImageConfig)
         .map_err(|e| e.to_string())
 }
-pub fn extraction_result_from_json(json: String) -> Result<ExtractionResult, String> {
-    serde_json::from_str::<demo::ExtractionResult>(&json)
-        .map(ExtractionResult)
+pub fn processing_result_from_json(json: String) -> Result<ProcessingResult, String> {
+    serde_json::from_str::<demo::ProcessingResult>(&json)
+        .map(ProcessingResult)
         .map_err(|e| e.to_string())
 }

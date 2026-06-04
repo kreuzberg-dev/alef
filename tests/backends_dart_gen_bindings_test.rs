@@ -917,6 +917,10 @@ fn single_trait_bridge_emits_traits_dart_with_abstract_class() {
         content.contains("Future<String> processImage(Uint8List bytes);"),
         "missing abstract method: {content}"
     );
+    assert!(
+        !content.contains("SyncExtractor"),
+        "traits.dart must not emit production-only fallback trait stubs: {content}"
+    );
 }
 
 #[test]

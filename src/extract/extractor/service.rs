@@ -30,8 +30,8 @@ use crate::core::ir::{
 /// Both owner types and contract traits are marked `binding_excluded` so they
 /// are not also emitted as plain structs/traits.
 ///
-/// Returns a list of non-fatal warning strings (e.g. referenced method not found).
-/// Hard configuration errors were already caught at `resolve_one` time.
+/// Returns a list of service extraction errors (e.g. referenced method not found).
+/// Callers that perform generation must treat these as fatal.
 pub(crate) fn extract_services(surface: &mut ApiSurface, config: &ResolvedCrateConfig) -> Vec<String> {
     if config.services.is_empty() && config.handler_contracts.is_empty() {
         return vec![];
@@ -404,14 +404,12 @@ fn parse_entrypoint_kind(s: &str) -> Option<EntrypointKind> {
 
 /// Parse a `style` string from `alef.toml` into a [`RegistrationVariantStyle`].
 ///
-/// Unknown values fall back to `Hybrid` so forward-compatible `alef.toml` files
-/// do not hard-fail if a new style name is later introduced.
-fn parse_variant_style(s: Option<&str>) -> RegistrationVariantStyle {
+fn parse_variant_style(s: Option<&str>) -> Result<RegistrationVariantStyle, String> {
     match s {
-        Some("builder") => RegistrationVariantStyle::Builder,
-        Some("verb_decorator") => RegistrationVariantStyle::VerbDecorator,
-        Some("hybrid") | None => RegistrationVariantStyle::Hybrid,
-        Some(_) => RegistrationVariantStyle::Hybrid,
+        Some("builder") => Ok(RegistrationVariantStyle::Builder),
+        Some("verb_decorator") => Ok(RegistrationVariantStyle::VerbDecorator),
+        Some("hybrid") | None => Ok(RegistrationVariantStyle::Hybrid),
+        Some(style) => Err(format!("unknown registration variant style `{style}`")),
     }
 }
 
@@ -563,7 +561,12 @@ fn resolve_via_wrapper(
         }),
         signature_params,
         doc: v_spec.doc.clone(),
-        style: parse_variant_style(v_spec.style.as_deref()),
+        style: parse_variant_style(v_spec.style.as_deref()).map_err(|message| {
+            format!(
+                "service `{}` registration `{}` variant `{}`: {message}",
+                svc_cfg.owner_type, reg_spec.method, v_spec.name
+            )
+        })?,
     })
 }
 
@@ -612,7 +615,12 @@ fn resolve_via_direct(
         wrapper_call: None,
         signature_params,
         doc: v_spec.doc.clone(),
-        style: parse_variant_style(v_spec.style.as_deref()),
+        style: parse_variant_style(v_spec.style.as_deref()).map_err(|message| {
+            format!(
+                "service `{}` registration `{}` variant `{}`: {message}",
+                svc_cfg.owner_type, reg_spec.method, v_spec.name
+            )
+        })?,
     })
 }
 
@@ -1021,6 +1029,48 @@ pub trait IntoHandler {}
         assert!(
             warnings.iter().any(|w| w.contains("no variant `NotARealVariant`")),
             "expected unknown-variant warning, got {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn registration_variant_unknown_style_returns_error() {
+        use crate::core::config::service::RegistrationVariantSpec;
+        let src = r#"
+pub struct App {}
+impl App {
+    pub fn new() -> Self { todo!() }
+    pub fn route<H: IntoHandler>(mut self, builder: RouteBuilder, handler: H) -> Self { todo!() }
+    pub async fn run(self) -> Result<(), String> { todo!() }
+}
+pub struct RouteBuilder {}
+impl RouteBuilder {
+    pub fn new(method: Method, path: String) -> Self { todo!() }
+}
+pub enum Method { Get, Post }
+pub trait Handler { async fn call(&self, r: R) -> S; }
+pub struct R {}
+pub struct S {}
+pub trait IntoHandler {}
+"#;
+        let (_dir, file_path, mut surface) = extract_source_persistent(src);
+        let mut cfg = make_resolved_config_with_service();
+        cfg.sources = vec![file_path];
+        cfg.services[0].registrations[0].method = "route".to_owned();
+        cfg.services[0].registrations[0].variants = vec![RegistrationVariantSpec {
+            name: "bad_style".to_owned(),
+            fixed: [("method".to_owned(), "Get".to_owned())].into_iter().collect(),
+            doc: None,
+            style: Some("future_magic".to_owned()),
+        }];
+        cfg.services[0].entrypoints.retain(|e| e.method != "into_router");
+
+        let errors = extract_services(&mut surface, &cfg);
+
+        assert!(
+            errors
+                .iter()
+                .any(|error| error.contains("unknown registration variant style `future_magic`")),
+            "expected unknown-style error, got {errors:?}"
         );
     }
 

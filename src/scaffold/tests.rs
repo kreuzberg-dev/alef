@@ -1453,6 +1453,23 @@ fn test_precommit_uses_configured_hook_repositories() {
     assert!(!content.contains("alef-readme"));
 }
 
+#[test]
+fn test_precommit_defaults_do_not_invent_alef_remote_or_bot_identity() {
+    let config = minimal_config_from_toml("");
+    let files = generate_pre_commit_config(&config, &[Language::Node]);
+    let content = &files[0].content;
+    let downstream_org = format!("{}-{}", "consumer", "dev");
+
+    assert!(
+        !content.contains(&downstream_org) && !content.contains("consumer-bot") && !content.contains("bot@"),
+        "unconfigured consumer precommit scaffold must not copy Alef organization, repo, or bot metadata:\n{content}"
+    );
+    assert!(
+        content.contains("- repo: local"),
+        "unconfigured Alef hooks must be local unless the consumer config opts into a remote:\n{content}"
+    );
+}
+
 // --- Java checkstyle tests ---
 
 #[test]

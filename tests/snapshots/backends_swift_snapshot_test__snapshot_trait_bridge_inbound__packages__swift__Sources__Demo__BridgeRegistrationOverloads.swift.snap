@@ -11,12 +11,12 @@ import RustBridge
 
 // MARK: - Unregister name: label overloads
 
-public func unregisterOcrBackend(name: String) throws {
-    try RustBridge.unregisterOcrBackend(name)
+public func unregisterImageProcessor(name: String) throws {
+    try RustBridge.unregisterImageProcessor(name)
 }
 
 // MARK: - Bridge → Box register overloads
 
-public func registerOcrBackend(_ bridge: any SwiftOcrBackendBridge) throws {
-    try registerOcrBackend(SwiftOcrBackendBox(bridge))
+public func registerImageProcessor(_ bridge: any SwiftImageProcessorBridge) throws {
+    try registerImageProcessor(SwiftImageProcessorBox(bridge))
 }

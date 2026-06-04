@@ -11,8 +11,13 @@ fn hook_path() -> PathBuf {
 }
 
 fn run_hook(files: &[&Path]) -> Output {
+    run_hook_with_args(&[], files)
+}
+
+fn run_hook_with_args(args: &[&str], files: &[&Path]) -> Output {
     let mut command = Command::new("python3");
     command.arg(hook_path());
+    command.args(args);
     for file in files {
         command.arg(file);
     }
@@ -535,6 +540,33 @@ fn skips_tests_fixtures_snapshots_and_prose_documentation_files() {
         output.status.success(),
         "stderr: {}",
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn strict_mode_reports_mentions_in_snapshots_and_docs() {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let snapshot_dir = dir.path().join("tests").join("snapshots");
+    let docs_dir = dir.path().join("docs");
+    fs::create_dir_all(&snapshot_dir).expect("create snapshot dir");
+    fs::create_dir_all(&docs_dir).expect("create docs dir");
+    let snapshot = snapshot_dir.join("fixture.snap");
+    let doc = docs_dir.join("guide.md");
+
+    fs::write(&snapshot, forbidden(&["sample", "crawler"], "-")).expect("write snapshot fixture");
+    fs::write(&doc, forbidden(&["liter", "llm"], "-")).expect("write doc fixture");
+
+    let output = run_hook_with_args(&["--strict"], &[&snapshot, &doc]);
+
+    assert!(!output.status.success(), "strict hook should reject snapshots and docs");
+    let stderr = String::from_utf8(output.stderr).expect("stderr must be utf8");
+    assert!(
+        stderr.contains("forbidden downstream sample fixture mention `sample-crawler`"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("forbidden project mention `liter-llm`"),
+        "stderr: {stderr}"
     );
 }
 

@@ -4,6 +4,7 @@
 //! generators do not infer behavior from downstream-shaped type names.
 
 use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
+use crate::core::config::extras::{AdapterConfig, AdapterPattern};
 use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use crate::e2e::fixture::Fixture;
@@ -152,6 +153,27 @@ pub(crate) fn trait_bridge_options_type(config: &ResolvedCrateConfig) -> Option<
         .find_map(|bridge| bridge.options_type.as_deref())
 }
 
+/// Resolve the concrete stream item type for an e2e call.
+///
+/// Explicit call recipe metadata wins. Otherwise infer from matching streaming
+/// adapters. Returning `None` is intentional: event assertions must be skipped
+/// or diagnosed instead of guessing a downstream-specific union type.
+pub(crate) fn streaming_item_type<'a>(
+    call_config: &'a CallConfig,
+    adapters: &'a [AdapterConfig],
+    function_names: &[&str],
+) -> Option<&'a str> {
+    call_config.streaming_item_type().or_else(|| {
+        adapters
+            .iter()
+            .filter(|adapter| matches!(adapter.pattern, AdapterPattern::Streaming))
+            .find(|adapter| function_names.iter().any(|name| adapter.name == *name))
+            .and_then(|adapter| adapter.item_type.as_deref())
+            .and_then(|item_type| item_type.rsplit("::").next())
+            .filter(|value| !value.is_empty())
+    })
+}
+
 pub(crate) fn trait_bridge_excluded_type_names<'a>(
     config: &'a ResolvedCrateConfig,
     type_defs: &'a [TypeDef],
@@ -220,7 +242,8 @@ fn collect_hidden_named_types<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride};
+    use crate::core::config::e2e::{ArgMapping, CallConfig, CallOverride, StreamingConfig, StreamingRecipe};
+    use crate::core::config::extras::{AdapterConfig, AdapterPattern};
     use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
     use crate::core::ir::{MethodDef, ParamDef, TypeDef, TypeRef};
     use crate::e2e::fixture::Fixture;
@@ -340,6 +363,54 @@ mod tests {
         let recipe = E2eCallRecipe::resolve("java", &fixture, &call, &[]);
 
         assert_eq!(recipe.handle_config_type(&call.args[0]), Some("ExplicitHandleConfig"));
+    }
+
+    fn streaming_adapter(name: &str, item_type: &str) -> AdapterConfig {
+        AdapterConfig {
+            name: name.to_string(),
+            pattern: AdapterPattern::Streaming,
+            core_path: "sample::stream".to_string(),
+            params: Vec::new(),
+            returns: None,
+            error_type: None,
+            owner_type: None,
+            item_type: Some(item_type.to_string()),
+            gil_release: false,
+            trait_name: None,
+            trait_method: None,
+            detect_async: false,
+            request_type: None,
+            skip_languages: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn streaming_item_type_prefers_explicit_call_recipe() {
+        let call = CallConfig {
+            streaming: Some(StreamingConfig::Recipe(StreamingRecipe {
+                item_type: Some("ConfiguredEvent".to_string()),
+                ..StreamingRecipe::default()
+            })),
+            ..CallConfig::default()
+        };
+        let adapters = vec![streaming_adapter("stream_events", "sample::AdapterEvent")];
+
+        assert_eq!(
+            streaming_item_type(&call, &adapters, &["stream_events"]),
+            Some("ConfiguredEvent")
+        );
+    }
+
+    #[test]
+    fn streaming_item_type_infers_from_matching_adapter() {
+        let call = CallConfig::default();
+        let adapters = vec![streaming_adapter("stream_events", "sample::AdapterEvent")];
+
+        assert_eq!(
+            streaming_item_type(&call, &adapters, &["stream_events"]),
+            Some("AdapterEvent")
+        );
+        assert_eq!(streaming_item_type(&call, &adapters, &["other"]), None);
     }
 
     #[test]

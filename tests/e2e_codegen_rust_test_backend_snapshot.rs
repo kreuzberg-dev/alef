@@ -82,14 +82,14 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         ..Default::default()
     };
 
-    // async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ExtractionResult, SampleCrateError>
+    // async fn extract(&self, _p0: Vec<u8>, _p1: String) -> Result<ProcessingResult, SampleCrateError>
     let extract = make_method(
         "extract",
         vec![
             make_param("content", TypeRef::Bytes),
             make_param("mime_type", TypeRef::String),
         ],
-        TypeRef::Named("ExtractionResult".to_string()),
+        TypeRef::Named("ProcessingResult".to_string()),
         true,
         Some("SampleCrateError"),
         false,
@@ -122,8 +122,8 @@ fn snapshot_emit_test_backend_mixed_return_types() {
         emission.type_imports
     );
     assert!(
-        emission.type_imports.contains(&"ExtractionResult".to_string()),
-        "type_imports must include ExtractionResult, got: {:?}",
+        emission.type_imports.contains(&"ProcessingResult".to_string()),
+        "type_imports must include ProcessingResult, got: {:?}",
         emission.type_imports
     );
     // SampleCrateError is the error type — it must be imported too.

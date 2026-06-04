@@ -46,6 +46,7 @@ pub fn render_assertion(
     result_is_vec: bool,
     result_is_option: bool,
     returns_result: bool,
+    streaming_item_type: Option<&str>,
 ) {
     render_assertion_with_streaming(
         out,
@@ -61,6 +62,7 @@ pub fn render_assertion(
         result_is_vec,
         result_is_option,
         returns_result,
+        streaming_item_type,
         false,
     )
 }
@@ -84,6 +86,7 @@ pub fn render_assertion_with_streaming(
     result_is_vec: bool,
     result_is_option: bool,
     returns_result: bool,
+    streaming_item_type: Option<&str>,
     _is_streaming: bool,
 ) {
     // Vec<T> result: iterate per-element so each assertion checks every element.
@@ -107,6 +110,7 @@ pub fn render_assertion_with_streaming(
             false, // already inside loop
             result_is_option,
             returns_result,
+            streaming_item_type,
         );
         let _ = writeln!(out, "    }}");
         return;
@@ -148,6 +152,7 @@ pub fn render_assertion_with_streaming(
             result_is_vec,
             false, // already unwrapped
             returns_result,
+            streaming_item_type,
         );
         return;
     }
@@ -207,11 +212,12 @@ pub fn render_assertion_with_streaming(
     if let Some(f) = &assertion.field {
         if !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
-                crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_module_qualifier(
+                crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
                     f,
                     "rust",
                     "chunks",
                     Some(dep_name),
+                    streaming_item_type,
                 )
             {
                 match assertion.assertion_type.as_str() {
@@ -673,6 +679,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(out.contains("is_err()"), "got: {out}");
     }
@@ -696,6 +703,7 @@ mod tests {
             true,
             false,
             false,
+            None,
         );
         assert!(out.contains("for r in"), "got: {out}");
     }
@@ -719,6 +727,7 @@ mod tests {
             false,
             false,
             false,
+            None,
         );
         assert!(out.contains("is_empty()"), "got: {out}");
     }

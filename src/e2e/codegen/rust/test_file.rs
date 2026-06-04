@@ -6,6 +6,7 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Fixture, FixtureGroup};
+use heck::ToSnakeCase;
 
 use super::args::{emit_rust_visitor_method, render_rust_arg, resolve_handle_config_type, resolve_visitor_trait};
 use super::assertions::render_assertion;
@@ -453,6 +454,7 @@ pub fn render_test_function(
     );
     let field_resolver = &call_field_resolver;
     let function_name = resolve_function_name_for_call(call_config);
+    let function_name_snake = function_name.to_snake_case();
     let module = resolve_module_for_call(call_config, dep_name);
     let result_var = &call_config.result_var;
     let has_mock = fixture.mock_response.is_some();
@@ -758,6 +760,7 @@ pub fn render_test_function(
                 false,
                 false,
                 returns_result,
+                None,
             );
         }
         let _ = writeln!(out, "}}");
@@ -772,7 +775,17 @@ pub fn render_test_function(
     // Shared helper auto-detects from unambiguous streaming-only field names
     // (chunks, stream_content, …) — but not from ambiguous fields like `usage`
     // or `finish_reason` that also exist on non-streaming response shapes.
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
+    let streaming_item_type = is_streaming
+        .then(|| {
+            crate::e2e::codegen::recipe::streaming_item_type(
+                call_config,
+                &config.adapters,
+                &[function_name.as_str(), function_name_snake.as_str()],
+            )
+        })
+        .flatten();
     // Name of the stream-level variable (the raw stream returned by the call).
     let stream_var = "stream";
     // Name of the collected-list variable produced by draining the stream.
@@ -965,6 +978,7 @@ pub fn render_test_function(
             result_is_vec,
             result_is_option,
             returns_result,
+            streaming_item_type,
         );
     }
 
@@ -1032,7 +1046,7 @@ mod tests {
     /// `assert!(chunks.len() >= 2 as usize, ...)` with `chunks` undeclared.
     #[test]
     fn fields_array_binding_emitted_before_count_min_assertion_for_non_streaming_fixture() {
-        use crate::e2e::config::CallConfig;
+        use crate::e2e::config::{CallConfig, StreamingConfig};
         use crate::e2e::fixture::{Assertion, Fixture};
         use std::collections::HashSet;
 
@@ -1045,7 +1059,7 @@ mod tests {
             result_var: "result".to_string(),
             fields_array,
             returns_result: true,
-            streaming: Some(false),
+            streaming: Some(StreamingConfig::Enabled(false)),
             ..Default::default()
         };
 
@@ -1112,7 +1126,7 @@ mod tests {
     /// `result` undefined.
     #[test]
     fn result_is_simple_count_assertion_binds_to_result_variable() {
-        use crate::e2e::config::CallConfig;
+        use crate::e2e::config::{CallConfig, StreamingConfig};
         use crate::e2e::fixture::{Assertion, Fixture};
 
         let call = CallConfig {
@@ -1121,7 +1135,7 @@ mod tests {
             result_var: "result".to_string(),
             result_is_simple: true,
             returns_result: true,
-            streaming: Some(false),
+            streaming: Some(StreamingConfig::Enabled(false)),
             ..Default::default()
         };
 

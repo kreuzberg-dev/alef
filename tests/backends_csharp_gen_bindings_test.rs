@@ -2560,6 +2560,131 @@ type = "ChatRequest"
         "Streaming method must NOT return Task<List<T>>; got:\n{}",
         client_file.content
     );
+
+    let native_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("NativeMethods.cs"))
+        .expect("NativeMethods.cs should be generated");
+    assert!(
+        native_file
+            .content
+            .contains("EntryPoint = \"test_stream_client_chat_stream_start\""),
+        "streaming adapter entry point must use configured owner_type, got:\n{}",
+        native_file.content
+    );
+    assert!(
+        native_file
+            .content
+            .contains("IntPtr StreamClientChatStreamStart(IntPtr client, IntPtr req)"),
+        "streaming adapter C# symbol must use configured owner_type, got:\n{}",
+        native_file.content
+    );
+    assert!(
+        !native_file.content.contains("CrawlEngineHandleChatStreamStart"),
+        "streaming adapter must not emit crawl_engine_handle fallback symbols, got:\n{}",
+        native_file.content
+    );
+}
+
+#[test]
+fn test_required_config_param_stays_required() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "Config".to_string(),
+            rust_path: "test::Config".to_string(),
+            fields: vec![FieldDef {
+                name: "mode".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                doc: String::new(),
+                sanitized: false,
+                is_boxed: false,
+                type_rust_path: None,
+                cfg: None,
+                typed_default: None,
+                core_wrapper: alef::core::ir::CoreWrapper::None,
+                vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+                newtype_wrapper: None,
+                serde_rename: None,
+                serde_flatten: false,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                original_type: None,
+            }],
+            is_clone: true,
+            has_serde: true,
+            ..Default::default()
+        }],
+        functions: vec![FunctionDef {
+            name: "run".to_string(),
+            rust_path: "test::run".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "config".to_string(),
+                ty: TypeRef::Named("Config".to_string()),
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+            }],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("TestLib.cs"))
+        .expect("wrapper should be generated");
+    assert!(
+        wrapper.content.contains("public static void Run(Config config)"),
+        "required config must stay required in the public signature, got:\n{}",
+        wrapper.content
+    );
+    assert!(
+        wrapper.content.contains("ArgumentNullException.ThrowIfNull(config);"),
+        "required config must get a null check, got:\n{}",
+        wrapper.content
+    );
+    assert!(
+        !wrapper.content.contains("Config? config"),
+        "required config must not be promoted to nullable by name, got:\n{}",
+        wrapper.content
+    );
+    assert!(
+        !wrapper.content.contains("config ?? new Config()"),
+        "required config must not default by name, got:\n{}",
+        wrapper.content
+    );
 }
 
 /// B5: `byte[]` fields without an explicit default should use the C# 12 collection

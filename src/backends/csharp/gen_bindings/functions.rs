@@ -392,17 +392,23 @@ pub(super) fn gen_native_methods(
         }
     }
 
-    // Emit P/Invoke declarations for streaming adapter entry points:
-    //   {prefix}_crawl_engine_handle_{adapter_snake}_start(engine*, req*) -> stream handle (IntPtr)
-    //   {prefix}_crawl_engine_handle_{adapter_snake}_next(handle*)        -> chunk pointer or IntPtr.Zero
-    //   {prefix}_crawl_engine_handle_{adapter_snake}_free(handle*)        -> void
+    // Emit P/Invoke declarations for streaming adapters that are configured
+    // without a corresponding opaque owner method in the extracted API:
+    //   {prefix}_{owner_snake}_{adapter_snake}_start(engine*, req*) -> stream handle (IntPtr)
+    //   {prefix}_{owner_snake}_{adapter_snake}_next(handle*)        -> chunk pointer or IntPtr.Zero
+    //   {prefix}_{owner_snake}_{adapter_snake}_free(handle*)        -> void
     for adapter in adapters {
         if matches!(adapter.pattern, crate::core::config::AdapterPattern::Streaming) {
+            let Some(owner_type) = adapter.owner_type.as_deref() else {
+                continue;
+            };
+            let owner_snake = owner_type.to_snake_case();
+            let owner_cs = csharp_type_name(owner_type);
             let adapter_snake = adapter.name.to_snake_case();
             let adapter_cs = to_csharp_name(&adapter.name);
 
-            let start_entry = format!("{}_crawl_engine_handle_{}_start", prefix, adapter_snake);
-            let start_cs = format!("CrawlEngineHandle{}Start", adapter_cs);
+            let start_entry = format!("{}_{}_{}_start", prefix, owner_snake, adapter_snake);
+            let start_cs = format!("{owner_cs}{adapter_cs}Start");
             if emitted.insert(start_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
@@ -419,8 +425,8 @@ pub(super) fn gen_native_methods(
                 out.push('\n');
             }
 
-            let next_entry = format!("{}_crawl_engine_handle_{}_next", prefix, adapter_snake);
-            let next_cs = format!("CrawlEngineHandle{}Next", adapter_cs);
+            let next_entry = format!("{}_{}_{}_next", prefix, owner_snake, adapter_snake);
+            let next_cs = format!("{owner_cs}{adapter_cs}Next");
             if emitted.insert(next_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
@@ -437,8 +443,8 @@ pub(super) fn gen_native_methods(
                 out.push('\n');
             }
 
-            let free_entry = format!("{}_crawl_engine_handle_{}_free", prefix, adapter_snake);
-            let free_cs = format!("CrawlEngineHandle{}Free", adapter_cs);
+            let free_entry = format!("{}_{}_{}_free", prefix, owner_snake, adapter_snake);
+            let free_cs = format!("{owner_cs}{adapter_cs}Free");
             if emitted.insert(free_entry.clone()) {
                 out.push_str(&render(
                     "dll_import_attr.jinja",
@@ -456,7 +462,6 @@ pub(super) fn gen_native_methods(
             }
         }
     }
-    let _ = streaming_methods_meta;
 
     // Add error handling functions with PascalCase names
     let last_error_code_entry = format!("{prefix}_last_error_code");

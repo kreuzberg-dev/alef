@@ -94,7 +94,7 @@ pub(super) fn render_test_file(
             );
             let per_fixture_override = cc.overrides.get("python").and_then(|o| o.r#async);
             per_fixture_override.unwrap_or(cc.r#async)
-                || crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
+                || crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming_enabled())
         }) || e2e_config.call.r#async
     });
     let has_env_api_key = fixtures

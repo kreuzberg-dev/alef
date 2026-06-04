@@ -130,11 +130,16 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
 
     // Run the service extraction pass last so all dedup / sanitization is
     // complete before we classify methods and build service/handler-contract
-    // IR nodes.  Warnings are non-fatal (e.g. generic registration method not
-    // yet extracted); emit via tracing so they surface in verbose output.
-    let service_warnings = crate::extract::extractor::service::extract_services(&mut api, config);
-    for w in service_warnings {
-        tracing::warn!("{w}");
+    // IR nodes. Configured services are public generation inputs, so failures
+    // must stop extraction instead of leaving lossy generic fallback bindings.
+    let service_errors = crate::extract::extractor::service::extract_services(&mut api, config);
+    if !service_errors.is_empty() {
+        let formatted = service_errors
+            .iter()
+            .map(|message| format!("- {message}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        anyhow::bail!("service extraction failed:\n{formatted}");
     }
 
     // Methods declared as [[crates.adapters]].core_path are emitted via adapter
@@ -161,9 +166,10 @@ fn validate_extracted_api(api: &ApiSurface, suppress_codes: &[String]) -> anyhow
     for diagnostic in validation_report.warnings() {
         tracing::warn!("{diagnostic}");
     }
-    let (suppressed, fatal): (Vec<_>, Vec<_>) = validation_report
-        .errors()
-        .partition(|d| suppress_codes.iter().any(|code| code == &d.code.to_string()));
+    let (suppressed, fatal): (Vec<_>, Vec<_>) = validation_report.errors().partition(|d| {
+        !crate::core::validation::is_critical_unsuppressible(d.code)
+            && suppress_codes.iter().any(|code| code == &d.code.to_string())
+    });
     for diagnostic in suppressed {
         tracing::warn!("[suppressed] {diagnostic}");
     }
@@ -318,7 +324,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     for typ in &mut api.types {
         for field in &mut typ.fields {
             let original = extract_tuple_vec_original_type(&field.ty);
-            if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+            if sanitize_type_ref(&mut field.ty, &known_types, &known_enums).is_lossy() {
                 field.sanitized = true;
                 if let Some(orig) = original {
                     field.original_type = Some(orig);
@@ -381,7 +387,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
             }
             let mut method_sanitized = false;
             for param in &mut method.params {
-                if sanitize_type_ref(&mut param.ty, &known_types, &known_enums) {
+                if sanitize_type_ref(&mut param.ty, &known_types, &known_enums).is_lossy() {
                     param.sanitized = true;
                     method_sanitized = true;
                 }
@@ -390,7 +396,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
             // Methods that return their own type (e.g. with_foo(&self) -> Self) should keep
             // the Named return so codegen can delegate them correctly.
             let is_self_return = matches!(&method.return_type, TypeRef::Named(n) if n == &type_name);
-            if !is_self_return && sanitize_type_ref(&mut method.return_type, &known_types, &known_enums) {
+            if !is_self_return && sanitize_type_ref(&mut method.return_type, &known_types, &known_enums).is_lossy() {
                 method_sanitized = true;
             }
             if method_sanitized {
@@ -401,12 +407,12 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
     for func in &mut api.functions {
         let mut func_sanitized = false;
         for param in &mut func.params {
-            if sanitize_type_ref(&mut param.ty, &known_types, &known_enums) {
+            if sanitize_type_ref(&mut param.ty, &known_types, &known_enums).is_lossy() {
                 param.sanitized = true;
                 func_sanitized = true;
             }
         }
-        if sanitize_type_ref(&mut func.return_type, &known_types, &known_enums) {
+        if sanitize_type_ref(&mut func.return_type, &known_types, &known_enums).is_lossy() {
             func_sanitized = true;
             func.return_sanitized = true;
         }
@@ -421,7 +427,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
         for variant in &mut enum_def.variants {
             for field in &mut variant.fields {
                 let original = extract_tuple_vec_original_type(&field.ty);
-                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums).is_lossy() {
                     field.sanitized = true;
                     if let Some(orig) = original {
                         field.original_type = Some(orig);
@@ -435,7 +441,7 @@ fn sanitize_unknown_types(api: &mut ApiSurface) {
         for variant in &mut error_def.variants {
             for field in &mut variant.fields {
                 let original = extract_tuple_vec_original_type(&field.ty);
-                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums) {
+                if sanitize_type_ref(&mut field.ty, &known_types, &known_enums).is_lossy() {
                     field.sanitized = true;
                     if let Some(orig) = original {
                         field.original_type = Some(orig);
@@ -671,39 +677,78 @@ fn extract_tuple_vec_original_type(ty: &TypeRef) -> Option<String> {
     }
 }
 
-/// Returns true if the type was sanitized (changed from original).
-fn sanitize_type_ref(ty: &mut TypeRef, known_types: &AHashSet<String>, known_enums: &AHashSet<String>) -> bool {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypeSanitization {
+    Unchanged,
+    Lossless,
+    Lossy,
+}
+
+impl TypeSanitization {
+    fn is_lossy(self) -> bool {
+        self == Self::Lossy
+    }
+
+    fn combine(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::Lossy, _) | (_, Self::Lossy) => Self::Lossy,
+            (Self::Lossless, _) | (_, Self::Lossless) => Self::Lossless,
+            (Self::Unchanged, Self::Unchanged) => Self::Unchanged,
+        }
+    }
+}
+
+/// Sanitize a type reference while preserving whether the change is lossy.
+fn sanitize_type_ref(
+    ty: &mut TypeRef,
+    known_types: &AHashSet<String>,
+    known_enums: &AHashSet<String>,
+) -> TypeSanitization {
     match ty {
         TypeRef::Named(name) if !known_types.contains(name.as_str()) && !known_enums.contains(name.as_str()) => {
+            // `Value` and `JsonValue` are bare names for serde_json::Value that the extractor
+            // preserves as Named types. They are not unknown types to be collapsed to String,
+            // but rather pseudo-types that should be preserved through Option/Vec/Map wrappers
+            // so that type mappers can handle them appropriately. Do not sanitize.
+            if name == "Value" || name == "JsonValue" {
+                return TypeSanitization::Unchanged;
+            }
             // Detect homogeneous numeric tuple types such as `(u32, u32)` that serde serializes
             // as JSON arrays.  Map them to Vec<ElemType> so backends emit array types (e.g.
             // `[]uint32` in Go) rather than falling back to `string`.  This preserves round-trip
             // JSON compatibility: `null | [800, 600]` unmarshals correctly into `*[]uint32`.
             if let Some(elem_ty) = parse_homogeneous_tuple(name) {
                 *ty = TypeRef::Vec(Box::new(elem_ty));
-                return true; // Sanitized — the core type is a tuple, not a Vec
+                return TypeSanitization::Lossy; // Sanitized — the core type is a tuple, not a Vec
             }
             *ty = TypeRef::String;
-            true
+            TypeSanitization::Lossy
         }
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => sanitize_type_ref(inner, known_types, known_enums),
         TypeRef::Map(k, v) => {
             if contains_ambiguous_bare_value(k) || contains_ambiguous_bare_value(v) {
-                return true;
+                return TypeSanitization::Lossy;
             }
             // Sanitize inner key and value types (e.g. Named("str") → String) so
             // backends receive clean Map(String, Json) rather than Map(Named("str"), Json).
-            // However, the Map *structure itself* is always valid — all backends have explicit
-            // TypeRef::Map handling — so do NOT propagate sanitized=true to the caller.
-            // If we returned true here, the field would be flagged as sanitized and the
-            // conversion codegen would fall through to the Debug-format fallback
-            // (format!("{:?}", val.field)), which is wrong for every backend.
-            sanitize_type_ref(k, known_types, known_enums);
-            sanitize_type_ref(v, known_types, known_enums);
-            false
+            let key_status = sanitize_map_inner_type(k, known_types, known_enums);
+            let value_status = sanitize_map_inner_type(v, known_types, known_enums);
+            key_status.combine(value_status)
         }
-        _ => false,
+        _ => TypeSanitization::Unchanged,
     }
+}
+
+fn sanitize_map_inner_type(
+    ty: &mut TypeRef,
+    known_types: &AHashSet<String>,
+    known_enums: &AHashSet<String>,
+) -> TypeSanitization {
+    if matches!(ty, TypeRef::Named(name) if name == "str") {
+        *ty = TypeRef::String;
+        return TypeSanitization::Lossless;
+    }
+    sanitize_type_ref(ty, known_types, known_enums)
 }
 
 fn contains_ambiguous_bare_value(ty: &TypeRef) -> bool {
@@ -1228,12 +1273,10 @@ mod tests {
     use super::*;
 
     /// sanitize_type_ref must resolve Map inner types (e.g. Named("str") → String)
-    /// but must NOT mark the Map itself as sanitized. Returning sanitized=true for a
-    /// Map causes downstream backends to fall through to the Debug-format fallback
-    /// (`format!("{:?}", val.field)`) instead of emitting the correct HashMap/JsValue
-    /// conversion. Regression for AHashMap<Cow<'static, str>, serde_json::Value>.
+    /// without marking the Map as lossy. Lossy map inner changes are still reported
+    /// separately so validation can block them before codegen.
     #[test]
-    fn sanitize_map_with_cow_key_preserves_map_structure_and_returns_not_sanitized() {
+    fn sanitize_map_with_cow_key_preserves_map_structure_and_returns_lossless() {
         let known_types = AHashSet::default();
         let known_enums = AHashSet::default();
         // "str" is NOT in known_types — it represents the inner type of Cow<'static, str>.
@@ -1241,7 +1284,7 @@ mod tests {
 
         let mut ty = TypeRef::Map(Box::new(TypeRef::Named("str".into())), Box::new(TypeRef::Json));
 
-        let sanitized = sanitize_type_ref(&mut ty, &known_types, &known_enums);
+        let status = sanitize_type_ref(&mut ty, &known_types, &known_enums);
 
         // The Map must be preserved — NOT converted to String.
         assert!(
@@ -1251,20 +1294,14 @@ mod tests {
             "expected Map(String, Json) but got {ty:?}"
         );
 
-        // sanitize_type_ref must return false: the Map structure is valid and backends
-        // have explicit Map handling. Returning true would mark field.sanitized=true
-        // and trigger the wrong conversion code path in all backends.
-        assert!(
-            !sanitized,
-            "sanitize_type_ref returned sanitized=true for Map — this triggers the Debug-format fallback"
-        );
+        assert_eq!(status, TypeSanitization::Lossless);
 
         // Verify the symmetric case: Map(String, Json) with already-resolved key
         // should also return false (key is already String, no unknown Named types).
         let _ = known_types;
         let mut ty2 = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::Json));
         let sanitized2 = sanitize_type_ref(&mut ty2, &AHashSet::default(), &AHashSet::default());
-        assert!(!sanitized2, "Map(String, Json) should not be sanitized");
+        assert_eq!(sanitized2, TypeSanitization::Unchanged);
         assert!(
             matches!(&ty2, TypeRef::Map(k, v)
                 if matches!(k.as_ref(), TypeRef::String)
@@ -1280,7 +1317,7 @@ mod tests {
         let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
 
         assert!(
-            sanitized,
+            sanitized.is_lossy(),
             "ambiguous bare Value inside Map must not be silently accepted"
         );
         assert!(
@@ -1296,12 +1333,28 @@ mod tests {
     fn sanitize_map_with_both_string_types_returns_not_sanitized() {
         let mut ty = TypeRef::Map(Box::new(TypeRef::String), Box::new(TypeRef::String));
         let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
-        assert!(!sanitized);
+        assert_eq!(sanitized, TypeSanitization::Unchanged);
         assert!(matches!(
             &ty,
             TypeRef::Map(k, v)
                 if matches!(k.as_ref(), TypeRef::String) && matches!(v.as_ref(), TypeRef::String)
         ));
+    }
+
+    #[test]
+    fn sanitize_map_with_unknown_value_type_returns_lossy() {
+        let mut ty = TypeRef::Map(
+            Box::new(TypeRef::String),
+            Box::new(TypeRef::Named("ForeignPayload".into())),
+        );
+
+        let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
+
+        assert_eq!(sanitized, TypeSanitization::Lossy);
+        assert!(
+            matches!(&ty, TypeRef::Map(_, value) if matches!(value.as_ref(), TypeRef::String)),
+            "unknown map value should be visibly sanitized for validation, got {ty:?}"
+        );
     }
 
     /// Primitive field (not a Map) with unknown Named inner type still gets sanitized=true.
@@ -1310,7 +1363,7 @@ mod tests {
     fn sanitize_named_unknown_type_returns_sanitized_true() {
         let mut ty = TypeRef::Named("UnknownForeignType".into());
         let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
-        assert!(sanitized);
+        assert!(sanitized.is_lossy());
         assert!(matches!(ty, TypeRef::String));
     }
 
@@ -1319,11 +1372,48 @@ mod tests {
     fn sanitize_vec_with_unknown_named_returns_sanitized_true() {
         let mut ty = TypeRef::Vec(Box::new(TypeRef::Named("MyForeignStruct".into())));
         let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
-        assert!(sanitized);
+        assert!(sanitized.is_lossy());
         assert!(matches!(
             &ty,
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String)
         ));
+    }
+
+    #[test]
+    fn validate_extracted_api_does_not_suppress_critical_codes() {
+        let api = ApiSurface {
+            crate_name: "sample-lib".to_string(),
+            functions: vec![crate::core::ir::FunctionDef {
+                name: "render".to_string(),
+                rust_path: "sample_lib::render".to_string(),
+                original_rust_path: String::new(),
+                params: vec![crate::core::ir::ParamDef {
+                    name: "payload".to_string(),
+                    ty: TypeRef::Named("MissingPayload".to_string()),
+                    ..crate::core::ir::ParamDef::default()
+                }],
+                return_type: TypeRef::String,
+                error_type: None,
+                doc: String::new(),
+                is_async: false,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+            }],
+            ..ApiSurface::default()
+        };
+
+        let err = validate_extracted_api(&api, &["unknown_named_type".to_string()]).expect_err("must stay fatal");
+
+        assert!(
+            err.to_string().contains("unknown_named_type"),
+            "unexpected error: {err}"
+        );
     }
 
     // ---------------------------------------------------------------------------

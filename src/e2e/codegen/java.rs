@@ -954,7 +954,7 @@ fn render_test_file(
     let has_streaming_fixture = fixtures.iter().any(|f| {
         let call_cfg =
             e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
-        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, call_cfg.streaming)
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, call_cfg.streaming_enabled())
     });
     if has_streaming_fixture && !binding_pkg_for_imports.is_empty() {
         // Derive streaming DTO imports from declared adapters so each project pulls
@@ -1630,7 +1630,10 @@ fn render_test_method(
     // here so `render_assertion` can suppress the streaming-virtual-field path
     // for non-streaming fixtures whose real result struct has a literal `chunks`
     // field that would otherwise collide with the virtual aggregator name.
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
+    let streaming_item_type =
+        crate::e2e::codegen::recipe::streaming_item_type(call_config, adapters, &[call_config.function.as_str()]);
 
     for assertion in &fixture.assertions {
         render_assertion(
@@ -1643,6 +1646,7 @@ fn render_test_method(
             effective_result_is_bytes,
             effective_result_is_option,
             is_streaming,
+            streaming_item_type,
             &effective_enum_fields,
             &assert_enum_types,
         );
@@ -1709,14 +1713,11 @@ fn render_test_method(
     // `is_streaming` was computed earlier (before the assertion render loop).
     let collect_snippet = if is_streaming && !expects_error {
         // Derive the item_type from the adapter if present; otherwise use the default.
-        let item_type_for_streaming = adapter
-            .and_then(|a| a.item_type.as_deref())
-            .map(|it| it.rsplit("::").next().unwrap_or(it));
         crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::collect_snippet_typed(
             "java",
             result_var,
             "chunks",
-            item_type_for_streaming,
+            streaming_item_type,
         )
         .unwrap_or_default()
     } else {
@@ -2048,6 +2049,7 @@ fn render_assertion(
     result_is_bytes: bool,
     result_is_option: bool,
     is_streaming: bool,
+    streaming_item_type: Option<&str>,
     enum_fields: &std::collections::HashSet<String>,
     assert_enum_types: &std::collections::HashMap<String, String>,
 ) {
@@ -2287,7 +2289,13 @@ fn render_assertion(
     if let Some(f) = &assertion.field {
         if is_streaming && !f.is_empty() && crate::e2e::codegen::streaming_assertions::is_streaming_virtual_field(f) {
             if let Some(expr) =
-                crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor(f, "java", "chunks")
+                crate::e2e::codegen::streaming_assertions::StreamingFieldResolver::accessor_with_streaming_context(
+                    f,
+                    "java",
+                    "chunks",
+                    None,
+                    streaming_item_type,
+                )
             {
                 let line = match assertion.assertion_type.as_str() {
                     "count_min" => {

@@ -692,7 +692,7 @@ fn render_test_file_inner(
                 &f.tags,
                 &f.input,
             );
-            crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming)
+            crate::e2e::codegen::streaming_assertions::resolve_is_streaming(f, cc.streaming_enabled())
         });
 
     let _ = writeln!(out, "import org.junit.jupiter.api.Test");
@@ -1252,7 +1252,8 @@ fn render_test_method(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     let stream_lang = if kotlin_android_style {
         "kotlin_android"
     } else {

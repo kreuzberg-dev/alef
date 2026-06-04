@@ -399,7 +399,7 @@ fn resolve_call_info(call: &CallConfig, lang: &str) -> ResolvedCallInfo {
         c_engine_factory,
         result_is_option,
         result_is_bytes,
-        streaming: call.streaming,
+        streaming: call.streaming_enabled(),
         extra_args,
     }
 }

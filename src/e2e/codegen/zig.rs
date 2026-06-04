@@ -270,7 +270,7 @@ impl E2eCodegen for ZigE2eCodegen {
                         &f.tags,
                         &f.input,
                     );
-                    cc.streaming != Some(true)
+                    cc.streaming_enabled() != Some(true)
                 })
                 .collect();
 

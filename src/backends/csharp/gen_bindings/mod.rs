@@ -903,14 +903,6 @@ pub(super) fn needs_param_teardown(
     })
 }
 
-/// Check if a type has any required fields (optional=false and no default value).
-fn type_has_required_fields(type_def: &TypeDef) -> bool {
-    type_def
-        .fields
-        .iter()
-        .any(|f| !f.optional && f.default.is_none() && f.typed_default.is_none())
-}
-
 /// For each `Named` parameter, emit code to serialise it to JSON and obtain a native handle.
 ///
 /// For truly opaque types (is_opaque = true), the C# class already wraps the native handle, so
@@ -921,7 +913,7 @@ pub(super) fn emit_named_param_setup(
     indent: &str,
     true_opaque_types: &HashSet<String>,
     exception_name: &str,
-    types: &[TypeDef],
+    _types: &[TypeDef],
     enum_names: &HashSet<String>,
 ) {
     for param in params {
@@ -951,32 +943,7 @@ pub(super) fn emit_named_param_setup(
                 }
                 let from_json_method = format!("{}FromJson", csharp_type_name(type_name));
 
-                // Config parameters: if optional, default null to new instance.
-                // If required, reject null with ArgumentNullException (generated C# records
-                // may declare `required` members, which makes `new T()` a CS9035 compile error).
-                let is_config_param = param.name == "config";
-                let type_pascal = csharp_type_name(type_name);
-
-                // Check if the config type has any required fields
-                let type_def = types.iter().find(|t| &t.name == type_name);
-                let has_required = type_def.is_some_and(type_has_required_fields);
-
-                let param_to_serialize = if is_config_param {
-                    if has_required {
-                        // Type has required members: reject null instead of using `new T()`
-                        format!(
-                            "({} ?? throw new ArgumentNullException(nameof({param_name}), \"{} has required members; null is not accepted.\"))",
-                            param_name, type_pascal
-                        )
-                    } else {
-                        // All fields optional/have defaults: safe to use `new T()`
-                        format!("({} ?? new {}())", param_name, type_pascal)
-                    }
-                } else {
-                    param_name.to_string()
-                };
-
-                if param.optional && !is_config_param {
+                if param.optional {
                     // Optional Named param: pass IntPtr.Zero through to native when the
                     // C# arg is null instead of round-tripping `"null"` through FromJson
                     // which would error with "invalid type: null, expected struct T".
@@ -994,7 +961,7 @@ pub(super) fn emit_named_param_setup(
                 } else {
                     out.push_str(&crate::backends::csharp::template_env::render(
                         "named_param_json_serialize.jinja",
-                        minijinja::context! { indent, json_var => &json_var, param_name => &param_to_serialize },
+                        minijinja::context! { indent, json_var => &json_var, param_name => &param_name },
                     ));
                     out.push_str(&crate::backends::csharp::template_env::render(
                         "named_param_handle_from_json.jinja",

@@ -162,17 +162,19 @@ fn validate_generation_api(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let fatal: Vec<_> = validation_report
         .errors()
         .filter(|diagnostic| {
-            !config
-                .suppress_validation_codes
-                .iter()
-                .any(|code| code == &diagnostic.code.to_string())
+            crate::core::validation::is_critical_unsuppressible(diagnostic.code)
+                || !config
+                    .suppress_validation_codes
+                    .iter()
+                    .any(|code| code == &diagnostic.code.to_string())
         })
         .collect();
     for diagnostic in validation_report.errors().filter(|diagnostic| {
-        config
-            .suppress_validation_codes
-            .iter()
-            .any(|code| code == &diagnostic.code.to_string())
+        !crate::core::validation::is_critical_unsuppressible(diagnostic.code)
+            && config
+                .suppress_validation_codes
+                .iter()
+                .any(|code| code == &diagnostic.code.to_string())
     }) {
         tracing::warn!("[suppressed] {diagnostic}");
     }

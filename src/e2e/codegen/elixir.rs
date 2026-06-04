@@ -1436,7 +1436,8 @@ fn render_test_case(
     let result_is_simple = call_config.result_is_simple || call_overrides.is_some_and(|o| o.result_is_simple);
 
     // Streaming detection (call-level `streaming` opt-out is honored).
-    let is_streaming = crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming);
+    let is_streaming =
+        crate::e2e::codegen::streaming_assertions::resolve_is_streaming(fixture, call_config.streaming_enabled());
     // For streaming fixtures the stream is bound to `result_var` first, then drained into `chunks`.
     let chunks_var = "chunks";
 
