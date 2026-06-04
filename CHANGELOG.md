@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **csharp backend**: wire `gen_opaque_streaming_static_wrapper` into the method emission loop for opaque types. The function was defined but never called, so opaque types with streaming methods (e.g., `CrawlStreamAsync` on `DefaultEngine`) did not emit static facade methods in the main wrapper class, causing C# compilation errors. Now opaque streaming methods correctly emit both instance methods on the opaque handle class and static convenience wrappers in the wrapper class. (`src/backends/csharp/gen_bindings/methods.rs`)
+
 
 - **toolchain**: make `rust-toolchain.toml` maximally explicit — pin exact patch (`channel = "1.96.0"` — current stable, released 2026-05-25) and declare `profile = "minimal"`. Removes the ambiguity rustup would otherwise resolve implicitly and silences the `default toolchain implicitly overridden with 1.96-aarch64-apple-darwin by rustup toolchain file` warning. (`rust-toolchain.toml`)
 
