@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **csharp backend — opaque streaming static wrapper doc prefix**: iterate `method.doc.lines()` and prefix each with `    /// ` instead of inlining the entire multi-line doc after a single `///`. The previous emission embedded raw `\n` characters in the format string, leaving continuation paragraphs of multi-line rustdoc without their `///` prefix and breaking C# parsing on every opaque streaming wrapper (e.g. `KreuzcrawlLib.CrawlStreamAsync`). (`src/backends/csharp/gen_bindings/methods.rs`)
+
 - **csharp backend — multi-paragraph doc comments with intra-doc links**: preserve blank lines and backticks in rustdoc to prevent `/// ` prefix loss on continuation paragraphs. The `sanitize_doc_for_csharp()` helper was over-aggressively stripping ALL backticks and filtering blank lines, causing C# XML doc parser errors (CS1002, CS1519, CS1056) on multi-paragraph docstrings with intra-doc links like `` [`CrawlEvent`] ``. Now delegates proper sanitization to `emit_csharp_doc()` which handles Rust-idiom stripping and XML escaping correctly. Added test verifying multi-paragraph docs with intra-doc links round-trip correctly. (`src/backends/csharp/gen_bindings/methods.rs`, `src/codegen/doc_emission.rs`)
 
 ## [0.23.3] - 2026-06-04
