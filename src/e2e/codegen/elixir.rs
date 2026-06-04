@@ -2133,12 +2133,9 @@ fn render_assertion(
                 return;
             }
             // ---- keywords / keywords_count ----
-            // Elixir ExtractionResult does not expose extracted_keywords; skip.
+            // Some Elixir result DTOs do not expose keyword collections; skip.
             "keywords" | "keywords_count" => {
-                let _ = writeln!(
-                    out,
-                    "      # skipped: field '{f}' not available on Elixir ExtractionResult"
-                );
+                let _ = writeln!(out, "      # skipped: field '{f}' not available on Elixir result type");
                 return;
             }
             _ => {}

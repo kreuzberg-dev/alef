@@ -60,7 +60,7 @@
         // skipped: unsupported assertion on '{{ field_name }}'
 {%- endif %}
 {%- elif assertion_kind == "keywords" %}
-        // skipped: field '{{ field_name }}' not available on Java ExtractionResult
+        // skipped: field '{{ field_name }}' not available on Java result type
 {%- elif assertion_kind == "metadata" %}
 {%- if assertion_type == "not_empty" %}
         assertTrue({{ result_var }}.metadata().title().isPresent() || {{ result_var }}.metadata().subject().isPresent() || !{{ result_var }}.metadata().additional().isEmpty(), "expected non-empty value");

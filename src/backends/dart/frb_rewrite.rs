@@ -379,6 +379,10 @@ fn variant_regex() -> &'static Regex {
 /// This rewrite removes the erroneous `.executeSync()` / `.executeNormal()` method calls
 /// that FRB incorrectly emits.
 ///
+/// Additionally, any function/closure that contains `await handler(...)` calls must itself
+/// be marked as `async`. This rewrite ensures all containing closures and methods are
+/// properly declared as async.
+///
 /// Example transformation:
 /// ```dart
 /// // Before (FRB-generated, broken):
@@ -406,6 +410,69 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
 
     // Pattern 3: Remove duplicate awaits (FRB may emit `return await` which becomes `return await await handler`)
     result = result.replace("await await handler", "await handler");
+
+    // Pattern 4: Ensure closures/functions containing `await handler` are marked as async.
+    // Fix patterns like: `({...}) {` to `({...}) async {` when body contains `await handler`.
+    // This handles synchronous closure signatures that were not originally async.
+    result = ensure_handler_closures_are_async(&result);
+
+    result
+}
+
+/// Ensure all closures and anonymous functions that contain `await handler` calls
+/// are declared as `async`. This fixes the Dart compile error where `await` is used
+/// in a non-async context.
+fn ensure_handler_closures_are_async(source: &str) -> String {
+    let mut lines: Vec<&str> = source.lines().collect();
+    let mut result = String::new();
+
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+
+        // Check if the next few lines (up to a limit) contain `await handler`
+        // This helps identify closures/functions that need to be made async.
+        let contains_await_handler = (i..std::cmp::min(i + 10, lines.len()))
+            .any(|j| lines[j].contains("await handler("));
+
+        if contains_await_handler {
+            // Check if this line ends a function/closure signature and opens a body
+            // Patterns to handle:
+            // 1. `(...) {` (anonymous/closure start)
+            // 2. `methodName(...) {` (method start)
+            // 3. `(...) => ...` (arrow function, might need conversion)
+
+            // For now, focus on the most common pattern: function signature ending with ) {
+            if line.contains('{') && !line.trim().starts_with("//") && !line.contains("async") {
+                // Check if this is likely a function/closure signature line
+                if (line.contains("(") && line.contains(")")) || line.trim().ends_with("{") {
+                    // Insert `async` before the opening brace
+                    let fixed = if line.contains(") {") {
+                        line.replace(") {", ") async {")
+                    } else if line.ends_with("{") && !line.trim().starts_with("}") {
+                        format!("{} async {{", line.trim_end_matches('{').trim_end())
+                    } else {
+                        line.to_string()
+                    };
+                    result.push_str(&fixed);
+                } else {
+                    result.push_str(line);
+                }
+            } else {
+                result.push_str(line);
+            }
+        } else {
+            result.push_str(line);
+        }
+
+        result.push('\n');
+        i += 1;
+    }
+
+    // Remove the extra trailing newline if the original didn't have it
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
 
     result
 }

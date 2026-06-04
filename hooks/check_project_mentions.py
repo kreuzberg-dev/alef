@@ -149,6 +149,18 @@ DOMAIN_TYPE_EMBEDDED_BEHAVIOR_MARKERS = (
     "private ",
     "internal ",
 )
+SAMPLE_PROJECT_BEHAVIOR_MARKERS = DOMAIN_TYPE_SPECIAL_CASE_MARKERS + (
+    "push_str(",
+    "write!(",
+    "writeln!(",
+    "format!(",
+    "let ",
+    "const ",
+    "static ",
+    "return ",
+    "=>",
+    "insert(",
+)
 
 
 def is_enforced_path(path: Path) -> bool:
@@ -218,6 +230,15 @@ def is_split_domain_type_literal(line: str) -> bool:
     if "assert" in stripped:
         return False
     return any(pattern.search(line) for _, pattern in SPLIT_DOMAIN_TYPE_PATTERNS)
+
+
+def is_sample_project_behavior_line(line: str) -> bool:
+    stripped = line.strip()
+    if stripped.startswith(("//", "///", "#")):
+        return False
+    if "assert" in stripped:
+        return False
+    return any(marker in stripped for marker in SAMPLE_PROJECT_BEHAVIOR_MARKERS)
 
 
 def update_rust_cfg_test_region(
@@ -297,6 +318,7 @@ def violations_for_file(path: Path) -> list[str]:
             and (is_domain_type_special_case(line) or is_split_domain_type_literal(line))
         ):
             violations.extend(domain_type_violations_for_line(path, line_number, line))
+        if is_production_generator_path(path) and not in_rust_cfg_test_region and is_sample_project_behavior_line(line):
             violations.extend(sample_project_violations_for_line(path, line_number, line))
         rust_cfg_test_depth = advance_rust_cfg_test_region(line, rust_cfg_test_depth, started)
     return violations
