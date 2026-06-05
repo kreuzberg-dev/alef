@@ -373,6 +373,47 @@ mod tests {
         assert!(result.contains("my_crate::Backend::Gpu => Self::Gpu"));
     }
 
+    #[test]
+    fn test_enum_from_core_to_binding_no_excluded_variants_no_catchall() {
+        let enum_def = simple_enum();
+        let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
+        assert!(
+            !result.contains("_ => Default::default()"),
+            "catch-all arm should not be emitted when there are no excluded variants"
+        );
+    }
+
+    #[test]
+    fn test_enum_from_binding_to_core_no_excluded_variants_no_catchall() {
+        let enum_def = simple_enum();
+        let result = gen_enum_from_binding_to_core(&enum_def, "my_crate");
+        assert!(
+            !result.contains("_ => Default::default()"),
+            "catch-all arm should not be emitted when there are no excluded variants"
+        );
+    }
+
+    #[test]
+    fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
+        let mut enum_def = simple_enum();
+        enum_def.excluded_variants.push(EnumVariant {
+            name: "Tpu".into(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_tuple: false,
+            originally_had_data_fields: false,
+        });
+        let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
+        assert!(
+            result.contains("_ => Default::default()"),
+            "catch-all arm should be emitted when there are excluded variants"
+        );
+    }
+
     fn untagged_tuple_enum() -> EnumDef {
         EnumDef {
             name: "UserContent".to_string(),

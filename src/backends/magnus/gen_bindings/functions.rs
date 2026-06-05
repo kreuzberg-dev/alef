@@ -345,6 +345,7 @@ pub(super) fn gen_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
@@ -355,6 +356,7 @@ pub(super) fn gen_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     } else {
@@ -365,6 +367,7 @@ pub(super) fn gen_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     }
@@ -605,6 +608,7 @@ fn magnus_serde_let_bindings(
                             core_import => core_import,
                             type_name => name,
                             error_expr => err,
+                            is_mut => p.is_mut,
                         },
                     ));
                 } else if promoted || is_last_config {
@@ -616,6 +620,7 @@ fn magnus_serde_let_bindings(
                             core_import => core_import,
                             type_name => name,
                             error_expr => err,
+                            is_mut => p.is_mut,
                         },
                     ));
                 } else {
@@ -627,6 +632,7 @@ fn magnus_serde_let_bindings(
                             core_import => core_import,
                             type_name => name,
                             error_expr => err,
+                            is_mut => p.is_mut,
                         },
                     ));
                 }
@@ -765,6 +771,7 @@ pub(super) fn gen_async_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     } else if promoted || (idx == func.params.len() - 1 && is_default_config_func) {
@@ -775,6 +782,7 @@ pub(super) fn gen_async_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     } else {
@@ -785,6 +793,7 @@ pub(super) fn gen_async_function(
                                 binding_name => binding_ty,
                                 core_import => core_import,
                                 type_name => name,
+                                is_mut => p.is_mut,
                             },
                         ));
                     }
