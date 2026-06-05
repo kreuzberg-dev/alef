@@ -231,7 +231,9 @@ impl E2eCodegen for WasmCodegen {
         // For wasm, the service API is skipped (App class is excluded from bindings).
         // Wasm fixtures that require an app harness cannot run; fall back to mock-server
         // pattern. Check if the app_class is in the wasm exclude_types.
-        let app_class_excluded = config.wasm.as_ref()
+        let app_class_excluded = config
+            .wasm
+            .as_ref()
             .map(|w| w.exclude_types.iter().any(|t| t == "App"))
             .unwrap_or(false);
         let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty() && !app_class_excluded;

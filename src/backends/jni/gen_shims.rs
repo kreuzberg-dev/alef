@@ -807,8 +807,8 @@ fn emit_function_shim(
                     ));
                     unmarshal.push_str("    };\n");
                     // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
-                    let is_vec_string_ref = p.is_ref
-                        && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+                    let is_vec_string_ref =
+                        p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
                     if is_vec_string_ref {
                         let refs_name = format!("{rust_name}_refs");
                         unmarshal.push_str(&format!(
@@ -1058,8 +1058,8 @@ fn emit_method_shim(
             ));
             out.push_str("    };\n");
             // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
-            let is_vec_string_ref = p.is_ref
-                && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
+            let is_vec_string_ref =
+                p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
             let call_arg = if is_vec_string_ref {
                 let refs_name = format!("{rust_name}_refs");
                 out.push_str(&format!(

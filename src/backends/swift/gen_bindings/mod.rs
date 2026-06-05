@@ -3727,7 +3727,8 @@ fn emit_single_free_function_forwarder(
         let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
         let (swift_ty, local_expr) =
             forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
-        sig_params.push(format!("{swift_param_name}: {swift_ty}"));
+        let param_default = if param.optional { " = nil" } else { "" };
+        sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
         if let Some(line) = local_expr.setup_line.clone() {
             conversion_lines.push(line);
         }
@@ -3860,7 +3861,8 @@ fn emit_async_free_function_forwarder(
         let swift_param_name = swift_ident(&param.name.to_lower_camel_case());
         let (swift_ty, local_expr) =
             forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
-        sig_params.push(format!("{swift_param_name}: {swift_ty}"));
+        let param_default = if param.optional { " = nil" } else { "" };
+        sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
         if let Some(line) = local_expr.setup_line.clone() {
             conversion_lines.push(line);
         }

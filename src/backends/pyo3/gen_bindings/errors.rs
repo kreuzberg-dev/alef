@@ -584,7 +584,18 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
+        let result = gen_init_py(
+            &api,
+            "_mod",
+            "1.2.3",
+            &dto,
+            &[],
+            &extra,
+            &caps,
+            &adapters,
+            &opaque,
+            &ahash::AHashSet::new(),
+        );
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
     }
@@ -634,7 +645,18 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
+        let result = gen_init_py(
+            &api,
+            "_mod",
+            "1.2.3",
+            &dto,
+            &[],
+            &extra,
+            &caps,
+            &adapters,
+            &opaque,
+            &ahash::AHashSet::new(),
+        );
 
         for symbol in [
             "ValidationError",
@@ -669,7 +691,18 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
+        let result = gen_init_py(
+            &api,
+            "_mod",
+            "1.2.3",
+            &dto,
+            &[],
+            &extra,
+            &caps,
+            &adapters,
+            &opaque,
+            &ahash::AHashSet::new(),
+        );
         assert!(
             result.contains("from ._supported_languages import SupportedLanguage"),
             "missing import line in:\n{result}",
