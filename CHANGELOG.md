@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+<!-- Placeholder for next release -->
+
+## [0.23.14] - 2026-06-05
+
 ### Fixed
 
 <!-- C#-opaque-handle-return-detection -->
