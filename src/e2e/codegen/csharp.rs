@@ -1012,7 +1012,7 @@ fn render_test_method(
         name
     };
     let effective_result_var = &call_config.result_var;
-    let effective_is_async = call_config.r#async;
+    let effective_is_async = cs_overrides.and_then(|o| o.r#async).unwrap_or(call_config.r#async);
     let function_name = effective_function_name.as_str();
     let result_var = effective_result_var.as_str();
     let is_async = effective_is_async;
