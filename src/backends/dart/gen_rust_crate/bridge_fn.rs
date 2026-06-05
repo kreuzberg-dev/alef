@@ -146,7 +146,7 @@ pub(crate) fn emit_bridge_fn(
     let call = format!("{resolved_path}({})", call_args.join(", "));
 
     // Determine if the return type needs a mirror-transmute (Named or Vec<Named> or Option<Named>).
-    let ret_transmute = return_transmute_expr(
+    let ret_transform = return_transform(
         &f.return_type,
         source_crate_name,
         type_paths,
@@ -155,13 +155,13 @@ pub(crate) fn emit_bridge_fn(
     );
 
     // Build suffix cast for primitives / Strings.
-    let result_cast = if ret_transmute.is_empty() {
+    let result_cast = if matches!(ret_transform, RetTransform::None) {
         build_primitive_result_cast(&f.return_type, f.returns_ref)
     } else {
         String::new()
     };
 
-    let body = build_body(&call, &result_cast, &ret_transmute, has_error, f.is_async);
+    let body = build_body(&call, &result_cast, &ret_transform, has_error, f.is_async);
 
     // Emit pre-call bindings (if any) before the body expression.
     if !pre_call_bindings.is_empty() {
@@ -445,65 +445,95 @@ fn build_named_in_transmute(
     format!("unsafe {{ std::mem::transmute::<{mirror_name}, {core_ty}>({name}) }}")
 }
 
-/// Build a conversion expression for the return value FROM the core fn to the local mirror type.
-/// Returns an empty string if no conversion is needed.
-/// Returns a closure/expression string that wraps the raw call value.
+/// Describes how to transform the raw core-fn return value into the bridge return value.
 ///
-/// Uses `From<SourceT> for T` rather than transmute, because mirror types may differ
-/// in layout (e.g. `Cow<'static, str>` in core vs `String` in mirror).
-fn return_transmute_expr(
+/// Variants are chosen to keep generated Rust clean under clippy 1.95:
+/// no `(|v| ...)(expr)` shapes (`clippy::redundant_closure_call`) and no
+/// `.into_iter()` on `&[T]` (`clippy::into_iter_on_ref`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum RetTransform {
+    /// No mirror transform needed; the raw call value is used as-is (with optional
+    /// `result_cast` suffix appended for primitive/string casts).
+    None,
+    /// Apply `.map(callable)` to the raw call value. Used for scalar `Named` returns
+    /// and for `Result<Named, _>` (the `Ok` arm is mapped). The callable is a bare
+    /// path like `MirrorName::from` so clippy::redundant_closure is also satisfied.
+    Map(String),
+    /// Append a suffix expression directly to the raw call value (e.g.
+    /// `.into_iter().map(X::from).collect::<Vec<_>>()`). Used for `Vec<Named>` and
+    /// `Option<Named>` returns so the emitted Rust never wraps a closure literal
+    /// around the call site.
+    Suffix(String),
+}
+
+/// Decide how to convert the core-fn return into the bridge return.
+///
+/// Mirror types may differ in layout from core types (e.g. `Cow<'static, str>` in
+/// core vs `String` in mirror), so we rely on the generated `From<CoreT> for MirrorT`
+/// impl rather than `mem::transmute`.
+fn return_transform(
     ty: &TypeRef,
     _source_crate_name: &str,
     _type_paths: &std::collections::HashMap<String, String>,
     opaque_type_names: &std::collections::HashSet<String>,
     returns_ref: bool,
-) -> String {
+) -> RetTransform {
     match ty {
         TypeRef::Named(mirror_name) => {
             if opaque_type_names.contains(mirror_name.as_str()) {
                 // Opaque wrapper: construct the wrapper struct from the core value.
-                format!("|inner| {mirror_name} {{ inner }}")
+                // This is a closure literal, but it is only used inside `.map(...)`
+                // (never `(closure)(expr)`), so clippy::redundant_closure_call is
+                // not triggered.
+                RetTransform::Map(format!("|inner| {mirror_name} {{ inner }}"))
             } else {
                 // Use From conversion: core type implements Into<MirrorType> via the
                 // generated From impl. Emit the bare path so clippy::redundant_closure
                 // is satisfied at the call site (`.map(MirrorName::from)`).
-                format!("{mirror_name}::from")
+                RetTransform::Map(format!("{mirror_name}::from"))
             }
         }
         TypeRef::Vec(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
                 if returns_ref {
-                    // v is &[T]; iter() yields &T — must clone before converting via From.
+                    // v is &[T]; must use .iter() (not .into_iter() — clippy 1.95's
+                    // `into_iter_on_ref` rejects that) and clone before converting via From.
                     if opaque_type_names.contains(mirror_name.as_str()) {
-                        format!(
-                            "|v: &[_]| v.iter().map(|inner| {mirror_name} {{ inner: inner.clone() }}).collect::<Vec<_>>()"
+                        RetTransform::Suffix(
+                            ".iter().map(|inner| ".to_string()
+                                + mirror_name
+                                + " { inner: inner.clone() }).collect::<Vec<_>>()",
                         )
                     } else {
-                        format!("|v: &[_]| v.iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()")
+                        RetTransform::Suffix(format!(
+                            ".iter().map(|x| {mirror_name}::from(x.clone())).collect::<Vec<_>>()"
+                        ))
                     }
                 } else if opaque_type_names.contains(mirror_name.as_str()) {
-                    format!("|v: Vec<_>| v.into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()")
+                    RetTransform::Suffix(format!(
+                        ".into_iter().map(|inner| {mirror_name} {{ inner }}).collect::<Vec<_>>()"
+                    ))
                 } else {
-                    format!("|v: Vec<_>| v.into_iter().map({mirror_name}::from).collect::<Vec<_>>()")
+                    RetTransform::Suffix(format!(
+                        ".into_iter().map({mirror_name}::from).collect::<Vec<_>>()"
+                    ))
                 }
             } else {
-                String::new()
+                RetTransform::None
             }
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Named(mirror_name) = inner.as_ref() {
                 if opaque_type_names.contains(mirror_name.as_str()) {
-                    format!("|v: Option<_>| v.map(|inner| {mirror_name} {{ inner }})")
+                    RetTransform::Suffix(format!(".map(|inner| {mirror_name} {{ inner }})"))
                 } else {
-                    // Add explicit type annotation to avoid E0282 type inference failure
-                    // when the core return type is ambiguous (e.g. returned via trait object).
-                    format!("|v: Option<_>| v.map({mirror_name}::from)")
+                    RetTransform::Suffix(format!(".map({mirror_name}::from)"))
                 }
             } else {
-                String::new()
+                RetTransform::None
             }
         }
-        _ => String::new(),
+        _ => RetTransform::None,
     }
 }
 
@@ -551,40 +581,49 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
             // dart call site.
             ".map(|v| v.to_string())".to_string()
         }
-        TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Primitive(prim) => {
-                let target = primitive_name(prim);
-                if target == "f64" || target == "i64" || target == "bool" {
-                    String::new()
-                } else {
-                    format!(
-                        ".into_iter().map(|x| x as {}).collect::<Vec<_>>()",
-                        frb_rust_type_inner(inner)
-                    )
-                }
-            }
-            TypeRef::Path => {
-                // PathBuf does not implement Display; use to_string_lossy().into_owned().
-                ".into_iter().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()".to_string()
-            }
-            TypeRef::String | TypeRef::Char => ".into_iter().map(|s| s.to_string()).collect::<Vec<_>>()".to_string(),
-            TypeRef::Vec(inner2) => {
-                if let TypeRef::Primitive(prim) = inner2.as_ref() {
+        TypeRef::Vec(inner) => {
+            // When `returns_ref` is true the core fn returns a slice reference
+            // (e.g. `&'static [&'static str]`). On a slice reference, `.into_iter()`
+            // is equivalent to `.iter()` but clippy 1.95's `into_iter_on_ref` lint
+            // rejects the former. Pick the iterator method accordingly.
+            let iter_method = if returns_ref { "iter" } else { "into_iter" };
+            match inner.as_ref() {
+                TypeRef::Primitive(prim) => {
                     let target = primitive_name(prim);
-                    let frb_target = frb_rust_type_inner(inner2);
-                    if target != frb_target.as_str() {
+                    if target == "f64" || target == "i64" || target == "bool" {
+                        String::new()
+                    } else {
                         format!(
-                            ".into_iter().map(|row| row.into_iter().map(|x| x as {frb_target}).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                            ".{iter_method}().map(|x| x as {}).collect::<Vec<_>>()",
+                            frb_rust_type_inner(inner)
                         )
+                    }
+                }
+                TypeRef::Path => {
+                    // PathBuf does not implement Display; use to_string_lossy().into_owned().
+                    format!(".{iter_method}().map(|p| p.to_string_lossy().into_owned()).collect::<Vec<_>>()")
+                }
+                TypeRef::String | TypeRef::Char => {
+                    format!(".{iter_method}().map(|s| s.to_string()).collect::<Vec<_>>()")
+                }
+                TypeRef::Vec(inner2) => {
+                    if let TypeRef::Primitive(prim) = inner2.as_ref() {
+                        let target = primitive_name(prim);
+                        let frb_target = frb_rust_type_inner(inner2);
+                        if target != frb_target.as_str() {
+                            format!(
+                                ".{iter_method}().map(|row| row.into_iter().map(|x| x as {frb_target}).collect::<Vec<_>>()).collect::<Vec<_>>()"
+                            )
+                        } else {
+                            String::new()
+                        }
                     } else {
                         String::new()
                     }
-                } else {
-                    String::new()
                 }
+                _ => String::new(),
             }
-            _ => String::new(),
-        },
+        }
         TypeRef::Optional(inner) => match inner.as_ref() {
             TypeRef::String | TypeRef::Path | TypeRef::Char => ".map(|s| s.to_string())".to_string(),
             _ => String::new(),
@@ -595,43 +634,83 @@ fn build_primitive_result_cast(ty: &TypeRef, returns_ref: bool) -> String {
 
 /// Build the function body string.
 ///
-/// `ret_transmute` is a closure expression `|v| unsafe { transmute(v) }` that wraps
-/// the raw Ok value when returning a mirror type. If empty, `result_cast` is used as
-/// a suffix instead (for primitives / String).
-fn build_body(call: &str, result_cast: &str, ret_transmute: &str, has_error: bool, is_async: bool) -> String {
-    if !ret_transmute.is_empty() {
-        // Named return type: wrap in transmute closure.
-        let transmute_fn = ret_transmute;
-        if has_error {
-            if is_async {
-                return format!("    {call}.await.map({transmute_fn}).map_err(|e| e.to_string())\n");
+/// `ret_transform` describes how to convert the raw call value into the bridge
+/// return value. When `ret_transform == RetTransform::None`, `result_cast` is used
+/// as a plain suffix (for primitives / String).
+///
+/// The `RetTransform::Suffix(_)` and `RetTransform::Map(_)` branches both produce
+/// expressions of the form `<call><suffix>` or `<call>.map(<callable>)` — never
+/// `(<closure>)(<call>)` — so the emitted Rust stays clean under clippy 1.95's
+/// `redundant_closure_call` lint.
+fn build_body(call: &str, result_cast: &str, ret_transform: &RetTransform, has_error: bool, is_async: bool) -> String {
+    match ret_transform {
+        RetTransform::Map(callable) => {
+            let map_fn = callable.as_str();
+            if has_error {
+                if is_async {
+                    return format!("    {call}.await.map({map_fn}).map_err(|e| e.to_string())\n");
+                }
+                return format!("    {call}.map({map_fn}).map_err(|e| e.to_string())\n");
             }
-            return format!("    {call}.map({transmute_fn}).map_err(|e| e.to_string())\n");
+            // No error: apply the callable directly to the raw value (or awaited value).
+            // Both the bare-path shape (`MirrorName::from(call)`) and the inline opaque-wrap
+            // shape (`MirrorName { inner: call }`) avoid clippy::redundant_closure_call.
+            let raw = if is_async { format!("{call}.await") } else { call.to_string() };
+            format!("    {expr}\n", expr = call_callable(map_fn, &raw))
         }
-        if is_async {
-            return format!("    ({transmute_fn})({call}.await)\n");
+        RetTransform::Suffix(suffix) => {
+            let s = suffix.as_str();
+            if has_error {
+                if is_async {
+                    return format!("    {call}.await.map(|v| v{s}).map_err(|e| e.to_string())\n");
+                }
+                return format!("    {call}.map(|v| v{s}).map_err(|e| e.to_string())\n");
+            }
+            if is_async {
+                return format!("    {call}.await{s}\n");
+            }
+            format!("    {call}{s}\n")
         }
-        return format!("    ({transmute_fn})({call})\n");
+        RetTransform::None => {
+            // Non-Named return type: use result_cast suffix.
+            if has_error {
+                if is_async {
+                    return format!("    {call}.await.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+                }
+                return format!("    {call}.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+            }
+            if is_async {
+                if result_cast.is_empty() {
+                    return format!("    {call}.await\n");
+                }
+                return format!("    {call}.await{result_cast}\n");
+            }
+            if result_cast.is_empty() {
+                format!("    {call}\n")
+            } else {
+                format!("    {call}{result_cast}\n")
+            }
+        }
     }
+}
 
-    // Non-Named return type: use result_cast suffix.
-    if has_error {
-        if is_async {
-            return format!("    {call}.await.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
+/// Apply a callable string to a bound identifier without producing a
+/// `(closure)(ident)` shape that would trigger `clippy::redundant_closure_call`.
+///
+/// Recognizes the two shapes `return_transform` emits for `RetTransform::Map`:
+/// a bare path (`MirrorName::from`) → `MirrorName::from(v)`, and an opaque-wrap
+/// closure (`|inner| MirrorName { inner }`) → `MirrorName { inner: v }`.
+fn call_callable(callable: &str, ident: &str) -> String {
+    if let Some(rest) = callable.strip_prefix("|inner| ") {
+        // Opaque-wrapper closure `|inner| MirrorName { inner }` — rewrite as a
+        // direct struct literal so clippy::redundant_closure_call does not fire.
+        // `rest` is `MirrorName { inner }`.
+        if let Some(name) = rest.strip_suffix(" { inner }") {
+            return format!("{name} {{ inner: {ident} }}");
         }
-        return format!("    {call}.map(|v| v{result_cast}).map_err(|e| e.to_string())\n");
     }
-    if is_async {
-        if result_cast.is_empty() {
-            return format!("    {call}.await\n");
-        }
-        return format!("    {call}.await{result_cast}\n");
-    }
-    if result_cast.is_empty() {
-        format!("    {call}\n")
-    } else {
-        format!("    {call}{result_cast}\n")
-    }
+    // Bare path (e.g. `MirrorName::from`): emit as a normal function call.
+    format!("{callable}({ident})")
 }
 
 #[cfg(test)]
@@ -756,11 +835,111 @@ mod tests {
         // so Rust can infer the target type without E0282.
         let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
         let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
-        let expr = return_transmute_expr(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        let suffix = match &transform {
+            RetTransform::Suffix(s) => s.clone(),
+            other => panic!("expected Suffix, got {other:?}"),
+        };
         assert!(
-            expr.contains("collect::<Vec<_>>()"),
-            "Vec<Named> collect must have type annotation: {expr}"
+            suffix.contains("collect::<Vec<_>>()"),
+            "Vec<Named> collect must have type annotation: {suffix}"
         );
+    }
+
+    #[test]
+    fn vec_named_return_transform_is_suffix_not_closure_call() {
+        // Regression (clippy 1.95 redundant_closure_call): Vec<Named> return MUST be
+        // emitted as a suffix expression (`.into_iter().map(X::from).collect::<Vec<_>>()`)
+        // applied directly to the call, NOT a closure literal wrapping the call site
+        // (e.g. `(|v: Vec<_>| v.into_iter().map(X::from).collect::<Vec<_>>())(call)`).
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
+        let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        match &transform {
+            RetTransform::Suffix(s) => {
+                assert!(s.starts_with(".into_iter()"), "expected suffix starting with .into_iter(), got {s}");
+                assert!(s.contains("QrCode::from"), "expected QrCode::from in suffix, got {s}");
+                assert!(!s.contains("|v"), "suffix must not contain a closure literal, got {s}");
+            }
+            other => panic!("expected Suffix, got {other:?}"),
+        }
+        let body = build_body("kreuzberg::detect(&x)", "", &transform, false, false);
+        assert!(
+            !body.contains("|v: Vec<_>|"),
+            "body must not emit closure-literal wrap: {body}"
+        );
+        assert!(
+            body.contains("kreuzberg::detect(&x).into_iter().map(QrCode::from).collect::<Vec<_>>()"),
+            "body must apply suffix directly to call: {body}"
+        );
+    }
+
+    #[test]
+    fn vec_named_returns_ref_emits_iter_not_into_iter() {
+        // Regression (clippy 1.95 into_iter_on_ref): when the core fn returns &[T]
+        // (e.g. `&'static [&'static str]`), the bridge must use `.iter()`, NOT
+        // `.into_iter()` (which on &[T] is the same but triggers the lint).
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ty = TypeRef::Vec(Box::new(TypeRef::Named("Foo".to_string())));
+        let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, true);
+        match transform {
+            RetTransform::Suffix(s) => {
+                assert!(s.starts_with(".iter()"), "ref-return Vec<Named> must start with .iter(): {s}");
+                assert!(!s.contains(".into_iter()"), "ref-return must not use .into_iter(): {s}");
+            }
+            other => panic!("expected Suffix, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn option_named_return_transform_is_suffix_not_closure_call() {
+        // Regression: Option<Named> return must be emitted as `.map(X::from)` suffix,
+        // not `(|v: Option<_>| v.map(X::from))(call)`.
+        let opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("EmbeddingPreset".to_string())));
+        let transform = return_transform(&ty, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        match &transform {
+            RetTransform::Suffix(s) => {
+                assert_eq!(s, ".map(EmbeddingPreset::from)");
+            }
+            other => panic!("expected Suffix, got {other:?}"),
+        }
+        let body = build_body("kreuzberg::get(&n)", "", &transform, false, false);
+        assert!(
+            !body.contains("|v: Option<_>|"),
+            "body must not emit closure-literal wrap: {body}"
+        );
+        assert!(
+            body.contains("kreuzberg::get(&n).map(EmbeddingPreset::from)"),
+            "body must apply suffix directly to call: {body}"
+        );
+    }
+
+    #[test]
+    fn scalar_named_return_transform_does_not_emit_closure_call() {
+        // Sync, no-error, scalar Named return: must NOT emit `(closure)(call)`.
+        // Bare-path form: `MirrorName::from(call)`. Opaque form: `MirrorName { inner: call }`.
+        let mut opaque: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let ty_named = TypeRef::Named("Foo".to_string());
+
+        // From-conversion path.
+        let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        let body = build_body("kreuzberg::foo()", "", &t, false, false);
+        assert!(
+            body.contains("Foo::from(kreuzberg::foo())"),
+            "sync scalar Named must emit direct call, got: {body}"
+        );
+        assert!(!body.contains("(Foo::from)("), "must not use (path)(expr) wrap: {body}");
+
+        // Opaque-wrap path.
+        opaque.insert("Foo".to_string());
+        let t = return_transform(&ty_named, "mylib", &std::collections::HashMap::new(), &opaque, false);
+        let body = build_body("kreuzberg::foo()", "", &t, false, false);
+        assert!(
+            body.contains("Foo { inner: kreuzberg::foo() }"),
+            "sync scalar opaque Named must emit struct literal, got: {body}"
+        );
+        assert!(!body.contains("|inner|"), "must not emit closure: {body}");
     }
 
     #[test]
@@ -777,6 +956,21 @@ mod tests {
             !cast.contains(".to_string()"),
             "Vec<Path> must NOT use .to_string(): {cast}"
         );
+    }
+
+    #[test]
+    fn vec_string_returns_ref_result_cast_uses_iter_not_into_iter() {
+        // Regression (clippy 1.95 into_iter_on_ref): when the core fn returns
+        // `&'static [&'static str]` (e.g. `kreuzberg::text::ner::known_models`),
+        // the result cast must use `.iter()` not `.into_iter()`. This is the
+        // suffix path (no mirror transform), so `build_primitive_result_cast`
+        // is responsible.
+        let ty = TypeRef::Vec(Box::new(TypeRef::String));
+        let cast_owned = build_primitive_result_cast(&ty, false);
+        let cast_ref = build_primitive_result_cast(&ty, true);
+        assert!(cast_owned.starts_with(".into_iter()"), "owned must use .into_iter(): {cast_owned}");
+        assert!(cast_ref.starts_with(".iter()"), "ref must use .iter(): {cast_ref}");
+        assert!(!cast_ref.contains(".into_iter()"), "ref must not use .into_iter(): {cast_ref}");
     }
 
     #[test]

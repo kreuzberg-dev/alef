@@ -5,7 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.23.13] - 2026-06-05
+## [Unreleased]
+
+### Fixed
+
+<!-- dart-clippy-195-redundant-closure-call-into-iter-on-ref -->
+- **dart — generated FRB bridge functions trip clippy 1.95's `redundant_closure_call` and `into_iter_on_ref` lints**: for `Vec<Named>` and `Option<Named>` returns the bridge emitted `(|v: Vec<_>| v.into_iter().map(X::from).collect::<Vec<_>>())(call)` / `(|v: Option<_>| v.map(X::from))(call)` — closure literals immediately invoked on the call expression. For sync, non-error scalar `Named` returns the same shape appeared as `(X::from)(call)` and `(|inner| X { inner })(call)`. Refactored `return_transmute_expr` into a `RetTransform` enum (`None` / `Map(callable)` / `Suffix(expr)`) and rewrote `build_body` so Vec/Option mirror conversions emit a direct suffix (`call.into_iter().map(X::from).collect::<Vec<_>>()` / `call.map(X::from)`), and scalar conversions emit a direct call (`X::from(call)`) or struct literal (`X { inner: call }`). Also: when the core fn returns a slice reference (`returns_ref == true`), `build_primitive_result_cast` for `Vec<String>` / `Vec<Path>` / `Vec<Primitive>` / `Vec<Vec<Primitive>>` now uses `.iter()` instead of `.into_iter()` so kreuzberg's `text::ner::known_models()` (returns `&'static [&'static str]`) no longer trips `into_iter_on_ref`. Five new regression tests cover the refactored shapes. (`src/backends/dart/gen_rust_crate/bridge_fn.rs`)
+
+
 
 ### Fixed
 
