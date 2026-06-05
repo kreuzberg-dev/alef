@@ -722,6 +722,7 @@ impl Backend for ExtendrBackend {
                         &opaque_types,
                         &cfg,
                         &extendr_incompatible_types,
+                        &enum_names,
                     ));
                 } else {
                     builder.add_item(&generators::gen_function(
@@ -1944,7 +1945,17 @@ fn return_type_needs_json(
     match ret {
         TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+            TypeRef::Named(n) => {
+                // Vec<Enum>: extendr-generated enums don't impl From<Vec<T>> for Robj
+                if enum_names.contains(n.as_str()) {
+                    return true;
+                }
+                // Vec<OpaqueDTO>: opaque types don't impl From<Vec<T>> for Robj
+                if opaque_types.contains(n.as_str()) {
+                    return true;
+                }
+                extendr_incompatible_types.contains(n.as_str())
+            }
             // Vec<Vec<_>> has no From<Vec<Vec<T>>> for Robj regardless of T
             TypeRef::Vec(_) => true,
             _ => false,
@@ -1976,6 +1987,7 @@ fn gen_extendr_json_bridged_function(
     opaque_types: &AHashSet<String>,
     cfg: &RustBindingConfig,
     extendr_incompatible_types: &AHashSet<String>,
+    enum_names: &AHashSet<String>,
 ) -> String {
     use crate::codegen::generators::binding_helpers::gen_call_args_cfg;
 
@@ -1988,8 +2000,21 @@ fn gen_extendr_json_bridged_function(
     let mut body_preamble = String::new();
 
     for param in &func.params {
-        let needs_json_vec = matches!(&param.ty, TypeRef::Vec(inner)
-            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+        // Vec<T> needs JSON bridging if T is:
+        // - An enum (Vec<Enum>): extendr enums don't auto-convert
+        // - An opaque type (Vec<OpaqueDTO>): no TryFrom<&Robj> impl
+        // - A non-opaque struct (Vec<Struct>): in extendr_incompatible_types
+        let needs_json_vec = match &param.ty {
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => {
+                    enum_names.contains(n.as_str())
+                        || opaque_types.contains(n.as_str())
+                        || extendr_incompatible_types.contains(n.as_str())
+                }
+                _ => false,
+            },
+            _ => false,
+        };
         // Bare Named struct params for types that lack a `#[extendr]` impl (they live in
         // `extendr_incompatible_types`) have no `TryFrom<&Robj>` generated, so they must
         // also cross the boundary as JSON strings — same as Vec<Struct>.
@@ -2004,6 +2029,7 @@ fn gen_extendr_json_bridged_function(
                 },
                 _ => unreachable!(),
             };
+            let mut_kw = if param.is_mut { "mut " } else { "" };
             if param.optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
@@ -2012,6 +2038,7 @@ fn gen_extendr_json_bridged_function(
                         name => &param.name,
                         ty => &core_ty_path,
                         err_map => &err_map,
+                        mut_kw => &mut_kw,
                     },
                 ));
                 body_preamble.push_str("    ");
@@ -2023,6 +2050,7 @@ fn gen_extendr_json_bridged_function(
                         name => &param.name,
                         ty => &core_ty_path,
                         err_map => &err_map,
+                        mut_kw => &mut_kw,
                     },
                 ));
                 body_preamble.push_str("    ");
@@ -2034,10 +2062,12 @@ fn gen_extendr_json_bridged_function(
                 _ => unreachable!(),
             };
             let core_ty_path = format!("{core_import}::{n}");
+            let mut_kw = if param.is_mut { "mut " } else { "" };
             if param.optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&format!(
-                    "let {name}_core: Option<{ty}> = {name}.as_deref()\n        .map(|s| serde_json::from_str(s){err}).transpose()?;\n    ",
+                    "let {mut_kw}{name}_core: Option<{ty}> = {name}.as_deref()\n        .map(|s| serde_json::from_str(s){err}).transpose()?;\n    ",
+                    mut_kw = mut_kw,
                     name = &param.name,
                     ty = &core_ty_path,
                     err = &err_map,
@@ -2045,7 +2075,8 @@ fn gen_extendr_json_bridged_function(
             } else {
                 sig_params.push(format!("{}: String", param.name));
                 body_preamble.push_str(&format!(
-                    "let {name}_core: {ty} = serde_json::from_str(&{name}){err}?;\n    ",
+                    "let {mut_kw}{name}_core: {ty} = serde_json::from_str(&{name}){err}?;\n    ",
+                    mut_kw = mut_kw,
                     name = &param.name,
                     ty = &core_ty_path,
                     err = &err_map,
@@ -2151,13 +2182,25 @@ fn gen_extendr_json_bridged_function(
         .params
         .iter()
         .map(|param| {
-            let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
-            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
+            // Re-check needs_json using the updated logic
+            let needs_json = match &param.ty {
+                TypeRef::Vec(inner) => match inner.as_ref() {
+                    TypeRef::Named(n) => {
+                        enum_names.contains(n.as_str())
+                            || opaque_types.contains(n.as_str())
+                            || extendr_incompatible_types.contains(n.as_str())
+                    }
+                    _ => false,
+                },
+                _ => false,
+            };
             let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
                 if extendr_incompatible_types.contains(n.as_str()));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
+                } else if param.is_mut {
+                    format!("&mut {}_core", param.name)
                 } else {
                     format!("{}_core", param.name)
                 }
@@ -2165,6 +2208,8 @@ fn gen_extendr_json_bridged_function(
             {
                 if param.optional {
                     format!("{}_core.as_ref()", param.name)
+                } else if param.is_mut {
+                    format!("&mut {}_core", param.name)
                 } else {
                     format!("&{}_core", param.name)
                 }
@@ -2184,9 +2229,18 @@ fn gen_extendr_json_bridged_function(
     // When the preamble emits `?` for JSON deserialization, the wrapping function must
     // return a `Result` even if the core function itself is infallible.
     let params_need_json_deserialize = func.params.iter().any(|p| {
-        matches!(&p.ty, TypeRef::Vec(inner)
-            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())))
-            || matches!(&p.ty, TypeRef::Named(n) if extendr_incompatible_types.contains(n.as_str()))
+        match &p.ty {
+            TypeRef::Vec(inner) => match inner.as_ref() {
+                TypeRef::Named(n) => {
+                    enum_names.contains(n.as_str())
+                        || opaque_types.contains(n.as_str())
+                        || extendr_incompatible_types.contains(n.as_str())
+                }
+                _ => false,
+            },
+            TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+            _ => false,
+        }
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;
 
@@ -2263,7 +2317,7 @@ fn gen_extendr_json_bridged_function(
             format!(
                 "{body_preamble}{named_let_bindings}\
                  let rt = {rt_new};\n    \
-                 let result = rt.block_on(async {{ {core_call}.await{err_map} })?;\n    \
+                 let result = rt.block_on(async {{ {core_call}.await{err_map} }})?;\n    \
                  {convert}\n    \
                  {result_convert}",
                 body_preamble = body_preamble,

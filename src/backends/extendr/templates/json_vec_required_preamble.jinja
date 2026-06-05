@@ -1,1 +1,1 @@
-let {{ name }}_core: Vec<{{ ty }}> = serde_json::from_str(&{{ name }}){{ err_map }}?;
+let {{ mut_kw }}{{ name }}_core: Vec<{{ ty }}> = serde_json::from_str(&{{ name }}){{ err_map }}?;

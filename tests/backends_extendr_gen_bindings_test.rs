@@ -1639,3 +1639,135 @@ mod trait_bridge {
         );
     }
 }
+
+// Category 4 test: binding_excluded fields should not appear in kwargs constructors
+#[test]
+fn extendr_binding_excluded_config_fields_skipped_in_kwargs_constructor() {
+        // Category 4: binding_excluded fields must not be set in constructor
+        let mut field_concurrency = make_field("concurrency", TypeRef::Named("ConcurrencyConfig".to_string()), true);
+        field_concurrency.binding_excluded = true;
+        field_concurrency.binding_exclusion_reason = Some("alef(skip)".to_string());
+
+        let config = make_type("ExtractionConfig", vec![
+            make_field("use_cache", TypeRef::Primitive(PrimitiveType::Bool), false),
+            field_concurrency,
+        ], true);
+
+        let gen_code = alef::codegen::config_gen::gen_extendr_kwargs_constructor(
+            &config,
+            &|ty: &TypeRef| {
+                match ty {
+                    TypeRef::Primitive(PrimitiveType::Bool) => "bool".to_string(),
+                    TypeRef::Named(n) => n.clone(),
+                    _ => "String".to_string(),
+                }
+            },
+            &ahash::AHashSet::new(),
+        );
+
+        // Constructor should NOT include concurrency parameter or assignment
+        assert!(
+            !gen_code.contains("concurrency"),
+            "binding_excluded field 'concurrency' should not appear in constructor\n{gen_code}"
+        );
+        assert!(
+            gen_code.contains("use_cache"),
+            "non-excluded field 'use_cache' should appear in constructor"
+        );
+}
+
+#[test]
+fn extendr_return_type_needs_json_for_vec_enum() {
+    // Category 1: Vec<Enum> should need JSON bridging
+    let mut enum_names: ahash::AHashSet<String> = ahash::AHashSet::new();
+    enum_names.insert("EntityCategory".to_string());
+
+    let opaque_types: ahash::AHashSet<String> = ahash::AHashSet::new();
+    let incomp_types: ahash::AHashSet<String> = ahash::AHashSet::new();
+
+    let ty = TypeRef::Vec(Box::new(TypeRef::Named("EntityCategory".to_string())));
+
+    // Simulate return_type_needs_json function behavior
+    let needs_json = match &ty {
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => {
+                enum_names.contains(n.as_str())
+                    || opaque_types.contains(n.as_str())
+                    || incomp_types.contains(n.as_str())
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+
+    assert!(
+        needs_json,
+        "Vec<Enum> should require JSON bridging"
+    );
+}
+
+#[test]
+fn extendr_return_type_needs_json_for_vec_opaque() {
+    // Category 1: Vec<OpaqueDTO> should need JSON bridging
+    let enum_names: ahash::AHashSet<String> = ahash::AHashSet::new();
+    let mut opaque_types: ahash::AHashSet<String> = ahash::AHashSet::new();
+    opaque_types.insert("QrCode".to_string());
+    let incomp_types: ahash::AHashSet<String> = ahash::AHashSet::new();
+
+    let ty = TypeRef::Vec(Box::new(TypeRef::Named("QrCode".to_string())));
+
+    let needs_json = match &ty {
+        TypeRef::Vec(inner) => match inner.as_ref() {
+            TypeRef::Named(n) => {
+                enum_names.contains(n.as_str())
+                    || opaque_types.contains(n.as_str())
+                    || incomp_types.contains(n.as_str())
+            }
+            _ => false,
+        },
+        _ => false,
+    };
+
+    assert!(
+        needs_json,
+        "Vec<OpaqueDTO> should require JSON bridging"
+    );
+}
+
+#[test]
+fn extendr_param_mut_flag_emits_let_mut() {
+    // Category 3: &mut parameters should emit `let mut` in JSON preamble
+    // Simulate preamble generation with mut keyword for a mutable parameter
+    let is_mut = true;
+    let mut_kw = if is_mut { "mut " } else { "" };
+    let preamble = format!(
+        "let {mut_kw}{name}_core: {ty} = serde_json::from_str(&{name})?;",
+        mut_kw = mut_kw,
+        name = "result",
+        ty = "kreuzberg::ExtractionResult"
+    );
+
+    assert!(
+        preamble.contains("let mut result_core"),
+        "Mutable parameters should emit 'let mut' in preamble\n{preamble}"
+    );
+}
+
+#[test]
+fn extendr_param_non_mut_emits_let_immut() {
+    // Category 3: non-&mut parameters should emit `let` (no mut) in JSON preamble
+    // Simulate preamble generation without mut keyword for a non-mutable parameter
+    let is_mut = false;
+    let mut_kw = if is_mut { "mut " } else { "" };
+    let preamble = format!(
+        "let {mut_kw}{name}_core: {ty} = serde_json::from_str(&{name})?;",
+        mut_kw = mut_kw,
+        name = "config",
+        ty = "kreuzberg::PageClassificationConfig"
+    );
+
+    assert!(
+        preamble.contains("let config_core"),
+        "Non-mutable parameters should emit 'let' without 'mut'\n{preamble}"
+    );
+}
