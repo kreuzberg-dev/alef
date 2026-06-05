@@ -110,7 +110,11 @@ fn elixir_heredoc_body(text: &str, indent: usize) -> String {
 }
 
 fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_prefix: &str) {
-    let module_name = &service.name;
+    let module_name = if !module_prefix.is_empty() {
+        format!("{}.{}", module_prefix, service.name)
+    } else {
+        service.name.clone()
+    };
     let module_snake = service.name.to_snake_case();
 
     // Module declaration + @moduledoc.
@@ -118,6 +122,8 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     // Module names are already implicitly under the `Elixir.` namespace; the
     // `defmodule Elixir.<Name>` form prepends a redundant `Elixir.` so the
     // compiled module ends up as `Elixir.Elixir.<Name>`. Emit the bare name.
+    // When a module_prefix is present (e.g., the package namespace), namespace the
+    // service module under it to match sibling modules like `<Prefix>.RouteBuilder`.
     out.push_str(&format!("defmodule {module_name} do\n"));
     if !service.doc.is_empty() {
         out.push_str("  @moduledoc \"\"\"\n");
@@ -126,10 +132,7 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     }
 
     // Alias the consumer's `Native` module so unqualified `Native.<fn>(...)`
-    // calls in this module's body resolve to `<Prefix>.Native.<fn>(...)`. The
-    // root service module is emitted as bare `defmodule App` and does not
-    // inherit the namespace of sibling wrapper modules (`<Prefix>.RouteBuilder`,
-    // etc.), so this alias is mandatory for the body's NIF calls to compile.
+    // calls in this module's body resolve to `<Prefix>.Native.<fn>(...)`.
     if !module_prefix.is_empty() {
         out.push_str(&format!("  alias {module_prefix}.Native\n\n"));
     }
