@@ -681,6 +681,11 @@ pub(super) fn gen_nif_async_function(
                         if p.optional {
                             // Core expects Option<T> → pass as-is
                             return format!("{}_core", p.name);
+                        } else if p.is_ref && p.is_mut {
+                            // Core expects &mut T → bind a mutable local, then borrow it
+                            let mut_name = format!("{}_mut", p.name);
+                            deser_lines.push(format!("let mut {mut_name} = {}_core.unwrap_or_default();", p.name));
+                            return format!("&mut {mut_name}");
                         } else if p.is_ref {
                             // Core expects &T → use as_ref() to get Option<&T>, then unwrap
                             return format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name);
