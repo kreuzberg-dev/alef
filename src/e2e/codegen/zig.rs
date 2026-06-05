@@ -71,16 +71,27 @@ impl E2eCodegen for ZigE2eCodegen {
             .or_else(|| config.resolved_version())
             .unwrap_or_else(|| "0.1.0".to_string());
         // Explicit hash override from alef.toml takes precedence over auto-fetch.
+        // However, if the hash is a placeholder (contains STALE_TODO_REGENERATE), treat it as missing
+        // and fetch the real hash from the network instead.
         let explicit_hash = zig_pkg.as_ref().and_then(|p| p.hash.clone());
         let platform_hash_overrides = zig_pkg.as_ref().map(|p| p.platform_hashes.clone()).unwrap_or_default();
 
         // Use the crate name for constructing the release URL (hyphenated form).
         let crate_name = &config.name;
 
+        // Strip placeholder hashes so we can fetch the real ones.
+        let explicit_hash_clean = explicit_hash.and_then(|h| {
+            if h.contains("STALE_TODO_REGENERATE") {
+                None
+            } else {
+                Some(h)
+            }
+        });
+
         // Detect if the explicit hash is stale: if it contains an embedded version
         // string (format: `<pkg_name>-X.Y.Z-<hash>`) and that version doesn't match
         // the current pkg_version, warn and recommend regeneration.
-        let hash_is_stale = if let Some(ref h) = explicit_hash {
+        let hash_is_stale = if let Some(ref h) = explicit_hash_clean {
             detect_stale_zig_hash(h, &pkg_version, &pkg_name)
         } else {
             false
@@ -105,17 +116,12 @@ impl E2eCodegen for ZigE2eCodegen {
             let github_repo = github_repo_owned.trim_end_matches('/');
             let mut hashes = BTreeMap::new();
             if platform_hash_overrides.is_empty() {
-                let Some(explicit_hash) = explicit_hash.as_deref() else {
-                    bail!(
-                        "zig registry mode requires explicit `[crates.e2e.registry.packages.zig] hash` or platform_hashes for crate `{}`",
-                        config.name
-                    );
-                };
+                // Try to use explicit hash (already cleaned of placeholders); if missing, fetch from network.
                 let url =
                     format!("{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}.tar.gz");
                 hashes.insert(
                     "generic".to_string(),
-                    (url.clone(), resolve_zig_hash(Some(explicit_hash), &url)),
+                    (url.clone(), resolve_zig_hash(explicit_hash_clean.as_deref(), &url)),
                 );
             } else {
                 for platform in supported_zig_platforms() {
