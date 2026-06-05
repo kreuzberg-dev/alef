@@ -3,9 +3,19 @@
 use super::callbacks::CallbackSpec;
 
 /// Sanitize a docstring for use in Javadoc.
-/// Delegates to the shared rustdoc→javadoc sanitizer to remove Rust idioms.
+/// Delegates to the shared rustdoc→javadoc sanitizer to remove Rust idioms,
+/// then applies per-line escaping so backticked code (e.g. `<ul>`) gets wrapped
+/// in `{@code ...}` and bare `<`/`>`/`&` are HTML-escaped. Without this the
+/// checkstyle Javadoc parser sees raw `</ul>` and rejects it as an unbalanced
+/// HTML element.
 pub(super) fn sanitize_callback_doc(doc: &str) -> String {
-    crate::codegen::doc_emission::sanitize_rust_idioms(doc, crate::codegen::doc_emission::DocTarget::JavaDoc)
+    let stripped =
+        crate::codegen::doc_emission::sanitize_rust_idioms(doc, crate::codegen::doc_emission::DocTarget::JavaDoc);
+    stripped
+        .lines()
+        .map(crate::backends::java::gen_bindings::helpers::escape_javadoc_line)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Generate camelCase stub variable name: stub + capitalize(java_method).
