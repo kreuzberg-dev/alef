@@ -395,7 +395,7 @@ fn render_build_gradle_kotlin_android(
         println("Downloading AAR from Maven Central: ${{mavenUrl}}")
         aarFile.parentFile.mkdirs()
 
-        val connection = java.net.URL(mavenUrl).openConnection() as java.net.HttpURLConnection
+        val connection = URL(mavenUrl).openConnection() as HttpURLConnection
         connection.requestMethod = "GET"
         connection.connect()
 
@@ -410,7 +410,7 @@ fn render_build_gradle_kotlin_android(
         }}
 
         println("Verifying AAR contents...")
-        java.util.zip.ZipFile(aarFile).use {{ zip ->
+        ZipFile(aarFile).use {{ zip ->
             val entries = zip.entries().toList()
             val hasJniLibs = entries.any {{ it.name.startsWith("jniLibs/") }}
             val hasClasses = entries.any {{ it.name == "classes.jar" }}
