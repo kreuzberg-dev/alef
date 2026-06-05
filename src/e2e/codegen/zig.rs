@@ -745,7 +745,7 @@ pub fn build(b: *std.Build) void {{
     else if (target_os == .windows and target_arch == .x86_64)
         "{pkg_name}_windows_x86_64"
     else
-        @compileError("unsupported target: " ++ @tagName(target.result.cpu.arch) ++ " on " ++ @tagName(target_os));
+        @panic("unsupported target — supported: linux-{x86_64,aarch64}, macos-{arm64,x86_64}, windows-x86_64");
 
     const {module_name}_module = (b.lazyDependency({pkg_name}_dep_name, .{{
         .target = target,
@@ -837,7 +837,7 @@ pub fn build(b: *std.Build) void {
                 content.push_str("    else if (target_os == .windows and target_arch == .x86_64)\n");
                 content.push_str(&format!("        \"{pkg_name}_windows_x86_64\"\n"));
                 content.push_str("    else\n");
-                content.push_str("        @compileError(\"unsupported target: \" ++ @tagName(target.result.cpu.arch) ++ \" on \" ++ @tagName(target_os));\n");
+                content.push_str("        @panic(\"unsupported target — supported: linux-{x86_64,aarch64}, macos-{arm64,x86_64}, windows-x86_64\");\n");
                 content.push('\n');
                 let _ = writeln!(
                     content,
