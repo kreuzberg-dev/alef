@@ -550,8 +550,7 @@ fn detect_handler_parameter(lines: &[&str], idx: usize) -> bool {
         // Single-line or start of multi-line signature on this line
         // Collect lines until we close the parameter list
         let mut sig = line.to_string();
-        let mut paren_depth = line.chars().filter(|c| *c == '(').count()
-            - line.chars().filter(|c| *c == ')').count();
+        let mut paren_depth = line.chars().filter(|c| *c == '(').count() - line.chars().filter(|c| *c == ')').count();
 
         let mut j = idx + 1;
         while j < lines.len() && paren_depth > 0 {
