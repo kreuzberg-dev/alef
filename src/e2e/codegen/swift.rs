@@ -623,7 +623,7 @@ fn render_test_file(
         let _ = writeln!(out, "                .appendingPathComponent(\"swift_e2e\")");
         let _ = writeln!(
             out,
-            "                .appendingPathComponent(\".build/release/Harness\")"
+            "                .appendingPathComponent(\".build/debug/Harness\")"
         );
         let _ = writeln!(out, "            let proc = Process()");
         let _ = writeln!(out, "            proc.executableURL = _harness");
