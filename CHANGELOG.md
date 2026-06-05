@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+<!-- N+12-ruby -->
+- **magnus/Ruby — main gem entrypoint emits `require_relative` for the service wrapper outside the module block, making the wrapper's classes unreachable as module constants**: the require now appears inside the module block, so classes defined in the service wrapper (e.g. `App`) are properly scoped and accessible as module members. (`src/backends/magnus/templates/main_rb_wrapper.rb.jinja`, `src/backends/magnus/gen_bindings/mod.rs`)
+
+<!-- N+12-node -->
+- **napi/Node — post-build patch does not preserve the native `App` constructor before overriding with the service wrapper, causing `_nativeApp` to be undefined at runtime**: the patch now emits `module.exports._nativeApp = nativeBinding.App` before overriding `module.exports.App` with the service wrapper, so the wrapper can locate and call the native constructor. (`src/backends/napi/gen_bindings/mod.rs`)
+
 ## [0.23.10] - 2026-06-05
 
 ### Fixed

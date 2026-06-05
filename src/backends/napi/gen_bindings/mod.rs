@@ -1192,7 +1192,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 PostBuildStep::PatchFile {
                     path: "index.js",
                     find: "module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage",
-                    replace: "module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage\n\n// Re-export the idiomatic TypeScript service wrapper's App class,\n// overriding the native binding's JsApp (which has no constructor).\ntry {\n  const _service = require('./service')\n  module.exports.App = _service.App\n} catch (e) {\n  // service.ts may not be compiled; use native binding's App\n}",
+                    replace: "module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage\n\n// Preserve the native App constructor before overriding with the service wrapper.\nmodule.exports._nativeApp = nativeBinding.App\n\n// Re-export the idiomatic TypeScript service wrapper's App class,\n// overriding the native binding's JsApp (which has no constructor).\ntry {\n  const _service = require('./service')\n  module.exports.App = _service.App\n} catch (e) {\n  // service.ts may not be compiled; use native binding's App\n}",
                 },
             ],
         })
