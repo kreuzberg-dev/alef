@@ -581,144 +581,30 @@ fn detect_handler_parameter(lines: &[&str], idx: usize) -> bool {
 /// Instead, invoke the task executor:
 ///   `return SyncTask(...).executeSync();`
 fn rewrite_handler_to_task_executor(source: &str) -> String {
-    let mut result = String::new();
-    let lines: Vec<&str> = source.lines().collect();
-    let mut i = 0;
+    // Fix the pattern where FRB generates a stray closing paren before .executeSync()/.executeNormal()
+    //
+    // Pattern (raw from FRB with (?s) for dot matching newlines):
+    //   ),\n  <-- Task constructor closing paren + comma
+    //   ).executeSync();  <-- orphaned closing paren before the method call
+    //
+    // The `)` before `.executeSync()` is orphaned and should be removed.
+    // Fix: Strip the orphaned `)` on the line before `.executeSync()` / `.executeNormal()`
 
-    while i < lines.len() {
-        let line = lines[i];
+    let mut result = source.to_string();
 
-        if line.contains("handler.executeSync(") {
-            // Remove the handler.executeSync( prefix and collect the task body
-            let before_handler = line.split("handler.executeSync(").next().unwrap_or("");
-            result.push_str(before_handler);
+    // Match `),` followed by any whitespace (including newlines), then orphaned `)` before `.executeSync()` or `.executeNormal()`
+    // Pattern: `),` + newline + indent + `)` + `.execute(Sync|Normal)()`
+    let orphaned_paren_sync = Regex::new(r"(?s)\),\s*\)\.executeSync\(\)")
+        .expect("orphaned paren sync pattern must compile");
+    result = orphaned_paren_sync
+        .replace_all(&result, ").executeSync()")
+        .into_owned();
 
-            let mut paren_depth = 0;
-            let mut task_lines = Vec::new();
-
-            // Start with content after handler.executeSync(
-            if let Some(after_handler) = line.split("handler.executeSync(").nth(1) {
-                for ch in after_handler.chars() {
-                    match ch {
-                        '(' => paren_depth += 1,
-                        ')' => paren_depth -= 1,
-                        _ => {}
-                    }
-                }
-                task_lines.push(after_handler.to_string());
-            }
-
-            i += 1;
-
-            // Collect remaining lines until paren depth becomes negative
-            while i < lines.len() && paren_depth >= 0 {
-                let curr = lines[i];
-                for ch in curr.chars() {
-                    match ch {
-                        '(' => paren_depth += 1,
-                        ')' => paren_depth -= 1,
-                        _ => {}
-                    }
-                }
-
-                if paren_depth < 0 {
-                    // We've found the closing paren of the handler call.
-                    // Strip the closing paren and any trailing comma or syntax that follows.
-                    let trimmed = curr.trim_end();
-                    let mut without_closing = trimmed.to_string();
-
-                    // Remove patterns: `);`, `),`, `)` at the end
-                    without_closing = without_closing.trim_end_matches(");").to_string();
-                    without_closing = without_closing.trim_end_matches("),").to_string();
-                    without_closing = without_closing.trim_end_matches(")").to_string();
-
-                    if !without_closing.is_empty() {
-                        task_lines.push(without_closing);
-                    }
-                    break;
-                } else {
-                    task_lines.push(curr.to_string());
-                }
-                i += 1;
-            }
-
-            // Write out the task with executeSync
-            result.push_str(&task_lines.join("\n"));
-            result.push_str(").executeSync();\n");
-            i += 1;
-            continue;
-        } else if line.contains("handler.executeNormal(") {
-            // Same for executeNormal with await
-            // The original has `return await handler.executeNormal(`, so we just replace
-            // `handler.executeNormal(` with the task, and the `await` stays.
-            let before_handler = line.split("handler.executeNormal(").next().unwrap_or("");
-            result.push_str(before_handler);
-
-            let mut paren_depth = 0;
-            let mut task_lines = Vec::new();
-
-            // Start with content after handler.executeNormal(
-            if let Some(after_handler) = line.split("handler.executeNormal(").nth(1) {
-                for ch in after_handler.chars() {
-                    match ch {
-                        '(' => paren_depth += 1,
-                        ')' => paren_depth -= 1,
-                        _ => {}
-                    }
-                }
-                task_lines.push(after_handler.to_string());
-            }
-
-            i += 1;
-
-            // Collect remaining lines until paren depth becomes negative
-            while i < lines.len() && paren_depth >= 0 {
-                let curr = lines[i];
-                for ch in curr.chars() {
-                    match ch {
-                        '(' => paren_depth += 1,
-                        ')' => paren_depth -= 1,
-                        _ => {}
-                    }
-                }
-
-                if paren_depth < 0 {
-                    // We've found the closing paren of the handler call.
-                    // Strip the closing paren and any trailing comma or syntax that follows.
-                    let trimmed = curr.trim_end();
-                    let mut without_closing = trimmed.to_string();
-
-                    // Remove patterns: `);`, `),`, `)` at the end
-                    without_closing = without_closing.trim_end_matches(");").to_string();
-                    without_closing = without_closing.trim_end_matches("),").to_string();
-                    without_closing = without_closing.trim_end_matches(")").to_string();
-
-                    if !without_closing.is_empty() {
-                        task_lines.push(without_closing);
-                    }
-                    break;
-                } else {
-                    task_lines.push(curr.to_string());
-                }
-                i += 1;
-            }
-
-            // Write out the task with executeNormal
-            result.push_str(&task_lines.join("\n"));
-            result.push_str(").executeNormal();\n");
-            i += 1;
-            continue;
-        }
-
-        result.push_str(line);
-        result.push('\n');
-        i += 1;
-    }
-
-    // Remove extra trailing newline
-    if !source.ends_with('\n') && result.ends_with('\n') {
-        result.pop();
-    }
+    let orphaned_paren_async = Regex::new(r"(?s)\),\s*\)\.executeNormal\(\)")
+        .expect("orphaned paren async pattern must compile");
+    result = orphaned_paren_async
+        .replace_all(&result, ").executeNormal()")
+        .into_owned();
 
     result
 }
@@ -1748,5 +1634,93 @@ int handleRoute(RouteData route, FutureOr<int> Function(String) handler) {
             .find("static Future<void> init({")
             .expect("init sig must exist");
         assert!(helper_ret_null < init_sig, "helper return must precede init signature");
+    }
+
+    #[test]
+    fn fix_handler_executor_strips_orphaned_paren_sync_task() {
+        // FRB 2.x generates code with orphaned closing paren before .executeSync()
+        // Pattern: `),\n).executeSync();`
+        // Should become: `).executeSync();`
+        let input = r#"  @override
+  int crateServiceApiAppConnect({
+    required App that,
+    required String path,
+    required FutureOr<String> Function(String) handler,
+  }) {
+    return
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_App(that, serializer);
+          sse_encode_String(path, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_i_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kConstMeta,
+        argValues: [that, path, handler],
+        apiImpl: this,
+      ),
+    ).executeSync();
+  }
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // The orphaned `)` on the line before `.executeSync()` should be removed
+        // Pattern `),\n)` should become just `)`
+        assert!(
+            out.contains(").executeSync();"),
+            "should have ).executeSync(); without orphaned paren, got:\n{out}"
+        );
+        // Make sure we didn't accidentally create double parens or syntax errors
+        let lint_check = out.matches(")).executeSync()").count();
+        assert_eq!(
+            lint_check, 0,
+            "should not have )).executeSync() (double paren), got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_strips_orphaned_paren_async_task() {
+        // Same fix for AsyncTask/.executeNormal() pattern
+        let input = r#"  @override
+  Future<String> crateServiceApiAppHandlerCall({
+    required App that,
+    required String path,
+    required FutureOr<String> Function(String) handler,
+  }) async {
+    return await
+      AsyncTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_App(that, serializer);
+          sse_encode_String(path, serializer);
+          return pdeCallFfiAsync(generalizedFrbRustBinding, serializer, funcId: 42);
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_String,
+          decodeErrorData: null,
+        ),
+        constMeta: kConstMeta,
+        argValues: [that, path, handler],
+        apiImpl: this,
+      ),
+    ).executeNormal();
+  }
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // The orphaned `)` should be removed
+        assert!(
+            out.contains(").executeNormal();"),
+            "should have ).executeNormal(); without orphaned paren, got:\n{out}"
+        );
+        let lint_check = out.matches(")).executeNormal()").count();
+        assert_eq!(
+            lint_check, 0,
+            "should not have )).executeNormal() (double paren), got:\n{out}"
+        );
     }
 }
