@@ -80,12 +80,14 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // Wire handler middleware through to the RouteBuilder
   if (handler.middleware) {
     if (handler.middleware.cors) {
-      const corsConfig = new CorsConfig(handler.middleware.cors);
-      builder = builder.cors(corsConfig);
+      // CorsConfig is a plain object type (napi(object)).
+      // Pass the fixture data directly; napi-rs handles type coercion at the FFI boundary.
+      builder = builder.cors(handler.middleware.cors);
     }
     if (handler.middleware.compression) {
-      const compressionConfig = new CompressionConfig(handler.middleware.compression);
-      builder = builder.compression(compressionConfig);
+      // CompressionConfig is a plain object type (napi(object)).
+      // Pass the fixture data directly; napi-rs handles type coercion at the FFI boundary.
+      builder = builder.compression(handler.middleware.compression);
     }
   }
 
