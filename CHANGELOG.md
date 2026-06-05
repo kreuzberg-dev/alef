@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- swift-rust-bridge-c-module-dependency -->
+- **Swift: generated root `Package.swift` declares `RustBridge` and `RustBridgeC` targets but the user-facing `{module}` target only depends on `RustBridge`, causing Swift compiler error "no such module 'RustBridge'"**: SwiftPM cannot resolve C types declared in `RustBridgeC` when the consuming module depends only on the binary target. Fixed by adding `"RustBridgeC"` to the `dependencies` array of the root Package.swift's `{module}` target, ensuring Swift files can import both the pre-compiled Rust library (`RustBridge`) and the C headers (`RustBridgeC`). The in-tree `packages/swift/Package.swift` already had this wiring correct; the root distribution manifest was missing the dependency. (`src/scaffold/languages/swift.rs`)
+
 <!-- kotlin-android-build-gradle-fully-qualified-class-names -->
 - **Kotlin Android: e2e registry `build.gradle.kts` test_apps fail to compile with "Unresolved reference" errors for java.net.URL, java.util.zip.ZipFile in the verifyAarPublished task**: The `verifyAarPublished` task in registry-mode build.gradle.kts was using fully-qualified class names (e.g., `java.net.URL`, `java.util.zip.ZipFile`) inside Gradle task closures. In Kotlin DSL script context, fully-qualified package paths do not resolve correctly within closure scope — the compiler tries to treat `java` as a variable reference rather than a package qualifier. Fixed by using imported simple names (`URL`, `ZipFile`, `HttpURLConnection`) instead of fully-qualified references, relying on the `import` statements declared at the top of the file. (`src/e2e/codegen/kotlin_android.rs`)
 

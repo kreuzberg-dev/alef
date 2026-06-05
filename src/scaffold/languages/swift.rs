@@ -253,9 +253,17 @@ let package = Package(
     .library(name: "{module}", targets: ["{module}"])
   ],
   targets: [
+    // RustBridgeC: C headers target extracted from the artifact bundle.
+    // Swift files in RustBridge import this to access C types (RustStr, etc.)
+    // produced by swift-bridge. publicHeadersPath: "." exposes the headers.
+    .target(
+      name: "RustBridgeC",
+      path: "packages/swift/Sources/RustBridgeC",
+      publicHeadersPath: "."
+    ),
     // RustBridge: pre-built binary target containing the compiled Rust library
     // for macOS (arm64, x86_64), iOS (device, simulator), and Linux (arm64, x86_64).
-    // The binary includes C headers for swift-bridge interop.
+    // Depends on RustBridgeC so generated Swift files can use the C types.
     .binaryTarget(
       name: "RustBridge",
       url: "{repository}/releases/download/v__ALEF_SWIFT_VERSION__/{module}-rs.artifactbundle.zip",
@@ -263,7 +271,7 @@ let package = Package(
     ),
     .target(
       name: "{module}",
-      dependencies: ["RustBridge"],
+      dependencies: ["RustBridge", "RustBridgeC"],
       path: "packages/swift/Sources/{module}"
     ),
   ]
@@ -518,6 +526,17 @@ repository = "https://github.com/example/my-lib"
             root.content
                 .contains("https://github.com/example/my-lib/releases/download/v__ALEF_SWIFT_VERSION__/"),
             "root Package.swift URL must point at configured repository, got:\n{}",
+            root.content
+        );
+        assert!(
+            root.content.contains("RustBridgeC"),
+            "root Package.swift must declare RustBridgeC target for C types, got:\n{}",
+            root.content
+        );
+        assert!(
+            root.content.contains("dependencies: [\"RustBridge\"]")
+                || root.content.contains("dependencies: [\"RustBridgeC\"]"),
+            "root Package.swift must declare dependencies for targets, got:\n{}",
             root.content
         );
     }
