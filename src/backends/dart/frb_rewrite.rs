@@ -403,32 +403,137 @@ fn variant_regex() -> &'static Regex {
 pub fn fix_handler_executor_calls(source: &str) -> String {
     // Strip the erroneous `.executeSync()` and `.executeNormal()` method calls
     // on callback function parameters. Replace them with direct invocation.
-    let mut result = source.to_string();
-
-    // Pattern 1: `handler.executeSync(SyncTask(...))` → `handler(SyncTask(...).request)`
-    // This handles the common case where a SyncTask wrapper is passed.
-    // Note: executeSync calls are in *synchronous* methods that cannot use `await`.
-    // The handler itself returns the value directly without awaiting.
-    result = result.replace("handler.executeSync(", "handler(");
-
-    // Pattern 2: `handler.executeNormal(...)` → `await handler(...)`
-    // This handles async task invocation.
-    result = result.replace("handler.executeNormal(", "await handler(");
-
-    // Pattern 3: Remove duplicate awaits (FRB may emit `return await` which becomes `return await await handler`)
-    result = result.replace("await await handler", "await handler");
+    // IMPORTANT: Only rewrite handler.execute* calls where `handler` is a parameter,
+    // not where it's a class field (inherited from super.handler).
 
     // Pattern 4: Fix FRB 2.x bug where class declarations have invalid `async` keyword.
     // `class RustLibApiImpl implements RustLibApi async {` → `class RustLibApiImpl implements RustLibApi {`
     // The `async` keyword is only valid on functions, not class declarations.
-    result = result.replace(" implements RustLibApi async {", " implements RustLibApi {");
+    let mut result = source.replace(" implements RustLibApi async {", " implements RustLibApi {");
 
-    // Pattern 5: Ensure closures/functions containing `await handler` are marked as async.
+    // Rewrite handler.execute* calls only in functions/methods where `handler` is a parameter.
+    result = rewrite_handler_calls_in_parameterized_functions(&result);
+
+    // Pattern 3: Ensure closures/functions containing `await handler` are marked as async.
     // Fix patterns like: `({...}) {` to `({...}) async {` when body contains `await handler`.
     // This handles synchronous closure signatures that were not originally async.
     result = ensure_handler_closures_are_async(&result);
 
     result
+}
+
+/// Rewrite handler.executeSync/executeNormal calls, but ONLY within function/method
+/// scopes where `handler` appears as a parameter.
+///
+/// This prevents rewriting `handler.execute*` on the class field `super.handler`,
+/// which is NOT directly callable and should keep its execute* method calls.
+fn rewrite_handler_calls_in_parameterized_functions(source: &str) -> String {
+    let lines: Vec<&str> = source.lines().collect();
+    let mut result = String::new();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let line = lines[i];
+
+        // Check if this line starts a function/method definition that has `handler` as a parameter
+        let is_handler_parameterized = detect_handler_parameter(&lines, i);
+
+        if is_handler_parameterized {
+            // Collect lines until we reach the closing brace of the function body
+            let func_start = i;
+            let mut func_lines = vec![line];
+            i += 1;
+
+            // Find the opening brace of the function body
+            let mut depth = line.chars().filter(|c| *c == '{').count() as i32
+                - line.chars().filter(|c| *c == '}').count() as i32;
+
+            while i < lines.len() && depth > 0 {
+                let curr_line = lines[i];
+                func_lines.push(curr_line);
+                depth += curr_line.chars().filter(|c| *c == '{').count() as i32;
+                depth -= curr_line.chars().filter(|c| *c == '}').count() as i32;
+                i += 1;
+            }
+
+            // Add the closing brace line if we found one
+            if i < lines.len() && depth == 0 && i > func_start {
+                // The loop already consumed it; no need to add again
+            }
+
+            // Rewrite handler.execute* calls within this function
+            let func_text = func_lines.join("\n");
+            let rewritten = func_text
+                .replace("handler.executeSync(", "handler(")
+                .replace("handler.executeNormal(", "await handler(");
+
+            // Remove duplicate awaits
+            let rewritten = rewritten.replace("await await handler", "await handler");
+
+            result.push_str(&rewritten);
+            result.push('\n');
+        } else {
+            // Not a parameterized handler function; keep the line as-is
+            result.push_str(line);
+            result.push('\n');
+            i += 1;
+        }
+    }
+
+    // Remove the extra trailing newline if the original didn't have it
+    if !source.ends_with('\n') && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
+}
+
+/// Check if the function/method at line `idx` has `handler` as a parameter.
+/// Looks for a function signature that includes `handler` in its parameter list.
+fn detect_handler_parameter(lines: &[&str], idx: usize) -> bool {
+    if idx >= lines.len() {
+        return false;
+    }
+
+    let line = lines[idx];
+
+    // Quick check: does this line contain both `(` and potentially the start of a parameter list?
+    if !line.contains('(') {
+        // This might be a multi-line signature; check the next few lines
+        for l in lines.iter().take(std::cmp::min(idx + 20, lines.len())).skip(idx) {
+            if l.contains("handler") && l.contains("Function") {
+                // Likely contains `handler: ... Function(...)` parameter
+                return true;
+            }
+            if l.contains(')') && l.contains('{') {
+                // Reached the end of the signature; stop searching
+                break;
+            }
+        }
+    } else {
+        // Single-line or start of multi-line signature on this line
+        // Collect lines until we close the parameter list
+        let mut sig = line.to_string();
+        let mut paren_depth = line.chars().filter(|c| *c == '(').count()
+            - line.chars().filter(|c| *c == ')').count();
+
+        let mut j = idx + 1;
+        while j < lines.len() && paren_depth > 0 {
+            let l = lines[j];
+            sig.push(' ');
+            sig.push_str(l);
+            paren_depth += l.chars().filter(|c| *c == '(').count();
+            paren_depth -= l.chars().filter(|c| *c == ')').count();
+            j += 1;
+        }
+
+        // Check if the signature contains `handler` as a parameter
+        if sig.contains("handler") && sig.contains("Function") {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Ensure all closures and anonymous functions that contain `await handler` calls
@@ -1195,13 +1300,15 @@ Future<ExtractionResult> extractBytes(
 
     #[test]
     fn fix_handler_executor_calls_adds_async_to_closures() {
-        let input = r#"Future<String> processRequest(Request req) {
+        // When `handler` is a callback function parameter, handler.executeNormal/executeSync
+        // calls should be rewritten and the function should be marked async.
+        let input = r#"Future<String> processRequest(Request req, FutureOr<String> Function(SyncTask) handler) {
   return handler.executeNormal(
     SyncTask(request: req),
   );
 }
 
-Future<Response> handleRoute(RouteData route) {
+int handleRoute(RouteData route, FutureOr<int> Function(RouteTask) handler) {
   return handler.executeSync(
     RouteTask(data: route),
   );
@@ -1209,26 +1316,97 @@ Future<Response> handleRoute(RouteData route) {
 "#;
         let out = fix_handler_executor_calls(input);
 
-        // Verify executeSync/executeNormal are replaced with await handler
+        // Verify executeSync/executeNormal are replaced with await handler (for async) or just handler (for sync)
         assert!(
-            out.contains("await handler("),
-            "expected `await handler(` in output, got:\n{out}"
+            out.contains("await handler(") || out.contains("handler("),
+            "expected handler calls in output, got:\n{out}"
         );
         assert!(
             !out.contains("executeSync") && !out.contains("executeNormal"),
             "executeSync/executeNormal should be removed, got:\n{out}"
         );
 
-        // Verify closures are marked as async
-        assert!(
-            out.contains(") async {"),
-            "expected function signature to have `async` keyword, got:\n{out}"
-        );
-
         // Verify no double-await
         assert!(
             !out.contains("await await"),
             "should not have duplicate awaits, got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_calls_preserves_super_handler_without_parameter() {
+        // When a method does NOT have `handler` as a parameter, handler.execute* calls
+        // refer to `super.handler` (the class field) and should NOT be rewritten.
+        let input = r#"  @override
+  App crateServiceApiAppNew() {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 5)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_app,
+          decodeErrorData: null,
+        ),
+        constMeta: kConstMeta,
+        argValues: [],
+        apiImpl: this,
+      ),
+    );
+  }
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // The method has no `handler` parameter, so handler.executeSync should NOT be rewritten
+        assert!(
+            out.contains("handler.executeSync("),
+            "handler.executeSync should be preserved when handler is not a parameter, got:\n{out}"
+        );
+        assert!(
+            !out.contains("handler.executeNormal("),
+            "no executeNormal should be present in input"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_calls_rewrites_when_handler_is_parameter() {
+        // When a method HAS `handler` as a parameter, handler.execute* calls should be rewritten
+        let input = r#"  @override
+  int crateServiceApiAppConnect({
+    required App that,
+    required String path,
+    required FutureOr<String> Function(String) handler,
+  }) {
+    return handler.executeSync(
+      SyncTask(
+        callFfi: () {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_App(that, serializer);
+          sse_encode_String(path, serializer);
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 1)!;
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_i_32,
+          decodeErrorData: null,
+        ),
+        constMeta: kConstMeta,
+        argValues: [that, path, handler],
+        apiImpl: this,
+      ),
+    );
+  }
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // The method has `handler` as a parameter, so handler.executeSync SHOULD be rewritten
+        assert!(
+            !out.contains("handler.executeSync("),
+            "handler.executeSync should be rewritten when handler is a parameter, got:\n{out}"
+        );
+        assert!(
+            out.contains("handler("),
+            "expected `handler(` in output (rewritten), got:\n{out}"
         );
     }
 

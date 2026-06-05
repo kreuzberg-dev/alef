@@ -45,7 +45,7 @@ impl super::E2eCodegen for PythonE2eCodegen {
         if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
             files.push(GeneratedFile {
                 path: output_base.join("app_harness.py"),
-                content: config::render_app_harness(e2e_config, groups),
+                content: config::render_app_harness(e2e_config, groups, config),
                 generated_header: true,
             });
         }

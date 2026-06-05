@@ -110,6 +110,7 @@ pub(super) fn gen_init_py(
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
     adapters: &[crate::core::config::AdapterConfig],
     opaque_types: &std::collections::HashMap<String, String>,
+    exclude_functions: &AHashSet<String>,
 ) -> String {
     use crate::core::ir::TypeRef;
 
@@ -229,7 +230,12 @@ pub(super) fn gen_init_py(
     // Similarly, adapter-based streaming methods are emitted as module-level wrappers in api.py
     // but are not in api.functions — add them too.
     {
-        let mut names: Vec<_> = api.functions.iter().map(|f| f.name.clone()).collect();
+        let mut names: Vec<_> = api
+            .functions
+            .iter()
+            .filter(|f| !exclude_functions.contains(&f.name))
+            .map(|f| f.name.clone())
+            .collect();
         names.extend(crate::backends::pyo3::trait_bridge::collect_bridge_register_fns(
             trait_bridges,
         ));
@@ -578,7 +584,7 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
         assert!(result.contains("__version__ = \"1.2.3\""));
         assert!(result.contains("__all__"));
     }
@@ -628,7 +634,7 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
 
         for symbol in [
             "ValidationError",
@@ -663,7 +669,7 @@ mod tests {
         let caps = std::collections::HashMap::new();
         let adapters = vec![];
         let opaque = std::collections::HashMap::new();
-        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque);
+        let result = gen_init_py(&api, "_mod", "1.2.3", &dto, &[], &extra, &caps, &adapters, &opaque, &ahash::AHashSet::new());
         assert!(
             result.contains("from ._supported_languages import SupportedLanguage"),
             "missing import line in:\n{result}",
