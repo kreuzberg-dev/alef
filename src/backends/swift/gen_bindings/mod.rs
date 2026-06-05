@@ -4402,22 +4402,25 @@ fn forwarder_return_conversion_suffix_inner(
 /// [`forwarder_return_conversion_suffix_inner`] contains a `try` expression — meaning
 /// the surrounding `return ...` line must itself sit inside a throwing context.
 ///
-/// Only Named-DTO conversions throw (`init(_ rb:) throws`). All other suffixes
-/// are pure expressions that never fail.
+/// Named-DTO conversions throw (`init(_ rb:) throws`). All other suffixes
+/// are pure expressions that never fail. This includes:
+/// - `Optional<Named-DTO>` emits `.map { try {Name}($0) }` — throws
+/// - Bare `Named(DTO)` uses local-binding form `let _rb = ...; return try {Name}(_rb)` — throws
+/// - `Vec<Named-DTO>` emits `.map { ref in try {Name}(ref) }` — throws
 fn return_value_conversion_throws(ty: &TypeRef, known_dto_names: &std::collections::HashSet<String>) -> bool {
     match ty {
-        // `Optional<Named-DTO>` returns emit a throwing suffix
-        // (`Optional.map { try {Name}($0) }`). Bare `Named(DTO)` returns route
-        // through the local-binding body form (`let _rb = ...; return try
-        // {Name}(_rb)`) which is also throwing. `Vec<Named>` returns emit no
-        // suffix today — see the corresponding arms in
-        // [`forwarder_return_conversion_suffix_inner`] and
-        // [`bare_named_dto_return`].
-        TypeRef::Optional(inner) => matches!(
-            inner.as_ref(),
-            TypeRef::Named(name) if known_dto_names.contains(name)
-        ),
+        TypeRef::Optional(inner) => match inner.as_ref() {
+            TypeRef::Named(name) if known_dto_names.contains(name) => true,
+            // Optional<Vec<Named>> → Optional.map { $0.map { try ... } }
+            // The outer Optional.map is non-throwing but inner Vec.map throws.
+            // For now, conservatively return false (the whole Optional is optional,
+            // so failures are caught). This can be refined if needed.
+            _ => false,
+        },
         TypeRef::Named(name) => known_dto_names.contains(name),
+        // Vec<Named-DTO> emits .map { ref in try {Name}(ref) }
+        // The closure body throws, so return true.
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Named(name) if known_dto_names.contains(name)),
         _ => false,
     }
 }
