@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+<!-- N+14-go -->
+- **ffi, go**: FFI backend now emits C entrypoints for configurator methods declared via `[service].configurators` in `alef.toml`, with Go backend emitting matching service methods. Configurators are generic, IR-driven: the FFI layer takes the service owner pointer, marshals parameter types (primitives, strings, opaque handles) via existing FFI helpers, calls the Rust configurator method, and returns the modified owner pointer (or null on error). The Go backend mirrors this as methods on the service struct that accept Go-typed parameters, marshal to C ABI, call the FFI entrypoint, and update the internal owner pointer. This enables host languages to configure services (host, port, worker count, etc.) via C FFI rather than language-specific APIs. (`src/backends/ffi/gen_bindings/service_api.rs`, `src/backends/go/gen_bindings/service_api.rs`)
+
 ### Changed
 
 - **java**: swap maven `-q` for `--batch-mode --no-transfer-progress` so build/test errors surface in CI. The `-q` flag suppresses all maven output including compilation errors; `--batch-mode --no-transfer-progress` maintains CI log cleanliness while preserving error messages. Affects all Maven invocations in build, test, clean, setup, lint, and update defaults.

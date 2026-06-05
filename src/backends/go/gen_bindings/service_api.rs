@@ -368,6 +368,11 @@ fn gen_service_struct(
         }
     }
 
+    // Configurator methods
+    for cfg in &service.configurators {
+        gen_configurator_method(out, service, cfg, api, ffi_prefix);
+    }
+
     // Entrypoint methods
     for ep in &service.entrypoints {
         gen_entrypoint_method(out, service, ep, api_surface, ffi_prefix);
@@ -628,6 +633,98 @@ fn gen_registration_variant(
         out.push_str("\t}\n");
     }
 
+    out.push_str("}\n\n");
+}
+
+/// Generate a configurator method for one configurator method.
+fn gen_configurator_method(
+    out: &mut String,
+    service: &ServiceDef,
+    cfg: &crate::core::ir::MethodDef,
+    api: &ApiSurface,
+    ffi_prefix: &str,
+) {
+    let service_name = &service.name;
+    let service_snake = service_name.to_snake_case();
+    let service_lower = ffi_prefix.to_lowercase();
+    let cfg_method_pascal = cfg.name.to_upper_camel_case();
+    let cfg_method_snake = cfg.name.to_snake_case();
+
+    // Build method signature with configurator's params
+    let mut params = Vec::new();
+    for cfg_param in &cfg.params {
+        let go_type = typeref_to_go_type(&cfg_param.ty);
+        // Opaque types must be passed by pointer
+        let final_type = if let TypeRef::Named(type_name) = &cfg_param.ty {
+            if api.types.iter().any(|t| t.name == *type_name) {
+                format!("*{}", go_type)
+            } else {
+                go_type
+            }
+        } else {
+            go_type
+        };
+        params.push(format!("{} {}", cfg_param.name, final_type));
+    }
+    let param_sig = if params.is_empty() {
+        String::new()
+    } else {
+        params.join(", ")
+    };
+
+    out.push_str(&format!(
+        "// {}() configures the service via '{}'.\n",
+        cfg_method_pascal, cfg.name
+    ));
+    if !cfg.doc.is_empty() {
+        out.push_str(&go_doc_block(&cfg.doc));
+    }
+
+    out.push_str(&format!(
+        "func (s *{}) {}({}) error {{\n",
+        service_name, cfg_method_pascal, param_sig
+    ));
+    out.push_str("\ts.mu.Lock()\n");
+    out.push_str("\tdefer s.mu.Unlock()\n");
+    out.push_str("\tif s.owner == nil {\n");
+    out.push_str("\t\treturn errors.New(\"service is closed\")\n");
+    out.push_str("\t}\n\n");
+
+    let upper_prefix = ffi_prefix.to_uppercase();
+    out.push_str(&format!(
+        "\tnew_owner := C.{}_{}_{}(\n\
+         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner)",
+        service_lower, service_snake, cfg_method_snake
+    ));
+
+    // Add config params as arguments, marshaling correctly
+    for cfg_param in &cfg.params {
+        out.push(',');
+        match &cfg_param.ty {
+            TypeRef::String => {
+                out.push_str(&format!("\n\t\tC.CString({})", cfg_param.name));
+            }
+            TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
+                // Opaque type: pass (*C.{PREFIX}{TypeName})(unsafe.Pointer({param}.ptr))
+                out.push_str(&format!(
+                    "\n\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr))",
+                    cfg_param.name
+                ));
+            }
+            _ => {
+                // Primitive or other type: pass directly (cast via C type)
+                let c_type = typeref_to_c_type(&cfg_param.ty);
+                out.push_str(&format!("\n\t\t{c_type}({})", cfg_param.name));
+            }
+        }
+    }
+    out.push_str(",\n\t)\n\n");
+
+    out.push_str("\tif new_owner == nil {\n");
+    out.push_str("\t\treturn errors.New(\"configurator failed\")\n");
+    out.push_str("\t}\n");
+    out.push_str("\ts.owner = unsafe.Pointer(new_owner)\n");
+    out.push_str("\treturn nil\n");
     out.push_str("}\n\n");
 }
 

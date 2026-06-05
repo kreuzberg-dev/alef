@@ -563,6 +563,11 @@ fn gen_service_functions(out: &mut String, service: &ServiceDef, api: &ApiSurfac
         gen_registration_variants(out, service, reg, api, core_import, prefix, &opaque_name);
     }
 
+    // Configurator functions
+    for cfg in &service.configurators {
+        gen_configurator_function(out, service, cfg, api, core_import, prefix, &opaque_name);
+    }
+
     // Entrypoint functions
     for ep in &service.entrypoints {
         gen_entrypoint_function(out, service, ep, api, core_import, prefix, &opaque_name);
@@ -902,6 +907,88 @@ fn gen_registration_variant(
         out.push_str("    }\n");
         out.push_str("    0\n");
     }
+    out.push_str("}\n\n");
+}
+
+fn gen_configurator_function(
+    out: &mut String,
+    service: &ServiceDef,
+    cfg: &crate::core::ir::MethodDef,
+    api: &ApiSurface,
+    core_import: &str,
+    prefix: &str,
+    opaque_name: &str,
+) {
+    let service_snake = service.name.to_snake_case();
+    let cfg_method_snake = cfg.name.to_snake_case();
+    let fn_name = format!("{}_{}_{}", prefix.to_lowercase(), service_snake, cfg_method_snake);
+
+    // Build FFI parameter bindings for the configurator's params.
+    let param_bindings: Vec<FfiParamBinding> = cfg
+        .params
+        .iter()
+        .map(|p| ffi_param_binding(p, core_import, api))
+        .collect();
+
+    out.push_str(&format!(
+        "/// Configure the service via '{0}'.\n\
+         ///\n\
+         /// # Safety\n\
+         /// - `owner` must be a valid pointer returned by `{1}_{2}_new()` and not yet freed.\n\
+         /// - `owner` is consumed by this call and must not be used or freed afterwards.\n\
+         /// - Returns a new owner pointer on success, null on failure.\n\
+         #[no_mangle]\n\
+         pub extern \"C\" fn {fn_name}(\n    \
+             owner: *mut {opaque_name}",
+        cfg.name,
+        prefix.to_lowercase(),
+        service_snake
+    ));
+
+    for binding in &param_bindings {
+        out.push_str(&format!(",\n    {}", binding.decl));
+    }
+    out.push_str(&format!("\n) -> *mut {opaque_name} {{\n"));
+
+    out.push_str("    if owner.is_null() {\n");
+    out.push_str("        return std::ptr::null_mut();\n");
+    out.push_str("    }\n");
+
+    // Null-check pointer parameters
+    for (cfg_param, binding) in cfg.params.iter().zip(&param_bindings) {
+        if binding.pointer {
+            out.push_str(&format!(
+                "    if {}.is_null() {{\n        return std::ptr::null_mut();\n    }}\n",
+                cfg_param.name
+            ));
+        }
+    }
+    out.push('\n');
+
+    // Marshal parameters from C ABI to Rust
+    for binding in &param_bindings {
+        out.push_str(&binding.conversion);
+    }
+    if param_bindings.iter().any(|b| !b.conversion.is_empty()) {
+        out.push('\n');
+    }
+
+    // Take ownership and call the method
+    out.push_str("    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.\n");
+    out.push_str("    let mut owner = unsafe { Box::from_raw(owner) };\n");
+
+    let call_args: String = param_bindings
+        .iter()
+        .map(|b| b.arg.clone())
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    out.push_str("    owner.inner = owner.inner.");
+    out.push_str(&cfg.name);
+    out.push('(');
+    out.push_str(&call_args);
+    out.push_str(");\n");
+    out.push_str("    Box::into_raw(owner)\n");
     out.push_str("}\n\n");
 }
 
