@@ -201,9 +201,21 @@ pub(crate) fn trait_bridge_excluded_type_names_with_enums<'a>(
         .collect();
 
     for method in methods {
-        collect_hidden_named_types(&method.return_type, &type_by_name, &configured_traits, known_enum_names, &mut excluded);
+        collect_hidden_named_types(
+            &method.return_type,
+            &type_by_name,
+            &configured_traits,
+            known_enum_names,
+            &mut excluded,
+        );
         for param in &method.params {
-            collect_hidden_named_types(&param.ty, &type_by_name, &configured_traits, known_enum_names, &mut excluded);
+            collect_hidden_named_types(
+                &param.ty,
+                &type_by_name,
+                &configured_traits,
+                known_enum_names,
+                &mut excluded,
+            );
         }
     }
 

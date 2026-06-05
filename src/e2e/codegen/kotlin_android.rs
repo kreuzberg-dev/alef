@@ -637,7 +637,7 @@ org.gradle.jvm.toolchain.download.repository=adoptium
 # Increase heap for large multi-project builds.
 org.gradle.jvmargs=-Xmx4g
 "#
-        .to_string()
+    .to_string()
 }
 
 /// Unix shell script for gradle wrapper (`gradlew`).
