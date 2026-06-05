@@ -482,10 +482,7 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
         let _ = writeln!(out, "\t\t\tcontinue");
         let _ = writeln!(out, "\t\t}}");
         let _ = writeln!(out, "\t\tif strings.HasPrefix(line, \"MOCK_SERVERS=\") {{");
-        let _ = writeln!(
-            out,
-            "\t\t\tpayload := strings.TrimPrefix(line, \"MOCK_SERVERS=\")"
-        );
+        let _ = writeln!(out, "\t\t\tpayload := strings.TrimPrefix(line, \"MOCK_SERVERS=\")");
         let _ = writeln!(out, "\t\t\t_ = os.Setenv(\"MOCK_SERVERS\", payload)");
         let _ = writeln!(out, "\t\t\tvar servers map[string]string");
         let _ = writeln!(

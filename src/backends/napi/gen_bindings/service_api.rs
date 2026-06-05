@@ -160,7 +160,13 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str, config: &Res
     out
 }
 
-fn gen_service_class_ts(out: &mut String, service: &ServiceDef, api: &ApiSurface, _native_module: &str, config: &ResolvedCrateConfig) {
+fn gen_service_class_ts(
+    out: &mut String,
+    service: &ServiceDef,
+    api: &ApiSurface,
+    _native_module: &str,
+    config: &ResolvedCrateConfig,
+) {
     let class_name = &service.name;
 
     // Class docstring

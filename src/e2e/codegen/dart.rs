@@ -644,6 +644,10 @@ fn render_test_file(
     if needs_sut_spawn {
         let _ = writeln!(out, "Process? _sutProcess;");
         let _ = writeln!(out, "String? _spawnedSutUrl;");
+        // Per-fixture origin-root URLs captured from the `MOCK_SERVERS=` sentinel
+        // line. Populated by the spawn-and-listen setUpAll body below or seeded
+        // from `MOCK_SERVERS` env when a parent process already started the server.
+        let _ = writeln!(out, "final Map<String, String> _fixtureUrls = <String, String>{{}};");
         let _ = writeln!(out);
         // Prefer `MOCK_SERVER_URL` (exported by `scripts/e2e/run-with-mock-server.sh`
         // and by `alef test --e2e` mock-server bootstrap) so the tests hit the
@@ -654,6 +658,27 @@ fn render_test_file(
             out,
             "String _sutUrl() => _spawnedSutUrl ?? Platform.environment['MOCK_SERVER_URL'] ?? Platform.environment['SUT_URL'] ?? 'http://localhost:8008';"
         );
+        let _ = writeln!(out);
+        // Resolve a fixture URL. Fixtures with origin-root routes (e.g. inline
+        // host-absolute anchors `<a href=\"/page1\">`, `/robots*`, `/sitemap*`)
+        // get a dedicated per-fixture listener so that root-relative links the
+        // SUT follows are served by the same fixture. When `MOCK_SERVERS` has
+        // an entry for the fixture, prefer the per-fixture URL; otherwise fall
+        // back to the shared listener under `/fixtures/<id>`.
+        let _ = writeln!(out, "String _fixtureUrl(String fixtureId) {{");
+        let _ = writeln!(out, "  final perFixture = _fixtureUrls[fixtureId];");
+        let _ = writeln!(out, "  if (perFixture != null) return perFixture;");
+        let _ = writeln!(out, "  final env = Platform.environment['MOCK_SERVERS'];");
+        let _ = writeln!(out, "  if (env != null && env.isNotEmpty) {{");
+        let _ = writeln!(out, "    try {{");
+        let _ = writeln!(out, "      final decoded = jsonDecode(env);");
+        let _ = writeln!(out, "      if (decoded is Map && decoded[fixtureId] is String) {{");
+        let _ = writeln!(out, "        return decoded[fixtureId] as String;");
+        let _ = writeln!(out, "      }}");
+        let _ = writeln!(out, "    }} catch (_) {{}}");
+        let _ = writeln!(out, "  }}");
+        let _ = writeln!(out, "  return '${{_sutUrl()}}/fixtures/$fixtureId';");
+        let _ = writeln!(out, "}}");
         let _ = writeln!(out);
     }
 
@@ -836,6 +861,24 @@ fn render_dart_sut_spawn(out: &mut String) {
         out,
         "            _spawnedSutUrl = _trimmed.substring('MOCK_SERVER_URL='.length);"
     );
+    let _ = writeln!(out, "          }}");
+    let _ = writeln!(out, "          if (_trimmed.startsWith('MOCK_SERVERS=')) {{");
+    let _ = writeln!(
+        out,
+        "            final _payload = _trimmed.substring('MOCK_SERVERS='.length);"
+    );
+    let _ = writeln!(out, "            try {{");
+    let _ = writeln!(out, "              final _decoded = jsonDecode(_payload);");
+    let _ = writeln!(out, "              if (_decoded is Map) {{");
+    let _ = writeln!(out, "                _decoded.forEach((k, v) {{");
+    let _ = writeln!(out, "                  if (k is String && v is String) {{");
+    let _ = writeln!(out, "                    _fixtureUrls[k] = v;");
+    let _ = writeln!(out, "                  }}");
+    let _ = writeln!(out, "                }});");
+    let _ = writeln!(out, "              }}");
+    let _ = writeln!(out, "            }} catch (_) {{}}");
+    let _ = writeln!(out, "            if (!_ready2.isCompleted) _ready2.complete();");
+    let _ = writeln!(out, "          }} else if (_spawnedSutUrl != null) {{");
     let _ = writeln!(out, "            if (!_ready2.isCompleted) _ready2.complete();");
     let _ = writeln!(out, "          }}");
     let _ = writeln!(out, "        }}, onDone: () {{");
@@ -1069,7 +1112,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
         match arg_def.arg_type.as_str() {
             "mock_url" => {
                 let name = arg_def.name.clone();
-                setup_lines.push(format!(r#"final {name} = "${{_sutUrl()}}/fixtures/{fixture_id}";"#));
+                setup_lines.push(format!(r#"final {name} = _fixtureUrl("{fixture_id}");"#));
                 // For streaming adapters with a request_type, wrap the URL in the request constructor.
                 if let Some(ref req_type) = adapter_request_type {
                     let req_var = format!("{}Req", name);
@@ -1138,7 +1181,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
                 let var_name = &arg_def.name;
                 let paths_literal = paths.join(", ");
 
-                setup_lines.push(format!(r#"final {var_name}Base = _sutUrl();"#));
+                setup_lines.push(format!(r#"final {var_name}Base = _fixtureUrl("{fixture_id}");"#));
                 setup_lines.push(format!(
                     r#"final {var_name} = <String>[{paths_literal}].map((p) => p.startsWith('http') ? p : {var_name}Base + p).toList();"#
                 ));
@@ -1545,7 +1588,7 @@ fn render_test_case(out: &mut String, fixture: &Fixture, context: DartTestCaseCo
             .any(|a| a.arg_type == "mock_url");
         let mock_url_setup = if !has_mock_url {
             // No explicit mock_url arg — derive the URL inline.
-            Some(format!(r#"final _mockUrl = "${{_sutUrl()}}/fixtures/{fixture_id}";"#))
+            Some(format!(r#"final _mockUrl = _fixtureUrl("{fixture_id}");"#))
         } else {
             None
         };

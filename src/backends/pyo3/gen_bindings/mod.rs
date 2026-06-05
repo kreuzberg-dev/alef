@@ -1433,12 +1433,8 @@ mod alef_json_str_opt {
             .as_ref()
             .map(|c| c.exclude_functions.iter().cloned().collect())
             .unwrap_or_default();
-        let content = crate::backends::pyo3::gen_stubs::gen_stubs(
-            api,
-            &config.trait_bridges,
-            config,
-            &stubs_exclude_functions,
-        );
+        let content =
+            crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config, &stubs_exclude_functions);
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
