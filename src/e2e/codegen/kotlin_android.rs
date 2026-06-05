@@ -524,13 +524,9 @@ android {{
 }}
 
 kotlin {{
-    // Pin the JDK toolchain used for compilation AND test execution. Without this,
-    // Gradle picks the host JDK; under JDK 25 (Temurin) the Android Gradle Plugin
-    // fails to parse the host version string and aborts with
-    // `What went wrong: 25.0.2`. `jvmToolchain(N)` makes Gradle provision the
-    // requested LTS JDK (downloading via toolchains if not present locally) so
-    // `./gradlew test` succeeds on hosts with newer JDKs installed.
-    jvmToolchain({jvm_target})
+    // Set JVM target for compilation. gradle.properties enables auto-detection
+    // of host JDK installations so Gradle uses the available JDK version on the
+    // build machine, preventing provisioning failures when the target version is not installed.
     compilerOptions {{
         jvmTarget = JvmTarget.JVM_{jvm_target}
     }}
@@ -573,19 +569,6 @@ dependencyResolutionManagement {{
     repositories {{
         google()
         mavenCentral()
-    }}
-}}
-
-// Configure JVM toolchain management to allow auto-detection and auto-download
-// of missing JDK versions from Adoptium (Eclipse Temurin). This prevents build
-// failures when the requested jvmToolchain version is not installed locally.
-jvmToolchainManagement {{
-    jvm {{
-        javaRepositories {{
-            repository("adoptium") {{
-                resolveStrategy.set(org.gradle.jvm.toolchain.JavaToolchainRepositoryResolver.RESOLVE_STRATEGY_STRICT)
-            }}
-        }}
     }}
 }}
 

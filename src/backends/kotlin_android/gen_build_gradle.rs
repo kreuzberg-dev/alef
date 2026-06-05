@@ -138,7 +138,6 @@ android {{
 }}
 
 kotlin {{
-    jvmToolchain({android_jvm_target})
     compilerOptions {{
         jvmTarget.set(JvmTarget.JVM_{android_jvm_target})
     }}
