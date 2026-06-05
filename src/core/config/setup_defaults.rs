@@ -125,7 +125,7 @@ pub(crate) fn default_setup_config(lang: Language, output_dir: &str, ctx: &LangC
             precondition: Some(require_tool("mvn")),
             before: None,
             install: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml dependency:resolve -q"
+                "mvn -f {output_dir}/pom.xml dependency:resolve --batch-mode --no-transfer-progress"
             ))),
             timeout_seconds: 1800,
             workdir: default_setup_workdir(lang),

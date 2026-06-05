@@ -113,13 +113,13 @@ pub(crate) fn default_test_config(lang: Language, output_dir: &str, ctx: &LangCo
         Language::Java => {
             let (cmd_path, cov_path) = if let Some(proj) = ctx.project_file {
                 (
-                    format!("mvn -f {proj} test -q"),
-                    format!("mvn -f {proj} test jacoco:report -q"),
+                    format!("mvn -f {proj} test --batch-mode --no-transfer-progress"),
+                    format!("mvn -f {proj} test jacoco:report --batch-mode --no-transfer-progress"),
                 )
             } else {
                 (
-                    format!("mvn -f {output_dir}/pom.xml test -q"),
-                    format!("mvn -f {output_dir}/pom.xml test jacoco:report -q"),
+                    format!("mvn -f {output_dir}/pom.xml test --batch-mode --no-transfer-progress"),
+                    format!("mvn -f {output_dir}/pom.xml test jacoco:report --batch-mode --no-transfer-progress"),
                 )
             };
             TestConfig {

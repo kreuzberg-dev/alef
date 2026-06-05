@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **java**: swap maven `-q` for `--batch-mode --no-transfer-progress` so build/test errors surface in CI. The `-q` flag suppresses all maven output including compilation errors; `--batch-mode --no-transfer-progress` maintains CI log cleanliness while preserving error messages. Affects all Maven invocations in build, test, clean, setup, lint, and update defaults.
+
 ### Fixed
+
+<!-- csharp-e2e-await-task-instance-member -->
+- **C#: e2e test generator ignores per-language `async` override in call config, causing test methods to be marked `void` instead of `async Task` when the binding exposes an async method**. When a call's base config has `async = false` but the C# override specifies `async = true` (e.g., `embed_texts` call with sync C# binding replaced by `EmbedTextsAsync`), the e2e codegen was reading only the base call config's async flag instead of checking the language override. This produced test methods like `public void Test_EmbedTexts()` that called `var result = await function();` without the method being async, and then assertions trying to access instance members (`.Count`, `.Length`) on the `Task<T>` result failed with "Task<T> does not contain a definition". Fixed by checking `cs_overrides.r#async` (language-specific override) before falling back to `call_config.r#async` (base config), mirroring the pattern used for other per-language call overrides like `function`, `result_is_simple`, and `options_type`. (`src/e2e/codegen/csharp.rs`)
+
+<!-- csharp-handle-returned-types-mirror-ffi-logic -->
+- **C#: static wrapper methods for types with excluded serde methods (e.g. `NodeContextWithOwnedAttributes`, `NodeContextIntoOwned`) incorrectly use JSON round-trip marshalling instead of opaque-handle wrapping, producing `new NodeContext(nativeResult)` that fails CS7036 "required parameter missing"**: the C# codegen's `compute_handle_returned_types` function was not correctly detecting when the FFI layer would NOT emit a `*_to_json` helper. When a type has `has_serde=true` but its serialize/deserialize methods are excluded via `[crates.exclude].methods`, the FFI layer does not generate the JSON serialization export, but the C# codegen was still routing through the JSON path. Fixed by mirroring the FFI layer's exact logic: a type qualifies for JSON round-trip marshalling if and only if `!is_opaque && has_serde && !has_to_json_method && !ends_with("Update")`. This ensures C# only uses the JSON path when the FFI actually exports `{TypeName}ToJson`. (`src/backends/csharp/gen_bindings/errors.rs`)
 
 <!-- swift-rust-bridge-c-module-dependency -->
 - **Swift: generated root `Package.swift` declares `RustBridge` and `RustBridgeC` targets but the user-facing `{module}` target only depends on `RustBridge`, causing Swift compiler error "no such module 'RustBridge'"**: SwiftPM cannot resolve C types declared in `RustBridgeC` when the consuming module depends only on the binary target. Fixed by adding `"RustBridgeC"` to the `dependencies` array of the root Package.swift's `{module}` target, ensuring Swift files can import both the pre-compiled Rust library (`RustBridge`) and the C headers (`RustBridgeC`). The in-tree `packages/swift/Package.swift` already had this wiring correct; the root distribution manifest was missing the dependency. (`src/scaffold/languages/swift.rs`)

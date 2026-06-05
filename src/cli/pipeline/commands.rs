@@ -1,5 +1,6 @@
 use crate::core::config::output::StringOrVec;
 use crate::core::config::{Language, ResolvedCrateConfig};
+use crate::core::template_versions as tv;
 use anyhow::Context as _;
 use rayon::prelude::*;
 use std::path::Path;
@@ -1030,7 +1031,14 @@ fn build_command_for(
         }
         "napi" => {
             // NAPI outputs .node + .d.ts to the crate directory
-            format!("napi build --platform --manifest-path {crate_dir}/Cargo.toml -o {crate_dir}{release_flag}")
+            // Use npx to provision @napi-rs/cli on demand
+            format!(
+                "npx --yes @napi-rs/cli@{} build --platform --manifest-path {}/Cargo.toml -o {}{}",
+                tv::npm::NAPI_RS_CLI_CRATE,
+                crate_dir,
+                crate_dir,
+                release_flag
+            )
         }
         "wasm-pack" => {
             let profile = if release { "--release" } else { "--dev" };
@@ -1214,7 +1222,7 @@ fn build_command_for(
                     }
                 }
             };
-            format!("cd {build_dir} && mvn package -DskipTests -q")
+            format!("cd {build_dir} && mvn package -DskipTests --batch-mode --no-transfer-progress")
         }
         "dotnet" => {
             let dir = config

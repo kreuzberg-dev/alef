@@ -168,7 +168,9 @@ pub fn default_test_apps_run_config(
         Language::Java => TestAppRunConfig {
             precondition: Some(require_tool("mvn")),
             before: None,
-            run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/java && mvn -q test"))),
+            run: Some(StringOrVec::Single(format!(
+                "cd {test_apps_dir}/java && mvn --batch-mode --no-transfer-progress test"
+            ))),
         },
         Language::Csharp => TestAppRunConfig {
             precondition: Some(require_tool("dotnet")),

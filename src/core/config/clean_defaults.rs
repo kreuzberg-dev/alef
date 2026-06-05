@@ -55,7 +55,9 @@ pub(crate) fn default_clean_config(lang: Language, output_dir: &str, _ctx: &Lang
         Language::Java => CleanConfig {
             precondition: Some(require_tool("mvn")),
             before: None,
-            clean: Some(StringOrVec::Single(format!("mvn -f {output_dir}/pom.xml clean -q"))),
+            clean: Some(StringOrVec::Single(format!(
+                "mvn -f {output_dir}/pom.xml clean --batch-mode --no-transfer-progress"
+            ))),
         },
         Language::Csharp => CleanConfig {
             precondition: Some(require_tool("dotnet")),

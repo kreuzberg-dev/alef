@@ -32,13 +32,13 @@ pub(crate) fn default_build_config(
             ))),
         },
         Language::Node => BuildCommandConfig {
-            precondition: Some(require_tool("napi")),
+            precondition: Some(require_tool("npm")),
             before: None,
             build: Some(StringOrVec::Single(format!(
-                "napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
+                "npx --yes @napi-rs/cli@3.6.2 build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node"
             ))),
             build_release: Some(StringOrVec::Single(format!(
-                "napi build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
+                "npx --yes @napi-rs/cli@3.6.2 build --manifest-path crates/{crate_name}-node/Cargo.toml -o crates/{crate_name}-node --release"
             ))),
         },
         Language::Wasm => BuildCommandConfig {
@@ -85,13 +85,13 @@ pub(crate) fn default_build_config(
         Language::Java => {
             let (build_path, release_path) = if let Some(proj) = ctx.project_file {
                 (
-                    format!("mvn -f {proj} package -DskipTests -q"),
-                    format!("mvn -f {proj} package -DskipTests -q"),
+                    format!("mvn -f {proj} package -DskipTests --batch-mode --no-transfer-progress"),
+                    format!("mvn -f {proj} package -DskipTests --batch-mode --no-transfer-progress"),
                 )
             } else {
                 (
-                    format!("mvn -f {output_dir}/pom.xml package -DskipTests -q"),
-                    format!("mvn -f {output_dir}/pom.xml package -DskipTests -q"),
+                    format!("mvn -f {output_dir}/pom.xml package -DskipTests --batch-mode --no-transfer-progress"),
+                    format!("mvn -f {output_dir}/pom.xml package -DskipTests --batch-mode --no-transfer-progress"),
                 )
             };
             BuildCommandConfig {
@@ -299,6 +299,7 @@ mod tests {
         let c = cfg(Language::Node, "packages/node", "my-lib");
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
+        assert!(build.contains("npx --yes @napi-rs/cli"));
         assert!(build.contains("napi build"));
         assert!(build.contains("my-lib-node"));
         assert!(release.contains("--release"));

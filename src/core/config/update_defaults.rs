@@ -123,10 +123,10 @@ pub fn default_update_config(lang: Language, output_dir: &str, ctx: &LangContext
             // The `-Dmaven.version.rules=file://...` flag is appended only when the rules file
             // exists, since `mvn versions:use-latest-releases` aborts on missing rule files.
             update: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") --batch-mode --no-transfer-progress"
             ))),
             upgrade: Some(StringOrVec::Single(format!(
-                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") -q"
+                "mvn -f {output_dir}/pom.xml versions:use-latest-releases -DallowMajorUpdates=true $([ -f {output_dir}/versions-rules.xml ] && echo \"-Dmaven.version.rules=file://${{PWD}}/{output_dir}/versions-rules.xml\") --batch-mode --no-transfer-progress"
             ))),
         },
         Language::Csharp => UpdateConfig {

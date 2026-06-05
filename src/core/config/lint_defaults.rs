@@ -125,13 +125,15 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
         Language::Java => {
             let (format_path, check_path) = if let Some(proj) = ctx.project_file {
                 (
-                    format!("mvn -f {proj} spotless:apply -q"),
-                    format!("mvn -f {proj} spotless:check checkstyle:check -q"),
+                    format!("mvn -f {proj} spotless:apply --batch-mode --no-transfer-progress"),
+                    format!("mvn -f {proj} spotless:check checkstyle:check --batch-mode --no-transfer-progress"),
                 )
             } else {
                 (
-                    format!("mvn -f {output_dir}/pom.xml spotless:apply -q"),
-                    format!("mvn -f {output_dir}/pom.xml spotless:check checkstyle:check -q"),
+                    format!("mvn -f {output_dir}/pom.xml spotless:apply --batch-mode --no-transfer-progress"),
+                    format!(
+                        "mvn -f {output_dir}/pom.xml spotless:check checkstyle:check --batch-mode --no-transfer-progress"
+                    ),
                 )
             };
             LintConfig {
