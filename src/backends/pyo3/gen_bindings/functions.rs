@@ -25,6 +25,7 @@ pub(super) fn gen_api_py(
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
     adapters: &[crate::core::config::AdapterConfig],
     reexported_types: &[String],
+    exclude_functions: &AHashSet<String>,
 ) -> String {
     use crate::core::config::PythonDtoStyle;
     use crate::core::ir::TypeRef;
@@ -923,6 +924,12 @@ pub(super) fn gen_api_py(
 
     // Generate wrapper for each function
     for func in &api.functions {
+        // Skip functions explicitly excluded for this language backend. Excluded functions
+        // are absent from the native Rust module (lib.rs), so generating an api.py wrapper
+        // that calls `_rust.<name>` would produce an AttributeError at runtime.
+        if exclude_functions.contains(&func.name) {
+            continue;
+        }
         // Build Python-side params applying seen_optional promotion.
         //
         // Python syntax requires params with defaults to follow params without defaults.
@@ -1317,7 +1324,14 @@ pub(super) fn gen_api_py(
     // is usually also configured as a regular call in [crates.e2e.calls.*] and ends up
     // in api.functions with a richer doc-comment from the Rust source. Without this guard,
     // api.py declares both — the second wins at import time but ruff flags F811.
-    let emitted_function_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
+    // Excluded functions were not emitted above; exclude them here too so a trait-bridge
+    // registration function that shares the same name does get emitted.
+    let emitted_function_names: AHashSet<String> = api
+        .functions
+        .iter()
+        .filter(|f| !exclude_functions.contains(&f.name))
+        .map(|f| f.name.clone())
+        .collect();
 
     // Emit pass-through wrappers for trait-bridge registration functions.
     // These functions are emitted as #[pyfunction] in the native Rust module but are not in

@@ -139,7 +139,12 @@ fn constructor_param_type(ty: &TypeRef, api: &ApiSurface) -> String {
     }
 }
 
-pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: &ResolvedCrateConfig) -> String {
+pub fn gen_stubs(
+    api: &ApiSurface,
+    trait_bridges: &[TraitBridgeConfig],
+    config: &ResolvedCrateConfig,
+    exclude_functions: &ahash::AHashSet<String>,
+) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut header_lines: Vec<String> = header.lines().map(str::to_string).collect();
     header_lines.push("".to_string());
@@ -238,8 +243,10 @@ pub fn gen_stubs(api: &ApiSurface, trait_bridges: &[TraitBridgeConfig], config: 
         body_lines.push("".to_string());
     }
 
-    // Generate function stubs — no blank lines between consecutive stubs (ruff strips them)
-    for func in &api.functions {
+    // Generate function stubs — no blank lines between consecutive stubs (ruff strips them).
+    // Skip functions excluded for this language backend: they are absent from the native
+    // Rust module and must not appear in the .pyi type-stub either.
+    for func in api.functions.iter().filter(|f| !exclude_functions.contains(&f.name)) {
         body_lines.push(gen_function_stub(
             func,
             &bridge_param_names,

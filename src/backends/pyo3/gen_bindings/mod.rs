@@ -1428,7 +1428,17 @@ mod alef_json_str_opt {
             None => return Ok(vec![]),
         };
 
-        let content = crate::backends::pyo3::gen_stubs::gen_stubs(api, &config.trait_bridges, config);
+        let stubs_exclude_functions: AHashSet<String> = config
+            .python
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
+        let content = crate::backends::pyo3::gen_stubs::gen_stubs(
+            api,
+            &config.trait_bridges,
+            config,
+            &stubs_exclude_functions,
+        );
 
         let stubs_path = resolve_output_dir(
             Some(&stubs_config.output),
@@ -1477,6 +1487,11 @@ mod alef_json_str_opt {
         });
 
         // 2. Generate api.py (wrapper functions)
+        let exclude_functions: AHashSet<String> = config
+            .python
+            .as_ref()
+            .map(|c| c.exclude_functions.iter().cloned().collect())
+            .unwrap_or_default();
         let capsule_types = config
             .python
             .as_ref()
@@ -1496,6 +1511,7 @@ mod alef_json_str_opt {
             &capsule_types,
             &config.adapters,
             &reexported_types,
+            &exclude_functions,
         );
         files.push(GeneratedFile {
             path: output_base.join("api.py"),
@@ -1527,6 +1543,7 @@ mod alef_json_str_opt {
             &capsule_types,
             &config.adapters,
             &config.opaque_types,
+            &exclude_functions,
         );
         files.push(GeneratedFile {
             path: output_base.join("__init__.py"),

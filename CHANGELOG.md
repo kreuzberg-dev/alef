@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3 — excluded functions still emitted in api.py, __init__.py, and .pyi stubs**: functions listed in `[crates.python].exclude_functions` were correctly omitted from the native Rust module (`lib.rs`), but the public Python package generators (`api.py`, `__init__.py`, `_module.pyi`) iterated `api.functions` without applying the same filter. This caused `AttributeError: module 'kreuzberg._kreuzberg' has no attribute '<name>'` at runtime because `api.py` generated a wrapper that delegated to the absent native function, and `__init__.py` re-exported it in `__all__`. Fixed by threading an `exclude_functions: &AHashSet<String>` parameter into `gen_api_py`, `gen_init_py`, and `gen_stubs`, and skipping excluded functions in all three generation loops. (`src/backends/pyo3/gen_bindings/functions.rs`, `src/backends/pyo3/gen_bindings/errors.rs`, `src/backends/pyo3/gen_stubs.rs`, `src/backends/pyo3/gen_bindings/mod.rs`)
+
+## [0.23.7] - 2026-06-05
+
+### Fixed
+
 <!-- napi-e2e-harness -->
 - **e2e/napi — harness calls undefined app_run when App.run is excluded**: the NAPI service-API codegen generated a TypeScript `app_harness` that imported `app_run` from the native binding and a service wrapper (`service.ts`) that called `app_run(this._registrations)` for the `App.run` entrypoint. When spikard's `alef.toml` excludes `App.run` via `[crates.exclude].methods = ["App.run", ...]`, the native function is never exported (because it's behind an excluded method), but the codegen still tried to import and call it, causing a runtime `TypeError: app_run is not a function`. Fixed by checking whether each entrypoint method is in the excluded methods list; if excluded, skip generating the import, the native function, and the TypeScript method wrapper entirely. The napi service API generator now takes `config: &ResolvedCrateConfig` and checks `config.exclude.methods` for each entrypoint. (`src/backends/napi/gen_bindings/service_api.rs`)
 
