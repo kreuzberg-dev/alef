@@ -623,17 +623,17 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
 
                 if paren_depth < 0 {
                     // We've found the closing paren of the handler call.
-                    // The line may end with `);` (all on one line) or just `)` (multiline).
-                    if curr.trim().ends_with(");") {
-                        // Remove the trailing `);` — we'll add `).executeSync();` after the task
-                        let without_closing = curr.trim_end_matches(");");
-                        task_lines.push(without_closing.to_string());
-                    } else if curr.trim().ends_with(")") {
-                        // Just the closing paren; remove it — we'll add `).executeSync();` after
-                        let without_closing = curr.trim_end_matches(")");
-                        task_lines.push(without_closing.to_string());
-                    } else {
-                        task_lines.push(curr.to_string());
+                    // Strip the closing paren and any trailing comma or syntax that follows.
+                    let trimmed = curr.trim_end();
+                    let mut without_closing = trimmed.to_string();
+
+                    // Remove patterns: `);`, `),`, `)` at the end
+                    without_closing = without_closing.trim_end_matches(");").to_string();
+                    without_closing = without_closing.trim_end_matches("),").to_string();
+                    without_closing = without_closing.trim_end_matches(")").to_string();
+
+                    if !without_closing.is_empty() {
+                        task_lines.push(without_closing);
                     }
                     break;
                 } else {
@@ -649,9 +649,10 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
             continue;
         } else if line.contains("handler.executeNormal(") {
             // Same for executeNormal with await
+            // The original has `return await handler.executeNormal(`, so we just replace
+            // `handler.executeNormal(` with the task, and the `await` stays.
             let before_handler = line.split("handler.executeNormal(").next().unwrap_or("");
             result.push_str(before_handler);
-            result.push_str("await ");
 
             let mut paren_depth = 0;
             let mut task_lines = Vec::new();
@@ -683,17 +684,17 @@ fn rewrite_handler_to_task_executor(source: &str) -> String {
 
                 if paren_depth < 0 {
                     // We've found the closing paren of the handler call.
-                    // The line may end with `);` (all on one line) or just `)` (multiline).
-                    if curr.trim().ends_with(");") {
-                        // Remove the trailing `);` — we'll add `).executeNormal();` after the task
-                        let without_closing = curr.trim_end_matches(");");
-                        task_lines.push(without_closing.to_string());
-                    } else if curr.trim().ends_with(")") {
-                        // Just the closing paren; remove it — we'll add `).executeNormal();` after
-                        let without_closing = curr.trim_end_matches(")");
-                        task_lines.push(without_closing.to_string());
-                    } else {
-                        task_lines.push(curr.to_string());
+                    // Strip the closing paren and any trailing comma or syntax that follows.
+                    let trimmed = curr.trim_end();
+                    let mut without_closing = trimmed.to_string();
+
+                    // Remove patterns: `);`, `),`, `)` at the end
+                    without_closing = without_closing.trim_end_matches(");").to_string();
+                    without_closing = without_closing.trim_end_matches("),").to_string();
+                    without_closing = without_closing.trim_end_matches(")").to_string();
+
+                    if !without_closing.is_empty() {
+                        task_lines.push(without_closing);
                     }
                     break;
                 } else {
@@ -1603,6 +1604,58 @@ int handleRoute(RouteData route, FutureOr<int> Function(String) handler) {
         assert!(
             !out.contains("handler("),
             "handler callback should NOT be invoked directly (it's serialized), got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn fix_handler_executor_calls_strips_trailing_comma_in_wrapper() {
+        // The original FRB pattern is: handler.executeNormal(NormalTask(...),)
+        // With parentheses on separate lines due to multiline formatting.
+        // The rewrite must emit: NormalTask(...).executeNormal();
+        let input = r#"  Future<DartHandlerHandler> crateServiceApiDartHandlerHandlerNew({
+    required FutureOr<String> Function(String) handler,
+  }) {
+    return await handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_DartFn_Inputs_String_Output_String_AnyhowException(
+            handler,
+            serializer,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_Auto_Owned_RustOpaque,
+          decodeErrorData: null,
+        ),
+        constMeta: kConstMeta,
+        argValues: [handler],
+        apiImpl: this,
+      ),
+    );
+  }
+"#;
+        let out = fix_handler_executor_calls(input);
+
+        // Should be rewritten to have NormalTask at the start
+        assert!(
+            out.contains("return await") && out.contains("NormalTask("),
+            "NormalTask should follow return await, got:\n{out}"
+        );
+        // Should NOT have the handler.executeNormal wrapper
+        assert!(
+            !out.contains("handler.executeNormal("),
+            "handler.executeNormal should be removed, got:\n{out}"
+        );
+        // Should have .executeNormal(); on the task
+        assert!(
+            out.contains(".executeNormal();"),
+            "should have .executeNormal(); on the task, got:\n{out}"
+        );
+        // Should not have double closing parens or other syntax errors
+        assert!(
+            !out.contains(")).executeNormal();"),
+            "should not have double closing parens, got:\n{out}"
         );
     }
 
