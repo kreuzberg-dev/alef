@@ -131,12 +131,20 @@ impl E2eCodegen for ZigE2eCodegen {
                             config.name
                         );
                     };
+                    // Strip placeholder hashes (parity with explicit_hash_clean above) so
+                    // resolve_zig_hash falls through to cache lookup / network fetch instead
+                    // of emitting the literal placeholder string as the dependency hash.
+                    let platform_hash_clean = if platform_hash.contains("STALE_TODO_REGENERATE") {
+                        None
+                    } else {
+                        Some(platform_hash.as_str())
+                    };
                     let url = format!(
                         "{github_repo}/releases/download/v{pkg_version}/{crate_name}-zig-v{pkg_version}-{platform}.tar.gz"
                     );
                     hashes.insert(
                         platform.to_string(),
-                        (url.clone(), resolve_zig_hash(Some(platform_hash), &url)),
+                        (url.clone(), resolve_zig_hash(platform_hash_clean, &url)),
                     );
                 }
             }
