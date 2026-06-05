@@ -300,7 +300,7 @@ mod tests {
         let build = c.build.unwrap().commands().join(" ");
         let release = c.build_release.unwrap().commands().join(" ");
         assert!(build.contains("npx --yes @napi-rs/cli"));
-        assert!(build.contains("napi build"));
+        assert!(build.contains("build --manifest-path"));
         assert!(build.contains("my-lib-node"));
         assert!(release.contains("--release"));
     }

@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **node**: CI E2E fails with `napi: not found` when @napi-rs/cli is not globally installed. Fixed by invoking @napi-rs/cli via `npx --yes @napi-rs/cli@<pinned>` for on-demand provisioning in package.json scripts (`build`, `artifacts`, `prepublishOnly`) and pipeline commands. Removes the hard requirement for a global napi installation on CI runners. (`src/scaffold/languages/node.rs`, `src/cli/pipeline/commands.rs`, `src/core/config/build_defaults.rs`)
 - **rustler**: Rustler NIF call-arg codegen did not mirror mutable references from Rust core signatures. When a core function expected `&mut T`, the generated NIF passed `&T`, causing E0308 "mismatched types: expected mutable reference, found reference". Fixed by tracking `is_mut` flag in parameter codegen: for default-typed params with `is_mut=true`, create a mutable let-binding in preamble; for all `&mut` params, emit `&mut param` in call args instead of `&param`. Also applies to JSON and string params. (`src/backends/rustler/gen_bindings/functions.rs`)
 - **go**: cgo vtable registration call passed `&vtable` (pointer) but C function signature expects value type (`struct TypeVTable`), causing type mismatch in cgo. Fixed by passing `vtable` (value) instead of `&vtable` in `register_c_call.jinja` template to match C ABI and unify cimport struct forms.
 

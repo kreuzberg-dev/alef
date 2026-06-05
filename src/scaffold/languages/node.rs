@@ -494,9 +494,9 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     ]
   }},
   "scripts": {{
-    "build": "napi build --platform --release",
-    "artifacts": "napi artifacts",
-    "prepublishOnly": "napi prepublish -t npm --skip-optional-publish"
+    "build": "npx --yes @napi-rs/cli@{napi_rs_cli_crate} build --platform --release",
+    "artifacts": "npx --yes @napi-rs/cli@{napi_rs_cli_crate} artifacts",
+    "prepublishOnly": "npx --yes @napi-rs/cli@{napi_rs_cli_crate} prepublish -t npm --skip-optional-publish"
   }},
   "engines": {{ "node": ">= 18" }},
   "publishConfig": {{ "access": "public" }},
