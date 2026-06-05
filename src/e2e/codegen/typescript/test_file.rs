@@ -781,7 +781,11 @@ fn render_test_case(
     let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang, fixture, call_config, type_defs);
     let function_name = resolve_node_function_name(call_config);
     let result_var = &call_config.result_var;
-    let call_is_async = call_config.r#async;
+    let call_is_async = call_config
+        .overrides
+        .get(lang)
+        .and_then(|o| o.r#async)
+        .unwrap_or(call_config.r#async);
     let args = recipe.args;
     let result_is_simple =
         call_config.result_is_simple || call_config.overrides.get(lang).is_some_and(|o| o.result_is_simple);
