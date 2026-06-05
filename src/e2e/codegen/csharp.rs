@@ -1666,7 +1666,9 @@ fn render_streaming_test_method(
             body.push_str("                }\n");
         }
         if asserts_tool_calls || asserts_tool_call_name {
-            body.push_str("                if (delta != null && delta.ToolCalls != null && delta.ToolCalls.Count > 0)\n");
+            body.push_str(
+                "                if (delta != null && delta.ToolCalls != null && delta.ToolCalls.Count > 0)\n",
+            );
             body.push_str("                {\n");
             if asserts_tool_calls {
                 body.push_str(
@@ -2082,15 +2084,13 @@ fn build_args_and_setup(
                         }
                     }
 
-                    let enum_names: std::collections::HashSet<&str> =
-                        enums.iter().map(|e| e.name.as_str()).collect();
-                    let excluded_named =
-                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names_with_enums(
-                            config,
-                            type_defs,
-                            &methods,
-                            &enum_names,
-                        );
+                    let enum_names: std::collections::HashSet<&str> = enums.iter().map(|e| e.name.as_str()).collect();
+                    let excluded_named = crate::e2e::codegen::recipe::trait_bridge_excluded_type_names_with_enums(
+                        config,
+                        type_defs,
+                        &methods,
+                        &enum_names,
+                    );
                     let emission =
                         emit_test_backend_with_class_name(trait_bridge, &methods, fixture, class_name, &excluded_named);
                     // setup_block is a private nested class declaration — must be at class

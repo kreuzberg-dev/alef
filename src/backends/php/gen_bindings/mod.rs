@@ -1184,14 +1184,29 @@ impl Backend for PhpBackend {
             // This aligns PHP bindings with Python, Ruby, Go, etc. which also preserve
             // Rust parameter order.
             // PHP 8.1 syntax rule: required params must come before optional ones.
-            // But in this case, optional-default-constructible params (like CrawlConfig)
-            // can have `= null` defaults, allowing them to appear after required ones.
+            // Optional-default-constructible params (like a no-arg-constructible
+            // CrawlConfig) can have `= null` defaults — but ONLY when every later
+            // parameter is also optional. Otherwise PHP 8.1 emits a "Required
+            // parameter follows optional" deprecation. Walk the param list from
+            // the end so a required param resets the optional-tail flag to false.
+            let mut tail_optional = vec![true; visible_params.len()];
+            let mut later_required = false;
+            for (idx, p) in visible_params.iter().enumerate().rev() {
+                if later_required {
+                    tail_optional[idx] = false;
+                }
+                let is_required = !(p.optional || is_optional_default_constructible_param(p));
+                if is_required {
+                    later_required = true;
+                }
+            }
             let params: Vec<String> = visible_params
                 .iter()
-                .map(|p| {
+                .enumerate()
+                .map(|(idx, p)| {
                     let ptype = php_type(&p.ty);
-                    let should_be_optional = p.optional || is_optional_default_constructible_param(p);
-                    if should_be_optional {
+                    let can_be_optional = p.optional || is_optional_default_constructible_param(p);
+                    if can_be_optional && tail_optional[idx] {
                         format!("?{} ${} = null", ptype, p.name)
                     } else {
                         format!("{} ${}", ptype, p.name)

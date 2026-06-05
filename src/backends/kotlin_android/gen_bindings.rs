@@ -348,7 +348,14 @@ fn emit_trait_interfaces(
             body.push_str("    fun initialize() {}\n");
             body.push_str("    fun shutdown() {}\n");
         }
-        emit_trait_methods(api, bridge, trait_def, &effective_excluded_types, &mut imports, &mut body);
+        emit_trait_methods(
+            api,
+            bridge,
+            trait_def,
+            &effective_excluded_types,
+            &mut imports,
+            &mut body,
+        );
         body.push_str("}\n");
 
         let content = assemble_kt_content(package, &imports, &body);
@@ -490,11 +497,13 @@ fn kotlin_type_str_visible(
 ) -> String {
     match ty {
         crate::core::ir::TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => {
-            if optional { "String?".to_string() } else { "String".to_string() }
+            if optional {
+                "String?".to_string()
+            } else {
+                "String".to_string()
+            }
         }
-        crate::core::ir::TypeRef::Optional(inner) => {
-            kotlin_type_str_visible(inner, true, visible_type_names, imports)
-        }
+        crate::core::ir::TypeRef::Optional(inner) => kotlin_type_str_visible(inner, true, visible_type_names, imports),
         other => kotlin_type_str_pub(other, optional, imports),
     }
 }
