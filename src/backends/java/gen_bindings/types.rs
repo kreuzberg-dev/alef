@@ -543,10 +543,10 @@ pub(crate) fn gen_record_type(
     let needs_optional =
         fields_joined.contains("Optional<") || (will_emit_builder && record_block.contains("Optional<"));
     let mut imports: Vec<&str> = vec![];
-    if fields_joined.contains("List<") || (will_emit_builder && record_block.contains("List<")) {
+    if fields_joined.contains("List<") || record_block.contains("List<") {
         imports.push("java.util.List");
     }
-    if fields_joined.contains("Map<") || (will_emit_builder && record_block.contains("Map<")) {
+    if fields_joined.contains("Map<") || record_block.contains("Map<") {
         imports.push("java.util.Map");
     }
     if needs_optional {

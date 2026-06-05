@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- java-record-map-import -->
+- **java — generated record types (e.g. `NodeContext.java`) omit `import java.util.Map;` when only impl methods reference `Map<K, V>`**: the import scanner in `gen_record_type` (Java backend) only added `import java.util.Map;` when the joined field declarations or the *builder* contained `Map<`. Static factory methods and instance wither methods emitted from `typ.methods` go into `record_block` *outside* the builder gate, so a record with no Map field but with a method like `withOwnedAttributes(Map<String, String> attributes)` produced an unimported `Map<...>` reference and javac `cannot find symbol: class Map`. Fixed by widening the scan to always check `record_block` for `List<` and `Map<` markers (the existing `fields_joined` check still catches direct field uses). (`src/backends/java/gen_bindings/types.rs`)
+
 <!-- java-visitor-list-import -->
 - **java — generated visitor-interface `HtmlVisitor.java` omits `import java.util.List;` even when callback signatures use `List<String>`**: the visitor-interface template (`visitor_interface.jinja`) emitted only the package declaration and the interface body; it never scanned callback parameter types for `List<...>` references. When a Rust trait method had a `Vec<String>` parameter (e.g. `visit_table_row(cells: &[String])`), the generated `default VisitResult visitTableRow(..., final List<String> cells, ...)` referenced `List` without importing it, producing javac `cannot find symbol: class List`. Fixed by scanning all callback `ExtraParam.java_type` strings in `gen_visitor_interface` for `List<` and `Map<` markers and conditionally emitting `import java.util.List;` / `import java.util.Map;` from the template. (`src/backends/java/gen_visitor/files.rs`, `src/backends/java/templates/visitor_interface.jinja`)
 
