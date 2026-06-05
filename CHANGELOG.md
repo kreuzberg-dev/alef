@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **rustler**: Rustler NIF call-arg codegen did not mirror mutable references from Rust core signatures. When a core function expected `&mut T`, the generated NIF passed `&T`, causing E0308 "mismatched types: expected mutable reference, found reference". Fixed by tracking `is_mut` flag in parameter codegen: for default-typed params with `is_mut=true`, create a mutable let-binding in preamble; for all `&mut` params, emit `&mut param` in call args instead of `&param`. Also applies to JSON and string params. (`src/backends/rustler/gen_bindings/functions.rs`)
 - **go**: cgo vtable registration call passed `&vtable` (pointer) but C function signature expects value type (`struct TypeVTable`), causing type mismatch in cgo. Fixed by passing `vtable` (value) instead of `&vtable` in `register_c_call.jinja` template to match C ABI and unify cimport struct forms.
 
 <!-- csharp-e2e-await-task-instance-member -->

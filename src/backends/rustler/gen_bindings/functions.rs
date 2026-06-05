@@ -128,6 +128,9 @@ pub(super) fn gen_rustler_method_call_args(
             TypeRef::Named(name) if default_types.contains(name.as_str()) => {
                 if p.optional {
                     format!("{}_core", p.name)
+                } else if p.is_ref && p.is_mut {
+                    // Core expects &mut T → reference the mutable binding created by preamble
+                    format!("&mut {}_mut", p.name)
                 } else if p.is_ref {
                     format!("{}_core.as_ref().unwrap_or(&Default::default())", p.name)
                 } else {
@@ -157,6 +160,7 @@ pub(super) fn gen_rustler_method_call_args(
                 format!("{}.map(std::borrow::Cow::Owned)", p.name)
             }
             TypeRef::String | TypeRef::Char if p.optional => p.name.to_string(),
+            TypeRef::String | TypeRef::Char if p.is_ref && p.is_mut => format!("&mut {}", p.name),
             TypeRef::String | TypeRef::Char if p.is_ref => format!("&{}", p.name),
             // String where core expects Cow<'_, str>: String implements Into<Cow<str>>,
             // so `.into()` performs the coercion.
@@ -165,7 +169,9 @@ pub(super) fn gen_rustler_method_call_args(
             }
             TypeRef::String | TypeRef::Char => p.name.clone(),
             TypeRef::Path => {
-                if p.is_ref {
+                if p.is_ref && p.is_mut {
+                    format!("&mut std::path::PathBuf::from({})", p.name)
+                } else if p.is_ref {
                     format!("&std::path::PathBuf::from({})", p.name)
                 } else {
                     format!("std::path::PathBuf::from({})", p.name)
@@ -185,6 +191,9 @@ pub(super) fn gen_rustler_method_call_args(
                 if p.optional {
                     // Option<serde_json::Value> for optional params
                     format!("{}_json", p.name)
+                } else if p.is_ref && p.is_mut {
+                    // &mut serde_json::Value for mutable references
+                    format!("&mut {}_json", p.name)
                 } else if p.is_ref {
                     // &serde_json::Value for references
                     format!("&{}_json", p.name)
@@ -1036,6 +1045,10 @@ fn build_default_deser_preamble(
                     render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
                 };
                 lines.push(line);
+                // If this parameter is mutable reference (&mut T), create a mutable binding.
+                if p.is_ref && p.is_mut {
+                    lines.push(format!("let mut {}_mut = {}_core.unwrap_or_default();", p.name, p.name));
+                }
             }
         } else if matches!(&p.ty, TypeRef::Json) {
             // Json params are passed as String (or Option<String>) from the NIF and need conversion
@@ -1049,9 +1062,11 @@ fn build_default_deser_preamble(
                 ));
             } else {
                 // Required JSON: String → serde_json::Value
+                let mut_keyword = if p.is_mut { "mut " } else { "" };
                 lines.push(format!(
-                    "let {name}_json: serde_json::Value = serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or_default();",
-                    name = p.name
+                    "let {mut_keyword}{name}_json: serde_json::Value = serde_json::from_str::<serde_json::Value>(&{name}).unwrap_or_default();",
+                    name = p.name,
+                    mut_keyword = mut_keyword
                 ));
             }
         }
