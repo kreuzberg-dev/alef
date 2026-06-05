@@ -179,6 +179,15 @@ pub(crate) fn trait_bridge_excluded_type_names<'a>(
     type_defs: &'a [TypeDef],
     methods: &[&'a MethodDef],
 ) -> HashSet<&'a str> {
+    trait_bridge_excluded_type_names_with_enums(config, type_defs, methods, &HashSet::new())
+}
+
+pub(crate) fn trait_bridge_excluded_type_names_with_enums<'a>(
+    config: &'a ResolvedCrateConfig,
+    type_defs: &'a [TypeDef],
+    methods: &[&'a MethodDef],
+    known_enum_names: &HashSet<&str>,
+) -> HashSet<&'a str> {
     let type_by_name: HashMap<&str, &TypeDef> = type_defs.iter().map(|ty| (ty.name.as_str(), ty)).collect();
     let configured_traits: HashSet<&str> = config
         .trait_bridges
@@ -192,9 +201,9 @@ pub(crate) fn trait_bridge_excluded_type_names<'a>(
         .collect();
 
     for method in methods {
-        collect_hidden_named_types(&method.return_type, &type_by_name, &configured_traits, &mut excluded);
+        collect_hidden_named_types(&method.return_type, &type_by_name, &configured_traits, known_enum_names, &mut excluded);
         for param in &method.params {
-            collect_hidden_named_types(&param.ty, &type_by_name, &configured_traits, &mut excluded);
+            collect_hidden_named_types(&param.ty, &type_by_name, &configured_traits, known_enum_names, &mut excluded);
         }
     }
 
@@ -213,6 +222,7 @@ fn collect_hidden_named_types<'a>(
     ty: &'a TypeRef,
     type_by_name: &HashMap<&'a str, &'a TypeDef>,
     configured_traits: &HashSet<&'a str>,
+    known_enum_names: &HashSet<&str>,
     excluded: &mut HashSet<&'a str>,
 ) {
     match ty {
@@ -225,15 +235,20 @@ fn collect_hidden_named_types<'a>(
             }
             Some(_) => {}
             None => {
-                excluded.insert(name.as_str());
+                // Only exclude unknown named types that are not known enums.
+                // Enum types are not in type_by_name (which contains only TypeDefs)
+                // but are valid types that should pass through with their correct name.
+                if !known_enum_names.contains(name.as_str()) {
+                    excluded.insert(name.as_str());
+                }
             }
         },
         TypeRef::Optional(inner) | TypeRef::Vec(inner) => {
-            collect_hidden_named_types(inner, type_by_name, configured_traits, excluded);
+            collect_hidden_named_types(inner, type_by_name, configured_traits, known_enum_names, excluded);
         }
         TypeRef::Map(key, value) => {
-            collect_hidden_named_types(key, type_by_name, configured_traits, excluded);
-            collect_hidden_named_types(value, type_by_name, configured_traits, excluded);
+            collect_hidden_named_types(key, type_by_name, configured_traits, known_enum_names, excluded);
+            collect_hidden_named_types(value, type_by_name, configured_traits, known_enum_names, excluded);
         }
         _ => {}
     }

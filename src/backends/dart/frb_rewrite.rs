@@ -405,9 +405,11 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
     // on callback function parameters. Replace them with direct invocation.
     let mut result = source.to_string();
 
-    // Pattern 1: `handler.executeSync(SyncTask(...))` → `await handler(SyncTask(...).request)`
+    // Pattern 1: `handler.executeSync(SyncTask(...))` → `handler(SyncTask(...).request)`
     // This handles the common case where a SyncTask wrapper is passed.
-    result = result.replace("handler.executeSync(", "await handler(");
+    // Note: executeSync calls are in *synchronous* methods that cannot use `await`.
+    // The handler itself returns the value directly without awaiting.
+    result = result.replace("handler.executeSync(", "handler(");
 
     // Pattern 2: `handler.executeNormal(...)` → `await handler(...)`
     // This handles async task invocation.
@@ -444,8 +446,16 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
     while i < lines.len() {
         let line = lines[i];
 
-        // Skip comments and lines that already have async
-        if line.trim().starts_with("//") || line.contains("async") {
+        // Skip comments, class/mixin declarations, and lines that already have async.
+        // Class declarations (starting with `class `, `abstract class`, `mixin `, etc.) must
+        // never receive an `async` keyword — `async` is only valid on function declarations.
+        let trimmed_line = line.trim();
+        if trimmed_line.starts_with("//")
+            || line.contains("async")
+            || trimmed_line.starts_with("class ")
+            || trimmed_line.starts_with("abstract class ")
+            || trimmed_line.starts_with("mixin ")
+        {
             i += 1;
             continue;
         }
@@ -472,8 +482,11 @@ fn ensure_handler_closures_are_async(source: &str) -> String {
                 {
                     // Look for a line that has `)` (closing paren) and `{` (opening brace).
                     // This is typically the closing line of a multi-line function signature.
+                    // Skip lines that already have `async` — adding it again would duplicate the keyword.
                     if check_line.contains(')') && check_line.contains('{') && !check_line.trim().starts_with("//") {
-                        lines_to_fix.insert(j);
+                        if !check_line.contains("async") {
+                            lines_to_fix.insert(j);
+                        }
                         break;
                     }
                 }

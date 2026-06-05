@@ -286,6 +286,33 @@ fn emit_trait_interfaces(
         .map(|c| c.exclude_functions.iter().map(String::as_str).collect())
         .unwrap_or_default();
 
+    // Compute the set of types explicitly excluded from the kotlin_android binding.
+    // This mirrors the computation in the main generate() function to give emit_trait_methods
+    // the information it needs to substitute excluded/internal types with String.
+    let mut effective_excluded_types: std::collections::HashSet<String> = config
+        .kotlin_android
+        .as_ref()
+        .map(|c| c.exclude_types.iter().cloned().collect())
+        .unwrap_or_default();
+    for bridge in &config.trait_bridges {
+        if bridge.exclude_languages.iter().any(|l| l == "kotlin_android") {
+            if let Some(alias) = &bridge.type_alias {
+                effective_excluded_types.insert(alias.clone());
+            }
+        }
+        if let Some(name) = bridge.param_name.as_deref() {
+            if kotlin_android_excluded_function_names.contains(name) {
+                if let Some(alias) = &bridge.type_alias {
+                    effective_excluded_types.insert(alias.clone());
+                }
+            }
+        }
+    }
+    // Also exclude types referenced in excluded_type_paths (types excluded at the IR level).
+    for name in api.excluded_type_paths.keys() {
+        effective_excluded_types.insert(name.clone());
+    }
+
     for bridge in &config.trait_bridges {
         if bridge
             .exclude_languages
@@ -321,7 +348,7 @@ fn emit_trait_interfaces(
             body.push_str("    fun initialize() {}\n");
             body.push_str("    fun shutdown() {}\n");
         }
-        emit_trait_methods(api, bridge, trait_def, &mut imports, &mut body);
+        emit_trait_methods(api, bridge, trait_def, &effective_excluded_types, &mut imports, &mut body);
         body.push_str("}\n");
 
         let content = assemble_kt_content(package, &imports, &body);
@@ -407,9 +434,21 @@ fn emit_trait_methods(
     api: &ApiSurface,
     bridge: &TraitBridgeConfig,
     trait_def: &TypeDef,
+    excluded_types: &std::collections::HashSet<String>,
     imports: &mut BTreeSet<String>,
     body: &mut String,
 ) {
+    // Build the set of type names visible in this binding (non-excluded, non-trait TypeDefs
+    // plus enum names). Named types not in this set are substituted with String to avoid
+    // referencing types that are not present in the generated Kotlin package.
+    let visible_type_names: std::collections::HashSet<&str> = api
+        .types
+        .iter()
+        .filter(|t| !t.binding_excluded && !excluded_types.contains(&t.name))
+        .map(|t| t.name.as_str())
+        .chain(api.enums.iter().map(|e| e.name.as_str()))
+        .collect();
+
     for method in &trait_def.methods {
         if method.sanitized || method.is_static {
             continue;
@@ -423,19 +462,40 @@ fn emit_trait_methods(
             .map(|param| {
                 let name = to_lower_camel(&param.name);
                 let ty_ref = substitute_trait_carrier_type(api, bridge, &param.ty);
-                let ty = kotlin_type_str_pub(&ty_ref, param.optional, imports);
+                let ty = kotlin_type_str_visible(&ty_ref, param.optional, &visible_type_names, imports);
                 format!("{name}: {ty}")
             })
             .collect::<Vec<_>>()
             .join(", ");
         let return_type_ref = substitute_trait_carrier_type(api, bridge, &method.return_type);
-        let return_type = kotlin_type_str_pub(&return_type_ref, false, imports);
+        let return_type = kotlin_type_str_visible(&return_type_ref, false, &visible_type_names, imports);
         body.push_str(&format_method_signature(
             suspend_keyword,
             &method_name,
             &params,
             &return_type,
         ));
+    }
+}
+
+/// Map a `TypeRef` to its Kotlin representation, substituting `String` for any
+/// `Named` type that is not in the set of visible (generated) types.
+/// This prevents excluded/internal types like `InternalDocument` from appearing
+/// in trait interface signatures where they are not defined.
+fn kotlin_type_str_visible(
+    ty: &crate::core::ir::TypeRef,
+    optional: bool,
+    visible_type_names: &std::collections::HashSet<&str>,
+    imports: &mut BTreeSet<String>,
+) -> String {
+    match ty {
+        crate::core::ir::TypeRef::Named(name) if !visible_type_names.contains(name.as_str()) => {
+            if optional { "String?".to_string() } else { "String".to_string() }
+        }
+        crate::core::ir::TypeRef::Optional(inner) => {
+            kotlin_type_str_visible(inner, true, visible_type_names, imports)
+        }
+        other => kotlin_type_str_pub(other, optional, imports),
     }
 }
 

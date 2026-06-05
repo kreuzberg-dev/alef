@@ -233,6 +233,7 @@ impl E2eCodegen for CSharpCodegen {
                 &config.adapters,
                 config,
                 type_defs,
+                enums,
             );
             files.push(GeneratedFile {
                 path: tests_base.join(filename),
@@ -493,6 +494,7 @@ fn render_test_file(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) -> String {
     // Collect using imports
     let mut using_imports = String::new();
@@ -538,6 +540,7 @@ fn render_test_file(
             adapters,
             config,
             type_defs,
+            enums,
         );
         if i + 1 < fixtures.len() {
             fixtures_body.push('\n');
@@ -910,6 +913,7 @@ fn render_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
 ) {
     let method_name = fixture.id.to_upper_camel_case();
     let description = &fixture.description;
@@ -990,6 +994,7 @@ fn render_test_method(
             adapters,
             config,
             type_defs,
+            enums,
             resolve_csharp_streaming_item_type(call_config, adapters, &raw_function_name).as_deref(),
         );
         return;
@@ -1092,6 +1097,7 @@ fn render_test_method(
         adapter_request_type_owned.as_deref(),
         config,
         type_defs,
+        enums,
         visitor_class_decls,
         &mut teardown_lines,
     );
@@ -1392,6 +1398,7 @@ fn render_streaming_test_method(
     adapters: &[crate::core::config::extras::AdapterConfig],
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
     item_type: Option<&str>,
 ) {
     let method_name = fixture.id.to_upper_camel_case();
@@ -1461,6 +1468,7 @@ fn render_streaming_test_method(
         adapter_request_type_cs.as_deref(),
         config,
         type_defs,
+        enums,
         &mut _chat_stream_class_decls,
         &mut _chat_stream_teardown_lines,
     );
@@ -1836,6 +1844,7 @@ fn build_args_and_setup(
     adapter_request_type: Option<&str>,
     config: &ResolvedCrateConfig,
     type_defs: &[crate::core::ir::TypeDef],
+    enums: &[crate::core::ir::EnumDef],
     class_decls: &mut Vec<String>,
     teardown_lines: &mut Vec<String>,
 ) -> (Vec<String>, String) {
@@ -2001,8 +2010,15 @@ fn build_args_and_setup(
                         }
                     }
 
+                    let enum_names: std::collections::HashSet<&str> =
+                        enums.iter().map(|e| e.name.as_str()).collect();
                     let excluded_named =
-                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names(config, type_defs, &methods);
+                        crate::e2e::codegen::recipe::trait_bridge_excluded_type_names_with_enums(
+                            config,
+                            type_defs,
+                            &methods,
+                            &enum_names,
+                        );
                     let emission =
                         emit_test_backend_with_class_name(trait_bridge, &methods, fixture, class_name, &excluded_named);
                     // setup_block is a private nested class declaration — must be at class
@@ -4204,6 +4220,7 @@ mod tests {
             &fixture,
             None,
             &crate::core::config::ResolvedCrateConfig::default(),
+            &[],
             &[],
             &mut class_decls,
             &mut teardown_lines,

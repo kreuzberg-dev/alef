@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+## [0.23.6] - 2026-06-05
+
+### Fixed
+
+- **e2e/typescript — embed_texts async override not applied**: the TypeScript e2e codegen read `call_config.r#async` (the base-level bool) when computing `call_is_async`, ignoring any per-language override's `async` field. A call with `async = false` at the base level and `async = true` in the `[overrides.node]` section produced a sync test body that called `await`-required async functions without `await`. Fixed by reading `call_config.overrides.get(lang).and_then(|o| o.r#async).unwrap_or(call_config.r#async)`. (`src/e2e/codegen/typescript/test_file.rs`)
+
+- **e2e/csharp — enum types wrongly excluded from trait stubs**: `collect_hidden_named_types` added any `TypeRef::Named` name to the excluded set when the name was not found in `type_by_name` (which only contains `TypeDef` entries, not `EnumDef` entries). As a result, enum-typed method fields like `OcrBackendType` and `ProcessingStage` were substituted with `string` in C# plugin-API stubs, causing CS0738 interface mismatch errors. Added `trait_bridge_excluded_type_names_with_enums` which receives a `known_enum_names` set and skips excluding names that correspond to known enums. Updated the C# e2e codegen to pass enum names through. (`src/e2e/codegen/recipe.rs`, `src/e2e/codegen/csharp.rs`)
+
+- **kotlin-android — InternalDocument leaks into trait interface**: `emit_trait_methods` called `kotlin_type_str_pub` for method parameter and return types without substituting excluded/internal types. `InternalDocument`, excluded via `excluded_type_paths`, appeared verbatim in `IDocumentExtractor.kt`, causing a Kotlin compile error. Added `kotlin_type_str_visible` helper that substitutes any `Named` type not visible in the binding with `String`, matching the Java backend's `java_type_visible` pattern. (`src/backends/kotlin_android/gen_bindings.rs`)
+
+- **dart FRB — await in non-async sync accessors**: `fix_handler_executor_calls` replaced `handler.executeSync(` with `await handler(`, but `executeSync` methods are synchronous and cannot use `await`. Changed the replacement to `handler(` (no `await`). Also tightened `ensure_handler_closures_are_async` to skip class/mixin declarations and to not add `async` to function signatures that already contain it. (`src/backends/dart/frb_rewrite.rs`)
+
 ## [0.23.5] - 2026-06-05
 
 ### Fixed
