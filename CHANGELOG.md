@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **go**: cgo vtable registration call passed `&vtable` (pointer) but C function signature expects value type (`struct TypeVTable`), causing type mismatch in cgo. Fixed by passing `vtable` (value) instead of `&vtable` in `register_c_call.jinja` template to match C ABI and unify cimport struct forms.
+
 <!-- csharp-e2e-await-task-instance-member -->
 - **C#: e2e test generator ignores per-language `async` override in call config, causing test methods to be marked `void` instead of `async Task` when the binding exposes an async method**. When a call's base config has `async = false` but the C# override specifies `async = true` (e.g., `embed_texts` call with sync C# binding replaced by `EmbedTextsAsync`), the e2e codegen was reading only the base call config's async flag instead of checking the language override. This produced test methods like `public void Test_EmbedTexts()` that called `var result = await function();` without the method being async, and then assertions trying to access instance members (`.Count`, `.Length`) on the `Task<T>` result failed with "Task<T> does not contain a definition". Fixed by checking `cs_overrides.r#async` (language-specific override) before falling back to `call_config.r#async` (base config), mirroring the pattern used for other per-language call overrides like `function`, `result_is_simple`, and `options_type`. (`src/e2e/codegen/csharp.rs`)
 

@@ -1629,4 +1629,78 @@ mod tests {
             TypeRef::Unit
         ));
     }
+
+    /// Regression (C9): go cgo vtable cimport convention must be consistent.
+    /// C function signature takes `struct TypeVTable` by value, so Go call must pass
+    /// value type, not `&vtable` (pointer).  The register_c_call template should emit
+    /// `vtable` (value), not `&vtable` (pointer).
+    #[test]
+    fn register_c_call_passes_vtable_by_value() {
+        let trait_def = TypeDef {
+            name: "Backend".to_string(),
+            rust_path: "test_crate::Backend".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: false,
+            is_copy: false,
+            is_trait: true,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "Backend".to_string(),
+            super_trait: Some("Plugin".to_string()),
+            registry_getter: None,
+            register_fn: None,
+            unregister_fn: None,
+            clear_fn: None,
+            type_alias: None,
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: Vec::new(),
+            bind_via: crate::core::config::BridgeBinding::FunctionParam,
+            options_type: None,
+            options_field: None,
+            context_type: None,
+            result_type: None,
+            ffi_skip_methods: Vec::new(),
+        };
+        let mut out = String::new();
+        let excluded = HashSet::new();
+
+        gen_trait_bridge(
+            &mut out,
+            &trait_def,
+            &bridge_cfg,
+            "test_crate",
+            "test_crate",
+            &excluded,
+            "backend",
+        );
+
+        // The registration call must pass vtable by value, not by reference.
+        // The C header declares the parameter as `struct TestVTable vtable` (value type),
+        // so the Go call must use `vtable` not `&vtable`.
+        assert!(
+            out.contains("C.test_crate_register_backend(\n\t\tcName,\n\t\tvtable,"),
+            "register_c_call must pass vtable by value (not &vtable);\nactual:\n{out}"
+        );
+        // Ensure we're NOT passing a pointer
+        assert!(
+            !out.contains("&vtable,"),
+            "register_c_call must not pass &vtable (pointer);\nactual:\n{out}"
+        );
+    }
 }
