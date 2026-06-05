@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+12-dart -->
+- **e2e/dart — harness emits `.new_().path().method()` builder chain that no longer exists in FRB-generated `RouteBuilder`**: FRB generates a static factory `RouteBuilder.newInstance({required Method method, required String path})` returning `Future<RouteBuilder>`, not a `.new_()` method. Fixed by replacing the builder chain with an `await RouteBuilder.newInstance(method: methodEnum, path: fullRoute)` call. (`src/e2e/templates/dart/app_harness.dart.jinja`)
+
 <!-- N+12-elixir -->
 - **e2e/elixir — harness uses bare `%Module{}` struct syntax that fails when the module is not yet compiled, producing `CompileError: ServerConfig.__struct__/1 is undefined`**: standalone e2e scripts (run as elixir scripts, not via mix) may not have all dependent modules loaded at compile time. Fixed by replacing `%{{ server_config_class }}{...}` with `struct({{ server_config_class }}, %{...})`, which defers module resolution to runtime when the handler function is invoked. (`src/e2e/templates/elixir/app_harness.exs.jinja`)
 
