@@ -534,9 +534,9 @@ repository = "https://github.com/example/my-lib"
             root.content
         );
         assert!(
-            root.content.contains("dependencies: [\"RustBridge\"]")
-                || root.content.contains("dependencies: [\"RustBridgeC\"]"),
-            "root Package.swift must declare dependencies for targets, got:\n{}",
+            root.content
+                .contains(r#"dependencies: ["RustBridge", "RustBridgeC"]"#),
+            "root Package.swift must declare bridge dependencies for the Swift target, got:\n{}",
             root.content
         );
     }

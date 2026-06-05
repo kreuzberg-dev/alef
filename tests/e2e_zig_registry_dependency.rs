@@ -174,8 +174,7 @@ hash = "demo_crawler-1.2.3-STALE_TODO_REGENERATE"
     // Since the network fetch will fail (artifact not published), it will return None
     // and generate build.zig.zon without a .hash field (which is acceptable during
     // placeholder regeneration).
-    let result = ZigE2eCodegen
-        .generate(&[group()], &e2e, &resolved, &[], &[]);
+    let result = ZigE2eCodegen.generate(&[group()], &e2e, &resolved, &[], &[]);
 
     // Generation should succeed (not bail on placeholder detection).
     assert!(
