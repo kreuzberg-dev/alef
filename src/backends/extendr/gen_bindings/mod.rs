@@ -2263,7 +2263,7 @@ fn gen_extendr_json_bridged_function(
             format!(
                 "{body_preamble}{named_let_bindings}\
                  let rt = {rt_new};\n    \
-                 let result = rt.block_on(async {{ {core_call}.await{err_map} }})?;\n    \
+                 let result = rt.block_on(async {{ {core_call}.await{err_map} })?;\n    \
                  {convert}\n    \
                  {result_convert}",
                 body_preamble = body_preamble,
