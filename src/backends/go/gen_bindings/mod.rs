@@ -815,6 +815,17 @@ fn gen_go_file(
         if typ.is_opaque && error_names.contains(typ.name.as_str()) {
             continue;
         }
+        // Non-opaque types without serde derives cannot be bridged through the
+        // JSON roundtrip path used by the Go binding (receiver marshal + return
+        // unmarshal both depend on `{prefix}_{type}_{to,from}_json` helpers,
+        // which the FFI backend only emits when `has_serde` is true). Emitting
+        // their methods would produce calls to non-existent C symbols and fail
+        // to link. Types in this shape (e.g. `NodeContext` with manual serde
+        // impls) are still reachable via the visitor flow, which generates its
+        // own struct representation in `visitor.go`.
+        if !typ.is_opaque && !typ.has_serde {
+            continue;
+        }
         for method in &typ.methods {
             // Skip methods named "default" — these are Rust's Default::default() trait impl
             // and should not be emitted as free functions in Go (use struct literals instead).
