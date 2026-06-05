@@ -412,6 +412,68 @@ pub(crate) fn emit_extern_block_for_functions(
     block
 }
 
+/// Emit phantom extern "Rust" declarations for Vec<T> for all opaque types so that
+/// swift-bridge-build emits the full suite of C ABI symbols for Vec operations.
+///
+/// Returns empty string if there are no types to register.
+pub(crate) fn emit_extern_block_for_vec_accessors(
+    visible_types: &[&TypeDef],
+    visible_enums: &[&EnumDef],
+) -> String {
+    if visible_types.is_empty() && visible_enums.is_empty() {
+        return String::new();
+    }
+
+    let mut block = String::new();
+    block.push_str("    extern \"Rust\" {\n");
+    block.push_str("        // Phantom Vec<T> functions: swift-bridge-build must emit the full Vec support\n");
+    block.push_str("        // C ABI symbols (__swift_bridge__$Vec_T$new, drop, push, pop, get, get_mut, as_ptr, len)\n");
+    block.push_str("        // which the auto-generated Swift Vec<T> conformances reference.\n");
+    block.push_str("        //\n");
+    block.push_str("        // swift-bridge 0.1.59 only emits these when Vec<T> appears as a return type\n");
+    block.push_str("        // in an extern block. Without these phantom functions, Swift linker fails when\n");
+    block.push_str("        // trying to construct or manipulate Vec<T> of opaque types.\n");
+    block.push_str("        //\n");
+    block.push_str("        // These declarations are paired with phantom_impl functions below the bridge module.\n");
+
+    for ty in visible_types {
+        let type_snake = ty.name.to_snake_case();
+        block.push_str(&format!("        fn __alef_phantom_vec_{}() -> Vec<{}>;\n", type_snake, ty.name));
+    }
+    for en in visible_enums {
+        let enum_snake = en.name.to_snake_case();
+        block.push_str(&format!("        fn __alef_phantom_vec_{}() -> Vec<{}>;\n", enum_snake, en.name));
+    }
+
+    block.push_str("    }\n\n");
+    block
+}
+
+/// Emit the phantom Vec accessor implementations OUTSIDE the swift-bridge module.
+///
+/// These paired with the extern declarations emitted by `emit_extern_block_for_vec_accessors`.
+/// swift-bridge-build sees the extern declarations and generates the C ABI symbols,
+/// and these implementations satisfy the linker.
+pub(crate) fn emit_phantom_vec_impl(
+    visible_types: &[&TypeDef],
+    visible_enums: &[&EnumDef],
+) -> String {
+    if visible_types.is_empty() && visible_enums.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    for ty in visible_types {
+        let type_snake = ty.name.to_snake_case();
+        out.push_str(&format!("#[doc(hidden)]\npub fn __alef_phantom_vec_{}() -> Vec<{}> {{ Vec::new() }}\n\n", type_snake, ty.name));
+    }
+    for en in visible_enums {
+        let enum_snake = en.name.to_snake_case();
+        out.push_str(&format!("#[doc(hidden)]\npub fn __alef_phantom_vec_{}() -> Vec<{}> {{ Vec::new() }}\n\n", enum_snake, en.name));
+    }
+    out
+}
+
 /// Emit a single `extern "Rust"` block declaring all streaming-adapter
 /// `StreamHandle` opaque types and their `_start` + `next` bridge functions.
 ///

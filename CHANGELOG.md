@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **swift**: opaque Rust types returned in `Vec<T>` contexts were missing C ABI symbols for Vec operations (`__swift_bridge__$Vec_T$new`, `drop`, `push`, `pop`, `get`, `get_mut`, `as_ptr`, `len`), causing Swift linker failures when constructing or manipulating `Vec<T>` of opaque types. swift-bridge-build only emits these symbols when the type appears as a return type in an `extern "Rust"` block. Fixed by emitting phantom functions that return `Vec<T>` for all opaque types (structs and enums), declared in the extern block and implemented in the wrapper module. This forces swift-bridge-build to generate the required C symbols. Generic pattern: every opaque-type declaration must have a corresponding phantom `fn __alef_phantom_vec_{type_snake}() -> Vec<{Type}>` to enable Vec support. (`src/backends/swift/gen_rust_crate/extern_block.rs`, `src/backends/swift/gen_rust_crate/mod.rs`)
+
 ### Added
 
 <!-- N+14-go -->
@@ -38,6 +42,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- php-pie-binary-url-template -->
 - **PHP: scaffold emits composer.json without `extra.pie.binary.url-template` block, so PIE installer fails to locate pre-built extension archives**: PIE (PHP Installation Extension) uses the `extra.pie.binary.url-template` field in composer.json to construct URLs for pre-packaged extension archives. Alef's PHP scaffold was omitting this block based on an outdated comment, causing PIE to fail with `CouldNotDetermineDownloadUrlMethod` even though archives were published. Fixed by emitting `extra.pie.binary.url-template` whenever a repository URL is configured, using the canonical alef asset naming format (includes the `-nodebug-` token required by PIE's filename matching). The URL template defaults to `{repository}/releases/download/v{Version}/php_{ext_name}-{Version}_php{PhpVersion}-{Arch}-{OS}-{Libc}-nodebug-{TSMode}.tgz`. (`src/scaffold/languages/php.rs`, `src/scaffold/tests.rs`)
+
+<!-- go-map-return-type-mismatch -->
+- **Go: methods returning `Map<K,V>` (non-optional) generated type-mismatched closures that returned `*map[K]V` (pointer) while the function signature expected `map[K]V` (value)**, causing Go compiler error "cannot use func() *map[string]string {...}() (value of type *map[string]string) as map[string]string value in return statement". Maps are reference types in Go and should never be wrapped in pointers — the fix aligns `Map` with `Vec` (which was already correct): both now return bare value-form closures. The Go return-type signature logic already correctly uses `go_optional_type(Map)` which returns `map[K]V` (not pointer-wrapped); the bug was in `go_return_expr_inner` where the closure returned `*map[K]V` instead of `map[K]V`. Fixed by changing the closure return type from `func() *map[K]V { ... return &result }()` to `func() map[K]V { ... return result }()`, matching the pattern used for `Vec`. Applies to both `Map<K,V>` and `Optional<Map<K,V>>` returns (both signature and closure). (`src/backends/go/gen_bindings/types.rs`)
 
 <!-- go-zig-macos-dylib-install-name -->
 - fix(publish): rewrite macOS dylib install_name to @rpath in go and zig packagers
