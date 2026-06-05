@@ -4,7 +4,8 @@ impl {{ wrapper_name }} {
     /// Validates that the object provides all required methods.
     pub fn new(js_obj: napi::bindgen_prelude::Object<'_>) -> napi::Result<Self> {
 {%- for method in required_methods %}
-        if !js_obj.has_named_property("{{ method.name }}").unwrap_or(false) {
+        if !js_obj.has_named_property("{{ method.name }}").unwrap_or(false)
+            && !js_obj.has_named_property("{{ method.snake_case_name }}").unwrap_or(false) {
             return Err(napi::Error::new(
                 napi::Status::GenericFailure,
                 format!("Object missing required method: {}", "{{ method.name }}")

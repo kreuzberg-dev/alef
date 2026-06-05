@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
+- **napi plugin trait-bridge — accept both camelCase and snake_case method names**: the NAPI trait bridge validates that a JS object passed to `registerDocumentExtractor` or `registerRenderer` has all required methods, checking for the camelCase version (e.g., `extractBytes`). To support both JavaScript convention (camelCase) and Rust convention (snake_case) property names, the constructor now accepts either form. Method lookup (`get_named_property`) also tries both forms, falling back to snake_case if camelCase is not found. This allows plugin implementations to use either naming convention without validation failure. (`src/backends/napi/trait_bridge_constructor.jinja`, `src/backends/napi/templates/sync_method_*.jinja`, `src/backends/napi/templates/async_method_*.jinja`, `src/backends/napi/trait_bridge.rs`)
+
 
 - **extendr — async function generation omits critical body parts**: `gen_extendr_json_bridged_function` used `format!()` macros with named placeholders (`{body_preamble}`, `{named_let_bindings}`, `{rt_new}`, `{core_call}`, `{convert}`) but only passed `err_map` and `result_convert` as named arguments. Missing parameters caused the formatter to panic or render empty strings, resulting in R async functions missing the `let result =` binding and final conversion logic. This produced syntax errors like "mismatched closing delimiter" in generated `lib.rs`. Fixed by adding all required parameters to the `format!()` calls: `body_preamble`, `named_let_bindings`, `rt_new`, `core_call`, and `convert`. (`src/backends/extendr/gen_bindings/mod.rs:2236–2265`)
 
