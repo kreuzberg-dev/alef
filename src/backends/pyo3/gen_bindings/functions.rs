@@ -404,10 +404,14 @@ pub(super) fn gen_api_py(
         // callers that do `_to_rust_process_config(config) if config is not None`
         // still see the return type as `ProcessConfig | None` (not narrowed), causing
         // mypy errors when passing the result directly.
+        let has_visitor_override = bridge_visitor_field.is_some();
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/overload_none.jinja",
             minijinja::context! {
                 snake => &snake,
+                type_name => type_name,
+                has_visitor_override => has_visitor_override,
+                bridge_visitor_type => bridge_visitor_type,
             },
         ));
         out.push_str(&crate::backends::pyo3::template_env::render(
@@ -415,6 +419,8 @@ pub(super) fn gen_api_py(
             minijinja::context! {
                 snake => &snake,
                 type_name => type_name,
+                has_visitor_override => has_visitor_override,
+                bridge_visitor_type => bridge_visitor_type,
             },
         ));
 

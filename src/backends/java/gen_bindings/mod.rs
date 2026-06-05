@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 mod facade;
 mod ffi_class;
-mod helpers;
+pub mod helpers;
 mod line_wrap;
 mod marshal;
 mod native_lib;
