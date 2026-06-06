@@ -60,6 +60,14 @@ fn elixir_type_annotation(ty: &TypeRef) -> String {
     }
 }
 
+fn push_elixir_param(params: &mut String, name: &str, optional: bool) {
+    params.push_str(", ");
+    params.push_str(name);
+    if optional {
+        params.push_str(" \\\\ nil");
+    }
+}
+
 /// Find the `HandlerContractDef` by trait name in the surface.
 fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a HandlerContractDef> {
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
@@ -274,11 +282,7 @@ fn gen_registration_method(
     push_elixir_doc(out, &reg.doc, "doc");
     let mut params = "self".to_owned();
     for p in &reg.metadata_params {
-        if p.optional {
-            params.push_str(&format!(", {} \\\\ nil", p.name));
-        } else {
-            params.push_str(&format!(", {}", p.name));
-        }
+        push_elixir_param(&mut params, &p.name, p.optional);
     }
     params.push_str(", handler");
 
@@ -409,11 +413,7 @@ fn emit_verb_decorator_variant(
     // Emit signature: app, then signature_params, then handler
     let mut params = "app".to_owned();
     for param in &variant.signature_params {
-        if param.optional {
-            params.push_str(&format!(", {} \\\\ nil", param.name));
-        } else {
-            params.push_str(&format!(", {}", param.name));
-        }
+        push_elixir_param(&mut params, &param.name, param.optional);
     }
     params.push_str(", handler");
 
@@ -483,11 +483,7 @@ fn emit_builder_variant(
     // Emit signature: app, then signature_params (no handler)
     let mut params = "app".to_owned();
     for param in &variant.signature_params {
-        if param.optional {
-            params.push_str(&format!(", {} \\\\ nil", param.name));
-        } else {
-            params.push_str(&format!(", {}", param.name));
-        }
+        push_elixir_param(&mut params, &param.name, param.optional);
     }
     let call_args = std::iter::once("app".to_owned())
         .chain(variant.signature_params.iter().map(|p| p.name.clone()))

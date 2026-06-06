@@ -1,0 +1,5 @@
+      {:ok, _} =
+        {{ native_mod }}.{{ func_name }}_with_visitor(
+{% for arg in args %}          {{ arg }}{% if not loop.last %},{% endif %}
+{% endfor %}        )
+

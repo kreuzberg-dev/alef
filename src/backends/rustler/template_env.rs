@@ -804,6 +804,62 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("templates/elixir_stream_error_exception.jinja"),
     ),
     (
+        "elixir_keyword_opts_wrapper.ex.jinja",
+        include_str!("templates/elixir_keyword_opts_wrapper.ex.jinja"),
+    ),
+    (
+        "elixir_error_spec.ex.jinja",
+        include_str!("templates/elixir_error_spec.ex.jinja"),
+    ),
+    (
+        "elixir_struct_type_field.ex.jinja",
+        include_str!("templates/elixir_struct_type_field.ex.jinja"),
+    ),
+    (
+        "elixir_native_alias.ex.jinja",
+        include_str!("templates/elixir_native_alias.ex.jinja"),
+    ),
+    (
+        "elixir_visitor_call_multiline.ex.jinja",
+        include_str!("templates/elixir_visitor_call_multiline.ex.jinja"),
+    ),
+    (
+        "elixir_visitor_plain_call.ex.jinja",
+        include_str!("templates/elixir_visitor_plain_call.ex.jinja"),
+    ),
+    (
+        "elixir_opaque_new.ex.jinja",
+        include_str!("templates/elixir_opaque_new.ex.jinja"),
+    ),
+    (
+        "elixir_opaque_default.ex.jinja",
+        include_str!("templates/elixir_opaque_default.ex.jinja"),
+    ),
+    (
+        "elixir_opaque_stream_method.ex.jinja",
+        include_str!("templates/elixir_opaque_stream_method.ex.jinja"),
+    ),
+    (
+        "elixir_opaque_method_wrapper.ex.jinja",
+        include_str!("templates/elixir_opaque_method_wrapper.ex.jinja"),
+    ),
+    (
+        "elixir_top_level_opaque_method.ex.jinja",
+        include_str!("templates/elixir_top_level_opaque_method.ex.jinja"),
+    ),
+    (
+        "elixir_trait_register_delegate.ex.jinja",
+        include_str!("templates/elixir_trait_register_delegate.ex.jinja"),
+    ),
+    (
+        "elixir_trait_unregister_delegate.ex.jinja",
+        include_str!("templates/elixir_trait_unregister_delegate.ex.jinja"),
+    ),
+    (
+        "elixir_trait_clear_delegate.ex.jinja",
+        include_str!("templates/elixir_trait_clear_delegate.ex.jinja"),
+    ),
+    (
         "rustler_resource_registration.rs.jinja",
         include_str!("templates/rustler_resource_registration.rs.jinja"),
     ),

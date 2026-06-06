@@ -1,0 +1,6 @@
+  def {{ func_name }}({{ params }}) do
+    {{ native_mod }}.{{ func_name }}(
+      {{ nif_call_args }}
+    )
+  end
+

@@ -1,0 +1,7 @@
+{% if doc_first %}  @doc "{{ doc_first }}"
+{% endif %}  def {{ method_name }}({{ def_args }}) do
+{% if returns_self %}    ref = Native.{{ nif_fn }}({{ call_args }})
+    %__MODULE__{ref: ref}
+{% else %}    Native.{{ nif_fn }}({{ call_args }})
+{% endif %}  end
+

@@ -637,14 +637,16 @@ pub(super) fn gen_elixir_struct_module(
                     field_type
                 };
 
-            if i == fields.len() - 1 {
-                // Last field: no comma
-                // mix format aligns struct fields to the column of the opening `{` in
-                // `@type t :: %__MODULE__{`, which is at column 24 (10-space indent).
-                out.push_str(&format!("          {field_name}: {field_type_with_optional}\n"));
-            } else {
-                out.push_str(&format!("          {field_name}: {field_type_with_optional},\n"));
-            }
+            // mix format aligns struct fields to the column of the opening `{` in
+            // `@type t :: %__MODULE__{`, which is at column 24 (10-space indent).
+            out.push_str(&template_env::render(
+                "elixir_struct_type_field.ex.jinja",
+                minijinja::context! {
+                    field_name => &field_name,
+                    field_type => &field_type_with_optional,
+                    is_last => i == fields.len() - 1,
+                },
+            ));
         }
     }
     // Closing brace aligned to the column of the field indent (8 spaces) —
@@ -757,7 +759,12 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
     // places the static `new` in `typ.methods`).
     let needs_native_alias = typ.has_default || !typ.methods.is_empty() || typ.is_variant_wrapper;
     if needs_native_alias {
-        out.push_str(&format!("  alias {app_module}.Native\n\n"));
+        out.push_str(&template_env::render(
+            "elixir_native_alias.ex.jinja",
+            minijinja::context! {
+                app_module => app_module,
+            },
+        ));
     }
     out.push_str("  defstruct [:ref]\n\n");
     if !typ.doc.is_empty() {
@@ -780,11 +787,12 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
 
     // Constructor for types with a default — wraps the native default reference.
     if typ.has_default {
-        out.push_str("  @doc \"Build a default instance.\"\n");
-        out.push_str("  @spec new() :: t()\n");
-        out.push_str("  def new do\n");
-        out.push_str(&format!("    %__MODULE__{{ref: Native.{type_lower}_default()}}\n"));
-        out.push_str("  end\n\n");
+        out.push_str(&template_env::render(
+            "elixir_opaque_new.ex.jinja",
+            minijinja::context! {
+                type_lower => &type_lower,
+            },
+        ));
     }
 
     // Wrapper for each method. Methods with a receiver take the struct as the
@@ -826,38 +834,17 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
             }
 
             let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
-            if !doc_first.is_empty() {
-                out.push_str(&format!("  @doc \"{doc_first}\"\n"));
-            }
-            out.push_str(&format!("  def {method_name}({}) do\n", def_args.join(", ")));
-            out.push_str(&format!(
-                "    case Native.{start_fn}({}) do\n",
-                start_call_args.join(", ")
+            out.push_str(&template_env::render(
+                "elixir_opaque_stream_method.ex.jinja",
+                minijinja::context! {
+                    doc_first => &doc_first,
+                    method_name => &method_name,
+                    def_args => &def_args.join(", "),
+                    start_fn => &start_fn,
+                    start_call_args => &start_call_args.join(", "),
+                    next_fn => &next_fn,
+                },
             ));
-            out.push_str("      {:ok, handle} ->\n");
-            out.push_str("        stream =\n");
-            out.push_str("          Stream.unfold(handle, fn h ->\n");
-            out.push_str(&format!("            case Native.{next_fn}(h) do\n"));
-            out.push_str("              {:ok, nil} ->\n");
-            out.push_str("                nil\n");
-            out.push('\n');
-            out.push_str("              {:ok, chunk_json} when is_binary(chunk_json) ->\n");
-            out.push_str("                {Jason.decode!(chunk_json, keys: :atoms), h}\n");
-            out.push('\n');
-            out.push_str("              {:ok, chunk} ->\n");
-            out.push_str("                {chunk, h}\n");
-            out.push('\n');
-            out.push_str("              {:error, _} ->\n");
-            out.push_str("                nil\n");
-            out.push_str("            end\n");
-            out.push_str("          end)\n");
-            out.push('\n');
-            out.push_str("        {:ok, stream}\n");
-            out.push('\n');
-            out.push_str("      {:error, reason} ->\n");
-            out.push_str("        {:error, reason}\n");
-            out.push_str("    end\n");
-            out.push_str("  end\n\n");
             continue;
         }
 
@@ -886,31 +873,33 @@ pub(super) fn gen_elixir_opaque_module(typ: &TypeDef, app_module: &str, config: 
         }
 
         let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
-        if !doc_first.is_empty() {
-            out.push_str(&format!("  @doc \"{doc_first}\"\n"));
-        }
-        out.push_str(&format!("  def {method_name}({}) do\n", def_args.join(", ")));
 
         // For static methods (no receiver) on opaque types, wrap the return value
         // in the struct if the return type matches the module's type.
         let is_static = method.receiver.is_none();
         let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
-        if is_static && returns_self {
-            out.push_str(&format!("    ref = Native.{nif_fn}({})\n", call_args.join(", ")));
-            out.push_str("    %__MODULE__{ref: ref}\n");
-        } else {
-            out.push_str(&format!("    Native.{nif_fn}({})\n", call_args.join(", ")));
-        }
-        out.push_str("  end\n\n");
+        out.push_str(&template_env::render(
+            "elixir_opaque_method_wrapper.ex.jinja",
+            minijinja::context! {
+                doc_first => &doc_first,
+                method_name => &method_name,
+                def_args => &def_args.join(", "),
+                returns_self => is_static && returns_self,
+                nif_fn => &nif_fn,
+                call_args => &call_args.join(", "),
+            },
+        ));
     }
 
     // Emit a separate `default/0` function if the type has a default.
     // This wraps the `{type_lower}_default()` NIF and is distinct from `new/0`.
     if typ.has_default {
-        out.push_str("  def default() do\n");
-        out.push_str(&format!("    ref = Native.{type_lower}_default()\n"));
-        out.push_str("    %__MODULE__{ref: ref}\n");
-        out.push_str("  end\n\n");
+        out.push_str(&template_env::render(
+            "elixir_opaque_default.ex.jinja",
+            minijinja::context! {
+                type_lower => &type_lower,
+            },
+        ));
     }
 
     // Methods leave a trailing blank line after `end`; `mix format` rejects a

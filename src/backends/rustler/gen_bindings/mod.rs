@@ -938,12 +938,7 @@ impl Backend for RustlerBackend {
                 // def fn_name(req_param, opts \\ []) do
                 let mut def_parts: Vec<String> = required_params.to_vec();
                 def_parts.push("opts \\\\ []".to_string());
-                if def_parts.len() == 1 && def_parts[0] == "opts \\\\ []" {
-                    // zero required params
-                    content.push_str(&format!("  def {nif_fn_name}(opts \\\\ []) do\n"));
-                } else {
-                    content.push_str(&format!("  def {nif_fn_name}({}) do\n", def_parts.join(", ")));
-                }
+                let def_params = def_parts.join(", ");
 
                 // NIF call args: required positionally, optional via Keyword.get
                 let mut nif_call_parts: Vec<String> = required_params.to_vec();
@@ -952,10 +947,15 @@ impl Backend for RustlerBackend {
                     nif_call_parts.push(format!("Keyword.get(opts, :{safe_name})"));
                 }
                 let nif_call_str = nif_call_parts.join(",\n      ");
-                content.push_str(&format!(
-                    "    {native_mod}.{nif_fn_name}(\n      {nif_call_str}\n    )\n"
+                content.push_str(&template_env::render(
+                    "elixir_keyword_opts_wrapper.ex.jinja",
+                    minijinja::context! {
+                        func_name => &nif_fn_name,
+                        params => &def_params,
+                        native_mod => &native_mod,
+                        nif_call_args => &nif_call_str,
+                    },
                 ));
-                content.push_str("  end\n\n");
             } else if arity_variants.is_empty() && trailing_optional_count == 0 && !all_params.is_empty() {
                 // Single-arity, no keyword opts, no optional trailing params, but may have
                 // optional (| nil) params in the typespec. Emit the def with defaults for
@@ -1135,14 +1135,14 @@ impl Backend for RustlerBackend {
                             // ", " only would leave the 2nd+ args concatenated on one line
                             // which mix format would then rewrap on every check, breaking
                             // prek's mix-format hook.
-                            content.push_str("      {:ok, _} =\n");
-                            content.push_str(&format!("        {native_mod}.{nif_fn_name}_with_visitor(\n"));
-                            let last_idx = with_visitor_args.len().saturating_sub(1);
-                            for (idx, arg) in with_visitor_args.iter().enumerate() {
-                                let sep = if idx == last_idx { "" } else { "," };
-                                content.push_str(&format!("          {arg}{sep}\n"));
-                            }
-                            content.push_str("        )\n");
+                            content.push_str(&template_env::render(
+                                "elixir_visitor_call_multiline.ex.jinja",
+                                minijinja::context! {
+                                    native_mod => &native_mod,
+                                    func_name => &nif_fn_name,
+                                    args => &with_visitor_args,
+                                },
+                            ));
                         } else {
                             content.push_str(&single_line);
                         }
@@ -1170,7 +1170,14 @@ impl Backend for RustlerBackend {
                             })
                             .collect();
                         let plain_args_str = plain_args.join(", ");
-                        content.push_str(&format!("      {native_mod}.{nif_fn_name}({plain_args_str})\n"));
+                        content.push_str(&template_env::render(
+                            "elixir_visitor_plain_call.ex.jinja",
+                            minijinja::context! {
+                                native_mod => &native_mod,
+                                func_name => &nif_fn_name,
+                                args => &plain_args_str,
+                            },
+                        ));
                         content.push_str("    end\n");
                         content.push_str("  end\n\n");
 
@@ -1412,7 +1419,13 @@ impl Backend for RustlerBackend {
                         doc_line => &doc_line,
                     },
                 ));
-                content.push_str(&format!("  @spec {nif_fn_name}(String.t()) :: {return_spec}\n"));
+                content.push_str(&template_env::render(
+                    "elixir_error_spec.ex.jinja",
+                    minijinja::context! {
+                        func_name => &nif_fn_name,
+                        return_spec => &return_spec,
+                    },
+                ));
                 content.push_str(&template_env::render(
                     "elixir_def_simple.jinja",
                     minijinja::context! {
@@ -1570,16 +1583,15 @@ impl Backend for RustlerBackend {
                 }
                 let args_str = def_args.join(", ");
                 let doc_first = method.doc.lines().next().unwrap_or("").replace('"', "\\\"");
-                if !doc_first.is_empty() {
-                    content.push_str(&format!("  @doc \"{doc_first}\"\n"));
-                }
-                if def_args.is_empty() {
-                    content.push_str(&format!("  def {nif_fn} do\n"));
-                } else {
-                    content.push_str(&format!("  def {nif_fn}({args_str}) do\n"));
-                }
-                content.push_str(&format!("    {native_mod}.{nif_fn}({args_str})\n"));
-                content.push_str("  end\n\n");
+                content.push_str(&template_env::render(
+                    "elixir_top_level_opaque_method.ex.jinja",
+                    minijinja::context! {
+                        doc_first => &doc_first,
+                        func_name => &nif_fn,
+                        args => &args_str,
+                        native_mod => &native_mod,
+                    },
+                ));
             }
         }
 
@@ -1602,27 +1614,27 @@ impl Backend for RustlerBackend {
             // Emit register_* delegate
             if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
                 let fn_name = register_fn.to_snake_case();
-                content.push_str(&format!(
-                    "  @doc \"Register a {} plugin with a GenServer PID and name.\"\n",
-                    bridge_cfg.trait_name
+                content.push_str(&template_env::render(
+                    "elixir_trait_register_delegate.ex.jinja",
+                    minijinja::context! {
+                        trait_name => &bridge_cfg.trait_name,
+                        func_name => &fn_name,
+                        native_mod => &native_mod,
+                    },
                 ));
-                content.push_str(&format!("  @spec {fn_name}(pid(), String.t()) :: :ok | :error\n"));
-                content.push_str(&format!("  def {fn_name}(genserver_pid, plugin_name) do\n"));
-                content.push_str(&format!("    {native_mod}.{fn_name}(genserver_pid, plugin_name)\n"));
-                content.push_str("  end\n\n");
             }
 
             // Emit unregister_* delegate
             if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
                 let fn_name = unregister_fn.to_snake_case();
-                content.push_str(&format!(
-                    "  @doc \"Unregister a previously registered {} plugin by name.\"\n",
-                    bridge_cfg.trait_name
+                content.push_str(&template_env::render(
+                    "elixir_trait_unregister_delegate.ex.jinja",
+                    minijinja::context! {
+                        trait_name => &bridge_cfg.trait_name,
+                        func_name => &fn_name,
+                        native_mod => &native_mod,
+                    },
                 ));
-                content.push_str(&format!("  @spec {fn_name}(String.t()) :: :ok | :error\n"));
-                content.push_str(&format!("  def {fn_name}(name) do\n"));
-                content.push_str(&format!("    {native_mod}.{fn_name}(name)\n"));
-                content.push_str("  end\n\n");
             }
 
             // Emit clear_* delegate only if not already in api.functions.
@@ -1632,14 +1644,14 @@ impl Backend for RustlerBackend {
             if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
                 let fn_name = clear_fn.to_snake_case();
                 if !api_fn_names.contains(fn_name.as_str()) {
-                    content.push_str(&format!(
-                        "  @doc \"Clear all {} plugins from the global registry.\"\n",
-                        bridge_cfg.trait_name
+                    content.push_str(&template_env::render(
+                        "elixir_trait_clear_delegate.ex.jinja",
+                        minijinja::context! {
+                            trait_name => &bridge_cfg.trait_name,
+                            func_name => &fn_name,
+                            native_mod => &native_mod,
+                        },
                     ));
-                    content.push_str(&format!("  @spec {fn_name}() :: :ok | :error\n"));
-                    content.push_str(&format!("  def {fn_name} do\n"));
-                    content.push_str(&format!("    {native_mod}.{fn_name}()\n"));
-                    content.push_str("  end\n\n");
                 }
             }
         }
