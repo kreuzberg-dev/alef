@@ -172,6 +172,7 @@ mod test_file;
 mod values;
 
 pub use stubs::emit_test_backend;
+pub(super) use values::escape_dart;
 
 #[cfg(test)]
 mod tests;

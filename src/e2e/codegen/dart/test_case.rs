@@ -8,9 +8,9 @@ use crate::e2e::fixture::Fixture;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 
-use super::assertions::{render_assertion_dart, render_streaming_assertion_dart};
+use super::assertions::{render_assertion_dart, render_streaming_assertion_dart, snake_to_camel};
 use super::stubs::emit_test_backend;
-use super::values::{escape_dart, type_name_to_create_from_json_dart};
+use super::values::{escape_dart, mime_from_extension, type_name_to_create_from_json_dart};
 
 pub(super) struct DartTestCaseContext<'a> {
     pub(super) e2e_config: &'a E2eConfig,
@@ -57,9 +57,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
         &HashMap::new(),
         dart_first_class_map.clone(),
     )
-    .with_dart_root_type(
-        super::dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()),
-    );
+    .with_dart_root_type(super::dart_call_result_type(call_config).or_else(|| dart_first_class_map.root_type.clone()));
     let field_resolver = &call_field_resolver;
     let enum_fields_base = e2e_config.effective_fields_enum(call_config);
 
@@ -290,7 +288,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             .find(|t| t.name == *trait_name)
                             .map(|t| t.methods.iter().collect())
                             .unwrap_or_default();
-                        let emission = emit_test_backend("dart", trait_bridge, &methods, fixture);
+                        let emission = emit_test_backend(trait_bridge, &methods, fixture);
                         // Dart class definitions are emitted at module-level (before void main)
                         // in collect_dart_test_stub_classes, so we only push the instantiation here.
                         args.push(emission.arg_expr);
@@ -599,8 +597,14 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
     // above.
     if let Some(visitor_spec) = &fixture.visitor {
         let mut visitor_setup: Vec<String> = Vec::new();
-        let visitor_config = super::dart_visitors::resolve_dart_visitor_config(config, call_overrides, type_defs, visitor_spec);
-        let _ = super::dart_visitors::build_dart_visitor(&mut visitor_setup, visitor_spec, &visitor_config);
+        let visitor_config = crate::e2e::codegen::dart_visitors::resolve_dart_visitor_config(
+            config,
+            call_overrides,
+            type_defs,
+            visitor_spec,
+        );
+        let _ =
+            crate::e2e::codegen::dart_visitors::build_dart_visitor(&mut visitor_setup, visitor_spec, &visitor_config);
         // Prepend the visitor block so `_visitor` is in scope by the time the
         // options call (which may reference it) runs.
         for line in visitor_setup.into_iter().rev() {
@@ -722,7 +726,7 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
         } else {
             let _ = writeln!(out, "      return {receiver}.{function_name}({args_str});");
         }
-        let _ = writeln!(out, "    }(), throwsA(anything));");
+        let _ = writeln!(out, "    }}(), throwsA(anything));");
     } else if expects_error {
         // No setup lines, direct call — same throwsA(anything) rationale as above.
         if let Some(extra) = &extra_setup {
@@ -783,64 +787,4 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
 
     let _ = writeln!(out, "  }});");
     let _ = writeln!(out);
-}
-
-/// Converts a snake_case JSON key to Dart camelCase.
-fn snake_to_camel(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut next_upper = false;
-    for ch in s.chars() {
-        if ch == '_' {
-            next_upper = true;
-        } else if next_upper {
-            result.extend(ch.to_uppercase());
-            next_upper = false;
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-/// Infer a MIME type from a file path extension.
-///
-/// Returns `None` when the extension is unknown so the caller can supply a fallback.
-/// Used in dart e2e tests when a fixture omits `mime_type` but uses a `file_path` arg.
-fn mime_from_extension(path: &str) -> Option<&'static str> {
-    let ext = path.rsplit('.').next()?;
-    match ext.to_lowercase().as_str() {
-        "docx" => Some("application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-        "xlsx" => Some("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-        "pptx" => Some("application/vnd.openxmlformats-officedocument.presentationml.presentation"),
-        "pdf" => Some("application/pdf"),
-        "txt" | "text" => Some("text/plain"),
-        "html" | "htm" => Some("text/html"),
-        "json" => Some("application/json"),
-        "xml" => Some("application/xml"),
-        "csv" => Some("text/csv"),
-        "md" | "markdown" => Some("text/markdown"),
-        "png" => Some("image/png"),
-        "jpg" | "jpeg" => Some("image/jpeg"),
-        "gif" => Some("image/gif"),
-        "zip" => Some("application/zip"),
-        "odt" => Some("application/vnd.oasis.opendocument.text"),
-        "ods" => Some("application/vnd.oasis.opendocument.spreadsheet"),
-        "odp" => Some("application/vnd.oasis.opendocument.presentation"),
-        "rtf" => Some("application/rtf"),
-        "epub" => Some("application/epub+zip"),
-        "msg" => Some("application/vnd.ms-outlook"),
-        "eml" => Some("message/rfc822"),
-        // Source-code extensions resolve to the internal `text/x-source-code` MIME.
-        // The bytes-path can't extract these (CodeExtractor::extract_bytes needs a
-        // shebang for language detection), so the caller code in this module
-        // checks the inferred MIME and routes source-code files through
-        // `extractFileSync`/`extractFile` (path-based) instead of remapping to
-        // the bytes facade.
-        "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rb"
-        | "php" | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cs" | "scala" | "ex" | "exs" | "erl"
-        | "hrl" | "elm" | "ml" | "mli" | "fs" | "fsx" | "hs" | "lhs" | "lua" | "pl" | "pm" | "r" | "R" | "sh"
-        | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "dart" | "groovy" | "gd" | "nim" | "zig" | "v"
-        | "vhdl" | "sv" | "svh" => Some("text/x-source-code"),
-        _ => None,
-    }
 }

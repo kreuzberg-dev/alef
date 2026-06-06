@@ -23,7 +23,7 @@ pub fn emit_test_backend(
     use heck::{ToLowerCamelCase, ToUpperCamelCase};
     use std::fmt::Write as _;
 
-    use crate::e2e::codegen::dart::values::escape_dart;
+    use super::values::escape_dart;
 
     let pascal_id = fixture.id.to_upper_camel_case();
     let class_name = format!("TestStub{pascal_id}");

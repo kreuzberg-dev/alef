@@ -34,58 +34,17 @@ pub(super) fn mime_from_extension(path: &str) -> Option<&'static str> {
         // checks the inferred MIME and routes source-code files through
         // `extractFileSync`/`extractFile` (path-based) instead of remapping to
         // the bytes facade.
-        "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs"
-        | "cjs"
-        | "rb"
-        | "php"
-        | "c"
-        | "h"
-        | "cc"
-        | "cpp"
-        | "cxx"
-        | "hh"
-        | "hpp"
-        | "hxx"
-        | "cs"
-        | "scala"
-        | "ex"
-        | "exs"
-        | "erl"
-        | "hrl"
-        | "elm"
-        | "ml"
-        | "mli"
-        | "fs"
-        | "fsx"
-        | "hs"
-        | "lhs"
-        | "lua"
-        | "pl"
-        | "pm"
-        | "r"
-        | "R"
-        | "sh"
-        | "bash"
-        | "zsh"
-        | "fish"
-        | "ps1"
-        | "psm1"
-        | "psd1"
-        | "dart"
-        | "groovy"
-        | "gd"
-        | "nim"
-        | "zig"
-        | "v"
-        | "vhdl"
-        | "sv"
-        | "svh" => Some("text/x-source-code"),
+        "py" | "rs" | "go" | "java" | "kt" | "kts" | "swift" | "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "rb"
+        | "php" | "c" | "h" | "cc" | "cpp" | "cxx" | "hh" | "hpp" | "hxx" | "cs" | "scala" | "ex" | "exs" | "erl"
+        | "hrl" | "elm" | "ml" | "mli" | "fs" | "fsx" | "hs" | "lhs" | "lua" | "pl" | "pm" | "r" | "R" | "sh"
+        | "bash" | "zsh" | "fish" | "ps1" | "psm1" | "psd1" | "dart" | "groovy" | "gd" | "nim" | "zig" | "v"
+        | "vhdl" | "sv" | "svh" => Some("text/x-source-code"),
         _ => None,
     }
 }
 
 /// Escape a string for embedding in a Dart single-quoted string literal.
-pub(super) fn escape_dart(s: &str) -> String {
+pub(in crate::e2e::codegen) fn escape_dart(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('\'', "\\'")
         .replace('\n', "\\n")
