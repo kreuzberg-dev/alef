@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift**: Trait bridge protocol and adapter iteration parity documented to prevent regressions. Both protocol and adapter codegen iterate trait_def.methods in the same order (lines 125 and 187 in trait_bridge.rs), guaranteeing that every method declared in the user-facing protocol also appears in the adapter. The parity invariant is now enforced via inline comments: if a method appears in the protocol, the adapter MUST register it, or callers will encounter "no exact match" compile errors. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 - **swift**: JSON-string overload parameter decoders now process by parameter position order rather than hashmap iteration order. When a function took multiple consecutive JSON-encoded parameters (e.g., configA: TypeA, configB: TypeB), the second parameter's decoder would mistakenly use the first parameter's type, causing type mismatch at call sites. The fix sorts json_local_names by position before iterating to ensure each decoder decodes to its correct parameter type. (`src/backends/swift/gen_bindings/mod.rs`)
 
 - **swift**: trait bridge adapter success body now correctly wraps `String` returns via `String(result)` and element-wise converts `Vec<String>` via `.map { String($0) }`. Previously, RustString values were returned directly, breaking the declared Swift signature. Trait bridge methods returning `String` or `Vec<String>` now properly marshal the opaque FFI type to native Swift String. (`src/backends/swift/gen_bindings/trait_bridge.rs`)

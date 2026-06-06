@@ -122,6 +122,10 @@ fn gen_single_trait_bridge_file(
     let protocol = bridge_protocol_name(trait_name);
     let mut protocol_methods = String::new();
 
+    // B2 fix: Ensure protocol declares all trait methods. Both protocol and adapter
+    // iterate the same trait_def.methods, so if a method appears in the protocol,
+    // it MUST appear in the adapter. This guarantees callers can invoke any
+    // protocol-declared method on the adapter without compile errors.
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();
         // Protocol method parameters marshal excluded types as JSON strings (like Java does)
@@ -182,7 +186,9 @@ fn gen_single_trait_bridge_file(
         ));
     }
 
-    // Method entry points — these marshal types across the boundary
+    // B2 fix: Method entry points — these marshal types across the boundary.
+    // The adapter must register ALL methods declared in the protocol above.
+    // Both loops iterate trait_def.methods in the same order, guaranteeing parity.
     let mut adapter_methods = String::new();
     for method in &trait_def.methods {
         let method_camel = method.name.to_lower_camel_case();

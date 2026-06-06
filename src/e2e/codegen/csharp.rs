@@ -2012,9 +2012,15 @@ fn build_args_and_setup(
                             // Try element_type as fallback for config type
                             format!("new {elem_type}()")
                         } else {
-                            // Last resort: infer from argument name (e.g., "config" → "Config")
-                            let inferred_type = format!("{}Config", arg.name.to_upper_camel_case());
-                            if type_defs.iter().any(|ty| ty.name == inferred_type) {
+                            // Infer from argument name: try directly (e.g., "config" → "Config"),
+                            // then try with "Config" suffix (e.g., "config" → "ConfigConfig").
+                            let name_upper = arg.name.to_upper_camel_case();
+                            let candidates = [name_upper.clone(), format!("{name_upper}Config")];
+                            let matched = candidates
+                                .iter()
+                                .find(|cand| type_defs.iter().any(|ty| ty.name == **cand))
+                                .cloned();
+                            if let Some(inferred_type) = matched {
                                 format!("new {inferred_type}()")
                             } else {
                                 // Cannot determine type; pass null (will fail at runtime with ArgumentNullException)
