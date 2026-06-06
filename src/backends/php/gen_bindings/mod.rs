@@ -1129,7 +1129,10 @@ impl Backend for PhpBackend {
             ));
             for p in &visible_params {
                 let ptype = php_phpdoc_type(&p.ty);
-                let nullable_prefix = if p.optional { "?" } else { "" };
+                // php_phpdoc_type() already handles TypeRef::Optional by returning a string
+                // starting with '?', so we should not add another nullable prefix here.
+                // The p.optional flag is redundant with the type structure.
+                let nullable_prefix = "";
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_phpdoc_param_line.jinja",
                     context! {
@@ -1926,7 +1929,17 @@ fn php_phpdoc_type(ty: &TypeRef) -> String {
     match ty {
         TypeRef::Vec(inner) => format!("array<{}>", php_phpdoc_type(inner)),
         TypeRef::Map(k, v) => format!("array<{}, {}>", php_phpdoc_type(k), php_phpdoc_type(v)),
-        TypeRef::Optional(inner) => format!("?{}", php_phpdoc_type(inner)),
+        TypeRef::Optional(inner) => {
+            // Flatten nested Option<Option<T>> to a single nullable type.
+            // php_type() already handles nested Optional by returning a string starting with '?',
+            // so we check and avoid double-prepending.
+            let inner_type = php_phpdoc_type(inner);
+            if inner_type.starts_with('?') {
+                inner_type
+            } else {
+                format!("?{inner_type}")
+            }
+        }
         _ => php_type(ty),
     }
 }

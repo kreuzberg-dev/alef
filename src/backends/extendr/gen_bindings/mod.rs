@@ -621,17 +621,12 @@ impl Backend for ExtendrBackend {
         }
         for e in &api.enums {
             if is_flat_data_enum(e) {
-                // Flat data enum: check if it can round-trip. If not, and it has serde tagging,
-                // it should be treated as JSON passthrough instead.
-                if !can_flat_data_enum_round_trip(e) && e.serde_tag.is_some() {
-                    // Non-round-trip-safe flat enum with serde tag: treat as JSON passthrough.
-                    // JSON-passthrough wrapper struct already emits its own `From<core>`
-                    // and `From<binding>` impls in `gen_extendr_json_passthrough_enum_struct`.
-                    // Skip the generic enum conversion which would emit a lossy unit-variant
-                    // mapping that conflicts with the wrapper struct definition.
-                    continue;
-                } else if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                    // Round-trip-safe flat enum: generate dedicated From<core::Enum> impl.
+                // Flat data enum: always generate From<core> impl so containing structs can
+                // convert core values. Struct variant data is lost (extendr can only represent
+                // tuple variants as fields), but this is acceptable for output-only types like
+                // FormatMetadata or policy enums like VlmFallbackPolicy.
+                if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
+                    // Generate dedicated From<core::Enum> impl.
                     builder.add_item(&gen_extendr_flat_data_enum_from_core(e, &core_import));
                     // Also generate the reverse for flat data enums whose tuple variant fields are
                     // all primitive/String types (so binding→core round-trip works).
@@ -1873,6 +1868,18 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &crate::core::ir::EnumDef, cor
                     wire => &wire_name,
                     fname => &field_name,
                     expr => &data_expr,
+                },
+            ));
+        } else {
+            // Struct variant: data is lost in the flat binding (extendr can only
+            // represent tuple variants as struct fields). Pattern match with .. to discard.
+            out.push_str(&crate::backends::extendr::template_env::render(
+                "flat_enum_from_core_variant_struct.jinja",
+                minijinja::context! {
+                    core_path => &core_path,
+                    vname => &variant.name,
+                    disc => discriminator,
+                    wire => &wire_name,
                 },
             ));
         }

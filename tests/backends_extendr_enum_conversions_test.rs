@@ -231,3 +231,56 @@ fn extendr_enum_with_excluded_variants_emits_conversion_fallback() {
         "excluded variants must add fallbacks to both enum conversion impls:\n{content}"
     );
 }
+
+#[test]
+fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
+    // VlmFallbackPolicy: unit variants (Disabled, Always) + struct variant (OnLowQuality { quality_threshold: f64 })
+    // is_flat_data_enum=true (has data, all data variants have 1 field)
+    // can_flat_data_enum_round_trip=false (struct variant, not tuple)
+    // has serde_tag="mode"
+    // Previously: skipped all conversion generation (bug)
+    // Fixed: still generates From<core> impl (struct variant data lost in binding, which is acceptable)
+    let mut enum_def = make_enum(
+        "FallbackPolicy",
+        vec![
+            make_variant("Disabled", vec![], false),
+            make_variant(
+                "OnLowQuality",
+                vec![make_field("quality_threshold", TypeRef::Primitive(PrimitiveType::F64))],
+                false, // struct variant, not tuple
+            ),
+            make_variant("Always", vec![], false),
+        ],
+    );
+    enum_def.serde_tag = Some("mode".to_string());
+
+    let api = make_api(
+        vec![enum_def],
+        vec![make_enum_param_function("FallbackPolicy")],
+    );
+
+    let files = ExtendrBackend
+        .generate_bindings(&api, &make_config())
+        .expect("generation succeeds");
+    let content = &files[0].content;
+
+    // Should generate From<test_lib::FallbackPolicy> impl even though it's not round-trip safe
+    assert!(
+        content.contains("impl From<test_lib::FallbackPolicy> for FallbackPolicy"),
+        "flat data enum with struct variant must generate From<core> impl:\n{content}"
+    );
+    // Unit variants should be converted directly with discriminator field
+    assert!(
+        content.contains("test_lib::FallbackPolicy::Disabled => Self { mode: \"Disabled\".to_string()"),
+        "{content}"
+    );
+    assert!(
+        content.contains("test_lib::FallbackPolicy::Always => Self { mode: \"Always\".to_string()"),
+        "{content}"
+    );
+    // Struct variant data is lost, converted with .. pattern matching to discard fields
+    assert!(
+        content.contains("test_lib::FallbackPolicy::OnLowQuality { .. } => Self { mode: \"OnLowQuality\".to_string()"),
+        "{content}"
+    );
+}

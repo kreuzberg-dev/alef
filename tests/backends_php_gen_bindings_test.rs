@@ -3883,6 +3883,96 @@ fn test_php_option_param_emits_nullable_with_default() {
     );
 }
 
+/// Regression test for Block B7: required &str parameters must not be marked nullable.
+/// When a function has both required and optional string parameters, the required ones
+/// should remain non-nullable (string $param) even if they're followed by optional ones.
+/// This test ensures that nullable inference doesn't propagate from optional params
+/// to required ones, which would cause null to pass through the PHP wrapper and panic
+/// in the Rust core where the parameter is actually required.
+#[test]
+fn test_php_required_str_param_not_nullable_with_optional_tail() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "process_document".to_string(),
+            rust_path: "test_lib::process_document".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                // Required &str parameter (maps to TypeRef::String with optional=false)
+                ParamDef {
+                    name: "content_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    is_ref: true,  // Rust signature: &str
+                    ..ParamDef::default()
+                },
+                // Optional &str parameter (maps to TypeRef::Optional(String) with is_ref=true)
+                ParamDef {
+                    name: "hint".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    optional: true,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: "Process a document with optional hint".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).expect("generate ok");
+
+    let facade_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".php"))
+        .expect("facade file exists");
+
+    let content = &facade_file.content;
+
+    // Required parameter MUST be non-nullable, not "?string $content_type".
+    // The Rust core function signature is processDocument(content_type: &str, ...)
+    // so null is never valid for this parameter.
+    assert!(
+        content.contains("string $content_type") && !content.contains("?string $content_type"),
+        "required &str parameter must be non-nullable string; got:\n{content}"
+    );
+
+    // Optional parameter MUST be nullable with default.
+    // The Rust core function accepts Option<&str>, so PHP can pass null.
+    assert!(
+        content.contains("?string $hint = null"),
+        "optional parameter must be ?string with = null default; got:\n{content}"
+    );
+
+    // Sanity: no double-nullable.
+    assert!(
+        !content.contains("??string"),
+        "must not have double-nullable ??string; got:\n{content}"
+    );
+}
+
 /// Every generated PHP source file must have a blank line immediately after the
 /// `<?php` opening tag. PSR-12's `blank_line_after_opening_tag` rule (enforced by
 /// php-cs-fixer) inserts one post-write, which would mutate the alef-hash-tracked

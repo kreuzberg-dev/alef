@@ -122,6 +122,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/flat_enum_from_core_variant_tuple.jinja"),
     ),
     (
+        "flat_enum_from_core_variant_struct.jinja",
+        include_str!("templates/flat_enum_from_core_variant_struct.jinja"),
+    ),
+    (
         "flat_enum_from_core_impl_footer.jinja",
         include_str!("templates/flat_enum_from_core_impl_footer.jinja"),
     ),
