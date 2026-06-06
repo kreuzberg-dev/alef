@@ -404,6 +404,38 @@ static TEMPLATES: &[(&str, &str)] = &[
         "bytes_result_match.jinja",
         include_str!("templates/bytes_result_match.jinja"),
     ),
+    (
+        "service_api_rs_header.rs.jinja",
+        include_str!("templates/service_api_rs_header.rs.jinja"),
+    ),
+    (
+        "service_api_opaque.rs.jinja",
+        include_str!("templates/service_api_opaque.rs.jinja"),
+    ),
+    (
+        "service_api_handler_bridge_struct.rs.jinja",
+        include_str!("templates/service_api_handler_bridge_struct.rs.jinja"),
+    ),
+    (
+        "service_api_handler_bridge_impl.rs.jinja",
+        include_str!("templates/service_api_handler_bridge_impl.rs.jinja"),
+    ),
+    (
+        "service_api_registration_function.rs.jinja",
+        include_str!("templates/service_api_registration_function.rs.jinja"),
+    ),
+    (
+        "service_api_registration_variant.rs.jinja",
+        include_str!("templates/service_api_registration_variant.rs.jinja"),
+    ),
+    (
+        "service_api_configurator_function.rs.jinja",
+        include_str!("templates/service_api_configurator_function.rs.jinja"),
+    ),
+    (
+        "service_api_entrypoint_function.rs.jinja",
+        include_str!("templates/service_api_entrypoint_function.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

@@ -1,0 +1,30 @@
+/// {{ doc }}
+///
+/// # Safety
+/// - `owner` must be a valid pointer returned by `{{ new_fn_name }}()` and not yet freed.
+/// - `callback` must be a valid function pointer that remains valid for the lifetime
+///   of this service instance.
+/// - `context` is an opaque pointer passed to the callback on each invocation.
+///   The caller is responsible for keeping it valid.
+/// Returns 0 on success, non-zero error code on failure.
+#[no_mangle]
+pub extern "C" fn {{ variant_fn_name }}(
+    owner: *mut {{ opaque_name }},
+    callback: extern "C" fn(*mut c_void, *const c_char) -> *mut c_char,
+    context: *mut c_void{{ param_decls }}
+) -> i32 {
+    if owner.is_null() {
+        return 1; // Error: null pointer
+    }
+{{ pre_wrapper_body }}    let {{ metadata_param }} = {{ wrapper_type_path }}::{{ constructor_method }}(
+{{ ctor_args }}    );
+
+    let bridge = {{ bridge_name }} {
+        callback,
+        context,
+    };
+    let handler: Arc<dyn {{ handler_trait_path }}> = Arc::new(bridge);
+
+    // SAFETY: owner was allocated by _new() and is valid until freed.
+{{ dispatch_body }}}
+

@@ -1,0 +1,37 @@
+/// Opaque handle to a {{ service_name }} service instance.
+/// Allocated by {{ new_fn_name }}(), freed by {{ free_fn_name }}().
+#[repr(C)]
+pub struct {{ opaque_name }} {
+    inner: Box<{{ owner_path }}>,
+}
+
+/// Allocate a new {{ service_name }} instance.
+///
+/// # Safety
+/// The returned pointer must be freed via {{ free_fn_name }}().
+/// Never access the pointer after freeing it.
+#[no_mangle]
+pub extern "C" fn {{ new_fn_name }}() -> *mut {{ opaque_name }} {
+    let owner = {{ owner_path }}::{{ constructor_name }}();
+    Box::into_raw(Box::new({{ opaque_name }} {
+        inner: Box::new(owner),
+    }))
+}
+
+/// Free a {{ service_name }} instance allocated by {{ new_fn_name }}().
+///
+/// # Safety
+/// - `ptr` must have been allocated by {{ new_fn_name }}().
+/// - After this call, `ptr` is invalid and must not be dereferenced.
+/// - Calling this twice on the same pointer causes undefined behavior.
+#[no_mangle]
+pub extern "C" fn {{ free_fn_name }}(ptr: *mut {{ opaque_name }}) {
+    if !ptr.is_null() {
+        // SAFETY: ptr was allocated by into_raw above;
+        // we are the sole owner and this is the final drop.
+        unsafe {
+            drop(Box::from_raw(ptr));
+        }
+    }
+}
+

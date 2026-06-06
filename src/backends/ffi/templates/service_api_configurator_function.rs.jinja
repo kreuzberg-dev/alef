@@ -1,0 +1,20 @@
+/// Configure the service via '{{ method_name }}'.
+///
+/// # Safety
+/// - `owner` must be a valid pointer returned by `{{ new_fn_name }}()` and not yet freed.
+/// - `owner` is consumed by this call and must not be used or freed afterwards.
+/// - Returns a new owner pointer on success, null on failure.
+#[no_mangle]
+pub extern "C" fn {{ fn_name }}(
+    owner: *mut {{ opaque_name }}{{ param_decls }}
+) -> *mut {{ opaque_name }} {
+    if owner.is_null() {
+        return std::ptr::null_mut();
+    }
+{{ pre_call_body }}    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.
+    let mut owner = unsafe { Box::from_raw(owner) };
+    let inner = *owner.inner;
+    owner.inner = Box::new(inner.{{ method_name }}({{ call_args }}));
+    Box::into_raw(owner)
+}
+

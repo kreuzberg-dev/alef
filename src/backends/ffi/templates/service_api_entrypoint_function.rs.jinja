@@ -1,0 +1,17 @@
+/// Run the service entrypoint '{{ method_name }}'.
+///
+/// # Safety
+/// - `owner` must be a valid pointer returned by `{{ new_fn_name }}()` and not yet freed.
+/// - `owner` is consumed by this call; it must not be used or freed afterwards.
+#[no_mangle]
+pub extern "C" fn {{ fn_name }}(
+    owner: *mut {{ opaque_name }}{{ param_decls }}
+) -> {{ return_type }} {
+    if owner.is_null() {
+        return {{ null_return }};
+    }
+{{ pre_call_body }}    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.
+    let owner = unsafe { Box::from_raw(owner) };
+    let inner = *owner.inner;
+{{ runtime_block }}{{ return_body }}}
+

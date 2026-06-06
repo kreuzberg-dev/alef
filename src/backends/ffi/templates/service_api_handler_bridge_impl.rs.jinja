@@ -1,0 +1,56 @@
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+        Box::pin(async move {
+            let outcome: {{ wire_output }} = async move {
+                // Serialize request to JSON
+                let req_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                let req_c_str = CString::new(req_json)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                // Call the C callback on a blocking thread to avoid stalling the async executor.
+                // Raw pointers are not `Send`, so the context and result pointers cross the
+                // spawn_blocking boundary as `usize`; the owned `CString` moves in to stay alive.
+                let callback = self.callback;
+                let context = self.context as usize;
+                let resp_addr = tokio::task::spawn_blocking(move || {
+                    (callback)(context as *mut c_void, req_c_str.as_ptr()) as usize
+                })
+                .await
+                .map_err(|e| Box::new(e) as {{ box_err }})?;
+                let resp_ptr = resp_addr as *mut c_char;
+
+                if resp_ptr.is_null() {
+                    return Err("C callback returned null response".into());
+                }
+
+                // SAFETY: resp_ptr was returned by the C callback and must be a null-terminated string.
+                let resp_c_str = unsafe { CStr::from_ptr(resp_ptr) };
+                let resp_json = resp_c_str.to_string_lossy();
+
+                // Deserialize response from JSON
+                let response: {{ resp_path }} = serde_json::from_str(&resp_json)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                // Free the C-allocated response string. The host allocates it via malloc/strdup
+                // and hands ownership to us; we release it with the C runtime's free.
+                // SAFETY: resp_ptr is null-checked above and was produced by the host callback.
+                unsafe {
+                    extern "C" {
+                        fn free(ptr: *mut c_void);
+                    }
+                    free(resp_ptr as *mut c_void);
+                }
+
+                Ok(response)
+            }
+            .await;
+
+            {{ tail }}
+        })
+    }
+}
+

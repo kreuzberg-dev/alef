@@ -1,0 +1,16 @@
+/// FFI handler bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a C callback function pointer so it can be called from Rust async code.
+/// The callback receives JSON-serialized request and returns JSON response.
+pub struct {{ bridge_name }} {
+    callback: extern "C" fn(*mut c_void, *const c_char) -> *mut c_char,
+    context: *mut c_void,
+}
+
+// SAFETY: The C callback function pointer and context pointer are opaque handles.
+// The caller is responsible for maintaining the invariant that the context
+// pointer remains valid for the lifetime of the bridge. The callback itself
+// must be safe to call from async Rust code.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+

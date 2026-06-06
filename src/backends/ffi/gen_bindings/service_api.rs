@@ -32,6 +32,10 @@ fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option<&'a Handle
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::ffi::template_env::render(template_name, ctx)
+}
+
 // ──────────────────────────────────────────────────── C Header (.h output) ──
 
 /// Generate the C FFI header that declares the callback typedef and service API.
@@ -229,6 +233,42 @@ struct FfiParamBinding {
     pointer: bool,
 }
 
+fn param_decl_suffix(bindings: &[FfiParamBinding]) -> String {
+    bindings
+        .iter()
+        .map(|binding| format!(",\n    {}", binding.decl))
+        .collect()
+}
+
+fn pointer_null_checks<'a>(
+    params: impl Iterator<Item = &'a crate::core::ir::ParamDef>,
+    bindings: &[FfiParamBinding],
+    null_return: &str,
+    include_comment: bool,
+) -> String {
+    params
+        .zip(bindings)
+        .filter_map(|(param, binding)| {
+            if !binding.pointer {
+                return None;
+            }
+            let comment = if include_comment { " // Error: null pointer" } else { "" };
+            Some(format!(
+                "    if {}.is_null() {{\n        return {null_return}{comment};\n    }}\n",
+                param.name
+            ))
+        })
+        .collect()
+}
+
+fn conversion_body(bindings: &[FfiParamBinding], add_trailing_blank: bool) -> String {
+    let mut body: String = bindings.iter().map(|binding| binding.conversion.as_str()).collect();
+    if add_trailing_blank && bindings.iter().any(|binding| !binding.conversion.is_empty()) {
+        body.push('\n');
+    }
+    body
+}
+
 /// Bind a non-callback parameter to its C-ABI form.
 ///
 /// - `String` crosses as `*const c_char` and is rebound to an owned `String`.
@@ -313,10 +353,7 @@ fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> String {
     let prefix = config.ffi_prefix();
     let mut out = String::new();
 
-    out.push_str("#![allow(clippy::too_many_arguments, unused_variables, unused_mut)]\n\n");
-    out.push_str("use std::ffi::{c_char, c_void, CStr, CString};\n");
-    out.push_str("use std::sync::Arc;\n");
-    out.push_str("use std::panic;\n\n");
+    out.push_str(&render("service_api_rs_header.rs.jinja", minijinja::context! {}));
 
     // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -350,69 +387,19 @@ fn gen_service_opaque(out: &mut String, service: &ServiceDef, _core_import: &str
     let service_snake = service.name.to_snake_case();
     let owner_path = &service.rust_path;
     let prefix_lower = prefix.to_lowercase();
+    let new_fn_name = format!("{prefix_lower}_{service_snake}_new");
+    let free_fn_name = format!("{prefix_lower}_{service_snake}_free");
 
-    // Define the opaque struct
-    out.push_str(&format!(
-        "/// Opaque handle to a {} service instance.\n\
-         /// Allocated by {}_{}_new(), freed by {}_{}_free().\n\
-         #[repr(C)]\n\
-         pub struct {} {{\n    \
-             inner: Box<{}>,\n\
-         }}\n\n",
-        service.name, prefix_lower, service_snake, prefix_lower, service_snake, opaque_name, owner_path
-    ));
-
-    // Constructor
-    out.push_str(&format!(
-        "/// Allocate a new {} instance.\n\
-         ///\n\
-         /// # Safety\n\
-         /// The returned pointer must be freed via {}_{}_free().\n\
-         /// Never access the pointer after freeing it.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {}_{}_new() -> *mut {} {{\n    \
-             let owner = {}::{}();\n    \
-             Box::into_raw(Box::new({} {{\n        \
-                 inner: Box::new(owner),\n    \
-             }}))\n\
-         }}\n\n",
-        service.name,
-        prefix_lower,
-        service_snake,
-        prefix_lower,
-        service_snake,
-        opaque_name,
-        owner_path,
-        service.constructor.name,
-        opaque_name
-    ));
-
-    // Destructor
-    out.push_str(&format!(
-        "/// Free a {} instance allocated by {}_{}_new().\n\
-         ///\n\
-         /// # Safety\n\
-         /// - `ptr` must have been allocated by {}_{}_new().\n\
-         /// - After this call, `ptr` is invalid and must not be dereferenced.\n\
-         /// - Calling this twice on the same pointer causes undefined behavior.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {}_{}_free(ptr: *mut {}) {{\n    \
-             if !ptr.is_null() {{\n        \
-                 // SAFETY: ptr was allocated by into_raw above;\n        \
-                 // we are the sole owner and this is the final drop.\n        \
-                 unsafe {{\n            \
-                     drop(Box::from_raw(ptr));\n        \
-                 }}\n    \
-             }}\n\
-         }}\n\n",
-        service.name,
-        prefix_lower,
-        service_snake,
-        prefix_lower,
-        service_snake,
-        prefix_lower,
-        service_snake,
-        opaque_name
+    out.push_str(&render(
+        "service_api_opaque.rs.jinja",
+        minijinja::context! {
+            service_name => service.name.clone(),
+            new_fn_name,
+            free_fn_name,
+            opaque_name,
+            owner_path => owner_path.clone(),
+            constructor_name => service.constructor.name.clone(),
+        },
     ));
 }
 
@@ -422,24 +409,12 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let bridge_name = format!("Ffi{}Bridge", trait_name.to_upper_camel_case());
     let dispatch_name = &contract.dispatch.name;
 
-    out.push_str(&format!(
-        "/// FFI handler bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a C callback function pointer so it can be called from Rust async code.\n\
-         /// The callback receives JSON-serialized request and returns JSON response.\n\
-         pub struct {bridge_name} {{\n    \
-             callback: extern \"C\" fn(*mut c_void, *const c_char) -> *mut c_char,\n    \
-             context: *mut c_void,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "// SAFETY: The C callback function pointer and context pointer are opaque handles.\n\
-         // The caller is responsible for maintaining the invariant that the context\n\
-         // pointer remains valid for the lifetime of the bridge. The callback itself\n\
-         // must be safe to call from async Rust code.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
+    out.push_str(&render(
+        "service_api_handler_bridge_struct.rs.jinja",
+        minijinja::context! {
+            trait_name => trait_name.clone(),
+            bridge_name => bridge_name.clone(),
+        },
     ));
 
     // Determine wire types — use plain serde_json::Value as fallback
@@ -494,62 +469,22 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // async-trait shape) instead of via the async_trait macro, matching a
     // contract whose dispatch method is hand-written as
     // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n"
-    ));
-
-    // Serialize request to JSON and call the C callback (all fallible work
-    // lives inside the wire-result block so the only outer expression is the
-    // response adapter tail).
-    out.push_str(&format!(
-        "            \
-             let outcome: {wire_output} = async move {{\n                \
-                 // Serialize request to JSON\n                \
-                 let req_json = serde_json::to_string(&{wire_name})\n                    \
-                     .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                 let req_c_str = CString::new(req_json)\n                    \
-                     .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                 // Call the C callback on a blocking thread to avoid stalling the async executor.\n                \
-                 // Raw pointers are not `Send`, so the context and result pointers cross the\n                \
-                 // spawn_blocking boundary as `usize`; the owned `CString` moves in to stay alive.\n                \
-                 let callback = self.callback;\n                \
-                 let context = self.context as usize;\n                \
-                 let resp_addr = tokio::task::spawn_blocking(move || {{\n                    \
-                     (callback)(context as *mut c_void, req_c_str.as_ptr()) as usize\n                \
-                 }})\n                \
-                 .await\n                \
-                 .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                 let resp_ptr = resp_addr as *mut c_char;\n\n                \
-                 if resp_ptr.is_null() {{\n                    \
-                     return Err(\"C callback returned null response\".into());\n                \
-                 }}\n\n                \
-                 // SAFETY: resp_ptr was returned by the C callback and must be a null-terminated string.\n                \
-                 let resp_c_str = unsafe {{ CStr::from_ptr(resp_ptr) }};\n                \
-                 let resp_json = resp_c_str.to_string_lossy();\n\n                \
-                 // Deserialize response from JSON\n                \
-                 let response: {resp_path} = serde_json::from_str(&resp_json)\n                    \
-                     .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                 // Free the C-allocated response string. The host allocates it via malloc/strdup\n                \
-                 // and hands ownership to us; we release it with the C runtime's free.\n                \
-                 // SAFETY: resp_ptr is null-checked above and was produced by the host callback.\n                \
-                 unsafe {{\n                    \
-                     extern \"C\" {{\n                        \
-                         fn free(ptr: *mut c_void);\n                    \
-                     }}\n                    \
-                     free(resp_ptr as *mut c_void);\n                \
-                 }}\n\n                \
-                 Ok(response)\n            \
-             }}\n            \
-             .await;\n\n            \
-             {tail}\n        \
-             }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "service_api_handler_bridge_impl.rs.jinja",
+        minijinja::context! {
+            core_import => core_import.to_owned(),
+            trait_name => trait_name.clone(),
+            bridge_name,
+            dispatch_name => dispatch_name.clone(),
+            extra_param,
+            wire_name,
+            req_path,
+            output_type,
+            wire_output,
+            box_err,
+            resp_path,
+            tail,
+        },
     ));
 }
 
@@ -595,88 +530,50 @@ fn gen_registration_function(
     let contract = find_contract(api, &reg.callback_contract).expect("contract not found");
     let bridge_name = format!("Ffi{}Bridge", contract.trait_name.to_upper_camel_case());
 
-    out.push_str(&format!(
-        "/// Register a handler callback for method '{0}'.\n\
-         ///\n\
-         /// # Safety\n\
-         /// - `owner` must be a valid pointer returned by `{1}_{2}_new()` and not yet freed.\n\
-         /// - `callback` must be a valid function pointer that remains valid for the lifetime\n\
-         ///   of this service instance.\n\
-         /// - `context` is an opaque pointer passed to the callback on each invocation.\n\
-         ///   The caller is responsible for keeping it valid.\n\
-         /// Returns 0 on success, non-zero error code on failure.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {fn_name}(\n    \
-             owner: *mut {opaque_name},\n    \
-             callback: extern \"C\" fn(*mut c_void, *const c_char) -> *mut c_char,\n    \
-             context: *mut c_void",
-        reg.method,
-        prefix.to_lowercase(),
-        service_snake
-    ));
-
     // Add metadata parameters as C-ABI declarations.
     let meta_bindings: Vec<FfiParamBinding> = reg
         .metadata_params
         .iter()
         .map(|p| ffi_param_binding(p, core_import, api))
         .collect();
-    for binding in &meta_bindings {
-        out.push_str(&format!(",\n    {}", binding.decl));
-    }
-
-    out.push_str("\n) -> i32 {\n");
-    out.push_str("    if owner.is_null() {\n");
-    out.push_str("        return 1; // Error: null pointer\n");
-    out.push_str("    }\n");
-    // Null-check pointer metadata params before reconstructing them.
-    for (meta_param, binding) in reg.metadata_params.iter().zip(&meta_bindings) {
-        if binding.pointer {
-            out.push_str(&format!(
-                "    if {}.is_null() {{\n        return 1; // Error: null pointer\n    }}\n",
-                meta_param.name
-            ));
-        }
-    }
-    out.push('\n');
-
-    // Reconstruct metadata params into owned Rust values.
-    for binding in &meta_bindings {
-        out.push_str(&binding.conversion);
-    }
-    if meta_bindings.iter().any(|b| !b.conversion.is_empty()) {
-        out.push('\n');
-    }
-
-    out.push_str("    let bridge = ");
-    out.push_str(&bridge_name);
-    out.push_str(" {\n");
-    out.push_str("        callback,\n");
-    out.push_str("        context,\n");
-    out.push_str("    };\n");
-    out.push_str("    let handler: Arc<dyn ");
-    out.push_str(&format!("{}::{}", core_import, contract.trait_name));
-    out.push_str("> = Arc::new(bridge);\n\n");
 
     let meta_args: String = meta_bindings.iter().map(|b| format!("{}, ", b.arg)).collect();
-
-    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
+    let mut dispatch_body = String::new();
     if reg.error_type.is_some() {
-        out.push_str("    match unsafe {\n");
-        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        out.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
-        out.push_str("    } {\n");
-        out.push_str("        Ok(_) => 0, // Success\n");
-        out.push_str("        Err(_) => 1, // Error\n");
-        out.push_str("    }\n");
+        dispatch_body.push_str("    match unsafe {\n");
+        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
+        dispatch_body.push_str("    } {\n");
+        dispatch_body.push_str("        Ok(_) => 0, // Success\n");
+        dispatch_body.push_str("        Err(_) => 1, // Error\n");
+        dispatch_body.push_str("    }\n");
     } else {
-        out.push_str("    unsafe {\n");
-        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        out.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
-        out.push_str("    }\n");
-        out.push_str("    0\n");
+        dispatch_body.push_str("    unsafe {\n");
+        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
+        dispatch_body.push_str("    }\n");
+        dispatch_body.push_str("    0\n");
     }
-    out.push_str("}\n\n");
+
+    let pre_bridge_body = format!(
+        "{}\n{}",
+        pointer_null_checks(reg.metadata_params.iter(), &meta_bindings, "1", true),
+        conversion_body(&meta_bindings, true)
+    );
+    out.push_str(&render(
+        "service_api_registration_function.rs.jinja",
+        minijinja::context! {
+            method_name => reg.method.clone(),
+            new_fn_name => format!("{}_{}_new", prefix.to_lowercase(), service_snake),
+            fn_name,
+            opaque_name => opaque_name.to_owned(),
+            param_decls => param_decl_suffix(&meta_bindings),
+            pre_bridge_body,
+            bridge_name,
+            handler_trait_path => format!("{}::{}", core_import, contract.trait_name),
+            dispatch_body,
+        },
+    ));
 }
 
 /// Emit one `#[no_mangle] pub extern "C" fn` per [`RegistrationVariant`] on `reg`.
@@ -776,61 +673,13 @@ fn gen_registration_variant(
     // Safety doc + function signature
     let default_doc = format!("Variant shortcut `{}` over `{}`.", variant.name, base_fn_name);
     let doc = variant.doc.as_deref().unwrap_or(&default_doc);
-    out.push_str(&format!(
-        "/// {doc}\n\
-         ///\n\
-         /// # Safety\n\
-         /// - `owner` must be a valid pointer returned by `{new_fn_name}()` and not yet freed.\n\
-         /// - `callback` must be a valid function pointer that remains valid for the lifetime\n\
-         ///   of this service instance.\n\
-         /// - `context` is an opaque pointer passed to the callback on each invocation.\n\
-         ///   The caller is responsible for keeping it valid.\n\
-         /// Returns 0 on success, non-zero error code on failure.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {variant_fn_name}(\n    \
-             owner: *mut {opaque_name},\n    \
-             callback: extern \"C\" fn(*mut c_void, *const c_char) -> *mut c_char,\n    \
-             context: *mut c_void",
-    ));
-
-    for binding in &sig_bindings {
-        out.push_str(&format!(",\n    {}", binding.decl));
-    }
-    out.push_str("\n) -> i32 {\n");
-
-    // Null-check owner
-    out.push_str("    if owner.is_null() {\n");
-    out.push_str("        return 1; // Error: null pointer\n");
-    out.push_str("    }\n");
-
-    // Null-check pointer-typed free params
-    for (param, binding) in variant.signature_params.iter().zip(&sig_bindings) {
-        if binding.pointer {
-            out.push_str(&format!(
-                "    if {}.is_null() {{\n        return 1; // Error: null pointer\n    }}\n",
-                param.name
-            ));
-        }
-    }
-    out.push('\n');
-
-    // Marshal free params from C ABI to Rust
-    for binding in &sig_bindings {
-        out.push_str(&binding.conversion);
-    }
-    if sig_bindings.iter().any(|b| !b.conversion.is_empty()) {
-        out.push('\n');
-    }
 
     // Build the wrapper value: `let <metadata_param> = <WrapperType>::<method>(<args>);`
-    out.push_str(&format!(
-        "    let {} = {}::{}(\n",
-        wrapper_call.metadata_param, wrapper_call.wrapper_type_path, wrapper_call.constructor_method
-    ));
+    let mut ctor_args = String::new();
     for arg in &wrapper_call.args {
         match arg {
             WrapperConstructorArg::Fixed { value_expr, .. } => {
-                out.push_str(&format!("        {value_expr},\n"));
+                ctor_args.push_str(&format!("        {value_expr},\n"));
             }
             WrapperConstructorArg::Free { param } => {
                 // Use the marshaled binding arg expression (the owned Rust-typed value).
@@ -842,20 +691,10 @@ fn gen_registration_variant(
                     })
                     .map(|b| b.arg.as_str())
                     .unwrap_or(param.name.as_str());
-                out.push_str(&format!("        {binding},\n"));
+                ctor_args.push_str(&format!("        {binding},\n"));
             }
         }
     }
-    out.push_str("    );\n\n");
-
-    // Build handler bridge and dispatch
-    out.push_str(&format!(
-        "    let bridge = {bridge_name} {{\n        callback,\n        context,\n    }};\n"
-    ));
-    out.push_str(&format!(
-        "    let handler: Arc<dyn {core_import}::{}> = Arc::new(bridge);\n\n",
-        contract.trait_name
-    ));
 
     // Forward to base register method on owner (reusing the same `reg.method` call).
     // The wrapper value is the first metadata arg; remaining base metadata params that
@@ -891,23 +730,46 @@ fn gen_registration_variant(
         args
     };
 
-    out.push_str("    // SAFETY: owner was allocated by _new() and is valid until freed.\n");
+    let mut dispatch_body = String::new();
     if reg.error_type.is_some() {
-        out.push_str("    match unsafe {\n");
-        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        out.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
-        out.push_str("    } {\n");
-        out.push_str("        Ok(_) => 0, // Success\n");
-        out.push_str("        Err(_) => 1, // Error\n");
-        out.push_str("    }\n");
+        dispatch_body.push_str("    match unsafe {\n");
+        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler)\n", reg.method));
+        dispatch_body.push_str("    } {\n");
+        dispatch_body.push_str("        Ok(_) => 0, // Success\n");
+        dispatch_body.push_str("        Err(_) => 1, // Error\n");
+        dispatch_body.push_str("    }\n");
     } else {
-        out.push_str("    unsafe {\n");
-        out.push_str("        let owner_ref = &mut (*owner).inner;\n");
-        out.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
-        out.push_str("    }\n");
-        out.push_str("    0\n");
+        dispatch_body.push_str("    unsafe {\n");
+        dispatch_body.push_str("        let owner_ref = &mut (*owner).inner;\n");
+        dispatch_body.push_str(&format!("        owner_ref.{}({meta_args}handler);\n", reg.method));
+        dispatch_body.push_str("    }\n");
+        dispatch_body.push_str("    0\n");
     }
-    out.push_str("}\n\n");
+
+    let pre_wrapper_body = format!(
+        "{}\n{}",
+        pointer_null_checks(variant.signature_params.iter(), &sig_bindings, "1", true),
+        conversion_body(&sig_bindings, true)
+    );
+    out.push_str(&render(
+        "service_api_registration_variant.rs.jinja",
+        minijinja::context! {
+            doc => doc.to_owned(),
+            new_fn_name => new_fn_name.to_owned(),
+            variant_fn_name,
+            opaque_name => opaque_name.to_owned(),
+            param_decls => param_decl_suffix(&sig_bindings),
+            pre_wrapper_body,
+            metadata_param => wrapper_call.metadata_param.clone(),
+            wrapper_type_path => wrapper_call.wrapper_type_path.clone(),
+            constructor_method => wrapper_call.constructor_method.clone(),
+            ctor_args,
+            bridge_name => bridge_name.to_owned(),
+            handler_trait_path => format!("{}::{}", core_import, contract.trait_name),
+            dispatch_body,
+        },
+    ));
 }
 
 fn gen_configurator_function(
@@ -930,53 +792,6 @@ fn gen_configurator_function(
         .map(|p| ffi_param_binding(p, core_import, api))
         .collect();
 
-    out.push_str(&format!(
-        "/// Configure the service via '{0}'.\n\
-         ///\n\
-         /// # Safety\n\
-         /// - `owner` must be a valid pointer returned by `{1}_{2}_new()` and not yet freed.\n\
-         /// - `owner` is consumed by this call and must not be used or freed afterwards.\n\
-         /// - Returns a new owner pointer on success, null on failure.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {fn_name}(\n    \
-             owner: *mut {opaque_name}",
-        cfg.name,
-        prefix.to_lowercase(),
-        service_snake
-    ));
-
-    for binding in &param_bindings {
-        out.push_str(&format!(",\n    {}", binding.decl));
-    }
-    out.push_str(&format!("\n) -> *mut {opaque_name} {{\n"));
-
-    out.push_str("    if owner.is_null() {\n");
-    out.push_str("        return std::ptr::null_mut();\n");
-    out.push_str("    }\n");
-
-    // Null-check pointer parameters
-    for (cfg_param, binding) in cfg.params.iter().zip(&param_bindings) {
-        if binding.pointer {
-            out.push_str(&format!(
-                "    if {}.is_null() {{\n        return std::ptr::null_mut();\n    }}\n",
-                cfg_param.name
-            ));
-        }
-    }
-    out.push('\n');
-
-    // Marshal parameters from C ABI to Rust
-    for binding in &param_bindings {
-        out.push_str(&binding.conversion);
-    }
-    if param_bindings.iter().any(|b| !b.conversion.is_empty()) {
-        out.push('\n');
-    }
-
-    // Take ownership and call the method
-    out.push_str("    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.\n");
-    out.push_str("    let mut owner = unsafe { Box::from_raw(owner) };\n");
-
     let call_args: String = param_bindings
         .iter()
         .map(|b| b.arg.clone())
@@ -986,14 +801,23 @@ fn gen_configurator_function(
     // Configurator methods on the owner type take `self` (consuming) and return `Self`.
     // `owner.inner` is `Box<OwnerType>`, so calling a consuming method through auto-deref
     // yields `OwnerType` (unboxed). The result must be re-boxed before assigning back.
-    out.push_str("    let inner = *owner.inner;\n");
-    out.push_str("    owner.inner = Box::new(inner.");
-    out.push_str(&cfg.name);
-    out.push('(');
-    out.push_str(&call_args);
-    out.push_str("));\n");
-    out.push_str("    Box::into_raw(owner)\n");
-    out.push_str("}\n\n");
+    let pre_call_body = format!(
+        "{}\n{}",
+        pointer_null_checks(cfg.params.iter(), &param_bindings, "std::ptr::null_mut()", false,),
+        conversion_body(&param_bindings, true)
+    );
+    out.push_str(&render(
+        "service_api_configurator_function.rs.jinja",
+        minijinja::context! {
+            method_name => cfg.name.clone(),
+            new_fn_name => format!("{}_{}_new", prefix.to_lowercase(), service_snake),
+            fn_name,
+            opaque_name => opaque_name.to_owned(),
+            param_decls => param_decl_suffix(&param_bindings),
+            pre_call_body,
+            call_args,
+        },
+    ));
 }
 
 fn gen_entrypoint_function(
@@ -1024,81 +848,65 @@ fn gen_entrypoint_function(
     };
     let null_return = if returns_opaque { "std::ptr::null_mut()" } else { "1" };
 
-    out.push_str(&format!(
-        "/// Run the service entrypoint '{0}'.\n\
-         ///\n\
-         /// # Safety\n\
-         /// - `owner` must be a valid pointer returned by `{1}_{2}_new()` and not yet freed.\n\
-         /// - `owner` is consumed by this call; it must not be used or freed afterwards.\n\
-         #[no_mangle]\n\
-         pub extern \"C\" fn {fn_name}(\n    \
-             owner: *mut {opaque_name}",
-        ep.method,
-        prefix.to_lowercase(),
-        service_snake
-    ));
-
     let param_bindings: Vec<FfiParamBinding> = ep
         .params
         .iter()
         .map(|p| ffi_param_binding(p, core_import, api))
         .collect();
-    for binding in &param_bindings {
-        out.push_str(&format!(",\n    {}", binding.decl));
-    }
-    out.push_str(&format!("\n) -> {return_type} {{\n"));
-
-    out.push_str("    if owner.is_null() {\n");
-    out.push_str(&format!("        return {null_return};\n"));
-    out.push_str("    }\n");
-    for (ep_param, binding) in ep.params.iter().zip(&param_bindings) {
-        if binding.pointer {
-            out.push_str(&format!(
-                "    if {}.is_null() {{\n        return {null_return};\n    }}\n",
-                ep_param.name
-            ));
-        }
-    }
-    out.push('\n');
-    for binding in &param_bindings {
-        out.push_str(&binding.conversion);
-    }
-
-    out.push_str("    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.\n");
-    out.push_str("    let owner = unsafe { Box::from_raw(owner) };\n");
-    out.push_str("    let inner = *owner.inner;\n");
 
     let call_args: String = param_bindings
         .iter()
         .map(|b| b.arg.clone())
         .collect::<Vec<_>>()
         .join(", ");
-    if ep.is_async {
-        out.push_str("    let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n");
-    }
+    let runtime_block = if ep.is_async {
+        "    let rt = tokio::runtime::Runtime::new().expect(\"failed to create tokio runtime\");\n"
+    } else {
+        ""
+    };
     let call = if ep.is_async {
         format!("rt.block_on(inner.{}({call_args}))", ep.method)
     } else {
         format!("inner.{}({call_args})", ep.method)
     };
 
+    let mut return_body = String::new();
     if returns_opaque {
         if ep.error_type.is_some() {
-            out.push_str(&format!(
+            return_body.push_str(&format!(
                 "    match {call} {{\n        Ok(value) => Box::into_raw(Box::new(value)),\n        Err(_) => std::ptr::null_mut(),\n    }}\n"
             ));
         } else {
-            out.push_str(&format!("    Box::into_raw(Box::new({call}))\n"));
+            return_body.push_str(&format!("    Box::into_raw(Box::new({call}))\n"));
         }
     } else if ep.error_type.is_some() {
-        out.push_str(&format!(
+        return_body.push_str(&format!(
             "    match {call} {{\n        Ok(_) => 0,\n        Err(_) => 1,\n    }}\n"
         ));
     } else {
-        out.push_str(&format!("    {call};\n    0\n"));
+        return_body.push_str(&format!("    {call};\n    0\n"));
     }
 
-    out.push_str("}\n\n");
+    let pre_call_body = format!(
+        "{}\n{}",
+        pointer_null_checks(ep.params.iter(), &param_bindings, null_return, false),
+        conversion_body(&param_bindings, false)
+    );
+    out.push_str(&render(
+        "service_api_entrypoint_function.rs.jinja",
+        minijinja::context! {
+            method_name => ep.method.clone(),
+            new_fn_name => format!("{}_{}_new", prefix.to_lowercase(), service_snake),
+            fn_name,
+            opaque_name => opaque_name.to_owned(),
+            param_decls => param_decl_suffix(&param_bindings),
+            return_type,
+            null_return,
+            pre_call_body,
+            runtime_block,
+            return_body,
+        },
+    ));
 }
 
 // ──────────────────────────────────────────────────── public entry point ──
