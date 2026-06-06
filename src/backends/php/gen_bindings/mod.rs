@@ -1210,7 +1210,15 @@ impl Backend for PhpBackend {
                     // default-constructible type that can use a null default.
                     let type_is_nullable = ptype.starts_with('?');
                     let can_be_optional = p.optional || type_is_nullable || is_optional_default_constructible_param(p);
-                    if can_be_optional && tail_optional[idx] {
+
+                    // For optional parameters (whether via p.optional flag or via TypeRef::Optional),
+                    // we can emit `= null` default because the Rust core function accepts Option<T>.
+                    // Even if tail_optional[idx] is false (due to a required parameter after this one),
+                    // optional parameters can safely have null defaults at the wrapper level, and the
+                    // native function handles null.
+                    let can_emit_default = tail_optional[idx] || p.optional || type_is_nullable;
+
+                    if can_be_optional && can_emit_default {
                         // ptype may already be nullable (e.g., "?string" from php_type handling
                         // TypeRef::Optional). Don't double-prepend the nullable prefix.
                         if ptype.starts_with('?') {
