@@ -530,6 +530,38 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_file_header.swift.jinja"),
     ),
     (
+        "swift_module_header.swift.jinja",
+        include_str!("templates/swift_module_header.swift.jinja"),
+    ),
+    (
+        "swift_sendable_conformance.swift.jinja",
+        include_str!("templates/swift_sendable_conformance.swift.jinja"),
+    ),
+    (
+        "swift_plugin_bridge_protocol.swift.jinja",
+        include_str!("templates/swift_plugin_bridge_protocol.swift.jinja"),
+    ),
+    (
+        "swift_trait_bridge_file.swift.jinja",
+        include_str!("templates/swift_trait_bridge_file.swift.jinja"),
+    ),
+    (
+        "swift_trait_protocol_method.swift.jinja",
+        include_str!("templates/swift_trait_protocol_method.swift.jinja"),
+    ),
+    (
+        "swift_trait_default_method.swift.jinja",
+        include_str!("templates/swift_trait_default_method.swift.jinja"),
+    ),
+    (
+        "swift_trait_adapter_method.swift.jinja",
+        include_str!("templates/swift_trait_adapter_method.swift.jinja"),
+    ),
+    (
+        "swift_trait_bridge_overloads.swift.jinja",
+        include_str!("templates/swift_trait_bridge_overloads.swift.jinja"),
+    ),
+    (
         "swift_class_header.swift.jinja",
         include_str!("templates/swift_class_header.swift.jinja"),
     ),

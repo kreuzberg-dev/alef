@@ -1,0 +1,7 @@
+{% if mark %}
+// MARK: - Sendable conformance for {{ type_name }} ({{ mark }})
+{% endif %}
+{% for comment in comments %}
+// {{ comment }}
+{% endfor %}
+extension RustBridge.{{ type_name }}: @unchecked Sendable {}
