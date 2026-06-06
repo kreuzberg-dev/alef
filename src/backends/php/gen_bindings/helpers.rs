@@ -306,8 +306,12 @@ pub(crate) fn gen_php_named_let_bindings(
             if p.map_is_ahash && p.map_key_is_cow {
                 let php_name = to_php_name(&p.name);
                 let bound_name = format!("__{}_ahash", p.name);
-                out.push_str(&format!(
-                    "    let {bound_name} = {php_name}.map(|m| m.into_iter().map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v))).collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>());\n",
+                out.push_str(&crate::backends::php::template_env::render(
+                    "php_ahash_cow_value_let_binding.jinja",
+                    context! {
+                        bound_name => &bound_name,
+                        php_name => &php_name,
+                    },
                 ));
                 continue;
             }
@@ -330,8 +334,9 @@ pub(crate) fn gen_php_named_let_bindings(
                 // For optional+is_mut params: unwrap into a mutable intermediate so
                 // &mut {name}_unwrapped can be passed to functions taking &mut T.
                 if p.optional && p.is_mut {
-                    out.push_str(&format!(
-                        "    let mut {php_param_name}_unwrapped = {php_param_name}_core.unwrap_or_default();\n"
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_optional_mut_unwrap_binding.jinja",
+                        context! { php_name => &php_param_name },
                     ));
                 }
             }

@@ -1,0 +1,4 @@
+        return function (callable ${{ callback_param }}) {
+            $this->registrations[] = ['{{ method_name }}', {{ meta_tuple }}, ${{ callback_param }}];
+            return ${{ callback_param }};
+        };

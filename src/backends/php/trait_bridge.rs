@@ -948,7 +948,11 @@ pub fn gen_visitor_interface(
     // PHP file header with declare(strict_types=1)
     out.push_str("<?php\n\n");
     out.push_str("declare(strict_types=1);\n\n");
-    out.push_str(&format!("namespace {namespace};\n\n"));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_namespace.jinja",
+        context! { namespace => namespace },
+    ));
+    out.push('\n');
 
     // Interface declaration header
     out.push_str(&crate::backends::php::template_env::render(
@@ -1049,7 +1053,11 @@ pub fn gen_registration_interface(
     // PHP file header with declare(strict_types=1)
     out.push_str("<?php\n\n");
     out.push_str("declare(strict_types=1);\n\n");
-    out.push_str(&format!("namespace {namespace};\n\n"));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_namespace.jinja",
+        context! { namespace => namespace },
+    ));
+    out.push('\n');
 
     // Interface declaration header
     out.push_str(&crate::backends::php::template_env::render(

@@ -1,0 +1,4 @@
+        return function (callable ${{ callback_param }}): self {
+            {{ stmt }}
+            return $this->{{ base_method }}(${{ metadata_param }}, ${{ callback_param }});
+        };

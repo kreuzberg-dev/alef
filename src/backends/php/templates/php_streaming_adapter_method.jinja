@@ -1,0 +1,4 @@
+    #[php(name = "{{ method_name }}")]
+    pub fn {{ method_name }}({{ params }}) -> {{ return_type }} {
+        engine.{{ rust_method_name }}({{ call_args }})
+    }

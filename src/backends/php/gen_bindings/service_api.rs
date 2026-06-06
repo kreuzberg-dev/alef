@@ -21,6 +21,7 @@ use crate::core::ir::{
     ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
 };
 use heck::{ToSnakeCase, ToUpperCamelCase};
+use minijinja::context;
 use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
@@ -84,6 +85,10 @@ fn format_php_comment(text: &str, indent: usize) -> String {
     out
 }
 
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::php::template_env::render(template_name, ctx)
+}
+
 // ─────────────────────────────────────────────────────────────── PHP output ──
 
 /// Generate the idiomatic PHP service class (`service.php`).
@@ -115,7 +120,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
     if !service.doc.is_empty() {
         out.push_str(&format_php_comment(&service.doc, 0));
     }
-    out.push_str(&format!("class {class_name}\n{{\n"));
+    out.push_str(&render(
+        "php_service_class_start.jinja",
+        context! { class_name => class_name },
+    ));
 
     // Private registrations storage
     out.push_str("    private array $registrations = [];\n\n");
@@ -140,14 +148,20 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         let param_sig = ctor_params.join(", ");
         // PHP constructors cannot declare a return type — emitting `: void`
         // is a parse error. The return type is implicit.
-        out.push_str(&format!("    public function __construct({param_sig})\n    {{\n"));
+        out.push_str(&render(
+            "php_service_constructor_start.jinja",
+            context! { param_sig => &param_sig },
+        ));
         if !ctor.doc.is_empty() {
             out.push_str(&format_php_comment(&ctor.doc, 8));
         }
 
         // Store constructor args as instance properties
         for arg in &ctor_assigns {
-            out.push_str(&format!("        $this->_{arg} = ${arg};\n"));
+            out.push_str(&render(
+                "php_service_property_assignment.jinja",
+                context! { name => arg },
+            ));
         }
         out.push_str("    }\n\n");
     }
@@ -165,8 +179,13 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
         }
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        out.push_str(&format!(
-            "    public function {method_name}({param_sig}): self\n    {{\n"
+        out.push_str(&render(
+            "php_service_method_start.jinja",
+            context! {
+                method_name => method_name,
+                param_sig => &param_sig,
+                return_type => "self",
+            },
         ));
         if !method.doc.is_empty() {
             out.push_str(&format_php_comment(&method.doc, 8));
@@ -174,7 +193,10 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
 
         // Store each configurator param as instance property
         for p in &method.params {
-            out.push_str(&format!("        $this->_{} = ${};\n", p.name, p.name));
+            out.push_str(&render(
+                "php_service_property_assignment.jinja",
+                context! { name => &p.name },
+            ));
         }
         out.push_str("        return $this;\n");
         out.push_str("    }\n\n");
@@ -201,7 +223,14 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("    public function {ep_name}({param_sig}): void\n    {{\n"));
+                out.push_str(&render(
+                    "php_service_method_start.jinja",
+                    context! {
+                        method_name => ep_name,
+                        param_sig => &param_sig,
+                        return_type => "void",
+                    },
+                ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_php_comment(&ep.doc, 8));
                 }
@@ -209,36 +238,53 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, e
                 // Build the call to the native run function
                 // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("        {native_fn}($this->registrations"));
-
-                for p in &ep.params {
-                    out.push_str(&format!(", ${}", p.name));
-                }
-                out.push_str(");\n");
+                let args = php_service_native_args(&ep.params);
+                out.push_str(&render(
+                    "php_service_native_call.jinja",
+                    context! {
+                        native_fn => &native_fn,
+                        args => &args,
+                    },
+                ));
                 out.push_str("    }\n\n");
             }
             EntrypointKind::Finalize => {
                 let return_annotation = php_type_annotation(&ep.return_type);
-                out.push_str(&format!(
-                    "    public function {ep_name}({param_sig}): {return_annotation}\n    {{\n"
+                out.push_str(&render(
+                    "php_service_method_start.jinja",
+                    context! {
+                        method_name => ep_name,
+                        param_sig => &param_sig,
+                        return_type => &return_annotation,
+                    },
                 ));
                 if !ep.doc.is_empty() {
                     out.push_str(&format_php_comment(&ep.doc, 8));
                 }
 
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("        return {native_fn}($this->registrations"));
-
-                for p in &ep.params {
-                    out.push_str(&format!(", ${}", p.name));
-                }
-                out.push_str(");\n");
+                let args = php_service_native_args(&ep.params);
+                out.push_str(&render(
+                    "php_service_native_return.jinja",
+                    context! {
+                        native_fn => &native_fn,
+                        args => &args,
+                    },
+                ));
                 out.push_str("    }\n\n");
             }
         }
     }
 
     out.push_str("}\n\n");
+}
+
+fn php_service_native_args(params: &[crate::core::ir::ParamDef]) -> String {
+    params
+        .iter()
+        .map(|p| format!("${}", p.name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn gen_registration_method(
@@ -272,8 +318,13 @@ fn gen_registration_method(
     let direct_sig = direct_params.join(", ");
 
     // Decorator factory form: returns a closure
-    out.push_str(&format!(
-        "    public function {method_name}({meta_sig}): callable\n    {{\n"
+    out.push_str(&render(
+        "php_service_method_start.jinja",
+        context! {
+            method_name => method_name,
+            param_sig => &meta_sig,
+            return_type => "callable",
+        },
     ));
     if !reg.doc.is_empty() {
         out.push_str(&format_php_comment(&reg.doc, 8));
@@ -290,24 +341,34 @@ fn gen_registration_method(
         )
     };
 
-    out.push_str(&format!(
-        "        return function (callable ${callback_param}) {{\n            \
-         $this->registrations[] = ['{method_name}', {meta_tuple}, ${callback_param}];\n            \
-         return ${callback_param};\n        \
-         }};\n",
-        callback_param = reg.callback_param,
+    out.push_str(&render(
+        "php_service_registration_factory_body.jinja",
+        context! {
+            callback_param => &reg.callback_param,
+            method_name => method_name,
+            meta_tuple => &meta_tuple,
+        },
     ));
     out.push_str("    }\n\n");
 
     // Also expose a direct (non-decorator) variant: `register_{method_name}`
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        out.push_str(&format!(
-            "    public function {direct_name}({direct_sig}): self\n    {{\n"
+        out.push_str(&render(
+            "php_service_method_start.jinja",
+            context! {
+                method_name => &direct_name,
+                param_sig => &direct_sig,
+                return_type => "self",
+            },
         ));
-        out.push_str(&format!(
-            "        $this->registrations[] = ['{method_name}', {meta_tuple}, ${callback_param}];\n",
-            callback_param = reg.callback_param,
+        out.push_str(&render(
+            "php_service_registration_store.jinja",
+            context! {
+                method_name => method_name,
+                meta_tuple => &meta_tuple,
+                callback_param => &reg.callback_param,
+            },
         ));
         out.push_str("        return $this;\n");
         out.push_str("    }\n\n");
@@ -430,84 +491,26 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    out.push_str(&format!(
-        "/// Generated ext-php-rs bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a PHP callable (stored as an index in a thread-local registry)\n\
-         /// so it can be used as `Arc<dyn {trait_name}>` from Rust async code.\n\
-         /// Dispatch blocks on the Tokio runtime (PHP is single-threaded per request).\n\
-         pub struct {bridge_name} {{\n    \
-             handler_index: usize,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from a handler index.\n    \
-             pub fn new(handler_index: usize) -> Self {{\n        \
-                 Self {{ handler_index }}\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // Safety: The bridge holds a usize (immutable). No unsafe.
-    out.push_str(&format!(
-        "// SAFETY: The bridge holds only a usize (immutable, Copy).\n\
-         // PHP handler registry lookup is thread-safe via thread-local RefCell.\n\
-         impl Send for {bridge_name} {{}}\n\
-         impl Sync for {bridge_name} {{}}\n\n"
-    ));
-
     // Trait impl. Returns a boxed future directly (canonical object-safe
     // async-trait shape) instead of via the async_trait macro, matching a
     // contract whose dispatch method is hand-written as
     // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n            \
-                     // Invoke the PHP callable synchronously (blocking)\n            \
-                     let outcome: {wire_output} = (async {{\n                \
-                         // Serialize the request to JSON for PHP roundtrip\n                \
-                         let req_json = serde_json::to_string(&{wire_name})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let raw_result = std::panic::catch_unwind(AssertUnwindSafe(|| {{\n                    \
-                             PHP_HANDLER_REGISTRY.with(|registry| -> Result<String, String> {{\n                        \
-                                 let registry = registry.borrow();\n                        \
-                                 let Some(callable) = registry.get(self.handler_index) else {{\n                            \
-                                     return Err(format!(\"Handler not found at index {{}}\", self.handler_index));\n                            \
-                                 }};\n\n                        \
-                                 // Deserialize JSON request into PHP object\n                        \
-                                 let req_obj = serde_json::from_str::<serde_json::Value>(&req_json)\n                            \
-                                     .map_err(|e| e.to_string())?;\n                        \
-                                 let req_zval = serde_json::json!(req_obj).into();\n\n                        \
-                                 // Invoke the callable\n                        \
-                                 let resp_zval = callable.try_call(vec![&req_zval])\n                            \
-                                     .map_err(|e| format!(\"PHP callable invocation failed: {{:?}}\", e))?;\n\n                        \
-                                 // Serialize response back to JSON\n                        \
-                                 Ok(serde_json::to_string(&resp_zval).unwrap_or_else(|_| \"{{}}\".to_string()))\n                    \
-                             }})\n                \
-                         }}))\n                    \
-                         .map_err(|_| Box::new(std::io::Error::new(\n                        \
-                             std::io::ErrorKind::Other,\n                        \
-                             \"PHP handler panicked\",\n                \
-                         )) as {box_err})?\n                    \
-                         .map_err(|e| Box::new(std::io::Error::new(\n                        \
-                             std::io::ErrorKind::Other,\n                        \
-                             e,\n                \
-                         )) as {box_err})?;\n\n                    \
-                         // Deserialize the JSON result back into the wire response DTO.\n                    \
-                         let response: {resp_path} = serde_json::from_str(&raw_result)\n                        \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                    \
-                         Ok(response)\n            \
-                     }}).await;\n\n            \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "php_service_handler_bridge.jinja",
+        context! {
+            trait_name => trait_name,
+            bridge_name => &bridge_name,
+            core_import => core_import,
+            dispatch_name => dispatch_name,
+            extra_param => &extra_param,
+            wire_name => wire_name,
+            req_path => &req_path,
+            output_type => &output_type,
+            wire_output => &wire_output,
+            box_err => box_err,
+            resp_path => &resp_path,
+            tail => &tail,
+        },
     ));
 }
 
@@ -539,18 +542,22 @@ fn gen_run_php_function(
     }
     let param_sig = rust_params.join(", ");
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from PHP.\n\
-         ///\n\
-         /// Each entry in `registrations` is an array of `[method_name, metadata_array, callable]`\n\
-         /// produced by the PHP service class.\n\
-         #[php_function]\n\
-         pub fn {fn_name}({param_sig}) -> PhpResult<()> {{\n"
+    out.push_str(&render(
+        "php_service_rust_function_start.jinja",
+        context! {
+            owner_path => owner_path,
+            ep_method => ep_method,
+            fn_name => &fn_name,
+            param_sig => &param_sig,
+        },
     ));
 
     // Build the owner instance via its constructor
     let ctor_call = build_ctor_call(service, owner_path, core_import);
-    out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
+    out.push_str(&render(
+        "php_service_rust_owner_init.jinja",
+        context! { ctor_call => &ctor_call },
+    ));
 
     // Iterate registrations and dispatch
     out.push_str("    // Register all handlers with the owner\n");
@@ -575,7 +582,10 @@ fn gen_run_php_function(
             let bridge_name = format!("Php{}Bridge", contract.trait_name.to_upper_camel_case());
             let meta_count = reg.metadata_params.len();
 
-            out.push_str(&format!("                    \"{reg_method}\" => {{\n"));
+            out.push_str(&render(
+                "php_service_rust_registration_match_start.jinja",
+                context! { reg_method => reg_method },
+            ));
 
             // Store the callable in the registry and get its index
             out.push_str("                        let handler_index = PHP_HANDLER_REGISTRY.with(|registry| {\n");
@@ -595,29 +605,44 @@ fn gen_run_php_function(
             out.push_str("                            return Err(PhpException::default(\"Failed to register callable\".into()));\n");
             out.push_str("                        }\n\n");
 
-            out.push_str(&format!(
-                "                        let bridge = {bridge_name}::new(handler_index);\n"
-            ));
-            out.push_str(&format!(
-                "                        let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+            out.push_str(&render(
+                "php_service_rust_bridge_binding.jinja",
+                context! {
+                    bridge_name => &bridge_name,
+                    core_import => core_import,
+                    contract_name => contract_name,
+                },
             ));
 
             if meta_count > 0 {
                 out.push_str("                        let meta: Vec<Zval> = tuple[1].clone().try_into()?;\n");
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
-                    out.push_str(&format!(
-                        "                        let {}: {} = meta.get({i}).ok_or_else(|| PhpException::default(\"Missing metadata at index {i}\".into()))?.try_into()?;\n",
-                        meta_param.name, rust_ty,
+                    out.push_str(&render(
+                        "php_service_rust_metadata_binding.jinja",
+                        context! {
+                            name => &meta_param.name,
+                            rust_ty => &rust_ty,
+                            index => i,
+                        },
                     ));
                 }
                 let meta_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
-                out.push_str(&format!(
-                    "                        owner.{reg_method}({}, handler)\n",
-                    meta_args.join(", ")
+                out.push_str(&render(
+                    "php_service_rust_owner_registration_call.jinja",
+                    context! {
+                        reg_method => reg_method,
+                        args => &meta_args.join(", "),
+                    },
                 ));
             } else {
-                out.push_str(&format!("                        owner.{reg_method}(handler)\n"));
+                out.push_str(&render(
+                    "php_service_rust_owner_registration_call.jinja",
+                    context! {
+                        reg_method => reg_method,
+                        args => "",
+                    },
+                ));
             }
 
             // Handle error if the registration is fallible
@@ -817,32 +842,48 @@ fn gen_registration_variant(
             .filter_map(|arg| if arg.starts_with('$') { Some(arg.clone()) } else { None })
             .collect::<Vec<_>>()
             .join(", ");
-        format!(
-            "        $this->registrations[] = ['{base_method}', [{vars}], ${callback_param}];\n        return $this;\n"
+        render(
+            "php_service_variant_direct_body.jinja",
+            context! {
+                base_method => base_method,
+                vars => &vars,
+                callback_param => callback_param,
+            },
         )
     };
 
     let factory_body = if let Some(ref stmt) = wrapper_stmt {
         let metadata_param = &variant.wrapper_call.as_ref().unwrap().metadata_param;
-        format!(
-            "        return function (callable ${callback_param}): self {{\n            \
-             {stmt}\n            \
-             return $this->{base_method}(${metadata_param}, ${callback_param});\n        \
-             }};\n"
+        render(
+            "php_service_variant_wrapper_factory_body.jinja",
+            context! {
+                callback_param => callback_param,
+                stmt => stmt,
+                base_method => base_method,
+                metadata_param => metadata_param,
+            },
         )
     } else {
-        format!(
-            "        return function (callable ${callback_param}): self {{\n            \
-             return $this->{base_method}({call_sig})(${callback_param});\n        \
-             }};\n"
+        render(
+            "php_service_variant_factory_body.jinja",
+            context! {
+                callback_param => callback_param,
+                base_method => base_method,
+                call_sig => &call_sig,
+            },
         )
     };
 
     match variant.style {
         RegistrationVariantStyle::VerbDecorator => {
             // Emit direct method: $app->get(path, handler): App
-            out.push_str(&format!(
-                "    public function {variant_name}({direct_sig}): self\n    {{\n"
+            out.push_str(&render(
+                "php_service_method_start.jinja",
+                context! {
+                    method_name => &variant_name,
+                    param_sig => &direct_sig,
+                    return_type => "self",
+                },
             ));
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
@@ -854,8 +895,13 @@ fn gen_registration_variant(
         RegistrationVariantStyle::Builder => {
             // Emit decorator factory: $app->getDecorator(path): Closure
             let factory_name = format!("{variant_name}Decorator");
-            out.push_str(&format!(
-                "    public function {factory_name}({meta_sig}): Closure\n    {{\n"
+            out.push_str(&render(
+                "php_service_method_start.jinja",
+                context! {
+                    method_name => &factory_name,
+                    param_sig => &meta_sig,
+                    return_type => "Closure",
+                },
             ));
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
@@ -866,8 +912,13 @@ fn gen_registration_variant(
 
         RegistrationVariantStyle::Hybrid => {
             // 1. Direct method: $app->get(path, handler): App
-            out.push_str(&format!(
-                "    public function {variant_name}({direct_sig}): self\n    {{\n"
+            out.push_str(&render(
+                "php_service_method_start.jinja",
+                context! {
+                    method_name => &variant_name,
+                    param_sig => &direct_sig,
+                    return_type => "self",
+                },
             ));
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));
@@ -877,8 +928,13 @@ fn gen_registration_variant(
 
             // 2. Decorator factory: $app->getDecorator(path): Closure
             let factory_name = format!("{variant_name}Decorator");
-            out.push_str(&format!(
-                "    public function {factory_name}({meta_sig}): Closure\n    {{\n"
+            out.push_str(&render(
+                "php_service_method_start.jinja",
+                context! {
+                    method_name => &factory_name,
+                    param_sig => &meta_sig,
+                    return_type => "Closure",
+                },
             ));
             if let Some(doc) = &variant.doc {
                 out.push_str(&format_php_comment(doc, 8));

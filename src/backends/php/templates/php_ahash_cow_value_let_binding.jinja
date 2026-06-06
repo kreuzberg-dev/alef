@@ -1,0 +1,5 @@
+    let {{ bound_name }} = {{ php_name }}.map(|m| {
+        m.into_iter()
+            .map(|(k, v)| (std::borrow::Cow::Owned(k), serde_json::Value::String(v)))
+            .collect::<ahash::AHashMap<std::borrow::Cow<'static, str>, serde_json::Value>>()
+    });

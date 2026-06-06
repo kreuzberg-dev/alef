@@ -1312,7 +1312,10 @@ impl Backend for PhpBackend {
                     "php_method_signature_start.jinja",
                     context! { method_name => &method_name },
                 ));
-                content.push_str(&format!("{} $backend) : void\n    {{\n", interface_name));
+                content.push_str(&crate::backends::php::template_env::render(
+                    "php_trait_bridge_api_method.jinja",
+                    context! { interface_name => interface_name },
+                ));
                 let call_expr = format!("\\{namespace}\\{class_name}Api::{method_name}($backend)");
                 content.push_str(&crate::backends::php::template_env::render(
                     "php_method_call_statement.jinja",
@@ -1662,9 +1665,15 @@ impl Backend for PhpBackend {
                     "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }"
                         .to_string()
                 };
-                content.push_str(&format!(
-                    "    public {static_kw}function {method_name}({}): {return_type}\n    {stub_body}\n",
-                    params.join(", ")
+                content.push_str(&crate::backends::php::template_env::render(
+                    "php_stub_method_definition.jinja",
+                    context! {
+                        static_kw => static_kw,
+                        method_name => &method_name,
+                        params => &params.join(", "),
+                        return_type => &return_type,
+                        stub_body => &stub_body,
+                    },
                 ));
             }
 
@@ -1982,7 +1991,10 @@ fn gen_php_opaque_class_file(
         content.push_str(" */\n");
     }
 
-    content.push_str(&format!("final class {}\n{{\n", typ.name));
+    content.push_str(&crate::backends::php::template_env::render(
+        "php_final_class_stub_start.jinja",
+        context! { class_name => &typ.name },
+    ));
 
     // Instance methods first, static methods second — skip streaming methods
     // (they'll be emitted as Generator wrappers after regular methods).
@@ -2033,7 +2045,13 @@ fn gen_php_opaque_class_file(
         if !doc_lines.is_empty() {
             content.push_str("    /**\n");
             for line in doc_lines {
-                content.push_str(&format!("     * {}\n", line));
+                content.push_str(&crate::backends::php::template_env::render(
+                    "php_prefixed_phpdoc_line.jinja",
+                    context! {
+                        indent => "    ",
+                        line => &line,
+                    },
+                ));
             }
             content.push_str("     */\n");
         }
@@ -2067,9 +2085,15 @@ fn gen_php_opaque_class_file(
                 }
             })
             .collect();
-        content.push_str(&format!(
-            "    public {static_kw}function {method_name}({}): {return_type}\n",
-            params.join(", ")
+        content.push_str(&crate::backends::php::template_env::render(
+            "php_stub_method_definition.jinja",
+            context! {
+                static_kw => static_kw,
+                method_name => &method_name,
+                params => &params.join(", "),
+                return_type => &return_type,
+                stub_body => "",
+            },
         ));
         let body = if is_void {
             "    {\n    }\n"
@@ -2219,17 +2243,6 @@ fn gen_streaming_adapter_facade_method(
 
     let return_type = "std::result::Result<Vec<String>, ext_php_rs::exception::PhpException>";
 
-    let mut method_code = String::new();
-
-    // Rust function with #[php(name = "...")] attribute
-    method_code.push_str(&format!("    #[php(name = \"{}\")]\n", method_name));
-    method_code.push_str(&format!(
-        "    pub fn {}({}) -> {} {{\n",
-        method_name,
-        params.join(", "),
-        return_type
-    ));
-
     // Body: call the instance method on the engine handle
     // Note: adapter.name is already snake_case, so use it directly for the Rust method call
     let rust_method_name = &adapter.name;
@@ -2240,11 +2253,16 @@ fn gen_streaming_adapter_facade_method(
         .collect::<Vec<_>>()
         .join(", ");
 
-    method_code.push_str(&format!("        engine.{}({})\n", rust_method_name, call_args));
-
-    method_code.push_str("    }\n");
-
-    method_code
+    crate::backends::php::template_env::render(
+        "php_streaming_adapter_method.jinja",
+        context! {
+            method_name => method_name,
+            params => &params.join(", "),
+            return_type => return_type,
+            rust_method_name => rust_method_name,
+            call_args => &call_args,
+        },
+    )
 }
 
 /// Build an inline PHPDoc block for a class property or constructor-promoted parameter.
@@ -2258,26 +2276,61 @@ fn gen_streaming_adapter_facade_method(
 fn php_property_phpdoc(var_type: &str, doc: &str, indent: &str) -> String {
     let doc = doc.trim();
     if doc.is_empty() {
-        return format!("{indent}/** @var {var_type} */\n");
+        return crate::backends::php::template_env::render(
+            "php_inline_property_phpdoc.jinja",
+            context! {
+                indent => indent,
+                var_type => var_type,
+                doc => "",
+            },
+        );
     }
     let lines: Vec<&str> = doc.lines().collect();
     if lines.len() == 1 {
         let line = lines[0].trim();
-        return format!("{indent}/** @var {var_type} {line} */\n");
+        return crate::backends::php::template_env::render(
+            "php_inline_property_phpdoc.jinja",
+            context! {
+                indent => indent,
+                var_type => var_type,
+                doc => line,
+            },
+        );
     }
     // Multi-line: description block + @var tag.
     let mut out = format!("{indent}/**\n");
     for line in &lines {
         let trimmed = line.trim();
         if trimmed.is_empty() {
-            out.push_str(&format!("{indent} *\n"));
+            out.push_str(&crate::backends::php::template_env::render(
+                "php_indented_phpdoc_empty_line.jinja",
+                context! { indent => indent },
+            ));
         } else {
-            out.push_str(&format!("{indent} * {trimmed}\n"));
+            out.push_str(&crate::backends::php::template_env::render(
+                "php_prefixed_phpdoc_line.jinja",
+                context! {
+                    indent => indent,
+                    line => trimmed,
+                },
+            ));
         }
     }
-    out.push_str(&format!("{indent} *\n"));
-    out.push_str(&format!("{indent} * @var {var_type}\n"));
-    out.push_str(&format!("{indent} */\n"));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_indented_phpdoc_empty_line.jinja",
+        context! { indent => indent },
+    ));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_prefixed_phpdoc_line.jinja",
+        context! {
+            indent => indent,
+            line => &format!("@var {var_type}"),
+        },
+    ));
+    out.push_str(&crate::backends::php::template_env::render(
+        "php_indented_phpdoc_block_end.jinja",
+        context! { indent => indent },
+    ));
     out
 }
 

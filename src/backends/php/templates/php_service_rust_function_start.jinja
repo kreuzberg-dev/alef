@@ -1,0 +1,6 @@
+/// Drive `{{ owner_path }}::{{ ep_method }}` from PHP.
+///
+/// Each entry in `registrations` is an array of `[method_name, metadata_array, callable]`
+/// produced by the PHP service class.
+#[php_function]
+pub fn {{ fn_name }}({{ param_sig }}) -> PhpResult<()> {

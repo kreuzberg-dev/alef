@@ -1,0 +1,72 @@
+/// Generated ext-php-rs bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a PHP callable (stored as an index in a thread-local registry)
+/// so it can be used as `Arc<dyn {{ trait_name }}>` from Rust async code.
+/// Dispatch blocks on the Tokio runtime (PHP is single-threaded per request).
+pub struct {{ bridge_name }} {
+    handler_index: usize,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from a handler index.
+    pub fn new(handler_index: usize) -> Self {
+        Self { handler_index }
+    }
+}
+
+// SAFETY: The bridge holds only a usize (immutable, Copy).
+// PHP handler registry lookup is thread-safe via thread-local RefCell.
+impl Send for {{ bridge_name }} {}
+impl Sync for {{ bridge_name }} {}
+
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+        Box::pin(async move {
+            // Invoke the PHP callable synchronously (blocking)
+            let outcome: {{ wire_output }} = (async {
+                // Serialize the request to JSON for PHP roundtrip
+                let req_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                let raw_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+                    PHP_HANDLER_REGISTRY.with(|registry| -> Result<String, String> {
+                        let registry = registry.borrow();
+                        let Some(callable) = registry.get(self.handler_index) else {
+                            return Err(format!("Handler not found at index {}", self.handler_index));
+                        };
+
+                        // Deserialize JSON request into PHP object
+                        let req_obj = serde_json::from_str::<serde_json::Value>(&req_json)
+                            .map_err(|e| e.to_string())?;
+                        let req_zval = serde_json::json!(req_obj).into();
+
+                        // Invoke the callable
+                        let resp_zval = callable.try_call(vec![&req_zval])
+                            .map_err(|e| format!("PHP callable invocation failed: {:?}", e))?;
+
+                        // Serialize response back to JSON
+                        Ok(serde_json::to_string(&resp_zval).unwrap_or_else(|_| "{}".to_string()))
+                    })
+                }))
+                .map_err(|_| Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "PHP handler panicked",
+                )) as {{ box_err }})?
+                .map_err(|e| Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    e,
+                )) as {{ box_err }})?;
+
+                // Deserialize the JSON result back into the wire response DTO.
+                let response: {{ resp_path }} = serde_json::from_str(&raw_result)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            }).await;
+
+            {{ tail }}
+        })
+    }
+}
