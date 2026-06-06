@@ -12,6 +12,9 @@
 //! Thread safety: thread-attaches to JVM, calls Java handler methods with request JSON,
 //! parses response JSON. No panics — all errors propagate as JNI exceptions.
 
+use minijinja::context;
+
+use crate::backends::jni::template_env;
 use crate::codegen::naming::{pascal_to_snake, to_class_name};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
@@ -81,14 +84,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let package = jni_package(config);
     let mut out = String::new();
 
-    // File-level attributes
-    out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async, non_snake_case)]\n\n");
-    out.push_str("use jni::{AttachGuard, Env, EnvUnowned};\n");
-    out.push_str("use jni::objects::{JClass, JObject, JString};\n");
-    out.push_str("use jni::sys::{jint, jlong};\n");
-    out.push_str("use std::sync::Arc;\n");
-    out.push_str("use std::sync::OnceLock;\n");
-    out.push_str("use serde_json;\n\n");
+    out.push_str(&template_env::render("service_header.rs.jinja", context! {}));
 
     // Emit service opaque types and constructor/destructor.
     // The JVM class hosting the `external fun`s is the per-service bridge object
@@ -150,60 +146,21 @@ fn gen_service_opaque(
     let service_snake = internal_symbol_component(&service.name);
     let owner_path = &service.rust_path;
 
-    // Define the opaque struct
-    out.push_str(&format!(
-        "/// Opaque handle to a {} service instance.\n\
-         /// Allocated by constructor_{}(), freed by free_{}().\n\
-         /// Thread safety: this handle wraps the Rust owner, which may not be Send/Sync.\n\
-         /// The JNI binding layer is responsible for thread synchronization via JVM thread attachment.\n\
-         #[repr(C)]\n\
-         pub struct {}({{\n    \
-             pub inner: {},\n\
-         }})\n\n",
-        service.name, service_snake, service_snake, opaque_name, owner_path
-    ));
-
-    // Constructor: allocates and returns an opaque handle as jlong
-    // Use shared bridge_method_name for consistency
     let ctor_method = bridge_method_name(&service.name, "new");
     let ctor_symbol = jni_symbol(package, service_bridge_class, &ctor_method);
-    out.push_str(&format!(
-        "/// Allocate a new {} instance.\n\
-         ///\n\
-         /// Returns the address as a jlong pointer. This pointer must be freed via free_{}().\n\
-         /// Never dereference this pointer after freeing it.\n\
-         #[no_mangle]\n\
-         pub extern \"system\" fn {ctor_symbol}() -> jlong {{\n    \
-             let owner = {}::{}();\n    \
-             let opaque = Box::new({}({{\n        \
-                 inner: owner,\n    \
-             }}));\n    \
-             Box::into_raw(opaque) as jlong\n\
-         }}\n\n",
-        service.name, service_snake, owner_path, service.constructor.name, opaque_name
-    ));
-
-    // Destructor: frees the opaque handle
     let dtor_method = bridge_method_name(&service.name, "free");
     let dtor_symbol = jni_symbol(package, service_bridge_class, &dtor_method);
-    out.push_str(&format!(
-        "/// Free a {0} instance allocated by constructor_{1}().\n\
-         ///\n\
-         /// # Safety\n\
-         /// - handle must have been allocated by constructor_{1}().\n\
-         /// - After this call, handle is invalid and must not be dereferenced.\n\
-         /// - Calling this twice on the same handle causes undefined behavior.\n\
-         #[no_mangle]\n\
-         pub extern \"system\" fn {dtor_symbol}(_env: EnvUnowned, _class: JClass, handle: jlong) {{\n    \
-             if handle != 0 {{\n        \
-                 // SAFETY: handle was allocated by into_raw above; we are the sole owner\n        \
-                 // and this is the final drop.\n        \
-                 unsafe {{\n            \
-                     let _ = Box::from_raw(handle as *mut {2});\n        \
-                 }}\n    \
-             }}\n\
-         }}\n\n",
-        service.name, service_snake, opaque_name
+    out.push_str(&template_env::render(
+        "service_opaque.rs.jinja",
+        context! {
+            service_name => service.name,
+            service_snake => service_snake,
+            opaque_name => opaque_name,
+            owner_path => owner_path,
+            constructor_name => service.constructor.name,
+            ctor_symbol => ctor_symbol,
+            dtor_symbol => dtor_symbol,
+        },
     ));
 }
 
@@ -223,28 +180,12 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     let req_type = contract.wire_request_type.as_deref().unwrap_or("serde_json::Value");
     let resp_type = contract.wire_response_type.as_deref().unwrap_or("serde_json::Value");
 
-    out.push_str(&format!(
-        "/// Generated JNI bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a global JVM reference to a Java handler object so it can be used\n\
-         /// as `Arc<dyn {trait_name}>` from Rust async code.\n\
-         pub struct {bridge_name} {{\n    \
-             /// Global JVM reference to the Java handler object.\n    \
-             global_ref: jni::objects::GlobalRef,\n    \
-             /// The JavaVM pointer for thread attachment.\n    \
-             jvm: jni::JavaVM,\n    \
-             /// Method ID for the dispatch method (cached for performance).\n    \
-             method_id: jni::sys::jmethodID,\n\
-         }}\n\n"
-    ));
-
-    // SAFETY comments on unsafe Send/Sync impl
-    out.push_str(&format!(
-        "// SAFETY: GlobalRef is Send+Sync once obtained in JVM context.\n\
-         // JavaVM is Send+Sync per jni crate semantics (one global VM per process).\n\
-         // jmethodID is stable for the method lifetime.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
+    out.push_str(&template_env::render(
+        "handler_bridge_struct.rs.jinja",
+        context! {
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+        },
     ));
 
     // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
@@ -295,82 +236,22 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // async-trait shape) instead of via the async_trait macro, matching a
     // contract whose dispatch method is hand-written as
     // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n"
+    out.push_str(&template_env::render(
+        "handler_bridge_impl.rs.jinja",
+        context! {
+            core_import => core_import,
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+            dispatch_name => dispatch_name,
+            extra_param => extra_param,
+            wire_name => wire_name,
+            req_path => req_path,
+            output_type => output_type,
+            wire_output => wire_output,
+            resp_path => resp_path,
+            tail => tail,
+        },
     ));
-
-    // Wrap the JNI call in a fallible computation that produces wire_output.
-    // All fallible work (including request serialization) lives inside this
-    // block so the only outer expression is the response-adapter tail.
-    out.push_str(&format!("        let outcome: {wire_output} = async move {{\n"));
-
-    // Serialize request to JSON
-    out.push_str("            let req_json = serde_json::to_string(&");
-    out.push_str(wire_name);
-    out.push_str(")\n");
-    out.push_str("                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
-    out.push_str("            let result_json = {\n");
-    out.push_str("                let env = self.jvm.attach_current_thread()\n");
-    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                        std::io::ErrorKind::Other,\n");
-    out.push_str("                        format!(\"failed to attach JVM thread: {}\", e)\n");
-    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
-
-    // Create JNI string for request
-    out.push_str("                let req_jni = env.new_string(&req_json)\n");
-    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                        std::io::ErrorKind::Other,\n");
-    out.push_str("                        format!(\"failed to create JNI string: {}\", e)\n");
-    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?;\n\n");
-
-    // Call Java handler method
-    // Convention: Java method is named `handle` and takes a String, returns a String
-    out.push_str("                let result: jni::sys::jstring = unsafe {\n");
-    out.push_str("                    // SAFETY: method_id was validated when bridge was created.\n");
-    out.push_str("                    // self.global_ref is valid for the JVM's lifetime.\n");
-    out.push_str("                    env.call_method_unchecked(\n");
-    out.push_str("                        self.global_ref.as_obj(),\n");
-    out.push_str("                        self.method_id,\n");
-    out.push_str("                        jni::sys::JNI_ABORT,\n");
-    out.push_str("                        &[jni::objects::JValue::from(&req_jni)],\n");
-    out.push_str("                    )?\n");
-    out.push_str("                        .l()?\n");
-    out.push_str("                        .as_raw()\n");
-    out.push_str("                };\n\n");
-
-    // Convert result back to String
-    out.push_str("                let result_obj = unsafe {\n");
-    out.push_str("                    // SAFETY: result is a valid jstring from the JNI call.\n");
-    out.push_str("                    jni::objects::JString::from_raw(result)\n");
-    out.push_str("                };\n");
-    out.push_str("                env.get_string(&result_obj)?\n");
-    out.push_str("                    .into_string()\n");
-    out.push_str("                    .map_err(|e| Box::new(std::io::Error::new(\n");
-    out.push_str("                        std::io::ErrorKind::InvalidData,\n");
-    out.push_str("                        format!(\"response is not valid UTF-8: {}\", e)\n");
-    out.push_str("                    )) as Box<dyn std::error::Error + Send + Sync>)?\n");
-    out.push_str("            };\n\n");
-
-    // Deserialize response JSON
-    out.push_str("            let response: ");
-    out.push_str(&resp_path);
-    out.push_str(" = serde_json::from_str(&result_json)\n");
-    out.push_str("                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;\n");
-    out.push_str("            Ok(response)\n");
-    out.push_str("        }.await;\n\n");
-
-    // Final tail: either call response_adapter or return outcome directly
-    out.push_str("        ");
-    out.push_str(&tail);
-    out.push('\n');
-    out.push_str("        })\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
 }
 
 /// Emit a JNI function that registers a Java handler for a registration method.
@@ -400,99 +281,31 @@ fn gen_register_jni_function(
         let register_method = bridge_method_name(&service.name, &format!("register_{}", reg.method));
         let symbol = jni_symbol(package, service_bridge_class, &register_method);
 
-        out.push_str(&format!(
-            "/// Register a Java handler for `{service_pascal}::{method_pascal}`.\n\
-             ///\n\
-             /// Called from Java/Kotlin to provide a handler implementation.\n\
-             /// Parameters:\n\
-             ///   owner_handle: jlong returned by the service constructor entry point\n\
-             ///   handler: the Java handler object\n\
-             ///   metadata params: route pattern, HTTP method, etc.\n\
-             ///\n\
-             /// Returns 0 on success, non-zero error code on failure.\n\
-             #[no_mangle]\n\
-             pub extern \"system\" fn {symbol}(\n        \
-                 env: EnvUnowned,\n        \
-                 _class: JClass,\n        \
-                 owner_handle: jlong,\n        \
-                 handler: JObject",
-            service_pascal = service_pascal,
-            method_pascal = method_pascal
-        ));
-
-        // Add metadata parameters
+        let mut metadata_params_decl = String::new();
         for meta_param in &reg.metadata_params {
             let rust_type = typeref_to_jni_type(&meta_param.ty, core_import);
-            out.push_str(&format!(",\n        {}: {}", meta_param.name, rust_type));
+            metadata_params_decl.push_str(&format!(",\n    {}: {}", meta_param.name, rust_type));
         }
-
-        out.push_str("\n    ) -> jint {\n");
-        out.push_str("    // Validate owner handle\n");
-        out.push_str("    if owner_handle == 0 {\n");
-        out.push_str("        return 1; // Error: null pointer\n");
-        out.push_str("    }\n\n");
-
-        // Get JavaVM from environment
-        out.push_str("    let jvm = match env.get_java_vm() {\n");
-        out.push_str("        Ok(vm) => vm,\n");
-        out.push_str("        Err(_) => return 2, // Error: failed to get JavaVM\n");
-        out.push_str("    };\n\n");
-
-        // Create GlobalRef from handler object
-        out.push_str("    let global_ref = match env.new_global_ref(&handler) {\n");
-        out.push_str("        Ok(g) => g,\n");
-        out.push_str("        Err(_) => return 3, // Error: failed to create global reference\n");
-        out.push_str("    };\n\n");
-
-        // Get the dispatch method ID (cached for performance)
         let dispatch_method_name = &contract.dispatch.name;
-        out.push_str("    let method_id = match env.get_method_id(\n");
-        out.push_str("        &handler,\n");
-        out.push_str(&format!("        \"{dispatch_method_name}\",\n"));
-        out.push_str("        \"(Ljava/lang/String;)Ljava/lang/String;\"\n");
-        out.push_str("    ) {\n");
-        out.push_str("        Ok(id) => id,\n");
-        out.push_str("        Err(_) => return 4, // Error: failed to find method\n");
-        out.push_str("    };\n\n");
-
-        // Create the bridge
-        out.push_str(&format!(
-            "    let bridge = {bridge_name} {{\n\
-             global_ref,\n\
-             jvm,\n\
-             method_id,\n\
-             }};\n\
-             let handler_arc: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n\n"
+        let mut register_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
+        register_args.push("handler_arc".to_string());
+        out.push_str(&template_env::render(
+            "registration_function.rs.jinja",
+            context! {
+                service_pascal => service_pascal,
+                method_pascal => method_pascal,
+                symbol => symbol,
+                metadata_params_decl => metadata_params_decl,
+                dispatch_method_name => dispatch_method_name,
+                bridge_name => bridge_name,
+                core_import => core_import,
+                contract_name => contract_name,
+                opaque_name => opaque_name,
+                register_method => reg.method,
+                register_args => register_args.join(", "),
+                setup_block => "",
+            },
         ));
-
-        // SAFETY comment for owner dereference
-        out.push_str("    // SAFETY: owner_handle was returned by the service constructor and\n");
-        out.push_str("    // is valid until freed. The caller is responsible for ensuring no use-after-free.\n");
-        out.push_str("    match unsafe {\n");
-        out.push_str(&format!(
-            "        let owner_opaque = owner_handle as *mut {opaque_name};\n\
-             (*owner_opaque).inner.{}(",
-            reg.method
-        ));
-
-        // Add metadata arguments
-        let mut first = true;
-        for meta_param in &reg.metadata_params {
-            if !first {
-                out.push_str(", ");
-            }
-            out.push_str(&meta_param.name);
-            first = false;
-        }
-        if !first {
-            out.push_str(", ");
-        }
-        out.push_str("handler_arc)\n");
-        out.push_str("    } {\n");
-        out.push_str("        Ok(_) => 0, // Success\n");
-        out.push_str("        Err(_) => 5, // Error: registration failed\n");
-        out.push_str("    }\n");
-        out.push_str("}\n\n");
 
         // Emit registration variants
         for variant in &reg.variants {
@@ -535,88 +348,36 @@ fn gen_register_variant_jni_function(
         let symbol = jni_symbol(package, service_bridge_class, &register_method);
         let dispatch_method_name = &contract.dispatch.name;
 
-        out.push_str(&format!(
-            "/// Register a Java handler for `{service_pascal}::{variant_name}` variant.\n\
-             ///\n\
-             /// Shortcut that builds the wrapper with fixed args and forwards to base registration.\n\
-             #[no_mangle]\n\
-             pub extern \"system\" fn {symbol}(\n        \
-                 env: EnvUnowned,\n        \
-                 _class: JClass,\n        \
-                 owner_handle: jlong,\n        \
-                 handler: JObject",
-        ));
-
-        // Add free parameters (non-pinned)
+        let mut free_params_decl = String::new();
         for param in &variant.signature_params {
             let rust_type = typeref_to_jni_type(&param.ty, core_import);
-            out.push_str(&format!(",\n        {}: {}", param.name, rust_type));
+            free_params_decl.push_str(&format!(",\n    {}: {}", param.name, rust_type));
         }
 
-        out.push_str("\n    ) -> jint {\n");
-        out.push_str("    // Validate owner handle\n");
-        out.push_str("    if owner_handle == 0 {\n");
-        out.push_str("        return 1; // Error: null pointer\n");
-        out.push_str("    }\n\n");
-
-        // Get JavaVM from environment
-        out.push_str("    let jvm = match env.get_java_vm() {\n");
-        out.push_str("        Ok(vm) => vm,\n");
-        out.push_str("        Err(_) => return 2, // Error: failed to get JavaVM\n");
-        out.push_str("    };\n\n");
-
-        // Create GlobalRef from handler object
-        out.push_str("    let global_ref = match env.new_global_ref(&handler) {\n");
-        out.push_str("        Ok(g) => g,\n");
-        out.push_str("        Err(_) => return 3, // Error: failed to create global reference\n");
-        out.push_str("    };\n\n");
-
-        // Get the dispatch method ID
-        out.push_str("    let method_id = match env.get_method_id(\n");
-        out.push_str("        &handler,\n");
-        out.push_str(&format!("        \"{dispatch_method_name}\",\n"));
-        out.push_str("        \"(Ljava/lang/String;)Ljava/lang/String;\"\n");
-        out.push_str("    ) {\n");
-        out.push_str("        Ok(id) => id,\n");
-        out.push_str("        Err(_) => return 4, // Error: failed to find method\n");
-        out.push_str("    };\n\n");
-
-        // Create the bridge
-        out.push_str(&format!(
-            "    let bridge = {bridge_name} {{\n\
-             global_ref,\n\
-             jvm,\n\
-             method_id,\n\
-             }};\n\
-             let handler_arc: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n\n"
-        ));
-
         // Build wrapper if wrapper_call is present
+        let mut wrapper_block = String::new();
         if let Some(wc) = &variant.wrapper_call {
-            out.push_str(&format!(
-                "    let {} = {}::{}(",
-                wc.metadata_param, wc.wrapper_type_path, wc.constructor_method
-            ));
-
-            let mut first = true;
+            let mut constructor_args = Vec::new();
             for arg in &wc.args {
-                if !first {
-                    out.push_str(", ");
-                }
                 match arg {
                     crate::core::ir::WrapperConstructorArg::Fixed {
                         param_name: _,
                         value_expr,
                     } => {
-                        out.push_str(value_expr);
+                        constructor_args.push(value_expr.clone());
                     }
                     crate::core::ir::WrapperConstructorArg::Free { param } => {
-                        out.push_str(&param.name);
+                        constructor_args.push(param.name.clone());
                     }
                 }
-                first = false;
             }
-            out.push_str(");\n\n");
+            wrapper_block.push_str(&format!(
+                "    let {} = {}::{}({});\n\n",
+                wc.metadata_param,
+                wc.wrapper_type_path,
+                wc.constructor_method,
+                constructor_args.join(", ")
+            ));
         }
 
         // Build arguments for base register call
@@ -632,34 +393,24 @@ fn gen_register_variant_jni_function(
             base_call_args.push(override_.value_expr.clone());
         }
 
-        // SAFETY comment for owner dereference
-        out.push_str("    // SAFETY: owner_handle was returned by the service constructor and\n");
-        out.push_str("    // is valid until freed. The caller is responsible for ensuring no use-after-free.\n");
-        out.push_str("    match unsafe {\n");
-        out.push_str(&format!(
-            "        let owner_opaque = owner_handle as *mut {opaque_name};\n\
-             (*owner_opaque).inner.{}(",
-            reg.method
+        base_call_args.push("handler_arc".to_string());
+        out.push_str(&template_env::render(
+            "registration_function.rs.jinja",
+            context! {
+                service_pascal => service_pascal,
+                method_pascal => variant_name,
+                symbol => symbol,
+                metadata_params_decl => free_params_decl,
+                dispatch_method_name => dispatch_method_name,
+                bridge_name => bridge_name,
+                core_import => core_import,
+                contract_name => contract_name,
+                opaque_name => opaque_name,
+                register_method => reg.method,
+                register_args => base_call_args.join(", "),
+                setup_block => wrapper_block,
+            },
         ));
-
-        // Add all arguments (wrapper + overrides + handler)
-        let mut first = true;
-        for arg in &base_call_args {
-            if !first {
-                out.push_str(", ");
-            }
-            out.push_str(arg);
-            first = false;
-        }
-        if !first {
-            out.push_str(", ");
-        }
-        out.push_str("handler_arc)\n");
-        out.push_str("    } {\n");
-        out.push_str("        Ok(_) => 0, // Success\n");
-        out.push_str("        Err(_) => 5, // Error: registration failed\n");
-        out.push_str("    }\n");
-        out.push_str("}\n\n");
     }
 }
 
@@ -684,116 +435,46 @@ fn gen_entrypoint_jni_function(
     let ep_method = bridge_method_name(&service.name, &ep.method);
     let symbol = jni_symbol(package, service_bridge_class, &ep_method);
 
-    out.push_str(&format!(
-        "/// Drive `{service_pascal}::{ep_pascal}` from Java/Kotlin.\n\
-         ///\n\
-         /// Parameters:\n\
-         ///   owner_handle: jlong returned by the service constructor entry point\n\
-         ///   ep params: as defined in the service entrypoint signature\n"
-    ));
+    let mut params_decl = String::new();
+    for ep_param in &ep.params {
+        let jni_type = typeref_to_jni_type(&ep_param.ty, core_import);
+        params_decl.push_str(&format!(",\n    {}: {}", ep_param.name, jni_type));
+    }
+    let call_args = ep
+        .params
+        .iter()
+        .map(|param| param.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
 
     match ep.kind {
         EntrypointKind::Run => {
-            out.push_str(&format!(
-                "#[no_mangle]\n\
-                 pub extern \"system\" fn {symbol}(\n        \
-                     _env: EnvUnowned,\n        \
-                     _class: JClass,\n        \
-                     owner_handle: jlong"
+            out.push_str(&template_env::render(
+                "entrypoint_run.rs.jinja",
+                context! {
+                    service_pascal => service_pascal,
+                    ep_pascal => ep_pascal,
+                    symbol => symbol,
+                    params_decl => params_decl,
+                    opaque_name => opaque_name,
+                    ep_method => ep.method,
+                    call_args => call_args,
+                },
             ));
-
-            // Add entrypoint parameters
-            for ep_param in &ep.params {
-                let jni_type = typeref_to_jni_type(&ep_param.ty, core_import);
-                out.push_str(&format!(",\n        {}: {}", ep_param.name, jni_type));
-            }
-
-            out.push_str("\n    ) {\n");
-            out.push_str("    // Validate owner handle\n");
-            out.push_str("    if owner_handle == 0 {\n");
-            out.push_str("        return;\n");
-            out.push_str("    }\n\n");
-
-            // SAFETY comment for dereferencing
-            out.push_str("    // SAFETY: owner_handle was allocated by the constructor and is valid\n");
-            out.push_str("    // until freed. The caller is responsible for not using after free.\n");
-            out.push_str("    unsafe {\n");
-            out.push_str(&format!(
-                "        let owner_opaque = owner_handle as *mut {opaque_name};\n\
-                 let owner_ref = &mut (*owner_opaque).inner;\n"
-            ));
-
-            out.push_str("        let rt = match tokio::runtime::Runtime::new() {\n");
-            out.push_str("            Ok(runtime) => runtime,\n");
-            out.push_str("            Err(_) => return, // Failed to create tokio runtime\n");
-            out.push_str("        };\n\n");
-
-            out.push_str(&format!("        let _ = rt.block_on(owner_ref.{}(", ep.method));
-
-            // Add entrypoint arguments
-            let mut first = true;
-            for ep_param in &ep.params {
-                if !first {
-                    out.push_str(", ");
-                }
-                out.push_str(&ep_param.name);
-                first = false;
-            }
-            out.push_str("));\n");
-            out.push_str("    }\n");
-            out.push_str("}\n\n");
         }
         EntrypointKind::Finalize => {
-            out.push_str(&format!(
-                "#[no_mangle]\n\
-                 pub extern \"system\" fn {symbol}(\n        \
-                     _env: EnvUnowned,\n        \
-                     _class: JClass,\n        \
-                     owner_handle: jlong"
+            out.push_str(&template_env::render(
+                "entrypoint_finalize.rs.jinja",
+                context! {
+                    service_pascal => service_pascal,
+                    ep_pascal => ep_pascal,
+                    symbol => symbol,
+                    params_decl => params_decl,
+                    opaque_name => opaque_name,
+                    ep_method => ep.method,
+                    call_args => call_args,
+                },
             ));
-
-            // Add entrypoint parameters
-            for ep_param in &ep.params {
-                let jni_type = typeref_to_jni_type(&ep_param.ty, core_import);
-                out.push_str(&format!(",\n        {}: {}", ep_param.name, jni_type));
-            }
-
-            out.push_str("\n    ) -> jlong {\n");
-            out.push_str("    // Validate owner handle\n");
-            out.push_str("    if owner_handle == 0 {\n");
-            out.push_str("        return 0; // Error: null pointer\n");
-            out.push_str("    }\n\n");
-
-            // SAFETY comment for dereferencing
-            out.push_str("    // SAFETY: owner_handle was allocated by the constructor and is valid\n");
-            out.push_str("    // until freed. The caller is responsible for not using after free.\n");
-            out.push_str("    unsafe {\n");
-            out.push_str(&format!(
-                "        let owner_opaque = owner_handle as *mut {opaque_name};\n\
-                 let owner_ref = &mut (*owner_opaque).inner;\n"
-            ));
-
-            out.push_str("        let rt = match tokio::runtime::Runtime::new() {\n");
-            out.push_str("            Ok(runtime) => runtime,\n");
-            out.push_str("            Err(_) => return 0, // Error: failed to create tokio runtime\n");
-            out.push_str("        };\n\n");
-
-            out.push_str(&format!("        let _result = rt.block_on(owner_ref.{}(", ep.method));
-
-            // Add entrypoint arguments
-            let mut first = true;
-            for ep_param in &ep.params {
-                if !first {
-                    out.push_str(", ");
-                }
-                out.push_str(&ep_param.name);
-                first = false;
-            }
-            out.push_str("));\n");
-            out.push_str("        // Finalize returns the transformed result; caller decides what to do with it\n");
-            out.push_str("        owner_handle\n");
-            out.push_str("    }\n");
-            out.push_str("}\n\n");
         }
     }
 }

@@ -1,0 +1,11 @@
+    // SAFETY: handle was allocated by the matching constructor shim and remains
+    // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee
+    // ensures the handle outlives this call.
+{% if receiver_owned %}
+    let client: core_crate::{{ type_name }} = unsafe { (*(handle as *const core_crate::{{ type_name }})).clone() };
+{% elif receiver_is_mut %}
+    let client: &mut core_crate::{{ type_name }} = unsafe { &mut *(handle as *mut core_crate::{{ type_name }}) };
+{% else %}
+    let client: &core_crate::{{ type_name }} = unsafe { &*(handle as *const core_crate::{{ type_name }}) };
+{% endif %}
+

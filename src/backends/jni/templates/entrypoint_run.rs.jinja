@@ -1,0 +1,30 @@
+/// Drive `{{ service_pascal }}::{{ ep_pascal }}` from Java/Kotlin.
+///
+/// Parameters:
+///   owner_handle: jlong returned by the service constructor entry point
+///   ep params: as defined in the service entrypoint signature
+#[no_mangle]
+pub extern "system" fn {{ symbol }}(
+    _env: EnvUnowned,
+    _class: JClass,
+    owner_handle: jlong{{ params_decl }}
+) {
+    // Validate owner handle
+    if owner_handle == 0 {
+        return;
+    }
+
+    // SAFETY: owner_handle was allocated by the constructor and is valid
+    // until freed. The caller is responsible for not using after free.
+    unsafe {
+        let owner_opaque = owner_handle as *mut {{ opaque_name }};
+        let owner_ref = &mut (*owner_opaque).inner;
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(runtime) => runtime,
+            Err(_) => return, // Failed to create tokio runtime
+        };
+
+        let _ = rt.block_on(owner_ref.{{ ep_method }}({{ call_args }}));
+    }
+}
+

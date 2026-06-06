@@ -1,0 +1,58 @@
+/// Register a Java handler for `{{ service_pascal }}::{{ method_pascal }}`.
+///
+/// Called from Java/Kotlin to provide a handler implementation.
+/// Parameters:
+///   owner_handle: jlong returned by the service constructor entry point
+///   handler: the Java handler object
+///   metadata params: route pattern, HTTP method, etc.
+///
+/// Returns 0 on success, non-zero error code on failure.
+#[no_mangle]
+pub extern "system" fn {{ symbol }}(
+    env: EnvUnowned,
+    _class: JClass,
+    owner_handle: jlong,
+    handler: JObject{{ metadata_params_decl }}
+) -> jint {
+    // Validate owner handle
+    if owner_handle == 0 {
+        return 1; // Error: null pointer
+    }
+
+    let jvm = match env.get_java_vm() {
+        Ok(vm) => vm,
+        Err(_) => return 2, // Error: failed to get JavaVM
+    };
+
+    let global_ref = match env.new_global_ref(&handler) {
+        Ok(g) => g,
+        Err(_) => return 3, // Error: failed to create global reference
+    };
+
+    let method_id = match env.get_method_id(
+        &handler,
+        "{{ dispatch_method_name }}",
+        "(Ljava/lang/String;)Ljava/lang/String;"
+    ) {
+        Ok(id) => id,
+        Err(_) => return 4, // Error: failed to find method
+    };
+
+    let bridge = {{ bridge_name }} {
+        global_ref,
+        jvm,
+        method_id,
+    };
+    let handler_arc: Arc<dyn {{ core_import }}::{{ contract_name }}> = Arc::new(bridge);
+
+{{ setup_block }}
+    // SAFETY: owner_handle was returned by the service constructor and
+    // is valid until freed. The caller is responsible for ensuring no use-after-free.
+    match unsafe {
+        let owner_opaque = owner_handle as *mut {{ opaque_name }};
+        (*owner_opaque).inner.{{ register_method }}({{ register_args }})
+    } {
+        Ok(_) => 0, // Success
+        Err(_) => 5, // Error: registration failed
+    }
+}

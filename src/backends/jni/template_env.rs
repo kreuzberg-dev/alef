@@ -23,6 +23,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/function_shim_open.rs.jinja"),
     ),
     (
+        "call_result_body.rs.jinja",
+        include_str!("templates/call_result_body.rs.jinja"),
+    ),
+    (
+        "method_shim_open.rs.jinja",
+        include_str!("templates/method_shim_open.rs.jinja"),
+    ),
+    (
+        "method_client_handle.rs.jinja",
+        include_str!("templates/method_client_handle.rs.jinja"),
+    ),
+    (
+        "streaming_shims.rs.jinja",
+        include_str!("templates/streaming_shims.rs.jinja"),
+    ),
+    (
         "constructor_shim.rs.jinja",
         include_str!("templates/constructor_shim.rs.jinja"),
     ),
@@ -49,6 +65,18 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "registration_variant.rs.jinja",
         include_str!("templates/registration_variant.rs.jinja"),
+    ),
+    (
+        "registration_function.rs.jinja",
+        include_str!("templates/registration_function.rs.jinja"),
+    ),
+    (
+        "entrypoint_run.rs.jinja",
+        include_str!("templates/entrypoint_run.rs.jinja"),
+    ),
+    (
+        "entrypoint_finalize.rs.jinja",
+        include_str!("templates/entrypoint_finalize.rs.jinja"),
     ),
 ];
 

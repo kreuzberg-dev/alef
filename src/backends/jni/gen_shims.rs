@@ -668,8 +668,13 @@ fn emit_function_shim(
     // significant refactor that would lose the existing early-return + sentinel
     // pattern. AttachGuard upgrades inline; panics inside the body are still
     // caught by `run_or_throw` (the existing per-call wrapper).
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n{param_sigs}){ret_decl} {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    out.push_str(&template_env::render(
+        "function_shim_open.rs.jinja",
+        context! {
+            symbol => symbol,
+            param_sigs => param_sigs,
+            ret_decl => ret_decl,
+        },
     ));
 
     out.push_str(&unmarshal);
@@ -682,48 +687,22 @@ fn emit_function_shim(
     };
 
     if has_error {
-        // Function returns Result<T, E>: match on Ok/Err.
-        if is_async {
-            out.push_str(&format!(
-                "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
-            ));
-            out.push_str(&format!("        return {err_null};\n"));
-            out.push_str("    };\n");
-        } else {
-            out.push_str(&format!("    let result = {raw_call};\n"));
-        }
-        out.push_str("    match result {\n");
-        out.push_str("        Err(e) => {\n");
-        out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
-        out.push_str(&format!("            {err_null}\n"));
-        out.push_str("        }\n");
-        out.push_str("        Ok(v) => {\n");
+        let mut ok_body = String::new();
         if is_opaque_return {
-            out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
+            ok_body.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
         } else {
-            emit_return_marshal_with_indent(out, return_type, "            ", err_null);
+            emit_return_marshal_with_indent(&mut ok_body, return_type, "            ", err_null);
         }
-        out.push_str("        }\n");
-        out.push_str("    }\n");
+        render_call_result_body(out, &raw_call, is_async, true, err_null, &ok_body, "");
     } else {
-        // Function returns T directly (no Result wrapping).
-        if is_async {
-            out.push_str(&format!(
-                "    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({raw_call}))) else {{\n"
-            ));
-            out.push_str(&format!("        return {err_null};\n"));
-            out.push_str("    };\n");
-        } else {
-            out.push_str(&format!("    let v = {raw_call};\n"));
-        }
+        let mut value_body = String::new();
         if is_opaque_return {
-            out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
+            value_body.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
         } else {
-            emit_return_marshal_with_indent(out, return_type, "    ", err_null);
+            emit_return_marshal_with_indent(&mut value_body, return_type, "    ", err_null);
         }
+        render_call_result_body(out, &raw_call, is_async, false, err_null, "", &value_body);
     }
-
-    out.push_str("}\n\n");
 }
 
 /// Emit a shim for an instance method on an opaque client type.
@@ -792,29 +771,24 @@ fn emit_method_shim(
 
     // See emit_function_shim for why we use AttachGuard::from_unowned instead
     // of EnvUnowned::with_env.
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    handle: jlong,\n{request_param}){ret_decl} {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    out.push_str(&template_env::render(
+        "method_shim_open.rs.jinja",
+        context! {
+            symbol => symbol,
+            request_param => request_param,
+            ret_decl => ret_decl,
+        },
     ));
 
     // Dereference handle.
-    out.push_str("    // SAFETY: handle was allocated by the matching constructor shim and remains\n");
-    out.push_str("    // valid until nativeFree is called. The Kotlin AutoCloseable.close() guarantee\n");
-    out.push_str("    // ensures the handle outlives this call.\n");
-    if receiver_owned {
-        // `self`-by-value: clone the contents so the caller's handle stays
-        // valid (Kotlin retains the owning reference until close()).
-        out.push_str(&format!(
-            "    let client: core_crate::{type_name} = unsafe {{ (*(handle as *const core_crate::{type_name})).clone() }};\n"
-        ));
-    } else if receiver_is_mut {
-        out.push_str(&format!(
-            "    let client: &mut core_crate::{type_name} = unsafe {{ &mut *(handle as *mut core_crate::{type_name}) }};\n"
-        ));
-    } else {
-        out.push_str(&format!(
-            "    let client: &core_crate::{type_name} = unsafe {{ &*(handle as *const core_crate::{type_name}) }};\n"
-        ));
-    }
+    out.push_str(&template_env::render(
+        "method_client_handle.rs.jinja",
+        context! {
+            receiver_owned => receiver_owned,
+            receiver_is_mut => receiver_is_mut,
+            type_name => type_name,
+        },
+    ));
 
     // Unmarshal params and build call_args with is_ref/optional adjustments.
     let call_args: String = if !has_params {
@@ -917,57 +891,56 @@ fn emit_method_shim(
     };
 
     if has_error {
-        if is_async {
-            out.push_str(&format!(
-                "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
-            ));
-            out.push_str(&format!("        return {ret_null};\n"));
-            out.push_str("    };\n");
-        } else {
-            out.push_str(&format!("    let result = {call_expr};\n"));
-        }
-        out.push_str("    match result {\n");
-        out.push_str("        Err(e) => {\n");
-        out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
-        out.push_str(&format!("            {ret_null}\n"));
-        out.push_str("        }\n");
-        out.push_str("        Ok(v) => {\n");
+        let mut ok_body = String::new();
         if is_opaque_return {
-            out.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
+            ok_body.push_str("            Box::into_raw(Box::new(v)) as jlong\n");
         } else if is_optional_opaque_return {
-            out.push_str("            match v {\n");
-            out.push_str("                None => 0i64,\n");
-            out.push_str("                Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
-            out.push_str("            }\n");
+            ok_body.push_str("            match v {\n");
+            ok_body.push_str("                None => 0i64,\n");
+            ok_body.push_str("                Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
+            ok_body.push_str("            }\n");
         } else {
-            emit_return_marshal(out, return_type, ret_null);
+            emit_return_marshal(&mut ok_body, return_type, ret_null);
         }
-        out.push_str("        }\n");
-        out.push_str("    }\n");
+        render_call_result_body(out, &call_expr, is_async, true, ret_null, &ok_body, "");
     } else {
-        // Method returns T directly (no Result wrapping).
-        if is_async {
-            out.push_str(&format!(
-                "    let Some(v) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on({call_expr}))) else {{\n"
-            ));
-            out.push_str(&format!("        return {ret_null};\n"));
-            out.push_str("    };\n");
-        } else {
-            out.push_str(&format!("    let v = {call_expr};\n"));
-        }
+        let mut value_body = String::new();
         if is_opaque_return {
-            out.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
+            value_body.push_str("    Box::into_raw(Box::new(v)) as jlong\n");
         } else if is_optional_opaque_return {
-            out.push_str("    match v {\n");
-            out.push_str("        None => 0i64,\n");
-            out.push_str("        Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
-            out.push_str("    }\n");
+            value_body.push_str("    match v {\n");
+            value_body.push_str("        None => 0i64,\n");
+            value_body.push_str("        Some(inner) => Box::into_raw(Box::new(inner)) as jlong,\n");
+            value_body.push_str("    }\n");
         } else {
-            emit_return_marshal_with_indent(out, return_type, "    ", ret_null);
+            emit_return_marshal_with_indent(&mut value_body, return_type, "    ", ret_null);
         }
+        render_call_result_body(out, &call_expr, is_async, false, ret_null, "", &value_body);
     }
+}
 
-    out.push_str("}\n\n");
+fn render_call_result_body(
+    out: &mut String,
+    call_expr: &str,
+    is_async: bool,
+    has_error: bool,
+    ret_null: &str,
+    ok_body: &str,
+    value_body: &str,
+) {
+    let async_call_expr = format!("runtime().block_on({call_expr})");
+    out.push_str(&template_env::render(
+        "call_result_body.rs.jinja",
+        context! {
+            call_expr => call_expr,
+            async_call_expr => async_call_expr,
+            is_async => is_async,
+            has_error => has_error,
+            ret_null => ret_null,
+            ok_body => ok_body,
+            value_body => value_body,
+        },
+    ));
 }
 
 /// Emit unmarshal code for a single param.
@@ -1271,52 +1244,28 @@ fn emit_constructor_shim(
         format!("{}({})", body_expr, call_args.join(", "))
     };
 
-    // Open the function.
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    mut env: EnvUnowned,\n    _class: JClass,\n{param_sigs}) -> jlong {{\n"
-    ));
-    out.push_str("    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n");
-    out.push_str("    let mut __jni_attach_guard = unsafe { jni::AttachGuard::from_unowned(env.as_raw()) };\n");
-    out.push_str("    let env = __jni_attach_guard.borrow_env_mut();\n");
-
-    out.push_str(&unmarshal);
-
-    // Emit match on Result or direct boxing.
-    let has_error = ctor.error_type.is_some() || ctor.body.contains("->") || {
-        // Heuristic: treat as fallible when body returns Result-like expression.
-        call_expr.contains("?") || call_expr.ends_with(")")
-    };
     // Always treat the constructor as fallible (match Result<_, E>) since the
     // typical body is `core_crate::TypeName::new(param)` which returns Result.
-    out.push_str(&format!(
-        "    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| {call_expr})) else {{\n"
+    out.push_str(&template_env::render(
+        "constructor_shim.rs.jinja",
+        context! {
+            symbol => symbol,
+            param_sigs => param_sigs,
+            unmarshal => unmarshal,
+            call_expr => call_expr,
+        },
     ));
-    out.push_str("        return 0;\n");
-    out.push_str("    };\n");
-    out.push_str("    match result {\n");
-    out.push_str("        Err(e) => {\n");
-    out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
-    out.push_str("            0\n");
-    out.push_str("        }\n");
-    out.push_str("        Ok(v) => Box::into_raw(Box::new(v)) as jlong,\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
-
-    let _ = has_error; // consumed above
 }
 
 /// Emit the destructor shim for an opaque type.
 fn emit_destructor_shim(out: &mut String, symbol: &str, type_name: &str) {
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {symbol}(\n    _env: EnvUnowned,\n    _class: JClass,\n    handle: jlong,\n) {{\n"
+    out.push_str(&template_env::render(
+        "destructor_shim.rs.jinja",
+        context! {
+            symbol => symbol,
+            type_name => type_name,
+        },
     ));
-    out.push_str("    if handle == 0 { return; }\n");
-    out.push_str("    // SAFETY: `handle` was allocated by the matching constructor shim and\n");
-    out.push_str("    // ownership is transferred back here for drop via Box::from_raw.\n");
-    out.push_str(&format!(
-        "    unsafe {{ let _ = Box::from_raw(handle as *mut core_crate::{type_name}); }}\n"
-    ));
-    out.push_str("}\n\n");
 }
 
 /// Emit Start/Next/Free streaming shims for one adapter.
@@ -1342,122 +1291,43 @@ fn emit_streaming_shims(
         .map(|t| format!("core_crate::{t}"))
         .unwrap_or_else(|| "serde_json::Value".to_string());
 
-    // Emit stream item type aliases to keep the struct field type below clippy's
-    // `type_complexity` threshold (the naive inline form is 6 levels deep).
     let stream_item_alias = format!("{stream_handle_type}Item");
     let stream_box_alias = format!("{stream_handle_type}Stream");
-    out.push_str(&format!(
-        "type {stream_item_alias} = std::result::Result<{item_type}, Box<dyn std::error::Error + Send + Sync + 'static>>;\n"
-    ));
-    out.push_str(&format!(
-        "type {stream_box_alias} = BoxStream<'static, {stream_item_alias}>;\n\n"
-    ));
-
-    // Emit StreamHandle struct.
-    out.push_str(&format!("struct {stream_handle_type} {{\n"));
-    out.push_str("    rt: &'static Runtime,\n");
-    out.push_str(&format!("    stream: Mutex<Option<{stream_box_alias}>>,\n"));
-    out.push_str("}\n\n");
-
-    // Start shim: (clientHandle: Long, requestJson: String) -> Long
-    // See emit_function_shim for why we use AttachGuard::from_unowned.
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {start_sym}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    client_handle: jlong,\n    request_json: JString,\n) -> jlong {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
-    ));
-    out.push_str("    // SAFETY: client_handle was produced by the matching constructor shim.\n");
-    out.push_str(&format!(
-        "    let client: &core_crate::{type_name} = unsafe {{ &*(client_handle as *const core_crate::{type_name}) }};\n"
-    ));
-    out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-    out.push_str("        Ok(s) => s,\n");
-    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
-    out.push_str("    };\n");
-    // Build request arg.
+    let mut request_unmarshal = String::new();
+    let stream_call_block;
     if let Some(first_param) = adapter.params.first() {
         let param_type = first_param.ty.rsplit("::").next().unwrap_or(&first_param.ty);
-        out.push_str(&format!(
+        request_unmarshal.push_str(&format!(
             "    let request: core_crate::{param_type} = match serde_json::from_str(&req_str) {{\n"
         ));
-        out.push_str("        Ok(v) => v,\n");
-        out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
-        out.push_str("    };\n");
-        out.push_str(&format!(
+        request_unmarshal.push_str("        Ok(v) => v,\n");
+        request_unmarshal.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
+        request_unmarshal.push_str("    };\n");
+        stream_call_block = format!(
             "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}(request).await }}))) else {{\n"
-        ));
-        out.push_str("        return 0;\n");
-        out.push_str("    };\n");
+        );
     } else {
-        out.push_str(&format!(
+        stream_call_block = format!(
             "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}().await }}))) else {{\n"
-        ));
-        out.push_str("        return 0;\n");
-        out.push_str("    };\n");
+        );
     }
-    out.push_str("    let stream = match stream_result {\n");
-    out.push_str("        Ok(s) => s,\n");
-    out.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
-    out.push_str("    };\n");
-    out.push_str("    // Map the concrete error type to Box<dyn Error> so the handle type is\n");
-    out.push_str("    // independent of the stream's error associated type.\n");
-    out.push_str("    let mapped = {\n");
-    out.push_str("        use futures_util::StreamExt;\n");
-    out.push_str("        Box::pin(stream.map(|r| r.map_err(|e| -> Box<dyn std::error::Error + Send + Sync + 'static> { Box::new(e) })))\n");
-    out.push_str("    };\n");
-    out.push_str(&format!("    let handle = Box::new({stream_handle_type} {{\n"));
-    out.push_str("        rt: runtime(),\n");
-    out.push_str("        stream: Mutex::new(Some(mapped)),\n");
-    out.push_str("    });\n");
-    out.push_str("    Box::into_raw(handle) as jlong\n");
-    out.push_str("}\n\n");
+    let stream_call_block = format!("{stream_call_block}        return 0;\n    }};\n");
 
-    // Next shim: (streamHandle: Long) -> jstring (null = end / error)
-    // See emit_function_shim for why we use AttachGuard::from_unowned.
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {next_sym}(\n    mut env: EnvUnowned,\n    _class: JClass,\n    stream_handle: jlong,\n) -> jstring {{\n    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.\n    let mut __jni_attach_guard = unsafe {{ jni::AttachGuard::from_unowned(env.as_raw()) }};\n    let env = __jni_attach_guard.borrow_env_mut();\n"
+    out.push_str(&template_env::render(
+        "streaming_shims.rs.jinja",
+        context! {
+            stream_item_alias => stream_item_alias,
+            stream_box_alias => stream_box_alias,
+            stream_handle_type => stream_handle_type,
+            item_type => item_type,
+            start_sym => start_sym,
+            next_sym => next_sym,
+            free_sym => free_sym,
+            type_name => type_name,
+            request_unmarshal => request_unmarshal,
+            stream_call_block => stream_call_block,
+        },
     ));
-    out.push_str("    if stream_handle == 0 { return std::ptr::null_mut(); }\n");
-    out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
-    out.push_str(&format!(
-        "    let h = unsafe {{ &*(stream_handle as *const {stream_handle_type}) }};\n"
-    ));
-    out.push_str("    let mut guard = match h.stream.lock() {\n");
-    out.push_str("        Ok(g) => g,\n");
-    out.push_str("        Err(_) => return std::ptr::null_mut(),\n");
-    out.push_str("    };\n");
-    out.push_str("    let Some(stream) = guard.as_mut() else { return std::ptr::null_mut(); };\n");
-    out.push_str("    let Some(next) = run_or_throw(env, std::panic::AssertUnwindSafe(|| h.rt.block_on(stream.next()))) else {\n");
-    out.push_str("        return std::ptr::null_mut();\n");
-    out.push_str("    };\n");
-    out.push_str("    match next {\n");
-    out.push_str("        None => std::ptr::null_mut(),\n");
-    out.push_str("        Some(Err(e)) => {\n");
-    out.push_str("            throw_jni_error(env, &format!(\"{e}\"));\n");
-    out.push_str("            std::ptr::null_mut()\n");
-    out.push_str("        }\n");
-    out.push_str("        Some(Ok(chunk)) => {\n");
-    out.push_str("            let s = match serde_json::to_string(&chunk) {\n");
-    out.push_str("                Ok(s) => s,\n");
-    out.push_str("                Err(e) => {\n");
-    out.push_str(
-        "                    throw_jni_error(env, &format!(\"serialize: {e}\")); return std::ptr::null_mut();\n",
-    );
-    out.push_str("                }\n");
-    out.push_str("            };\n");
-    out.push_str("            string_to_jstring(env, &s)\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
-
-    // Free shim: (streamHandle: Long)
-    out.push_str(&format!(
-        "#[unsafe(no_mangle)]\npub unsafe extern \"system\" fn {free_sym}(\n    _env: EnvUnowned,\n    _class: JClass,\n    stream_handle: jlong,\n) {{\n"
-    ));
-    out.push_str("    if stream_handle == 0 { return; }\n");
-    out.push_str("    // SAFETY: stream_handle was produced by the matching Start shim.\n");
-    out.push_str(&format!(
-        "    unsafe {{ let _ = Box::from_raw(stream_handle as *mut {stream_handle_type}); }}\n"
-    ));
-    out.push_str("}\n\n");
 }
 
 // ---------------------------------------------------------------------------
