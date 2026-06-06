@@ -180,13 +180,14 @@ fn gen_service_class(api: &ApiSurface, service: &ServiceDef, package: &str, conf
                     java_type => &java_type,
                 },
             ));
-            metadata_signature.push_str(&template_env::render(
+            let signature_param = template_env::render(
                 "service_metadata_signature_param.jinja",
                 context! {
                     java_type => &java_type,
                     param_name => &param_name,
                 },
-            ));
+            );
+            metadata_signature.push_str(signature_param.trim_end());
         }
 
         let descriptor_layouts = descriptor_layouts(&reg.metadata_params);

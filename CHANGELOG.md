@@ -42,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java**: trim rendered service metadata signature fragments so templated parameter fragments do not split generated Java method signatures across lines. (`src/backends/java/gen_bindings/service_api.rs`)
+
 - **extendr/R**: JSON-bridged optional named DTO and enum parameters now pass owned `Option<T>` values
   to owned core parameters instead of `Option<&T>`, while still using references for ref parameters.
   (`src/backends/extendr/gen_bindings/mod.rs`, `tests/backends_extendr_gen_bindings_test.rs`)
