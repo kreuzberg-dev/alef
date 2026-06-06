@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **scaffold/precommit**: the generated `.pre-commit-config.yaml` now sources
+  every file-safety, cargo, rumdl, typos, and pyproject-fmt hook from
+  `kreuzberg-dev/pre-commit-hooks` (pinned at `v2.1.0`) instead of nine
+  separate upstream repositories. The template drops the `pre-commit-cargo`,
+  `cargo-sort`, `cargo-machete`, `cargo-deny`, `rumdl-pre-commit`, `typos`,
+  `pyproject-fmt`, and `pre-commit/pre-commit-hooks` source pins (collapsed
+  into the single `KREUZBERG_PRE_COMMIT_HOOKS_REV` constant). Adds three new
+  file-safety hooks (`check-executables-have-shebangs`,
+  `check-shebang-scripts-are-executable`, `mixed-line-ending`) and the
+  `rust-max-lines` hook (default `--max=1000`, test files excluded by
+  default, enforcing the 1,000-line `file-modularization` rule on new
+  scaffolded repos). Existing repos are unaffected — `scaffold_pre_commit_config`
+  short-circuits when `.pre-commit-config.yaml` already exists.
+  (`src/scaffold/templates/precommit_config.yaml.jinja`,
+  `src/scaffold/languages/precommit.rs`, `src/core/template_versions.rs`)
+
 ### Fixed
 - **extendr/R**: flat data enums with struct variants (e.g. `VlmFallbackPolicy::OnLowQuality { quality_threshold: f64 }`) now correctly generate `From<core::Enum>` impl. Previously, the code checked `!can_flat_data_enum_round_trip(e) && e.serde_tag.is_some()` and skipped enum conversion generation, assuming a JSON passthrough wrapper would be created; however, `is_json_passthrough_data_enum` returns false for flat data enums, so neither the wrapper nor the conversion was generated. This left types like `VlmFallbackPolicy` and `FormatMetadata` without `From` impls, causing compilation errors in parent struct conversions (e.g., `ExtractionResult`). The fix always generates `From<core>` for flat data enums, with struct variants pattern-matched as `{ .. }` to discard their data (acceptable for output-only types in R bindings). Regression test: `tests/backends_extendr_enum_conversions_test.rs::extendr_flat_data_enum_with_struct_variant_generates_from_core_impl`. (`src/backends/extendr/gen_bindings/mod.rs`, `src/backends/extendr/templates/flat_enum_from_core_variant_struct.jinja`)
 - **php**: PHPDoc `@param` lines no longer emit double-nullable `??string` for optional parameters. When a function has both required and optional string parameters, the nullable flag was being applied twice: once from `TypeRef::Optional` handling in `php_phpdoc_type()` and again from redundant `nullable_prefix` in the template context. The fix removes the duplicate prefix (the type structure already encodes optionality). Required `&str` parameters remain non-nullable in signatures and PHPDoc even when followed by optional parameters. Regression test: `tests/backends_php_gen_bindings_test.rs::test_php_required_str_param_not_nullable_with_optional_tail`. (`src/backends/php/gen_bindings/mod.rs`)

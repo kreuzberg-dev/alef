@@ -1416,6 +1416,56 @@ fn test_pre_commit_config_all_languages() {
     assert!(!content.contains("r-lintr"));
 }
 
+#[test]
+fn test_pre_commit_config_uses_kreuzberg_dev_shared_repo() {
+    let config = test_config();
+    let files = generate_pre_commit_config(&config, &[Language::Python]);
+    let content = &files[0].content;
+    // All cargo/rumdl/typos/pyproject-fmt/file-safety hooks live under the
+    // single shared repo as of kreuzberg-dev/pre-commit-hooks v2.0.0.
+    assert!(content.contains("https://github.com/kreuzberg-dev/pre-commit-hooks"));
+    // The dropped upstream sources must NOT reappear in the scaffold output.
+    assert!(!content.contains("https://github.com/pre-commit/pre-commit-hooks"));
+    assert!(!content.contains("AndrejOrsula/pre-commit-cargo"));
+    assert!(!content.contains("DevinR528/cargo-sort"));
+    assert!(!content.contains("bnjbvr/cargo-machete"));
+    assert!(!content.contains("EmbarkStudios/cargo-deny"));
+    assert!(!content.contains("rvben/rumdl-pre-commit"));
+    assert!(!content.contains("tox-dev/pyproject-fmt"));
+    assert!(!content.contains("crate-ci/typos"));
+}
+
+#[test]
+fn test_pre_commit_config_includes_rust_max_lines() {
+    let config = test_config();
+    let files = generate_pre_commit_config(&config, &[Language::Ffi]);
+    let content = &files[0].content;
+    // rust-max-lines lives under the shared block; default --max=1000.
+    assert!(content.contains("rust-max-lines"));
+    assert!(content.contains("--max=1000"));
+}
+
+#[test]
+fn test_pre_commit_config_includes_new_file_safety_hooks() {
+    let config = test_config();
+    let files = generate_pre_commit_config(&config, &[Language::Ffi]);
+    let content = &files[0].content;
+    // Added in kreuzberg-dev/pre-commit-hooks v2.0.0.
+    assert!(content.contains("check-executables-have-shebangs"));
+    assert!(content.contains("check-shebang-scripts-are-executable"));
+    assert!(content.contains("mixed-line-ending"));
+}
+
+#[test]
+fn test_pre_commit_config_drops_cargo_check_hook() {
+    let config = test_config();
+    let files = generate_pre_commit_config(&config, &[Language::Ffi]);
+    let content = &files[0].content;
+    // cargo-check was removed in v2.0.0 — cargo-clippy with -D warnings
+    // already runs the same compile pipeline plus the clippy lints.
+    assert!(!content.contains("id: cargo-check"));
+}
+
 // --- Oxc toolchain tests ---
 
 #[test]

@@ -13,10 +13,12 @@ repos:
         args: ["--write"]
         stages: [commit-msg]
 
-  # General file checks
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: {{ pre_commit_hooks }}
+  # Shared kreuzberg-dev hooks bundle — file safety, Rust (cargo-*, rustdoc,
+  # rust-max-lines), Markdown (rumdl), typos, and pyproject-fmt all live here.
+  - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
+    rev: {{ kreuzberg_pre_commit_hooks }}
     hooks:
+      # File safety
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-merge-conflict
@@ -27,27 +29,20 @@ repos:
         args: ["--allow-multiple-documents", "--unsafe"]
       - id: check-toml
       - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: mixed-line-ending
+      - id: typos
+        args: ["--force-exclude"]
 
 {% if has_python %}
-  - repo: https://github.com/tox-dev/pyproject-fmt
-    rev: "{{ pyproject_fmt }}"
-    hooks:
+      # Python project surface
       - id: pyproject-fmt
 
 {% endif %}
-  - repo: https://github.com/DevinR528/cargo-sort
-    rev: "{{ cargo_sort }}"
-    hooks:
-      - id: cargo-sort
-        args: [-w]
-
-  # Rust: formatting, linting, unused deps, license/advisory
-  - repo: https://github.com/AndrejOrsula/pre-commit-cargo
-    rev: {{ pre_commit_cargo }}
-    hooks:
+      # Rust — cargo-clippy with -D warnings subsumes cargo check
       - id: cargo-fmt
         args: ["--all"]
-        types: [rust]
       - id: cargo-clippy
         args:
           [
@@ -61,26 +56,23 @@ repos:
             "-D",
             "warnings",
           ]
-
-  - repo: https://github.com/bnjbvr/cargo-machete
-    rev: {{ cargo_machete }}
-    hooks:
+      - id: cargo-sort
       - id: cargo-machete
-
-  - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: {{ cargo_deny }}
-    hooks:
       - id: cargo-deny
         args: ["check"]
+      - id: rustdoc-lint
+      # Enforces a 1,000-line ceiling on .rs files; tests/ paths and tests.rs
+      # submodule files are excluded by default. Pass --include-tests to count
+      # them as well.
+      - id: rust-max-lines
+        args: ["--max=1000"]
 
-  # Markdown
-  - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "{{ rumdl }}"
-    hooks:
+      # Markdown
       - id: rumdl-fmt
 
 {% if include_shared_hooks %}
-  # Shell, Dockerfile, and docs prose (shared hooks)
+  # Optional per-repo extension repo (set scaffold.precommit.shared_hooks_repo
+  # in alef.toml to point at a fork or a sibling hooks repo).
   - repo: {{ shared_hooks_repo }}
     rev: {{ shared_hooks_rev }}
     hooks:
@@ -120,9 +112,3 @@ repos:
 {% endif %}
 
 {% endif %}
-  # Spelling
-  - repo: https://github.com/crate-ci/typos
-    rev: {{ typos }}
-    hooks:
-      - id: typos
-        args: ["--force-exclude"]

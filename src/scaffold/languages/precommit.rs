@@ -52,13 +52,7 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             has_python => has(Language::Python),
             clippy_excludes => clippy_excludes,
             gitfluff => tv::precommit::GITFLUFF_REV,
-            pre_commit_hooks => tv::precommit::PRE_COMMIT_HOOKS_REV,
-            pyproject_fmt => tv::precommit::PYPROJECT_FMT_REV,
-            cargo_sort => tv::precommit::CARGO_SORT_REV,
-            pre_commit_cargo => tv::precommit::PRE_COMMIT_CARGO_REV,
-            cargo_machete => tv::precommit::CARGO_MACHETE_REV,
-            cargo_deny => tv::precommit::CARGO_DENY_REV,
-            rumdl => tv::precommit::RUMDL_REV,
+            kreuzberg_pre_commit_hooks => tv::precommit::KREUZBERG_PRE_COMMIT_HOOKS_REV,
             include_shared_hooks => include_shared_hooks,
             shared_hooks_repo => precommit.and_then(|p| p.shared_hooks_repo.as_deref()).unwrap_or(""),
             shared_hooks_rev => precommit.and_then(|p| p.shared_hooks_rev.as_deref()).unwrap_or(""),
@@ -68,7 +62,6 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             alef_hooks_are_local => precommit
                 .and_then(|p| p.alef_hooks_repo.as_deref())
                 .unwrap_or(DEFAULT_ALEF_HOOKS_REPO) == "local",
-            typos => tv::precommit::TYPOS_REV,
         },
     );
 
