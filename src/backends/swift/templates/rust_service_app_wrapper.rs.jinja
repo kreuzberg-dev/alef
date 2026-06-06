@@ -1,0 +1,42 @@
+/// Wrapper for {{ service_name }} service instance.
+/// Holds the inner service in a blocking mutex to allow mutable access
+/// across FFI boundaries.
+pub struct {{ service_name }} {
+    pub inner: tokio::sync::Mutex<Option<{{ service_path }}>>,
+}
+
+impl {{ service_name }} {
+    /// Create a new service instance.
+    pub fn new() -> Self {
+        Self {
+            inner: tokio::sync::Mutex::new(Some({{ service_path }}::{{ constructor }}())),
+        }
+    }
+
+    /// Configure the service.
+    pub fn config(&mut self) {
+        // Placeholder for future configuration.
+    }
+
+    /// Run the service (blocking, drives the Tokio runtime).
+    ///
+    /// Returns an empty string on success or the error message.
+    pub fn run(&mut self) -> String {
+        let rt = match tokio::runtime::Runtime::new() {
+            Ok(rt) => rt,
+            Err(e) => return format!("runtime error: {:?}", e),
+        };
+        rt.block_on(async {
+            let mut guard = self.inner.lock().await;
+            if let Some(app) = guard.take() {
+                match app.run().await {
+                    Ok(()) => String::new(),
+                    Err(e) => format!("{:?}", e),
+                }
+            } else {
+                "service already consumed".to_string()
+            }
+        })
+    }
+}
+

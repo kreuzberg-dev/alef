@@ -389,7 +389,19 @@ impl Backend for SwiftBackend {
         // re-exposed as a top-level public function on the host module.
         let client_class_names: std::collections::HashSet<String> =
             client_constructor_types.iter().map(|&s| s.to_string()).collect();
-        emit_free_function_forwarders(api, config, &known_dto_names, &client_class_names, &mut body);
+        let all_enum_names: std::collections::HashSet<String> = unit_serde_enum_names
+            .iter()
+            .chain(untagged_enum_names.iter())
+            .cloned()
+            .collect();
+        emit_free_function_forwarders(
+            api,
+            config,
+            &known_dto_names,
+            &all_enum_names,
+            &client_class_names,
+            &mut body,
+        );
 
         // Emit top-level public forwarders for trait-bridge register/unregister/clear
         // entry points. These are synthesised from `[[trait_bridges]]` in alef.toml
@@ -684,11 +696,18 @@ fn emit_first_class_struct(
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
-        if field.optional && !already_optional {
-            properties.push_str(&format!("    public let {camel}: {swift_ty}?\n"));
+        let property_type = if field.optional && !already_optional {
+            format!("{swift_ty}?")
         } else {
-            properties.push_str(&format!("    public let {camel}: {swift_ty}\n"));
-        }
+            swift_ty
+        };
+        properties.push_str(&crate::backends::swift::template_env::render(
+            "swift_struct_property.swift.jinja",
+            minijinja::context! {
+                name => camel,
+                ty => property_type,
+            },
+        ));
     }
 
     // Memberwise init with default-nil for Optional fields.
@@ -711,7 +730,13 @@ fn emit_first_class_struct(
     let mut init_assignments = String::new();
     for field in &visible_fields {
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
-        init_assignments.push_str(&format!("        self.{camel} = {camel}\n"));
+        init_assignments.push_str(&crate::backends::swift::template_env::render(
+            "swift_self_assignment.swift.jinja",
+            minijinja::context! {
+                field => camel,
+                expr => camel,
+            },
+        ));
     }
 
     // CodingKeys: emit when at least one field's camelCase name differs from the
@@ -727,7 +752,13 @@ fn emit_first_class_struct(
         for field in &visible_fields {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
             let wire_key = &field.name;
-            coding_keys.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
+            coding_keys.push_str(&crate::backends::swift::template_env::render(
+                "swift_coding_key.swift.jinja",
+                minijinja::context! {
+                    name => camel,
+                    wire_key => wire_key,
+                },
+            ));
         }
     }
 
@@ -838,7 +869,13 @@ fn emit_first_class_struct(
                 untagged_enum_names,
             )
         };
-        ffi_init_assignments.push_str(&format!("        self.{swift_field} = {expr}\n"));
+        ffi_init_assignments.push_str(&crate::backends::swift::template_env::render(
+            "swift_self_assignment.swift.jinja",
+            minijinja::context! {
+                field => swift_field,
+                expr => expr,
+            },
+        ));
     }
 
     // func intoRust() — prefer a direct `RustBridge.{Type}(...)` bulk-constructor call
@@ -858,7 +895,12 @@ fn emit_first_class_struct(
             let from_json_fn = format!("{type_snake}_from_json").to_lower_camel_case();
             into_rust_body.push_str("        let data = try JSONEncoder().encode(self)\n");
             into_rust_body.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
-            into_rust_body.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
+            into_rust_body.push_str(&crate::backends::swift::template_env::render(
+                "swift_into_rust_json_return.swift.jinja",
+                minijinja::context! {
+                    from_json_fn => from_json_fn,
+                },
+            ));
         }
     }
     out.push_str(&crate::backends::swift::template_env::render(
@@ -981,8 +1023,12 @@ fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&crate::core::ir::F
             // `decodeIfPresent` is the inner (non-optional) form —
             // `decodeIfPresent(T.self, ...)` already returns `T?`.
             let inner_ty = swift_ty.strip_suffix('?').unwrap_or(&swift_ty);
-            out.push_str(&format!(
-                "        self.{camel} = try container.decodeIfPresent({inner_ty}.self, forKey: .{camel}) ?? nil\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "swift_decode_optional_assignment.swift.jinja",
+                minijinja::context! {
+                    field => camel,
+                    ty => inner_ty,
+                },
             ));
             continue;
         }
@@ -1001,13 +1047,22 @@ fn emit_decoder_init(mapper: &SwiftMapper, visible_fields: &[&crate::core::ir::F
 
         match fallback {
             Some(fb) => {
-                out.push_str(&format!(
-                    "        self.{camel} = try container.decodeIfPresent({swift_ty}.self, forKey: .{camel}) ?? {fb}\n"
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "swift_decode_default_assignment.swift.jinja",
+                    minijinja::context! {
+                        field => camel,
+                        ty => swift_ty,
+                        fallback => fb,
+                    },
                 ));
             }
             None => {
-                out.push_str(&format!(
-                    "        self.{camel} = try container.decode({swift_ty}.self, forKey: .{camel})\n"
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "swift_decode_required_assignment.swift.jinja",
+                    minijinja::context! {
+                        field => camel,
+                        ty => swift_ty,
+                    },
                 ));
             }
         }
@@ -3676,6 +3731,7 @@ fn emit_free_function_forwarders(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
     known_dto_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
     client_class_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
@@ -3728,7 +3784,7 @@ fn emit_free_function_forwarders(
             emitted_any = true;
         }
         if func.is_async {
-            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, out);
+            emit_async_free_function_forwarder(func, &swift_name, known_dto_names, enum_names, out);
         } else {
             emit_single_free_function_forwarder(func, &swift_name, known_dto_names, client_class_names, out);
         }
@@ -3879,6 +3935,7 @@ fn emit_async_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
     known_dto_names: &std::collections::HashSet<String>,
+    enum_names: &std::collections::HashSet<String>,
     out: &mut String,
 ) {
     let return_conversion_throws = return_value_conversion_throws(&func.return_type, known_dto_names);
@@ -3913,15 +3970,34 @@ fn emit_async_free_function_forwarder(
             forwarder_param_signature(&param.ty, &swift_param_name, param.optional, known_dto_names);
         let param_default = if param.optional { " = nil" } else { "" };
         sig_params.push(format!("{swift_param_name}: {swift_ty}{param_default}"));
-        if let Some(line) = local_expr.setup_line.clone() {
-            conversion_lines.push(line);
+
+        // Check if this param is an enum type that needs JSON encoding.
+        // If so, we'll handle it specially; don't add the setup_line from forwarder_param_signature.
+        let is_enum_param = matches!(&param.ty, TypeRef::Named(name) if enum_names.contains(name));
+
+        // Add setup_line only if this is not an enum param
+        // (enums are handled below with JSON encoding instead).
+        if !is_enum_param {
+            if let Some(line) = local_expr.setup_line.clone() {
+                conversion_lines.push(line);
+            }
         }
+
         // When we have a Vec<DTO> parameter, the generic type is constrained to RustString,
         // so we must wrap all String parameters in RustString() for type compatibility.
         // Additionally, wrap ANY String parameter to give Swift's type inference a hand
         // inside the Task.detached closure, where generic inference is weaker.
         let arg_expr = if matches!(&param.ty, TypeRef::String) && !param.optional {
             format!("RustString({swift_param_name})")
+        } else if is_enum_param {
+            // JSON-encode the enum to a String for the bridge call.
+            // The bridge expects a String because swift-bridge cannot directly
+            // represent Rust enums in the extern block.
+            let local = format!("_rb_{swift_param_name}");
+            conversion_lines.push(format!(
+                "let {local} = try String(data: JSONEncoder().encode({swift_param_name}), encoding: .utf8) ?? \"null\""
+            ));
+            local
         } else {
             local_expr.arg_expr
         };
@@ -4029,6 +4105,11 @@ fn emit_async_free_function_forwarder(
             let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
             body.push_str(&format!("        return result{suffix}\n"));
         }
+    } else if matches!(&func.return_type, TypeRef::Unit) {
+        // Unit return: just call the bridge function, no binding needed
+        // Note: bridge_call already includes "try" if the function has error handling,
+        // so we don't add effective_try here
+        body.push_str(&format!("        {bridge_call}\n"));
     } else {
         body.push_str(&format!("        let result = {bridge_call}\n"));
         body.push_str(&format!("{return_stmt}\n"));

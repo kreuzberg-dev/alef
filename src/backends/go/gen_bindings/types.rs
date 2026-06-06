@@ -1446,7 +1446,6 @@ pub(super) fn gen_struct_type(
 
         // Emit the anonymous helper struct with all fields,
         // replacing data-enum fields with json.RawMessage.
-        out.push_str("\tvar raw struct {\n");
         for field in binding_fields(&typ.fields) {
             if is_tuple_field(field) {
                 continue;

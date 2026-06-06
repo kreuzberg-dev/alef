@@ -273,6 +273,34 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/first_class_struct.swift.jinja"),
     ),
     (
+        "swift_struct_property.swift.jinja",
+        include_str!("templates/swift_struct_property.swift.jinja"),
+    ),
+    (
+        "swift_self_assignment.swift.jinja",
+        include_str!("templates/swift_self_assignment.swift.jinja"),
+    ),
+    (
+        "swift_coding_key.swift.jinja",
+        include_str!("templates/swift_coding_key.swift.jinja"),
+    ),
+    (
+        "swift_decode_optional_assignment.swift.jinja",
+        include_str!("templates/swift_decode_optional_assignment.swift.jinja"),
+    ),
+    (
+        "swift_decode_default_assignment.swift.jinja",
+        include_str!("templates/swift_decode_default_assignment.swift.jinja"),
+    ),
+    (
+        "swift_decode_required_assignment.swift.jinja",
+        include_str!("templates/swift_decode_required_assignment.swift.jinja"),
+    ),
+    (
+        "swift_into_rust_json_return.swift.jinja",
+        include_str!("templates/swift_into_rust_json_return.swift.jinja"),
+    ),
+    (
         "swift_enum_decl.swift.jinja",
         include_str!("templates/swift_enum_decl.swift.jinja"),
     ),
@@ -430,6 +458,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_from_json_shim.rs.jinja"),
     ),
     (
+        "rust_service_app_wrapper.rs.jinja",
+        include_str!("templates/rust_service_app_wrapper.rs.jinja"),
+    ),
+    (
+        "rust_service_app_free_fns.rs.jinja",
+        include_str!("templates/rust_service_app_free_fns.rs.jinja"),
+    ),
+    (
+        "rust_wrapper_constructor_fn.rs.jinja",
+        include_str!("templates/rust_wrapper_constructor_fn.rs.jinja"),
+    ),
+    (
+        "rust_newtype_from_impl.rs.jinja",
+        include_str!("templates/rust_newtype_from_impl.rs.jinja"),
+    ),
+    (
+        "rust_bidirectional_newtype_from_impls.rs.jinja",
+        include_str!("templates/rust_bidirectional_newtype_from_impls.rs.jinja"),
+    ),
+    (
         "inbound_registration_fn.rs.jinja",
         include_str!("templates/inbound_registration_fn.rs.jinja"),
     ),
@@ -446,8 +494,20 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/inbound_wrapper_struct.rs.jinja"),
     ),
     (
+        "inbound_plain_wrapper_struct.rs.jinja",
+        include_str!("templates/inbound_plain_wrapper_struct.rs.jinja"),
+    ),
+    (
+        "inbound_plain_wrapper_debug.rs.jinja",
+        include_str!("templates/inbound_plain_wrapper_debug.rs.jinja"),
+    ),
+    (
         "inbound_plugin_impl.rs.jinja",
         include_str!("templates/inbound_plugin_impl.rs.jinja"),
+    ),
+    (
+        "inbound_plugin_path_compile_error.rs.jinja",
+        include_str!("templates/inbound_plugin_path_compile_error.rs.jinja"),
     ),
     (
         "inbound_trait_impl_open.rs.jinja",
@@ -524,6 +584,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "rust_extern_service_methods.rs.jinja",
         include_str!("templates/rust_extern_service_methods.rs.jinja"),
+    ),
+    (
+        "rust_wrapper_free_fn.rs.jinja",
+        include_str!("templates/rust_wrapper_free_fn.rs.jinja"),
     ),
     (
         "swift_file_header.swift.jinja",

@@ -1097,8 +1097,14 @@ pub(crate) fn emit_type_method_shims(
         } else {
             format!(" -> {return_ty}")
         };
-        out.push_str(&format!(
-            "pub fn {fn_name}({params_str}){return_clause} {{\n{body}\n}}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_wrapper_free_fn.rs.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                params => params_str,
+                return_clause => return_clause,
+                body => body,
+            },
         ));
     }
     out

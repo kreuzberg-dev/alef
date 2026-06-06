@@ -712,7 +712,10 @@ impl Backend for ExtendrBackend {
                 let func_params_need_json = func.params.iter().any(|p| {
                     is_extendr_native_incompatible(&p.ty)
                         || matches!(&p.ty, crate::core::ir::TypeRef::Named(n)
-                            if extendr_incompatible_types.contains(n.as_str()))
+                            if extendr_incompatible_types.contains(n.as_str()) || enum_names.contains(n.as_str()))
+                        || matches!(&p.ty, crate::core::ir::TypeRef::Optional(inner)
+                            if matches!(inner.as_ref(), crate::core::ir::TypeRef::Named(n)
+                                if enum_names.contains(n.as_str())))
                 });
                 if func_return_needs_json || func_params_need_json {
                     builder.add_item(&gen_extendr_json_bridged_function(
@@ -1920,7 +1923,13 @@ fn return_type_needs_json(
     opaque_types: &AHashSet<String>,
 ) -> bool {
     match ret {
-        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+        TypeRef::Named(n) => {
+            // Bare Enum: extendr enums don't impl From<T> for Robj
+            if enum_names.contains(n.as_str()) {
+                return true;
+            }
+            extendr_incompatible_types.contains(n.as_str())
+        }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Named(n) => {
                 // Vec<Enum>: extendr-generated enums don't impl From<Vec<T>> for Robj
@@ -2017,6 +2026,11 @@ fn gen_extendr_json_bridged_function(
         // also cross the boundary as JSON strings — same as Vec<Struct>.
         let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
             if extendr_incompatible_types.contains(n.as_str()));
+        // Bare Named enum params: extendr enums don't have TryFrom<&Robj> impl, must use JSON.
+        let needs_json_enum = matches!(&param.ty, TypeRef::Named(n)
+            if enum_names.contains(n.as_str()))
+            || matches!(&param.ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
         if needs_json_vec {
             // Take JSON string, deserialize to core Vec<T> or Option<Vec<T>>.
             let (core_ty_path, is_optional) = match &param.ty {
@@ -2071,6 +2085,43 @@ fn gen_extendr_json_bridged_function(
             let core_ty_path = format!("{core_import}::{n}");
             let mut_kw = if param.is_mut { "mut " } else { "" };
             if param.optional {
+                sig_params.push(format!("{}: Option<String>", param.name));
+                body_preamble.push_str(&crate::backends::extendr::template_env::render(
+                    "json_struct_optional_preamble.jinja",
+                    minijinja::context! {
+                        mut_kw => mut_kw,
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err => &err_map,
+                    },
+                ));
+                body_preamble.push_str("    ");
+            } else {
+                sig_params.push(format!("{}: String", param.name));
+                body_preamble.push_str(&crate::backends::extendr::template_env::render(
+                    "json_struct_required_preamble.jinja",
+                    minijinja::context! {
+                        mut_kw => mut_kw,
+                        name => &param.name,
+                        ty => &core_ty_path,
+                        err => &err_map,
+                    },
+                ));
+                body_preamble.push_str("    ");
+            }
+        } else if needs_json_enum {
+            // Take JSON string, deserialize to core enum type directly or Option<EnumType>.
+            let (core_ty_path, is_optional) = match &param.ty {
+                TypeRef::Named(n) => (format!("{core_import}::{n}"), false),
+                TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
+                    TypeRef::Named(n) => (format!("{core_import}::{n}"), true),
+                    _ => unreachable!(),
+                },
+                _ => unreachable!(),
+            };
+            let mut_kw = if param.is_mut { "mut " } else { "" };
+            let param_is_optional = param.optional || is_optional;
+            if param_is_optional {
                 sig_params.push(format!("{}: Option<String>", param.name));
                 body_preamble.push_str(&crate::backends::extendr::template_env::render(
                     "json_struct_optional_preamble.jinja",
@@ -2209,6 +2260,10 @@ fn gen_extendr_json_bridged_function(
             };
             let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
                 if extendr_incompatible_types.contains(n.as_str()));
+            let needs_json_enum = matches!(&param.ty, TypeRef::Named(n)
+                if enum_names.contains(n.as_str()))
+                || matches!(&param.ty, TypeRef::Optional(inner)
+                    if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
             if needs_json {
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
@@ -2217,14 +2272,16 @@ fn gen_extendr_json_bridged_function(
                 } else {
                     format!("{}_core", param.name)
                 }
-            } else if needs_json_struct || matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
+            } else if needs_json_struct
+                || needs_json_enum
+                || matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
             {
                 if param.optional {
                     format!("{}_core.as_ref()", param.name)
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
                 } else {
-                    format!("&{}_core", param.name)
+                    format!("{}_core", param.name)
                 }
             } else {
                 gen_call_args_cfg(
@@ -2250,7 +2307,8 @@ fn gen_extendr_json_bridged_function(
             }
             _ => false,
         },
-        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()),
+        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()) || enum_names.contains(n.as_str()),
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())),
         _ => false,
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;

@@ -1,0 +1,7 @@
+/// Construct a [`{{ wrapper_type }}`] from its constructor args for use by Swift variant
+/// registration shortcuts. Fixed args (e.g. Method) are passed as opaque references;
+/// their `to_string()` returns the serde wire name used to reconstruct the Rust core type.
+pub fn {{ fn_name }}({{ params }}) -> {{ wrapper_type }} {
+    {{ wrapper_type }}({{ wrapper_path }}::{{ constructor }}({{ call_args }}))
+}
+

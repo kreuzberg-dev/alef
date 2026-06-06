@@ -34,61 +34,19 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
         };
         let constructor = &service.constructor.name;
 
-        out.push_str(&format!(
-            "/// Wrapper for {service_name} service instance.\n\
-             /// Holds the inner service in a blocking mutex to allow \
-             mutable access\n\
-             /// across FFI boundaries.\n\
-             pub struct {service_name} {{\n\
-             \x20\x20\x20\x20pub inner: tokio::sync::Mutex<Option<{service_path}>>,\n\
-             }}\n\n"
-        ));
-
-        out.push_str(&format!(
-            "impl {service_name} {{\n\
-             \x20\x20\x20\x20/// Create a new service instance.\n\
-             \x20\x20\x20\x20pub fn new() -> Self {{\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20Self {{\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20inner: tokio::sync::Mutex::new(Some({service_path}::{constructor}())),\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20}}\n\
-             \x20\x20\x20\x20}}\n\n"
-        ));
-
-        out.push_str(
-            "    /// Configure the service.\n\
-             \x20\x20\x20\x20pub fn config(&mut self) {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20// Placeholder for future configuration.\n\
-             \x20\x20\x20\x20}\n\n",
-        );
-
         // The bridge declares `fn app_run(self: &mut App) -> String;` because swift-bridge 0.1.59
         // does not parse by-value `self: App` consume-self in `extern "Rust"` blocks. The
         // wrapper's `run` therefore takes `&mut self`, `take()`s the inner App out of the
         // Mutex (single-shot consume), and returns a String envelope describing success or
         // the error (Result<T, E> is not bridgeable across this swift-bridge version).
-        out.push_str(
-            "    /// Run the service (blocking, drives the Tokio runtime).\n\
-             \x20\x20\x20\x20///\n\
-             \x20\x20\x20\x20/// Returns an empty string on success or the error message.\n\
-             \x20\x20\x20\x20pub fn run(&mut self) -> String {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20let rt = match tokio::runtime::Runtime::new() {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Ok(rt) => rt,\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Err(e) => return format!(\"runtime error: {:?}\", e),\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20};\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20rt.block_on(async {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20let mut guard = self.inner.lock().await;\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20if let Some(app) = guard.take() {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20match app.run().await {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Ok(()) => String::new(),\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20Err(e) => format!(\"{:?}\", e),\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20}\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20} else {\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\"service already consumed\".to_string()\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20}\n\
-             \x20\x20\x20\x20\x20\x20\x20\x20})\n\
-             \x20\x20\x20\x20}\n\
-             }\n\n",
-        );
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_service_app_wrapper.rs.jinja",
+            minijinja::context! {
+                service_name => service_name,
+                service_path => service_path,
+                constructor => constructor,
+            },
+        ));
 
         // swift-bridge extern blocks declare these as free fns taking `client: &mut Foo`
         // (see rust_extern_service_methods.rs.jinja). The bridge then expects matching
@@ -98,13 +56,12 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
         // for the @_silgen_name'd extern "C" callback registration shim — swift-bridge's
         // generated `ptr` field is `internal` and unreachable from consumer modules.
         let service_snake_local = service_name.to_lowercase();
-        out.push_str(&format!(
-            "/// Free-function shim so the bridge declaration resolves.\n\
-             pub fn config(client: &mut {service_name}) {{ client.config() }}\n\n\
-             /// Free-function shim so the bridge declaration resolves.\n\
-             pub fn run(client: &mut {service_name}) -> String {{ client.run() }}\n\n\
-             /// Expose the wrapper's address as a usize for cross-bridge ptr handoff.\n\
-             pub fn {service_snake_local}_raw_ptr(client: &mut {service_name}) -> usize {{ client as *mut {service_name} as usize }}\n\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_service_app_free_fns.rs.jinja",
+            minijinja::context! {
+                service_name => service_name,
+                service_snake => service_snake_local,
+            },
         ));
 
         // Emit `route_builder_new`-style free functions for each unique WrapperConstructorCall.
@@ -163,13 +120,16 @@ pub fn emit_service_app_wrappers(api: &ApiSurface, source_crate: &str) -> String
                 let wrapper_type = &wc.wrapper_type_name;
                 let wrapper_path = &wc.wrapper_type_path;
                 let ctor = &wc.constructor_method;
-                out.push_str(&format!(
-                    "/// Construct a [`{wrapper_type}`] from its constructor args for use by Swift variant\n\
-                     /// registration shortcuts. Fixed args (e.g. Method) are passed as opaque references;\n\
-                     /// their `to_string()` returns the serde wire name used to reconstruct the Rust core type.\n\
-                     pub fn {fn_name}({params_str}) -> {wrapper_type} {{\n\
-                     \x20\x20\x20\x20{wrapper_type}({wrapper_path}::{ctor}({call_args_str}))\n\
-                     }}\n\n"
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "rust_wrapper_constructor_fn.rs.jinja",
+                    minijinja::context! {
+                        wrapper_type => wrapper_type,
+                        fn_name => fn_name,
+                        params => params_str,
+                        wrapper_path => wrapper_path,
+                        constructor => ctor,
+                        call_args => call_args_str,
+                    },
                 ));
             }
         }

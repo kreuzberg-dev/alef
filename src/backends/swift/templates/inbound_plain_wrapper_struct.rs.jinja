@@ -1,0 +1,18 @@
+/// Rust-side wrapper around a Swift class implementing the `{{ trait_name }}` protocol.
+///
+/// The Swift instance is held via a `swift-bridge` opaque handle that retains
+/// the underlying ARC reference for the lifetime of this struct. Send + Sync are
+/// asserted unsafely: Swift classes used as trait bridges must be thread-safe.
+pub struct {{ wrapper_name }} {
+    inner: ffi::{{ box_name }},
+}
+unsafe impl Send for {{ wrapper_name }} {}
+unsafe impl Sync for {{ wrapper_name }} {}
+
+impl {{ wrapper_name }} {
+    /// Construct a new wrapper from a Swift `{{ box_name }}` handle.
+    pub fn new(inner: ffi::{{ box_name }}) -> Self {
+        Self { inner }
+    }
+}
+

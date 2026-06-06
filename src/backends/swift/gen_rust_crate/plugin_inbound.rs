@@ -263,24 +263,13 @@ pub(crate) fn emit_inbound_wrapper(
         ));
     } else {
         // Non-Plugin trait: emit a simpler wrapper struct without name_cache.
-        out.push_str(&format!(
-            "/// Rust-side wrapper around a Swift class implementing the `{trait_name}` protocol.\n\
-             ///\n\
-             /// The Swift instance is held via a `swift-bridge` opaque handle that retains\n\
-             /// the underlying ARC reference for the lifetime of this struct. Send + Sync are\n\
-             /// asserted unsafely: Swift classes used as trait bridges must be thread-safe.\n\
-             pub struct {wrapper_name} {{\n\
-             \x20   inner: ffi::{box_name},\n\
-             }}\n\
-             unsafe impl Send for {wrapper_name} {{}}\n\
-             unsafe impl Sync for {wrapper_name} {{}}\n\
-             \n\
-             impl {wrapper_name} {{\n\
-             \x20   /// Construct a new wrapper from a Swift `{box_name}` handle.\n\
-             \x20   pub fn new(inner: ffi::{box_name}) -> Self {{\n\
-             \x20       Self {{ inner }}\n\
-             \x20   }}\n\
-             }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "inbound_plain_wrapper_struct.rs.jinja",
+            minijinja::context! {
+                trait_name => trait_name,
+                wrapper_name => &wrapper_name,
+                box_name => &box_name,
+            },
         ));
         // Emit `Debug` when the trait's supertrait list includes it. The opaque swift-bridge
         // handle does not derive Debug, so we write a manual impl that identifies the wrapper
@@ -290,12 +279,11 @@ pub(crate) fn emit_inbound_wrapper(
             .iter()
             .any(|s| s == "Debug" || s.ends_with("::Debug"))
         {
-            out.push_str(&format!(
-                "impl ::std::fmt::Debug for {wrapper_name} {{\n\
-                 \x20   fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {{\n\
-                 \x20       f.debug_struct(\"{wrapper_name}\").finish_non_exhaustive()\n\
-                 \x20   }}\n\
-                 }}\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "inbound_plain_wrapper_debug.rs.jinja",
+                minijinja::context! {
+                    wrapper_name => &wrapper_name,
+                },
             ));
         }
     }
@@ -312,10 +300,11 @@ pub(crate) fn emit_inbound_wrapper(
                 },
             ));
         } else {
-            out.push_str(&format!(
-                "compile_error!(\"Swift inbound trait bridge for `{trait_name}` declares a Plugin super-trait, \
-                 but Alef could not resolve its Rust path. Set `super_trait` to a fully-qualified Rust path \
-                 such as `crate_name::Plugin`, or ensure the Plugin trait is present in the extracted IR.\");\n\n"
+            out.push_str(&crate::backends::swift::template_env::render(
+                "inbound_plugin_path_compile_error.rs.jinja",
+                minijinja::context! {
+                    trait_name => trait_name,
+                },
             ));
         }
     }
@@ -987,13 +976,12 @@ pub(crate) fn emit_options_field_from_impls(
     let alias_key = format!("alias::{type_alias}::{inner_path}");
     if !already_emitted.contains(&alias_key) {
         already_emitted.insert(alias_key);
-        out.push_str(&format!(
-            "impl From<{inner_path}> for {type_alias} {{\n    \
-             fn from(v: {inner_path}) -> Self {{ Self(v) }}\n\
-             }}\n\
-             impl From<{type_alias}> for {inner_path} {{\n    \
-             fn from(v: {type_alias}) -> Self {{ v.0 }}\n\
-             }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_bidirectional_newtype_from_impls.rs.jinja",
+            minijinja::context! {
+                wrapper_type => type_alias,
+                inner_type => inner_path,
+            },
         ));
     }
 
@@ -1002,10 +990,12 @@ pub(crate) fn emit_options_field_from_impls(
     let opts_key = format!("opts::{options_type}::{core_options_path}");
     if !already_emitted.contains(&opts_key) {
         already_emitted.insert(opts_key);
-        out.push_str(&format!(
-            "impl From<{core_options_path}> for {options_type} {{\n    \
-             fn from(v: {core_options_path}) -> Self {{ Self(v) }}\n\
-             }}\n"
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_newtype_from_impl.rs.jinja",
+            minijinja::context! {
+                wrapper_type => options_type,
+                inner_type => core_options_path,
+            },
         ));
     }
 
