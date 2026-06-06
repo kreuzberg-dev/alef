@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **extendr/R**: fixed 20 compilation errors in generated R bindings for extendr by:
+  1. **Enum struct-variant exhaustiveness**: When a core enum has struct variants (e.g. `OnLowQuality { quality_threshold: f64 }`) but the binding enum is unit-only (JSON passthrough wrapper), the generated match arms now include a `_` catch-all to handle unrepresented struct variants. This fixes E0004 non-exhaustive patterns on enums like `VlmFallbackPolicy` that have both unit variants and struct variants. (`src/codegen/conversions/enums.rs`)
+  2. **Vec<Enum> parameter exclusion from method signatures**: Methods with `Vec<Enum>` or `Vec<NonOpaqueStruct>` parameters are now correctly excluded from `#[extendr]` impl blocks since extendr cannot auto-convert R list→Vec<T>. The `references_enum` helper now detects `Vec<Enum>` patterns. (`src/backends/extendr/gen_bindings/mod.rs`)
+  3. **JSON Vec parameter reference conversion**: Function parameters deserializing from JSON now correctly pass `&{name}_core` when the core function expects a slice (is_ref=true). Previously, parameters like `categories_core: Vec<PiiCategory>` were passed by value when the function signature required `&[PiiCategory]`, causing E0308 type mismatch. (`src/backends/extendr/gen_bindings/mod.rs`)
+  4. **Primitive return type casting**: Functions returning primitive types that require casting due to type mapping (e.g. u32→i32) now apply the cast (e.g. `result as i32`). Previously, uncast returns caused E0308 type mismatch when the binding return type differed from the core return type. (`src/codegen/generators/functions.rs`)
+
+## [0.23.20] - 2026-06-06
+
+### Fixed
+
+- fix(main): remove shadowed e2e_count that broke "alef all" summary count and triggered -D warnings on cargo install
+
 ## [0.23.19] - 2026-06-06
 
 ### Fixed
