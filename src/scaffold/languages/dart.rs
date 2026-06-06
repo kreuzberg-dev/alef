@@ -80,7 +80,10 @@ description: {description}
 version: {version}
 {repository_line}{homepage_line}environment:
   sdk: '{dart_sdk}'
+executables:
+  download_libs:
 dependencies:
+  http: '^1.1.0'
 {dependency_block}dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'

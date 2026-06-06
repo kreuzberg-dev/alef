@@ -260,6 +260,28 @@ impl Backend for DartBackend {
             generated_header: false,
         });
 
+        // Emit bin/download_libs.dart — runtime script to fetch native libs from GitHub releases.
+        // This script resolves the published native libraries to lib/src/native/<rid>/ on first import.
+        let bin_dir = resolve_output_dir(None, &config.name, "packages/dart/bin");
+        let bin_path = PathBuf::from(format!("{bin_dir}/download_libs.dart"));
+        let lib_stem = config.name.replace('-', "_");
+        let repo_url = config.github_repo();
+        let crate_version = api.version.to_string();
+        let bin_content = crate::backends::dart::template_env::render(
+            "bin_download_libs.jinja",
+            minijinja::context! {
+                crate_name => config.name.as_str(),
+                lib_stem => lib_stem.as_str(),
+                version => &crate_version,
+                repo_url => &repo_url,
+            },
+        );
+        files.push(GeneratedFile {
+            path: bin_path,
+            content: bin_content,
+            generated_header: false,
+        });
+
         Ok(files)
     }
 

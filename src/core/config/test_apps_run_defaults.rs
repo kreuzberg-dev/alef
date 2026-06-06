@@ -206,21 +206,27 @@ pub fn default_test_apps_run_config(
             // SwiftPM package identity is distinct from any sibling package — see
             // `src/e2e/codegen/swift.rs` (`output_base = ...join("swift_e2e")`).
             //
-            // `download_swift_artifact.sh` downloads the .artifactbundle.zip from the
-            // GitHub release, computes its SHA256 via `swift package compute-checksum`,
-            // and substitutes `__ALEF_SWIFT_CHECKSUM__` in Package.swift before tests.
-            // This bypasses SwiftPM tag-URL pinning, which cannot resolve against
-            // placeholder-bearing root manifests at the release tag.
+            // Package.swift uses `.package(url:, from:)` to depend on the published
+            // GitHub release directly — SwiftPM resolves the source archive, so no
+            // pre-test artifact-bundle download step is required.
             precondition: Some(require_tool("swift")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/swift_e2e && bash download_swift_artifact.sh && swift test"
+                "cd {test_apps_dir}/swift_e2e && swift test"
             ))),
         },
         Language::Zig => TestAppRunConfig {
+            // `zig fetch --save` resolves the FFI/package URL pinned in build.zig.zon,
+            // writes the content-addressed multihash back into the manifest, and
+            // populates the global zig cache. This is required because alef emits
+            // build.zig.zon with a placeholder hash that the Zig toolchain refuses
+            // to resolve from a fresh checkout — `zig build test` would otherwise
+            // abort with "expected hash" before any test runs.
             precondition: Some(require_tool("zig")),
             before: None,
-            run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/zig && zig build test"))),
+            run: Some(StringOrVec::Single(format!(
+                "cd {test_apps_dir}/zig && zig fetch --save && zig build test"
+            ))),
         },
         Language::Gleam => TestAppRunConfig {
             precondition: Some(require_tool("gleam")),
@@ -453,6 +459,10 @@ mod tests {
             "must not use swift/ subdir, got: {run}"
         );
         assert!(run.contains("swift test"), "got: {run}");
+        assert!(
+            !run.contains("download_swift_artifact"),
+            "swift run command must not invoke the legacy artifact-bundle download script, got: {run}"
+        );
     }
 
     #[test]
@@ -503,7 +513,17 @@ mod tests {
     fn zig_runs_zig_build_test() {
         let c = cfg(Language::Zig, "test_apps");
         let run = c.run.unwrap().commands().join(" ");
-        assert!(run.contains("cd test_apps/zig && zig build test"), "got: {run}");
+        assert!(run.contains("cd test_apps/zig"), "got: {run}");
+        assert!(run.contains("zig fetch --save"), "got: {run}");
+        assert!(run.contains("zig build test"), "got: {run}");
+        // `zig fetch --save` must precede `zig build test` so the placeholder hash
+        // in build.zig.zon is resolved before the build runs.
+        let fetch_idx = run.find("zig fetch --save").unwrap();
+        let build_idx = run.find("zig build test").unwrap();
+        assert!(
+            fetch_idx < build_idx,
+            "zig fetch --save must run before zig build test, got: {run}"
+        );
     }
 
     #[test]

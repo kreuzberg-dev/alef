@@ -7,11 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.24] - 2026-06-06
+
 ### Added
 
 - **cli**: `ALEF_SKIP_COMMANDS` env var accepting a comma-separated list of post-build `RunCommand` `cmd` names to skip. Each skipped command logs a `warn!`. Useful for CI environments where a tool (e.g. `flutter_rust_bridge_codegen`) is unavailable, hangs trying to install transitive runtimes, or simply isn't desired this run. Falls through to the normal spawn path when unset or when `cmd` isn't in the list. (`src/cli/pipeline/commands.rs`)
 
+- **dart**: runtime native-library downloader. Emits `packages/<crate>/bin/download_libs.dart` (registered as an executable in `pubspec.yaml`) that fetches the platform-specific `lib<stem>_dart.{dylib,so,dll}` from the GitHub release and stages it under `lib/src/native/<rid>/` where `frb_generated.dart`'s `_alefResolveExternalLibrary` already resolves it. pub.dev tarball stays small; consumers run `dart pub get && dart run <crate>:download_libs` once. `pubspec.yaml` template adds `http: ^1.1.0` and an `executables: download_libs:` entry. (`src/backends/dart/templates/bin_download_libs.jinja`, `src/backends/dart/gen_bindings/mod.rs`, `src/backends/dart/template_env.rs`, `src/scaffold/languages/dart.rs`)
+
+- **wasm/python**: fallback smoke-test emission in registry mode. When no `smoke` category fixture exists, alef emits a minimal `tests/smoke.test.ts` (WASM) or `tests/test_smoke.py` (Python) that imports the published package and asserts the module loaded — covering the smoke-task contract referenced by hand-maintained Taskfile entries. (`src/e2e/codegen/wasm.rs`, `src/e2e/codegen/python/mod.rs`)
+
+- **wasm**: `pnpm-workspace.yaml` now templates a `minimumReleaseAgeExclude:` block listing the current package version. Lets local test_app validation against a fresh-published WASM package bypass pnpm's default supply-chain min-release-age policy without disabling the policy globally. (`src/e2e/codegen/wasm.rs`)
+
 ### Fixed
+
+- **go**: align `download_ffi` asset URL to publish workflow naming. The Go binding's `cmd/download_ffi/main.go` was building `kreuzcrawl-go-v<version>-<os>-<arch>.tar.gz` while the publish workflow uploads `kreuzcrawl-go-<os>-<arch>.tar.gz` (no version segment); every `go generate` against a real release returned `HTTP 404` for the asset. Dropped the `v%s-` segment from `assetName` so the constructed URL matches the actual GH release asset. (`src/backends/go/templates/cmd_download_ffi_main.go.jinja`)
+
+- **c**: align `download_ffi.sh` asset URL to publish workflow naming. The C test-app downloader was constructing `kreuzcrawl-ffi-v<version>-<rust-triple>.tar.gz` (rust-target-triple style); the publish workflow uploads `kreuzcrawl-ffi-<alef-platform>.tar.gz` (`macos-arm64`, `linux-x86_64`, `windows-x86_64`, etc.). Reshaped the OS×ARCH case statement to emit a `PLATFORM` variable matching the alef platform name and dropped the version prefix from the archive name; flatten step updated to match. (`src/e2e/codegen/c/project.rs`)
+
+- **swift**: drop dead `render_download_swift_artifact_script` codepath. `Package.swift` switched to `.package(url:, from:)` for registry-mode e2e some releases ago; the download script was no longer wired into production codegen but was still emitted into a stale `test_apps/swift_e2e/download_swift_artifact.sh` that pinned a long-stale RC version, and the `Language::Swift` `TestAppRunConfig` still prefixed it onto the run command. Removed the dead function + its test, and dropped the `bash download_swift_artifact.sh &&` prefix from the run command. (`src/e2e/codegen/swift.rs`, `src/core/config/test_apps_run_defaults.rs`)
+
+- **zig**: prepend `zig fetch --save` to test-apps run command. `build.zig.zon` ships with a placeholder hash that zig 0.16's resolver refuses; the run command now resolves the URL pinned in `build.zig.zon` and writes the multihash back before `zig build test` runs, removing the pre-flight failure consumers were hitting. (`src/core/config/test_apps_run_defaults.rs`)
 
 - **php**: prefix `v` to the version segment of the PIE-packaged asset filename so the publisher output matches PIE 1.4+ asset-name lookup. PIE's `PrePackagedBinaryAssetName::packageNames()` calls `$package->version()`, which Composer/Packagist returns with the leading `v` from the source tag (e.g. `v1.9.0-rc.23`). The previous asset names omitted the prefix, producing `php_<ext>-1.9.0-rc.23_php8.4-arm64-darwin-bsdlibc-nts.tgz` while PIE was looking for `php_<ext>-v1.9.0-rc.23_...-nts.tgz` and aborting with `Could not find release asset`. Both Unix (`.tgz`) and Windows (`.zip`) formats are updated; the function tolerates a pre-existing `v` prefix so callers that already pass `v1.9.0-rc.23` are not double-prefixed. Mirrors the consumer-side change to `extra.pie.binary.url-template` so the URL path also uses bare `{Version}` (PIE substitutes the prefixed form). (`src/publish/package/php.rs`, `src/scaffold/languages/php.rs`, `src/scaffold/tests.rs`)
 

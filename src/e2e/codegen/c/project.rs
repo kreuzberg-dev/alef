@@ -253,7 +253,7 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out);
     let _ = writeln!(out, "case \"$ARCH\" in");
     let _ = writeln!(out, "x86_64 | amd64) ARCH=\"x86_64\" ;;");
-    let _ = writeln!(out, "arm64 | aarch64) ARCH=\"aarch64\" ;;");
+    let _ = writeln!(out, "arm64 | aarch64) ARCH=\"arm64\" ;;");
     let _ = writeln!(out, "*)");
     let _ = writeln!(out, "  echo \"Unsupported architecture: $ARCH\" >&2");
     let _ = writeln!(out, "  exit 1");
@@ -261,15 +261,29 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
     let _ = writeln!(out, "case \"$OS\" in");
-    let _ = writeln!(out, "linux) TRIPLE=\"${{ARCH}}-unknown-linux-gnu\" ;;");
-    let _ = writeln!(out, "darwin) TRIPLE=\"${{ARCH}}-apple-darwin\" ;;");
+    let _ = writeln!(out, "linux)");
+    let _ = writeln!(out, "  case \"$ARCH\" in");
+    let _ = writeln!(out, "  x86_64) PLATFORM=\"linux-x86_64\" ;;");
+    let _ = writeln!(out, "  arm64) PLATFORM=\"linux-aarch64\" ;;");
+    let _ = writeln!(out, "  esac");
+    let _ = writeln!(out, "  ;;");
+    let _ = writeln!(out, "darwin)");
+    let _ = writeln!(out, "  case \"$ARCH\" in");
+    let _ = writeln!(out, "  x86_64) PLATFORM=\"macos-x86_64\" ;;");
+    let _ = writeln!(out, "  arm64) PLATFORM=\"macos-arm64\" ;;");
+    let _ = writeln!(out, "  esac");
+    let _ = writeln!(out, "  ;;");
+    let _ = writeln!(
+        out,
+        "mingw* | msys* | cygwin* | windows) PLATFORM=\"windows-x86_64\" ;;"
+    );
     let _ = writeln!(out, "*)");
     let _ = writeln!(out, "  echo \"Unsupported OS: $OS\" >&2");
     let _ = writeln!(out, "  exit 1");
     let _ = writeln!(out, "  ;;");
     let _ = writeln!(out, "esac");
     let _ = writeln!(out);
-    let _ = writeln!(out, "ARCHIVE=\"${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}.tar.gz\"");
+    let _ = writeln!(out, "ARCHIVE=\"${{FFI_PKG_NAME}}-${{PLATFORM}}.tar.gz\"");
     let _ = writeln!(
         out,
         "URL=\"${{REPO_URL}}/releases/download/v${{VERSION}}/${{ARCHIVE}}\""
@@ -278,11 +292,8 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "echo \"Downloading ${{ARCHIVE}} from v${{VERSION}}...\"");
     let _ = writeln!(out, "mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "curl -fSL \"$URL\" | tar xz -C \"$FFI_DIR\"");
-    let _ = writeln!(out, "# Flatten the versioned subdirectory into the ffi/ root");
-    let _ = writeln!(
-        out,
-        "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-v${{VERSION}}-${{TRIPLE}}"
-    );
+    let _ = writeln!(out, "# Flatten the platform subdirectory into the ffi/ root");
+    let _ = writeln!(out, "EXTRACTED_DIR=\"$FFI_DIR\"/${{FFI_PKG_NAME}}-${{PLATFORM}}");
     let _ = writeln!(out, "if [ -d \"$EXTRACTED_DIR\" ]; then");
     let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
     let _ = writeln!(

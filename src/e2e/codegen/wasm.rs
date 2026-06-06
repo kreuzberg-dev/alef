@@ -305,9 +305,30 @@ impl E2eCodegen for WasmCodegen {
         // (`esbuild`, `tree-sitter`) in. pnpm 11 refuses to silently run
         // postinstall scripts and fails with `ERR_PNPM_IGNORED_BUILDS` unless
         // they are listed explicitly.
+        //
+        // In Registry mode (test_apps/), also emit `minimumReleaseAgeExclude`
+        // pinning the just-published wasm package version so pnpm 11.3+'s
+        // supply-chain freshness gate does not reject installation of the
+        // package under test. The gate rejects packages younger than the
+        // configured minimum release age (default 24h); the
+        // `minimumReleaseAgeExclude` allowlist exempts the specific version.
+        let workspace_yaml_content = {
+            let mut content =
+                String::from("packages:\n  - \".\"\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n");
+            if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+                use std::fmt::Write as _;
+                // minimumReleaseAgeExclude expects a concrete `name@version`
+                // identifier; strip any semver constraint operator (`^`, `~`,
+                // `>`, `<`, `=`) that may be carried over from the
+                // `[crates.e2e.registry.packages.<lang>] version` pin.
+                let bare_version = pkg_version.trim_start_matches(['^', '~', '>', '<', '=']);
+                let _ = write!(content, "minimumReleaseAgeExclude:\n  - '{pkg_name}@{bare_version}'\n");
+            }
+            content
+        };
         files.push(GeneratedFile {
             path: output_base.join("pnpm-workspace.yaml"),
-            content: "packages:\n  - \".\"\nallowBuilds:\n  esbuild: true\n  tree-sitter: true\n".to_string(),
+            content: workspace_yaml_content,
             // `generated_header: true` so the cleanup pass can recognize and
             // sweep this file if the wasm e2e codegen ever stops emitting it
             // (or if consumers migrate to a different workspace layout).
@@ -375,12 +396,54 @@ impl E2eCodegen for WasmCodegen {
             });
         }
 
+        // Registry-mode test_apps/ runners (e.g. the kreuzcrawl
+        // `task smoke:wasm` step) invoke a fixed `pnpm exec vitest run
+        // tests/smoke.test.ts` smoke target by convention. Emit a minimal
+        // smoke test file whenever no `smoke` fixture category is present
+        // so the runner does not error on a missing path.
+        //
+        // The emitted file imports the published wasm package and asserts
+        // that the module entry resolves — a true smoke test that catches
+        // packaging regressions (missing `main`/`exports`, wasm-init
+        // failures) without depending on any specific binding API.
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            let smoke_path = tests_base.join("smoke.test.ts");
+            let has_smoke_emitted = files.iter().any(|f| f.path == smoke_path);
+            if !has_smoke_emitted {
+                files.push(GeneratedFile {
+                    path: smoke_path,
+                    content: render_wasm_smoke_test(&pkg_name),
+                    generated_header: true,
+                });
+            }
+        }
+
         Ok(files)
     }
 
     fn language_name(&self) -> &'static str {
         "wasm"
     }
+}
+
+/// Render a minimal smoke test importing the published wasm package.
+///
+/// The test asserts the module imports cleanly — a regression here points
+/// at a packaging fault (missing entry, broken wasm-init, ESM/CJS export
+/// mismatch) rather than a binding-API issue.
+fn render_wasm_smoke_test(pkg_name: &str) -> String {
+    format!(
+        r#"import {{ describe, expect, it }} from "vitest";
+import * as pkg from "{pkg_name}";
+
+describe("smoke", () => {{
+    it("imports the published wasm package", () => {{
+        expect(pkg).toBeDefined();
+        expect(typeof pkg).toBe("object");
+    }});
+}});
+"#
+    )
 }
 
 fn snake_to_camel(s: &str) -> String {

@@ -116,12 +116,54 @@ impl super::E2eCodegen for PythonE2eCodegen {
             });
         }
 
+        // Registry-mode test_apps/ runners (e.g. the kreuzcrawl
+        // `task smoke:python` step) invoke a fixed `uv run pytest
+        // tests/test_smoke.py` smoke target by convention. Emit a minimal
+        // smoke test whenever no `smoke` fixture category is present so the
+        // runner does not error on a missing path.
+        //
+        // The emitted file just imports the published package — a true smoke
+        // test that catches packaging regressions (missing wheels, broken
+        // native extension, import-time errors) without depending on any
+        // specific binding API.
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            let smoke_path = output_base.join("tests").join("test_smoke.py");
+            let has_smoke_emitted = files.iter().any(|f| f.path == smoke_path);
+            if !has_smoke_emitted {
+                let import_name = e2e_config.call.module.replace('-', "_");
+                files.push(GeneratedFile {
+                    path: smoke_path,
+                    content: render_python_smoke_test(&import_name),
+                    generated_header: true,
+                });
+            }
+        }
+
         Ok(files)
     }
 
     fn language_name(&self) -> &'static str {
         "python"
     }
+}
+
+/// Render a minimal smoke test importing the published Python package.
+///
+/// The test asserts the module imports cleanly — a regression here points
+/// at a packaging fault (missing wheel for platform, broken native
+/// extension, import-time exception) rather than a binding-API issue.
+fn render_python_smoke_test(import_name: &str) -> String {
+    format!(
+        r#""""Smoke test: import the published package."""
+
+import importlib
+
+
+def test_imports_published_package():
+    module = importlib.import_module("{import_name}")
+    assert module is not None
+"#
+    )
 }
 
 fn is_python_fixture_runnable(fixture: &Fixture) -> bool {

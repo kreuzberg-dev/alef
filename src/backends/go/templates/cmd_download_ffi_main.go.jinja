@@ -120,9 +120,9 @@ func downloadAndExtractLibrary(cacheDir string) error {
 		}
 	}
 
-	// Clean version for asset name
+	// Clean version for the download URL path; asset name itself is unversioned.
 	version := strings.TrimPrefix(moduleVersion, "v")
-	assetName := fmt.Sprintf("%s-go-v%s-%s-%s.tar.gz", assetPrefix, version, osName, archName)
+	assetName := fmt.Sprintf("%s-go-%s-%s.tar.gz", assetPrefix, osName, archName)
 	downloadURL := fmt.Sprintf("%s/releases/download/v%s/%s", repoURL, version, assetName)
 
 	// Create cache directory

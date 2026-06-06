@@ -886,6 +886,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "service_api/service_owner_impl_close.rs.jinja",
         include_str!("templates/service_api/service_owner_impl_close.rs.jinja"),
     ),
+    (
+        "bin_download_libs.jinja",
+        include_str!("templates/bin_download_libs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
