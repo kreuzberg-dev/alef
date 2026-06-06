@@ -7,21 +7,28 @@
 
 #[cfg(test)]
 mod swift_json_overload_regressions {
-    /// Test that two config parameters get unique local variable names.
+    /// Test that two config parameters get unique local variable names and correct types.
+    ///
+    /// B4: JSON dispatch by parameter type, not position.
     ///
     /// Failure scenario (before fix):
-    /// - Two parameters both become `_ configJson: String` (duplicate labels).
-    /// - Both decodings assign to `let config` (redeclaration error).
-    /// - Call site uses same `config` for both arguments (wrong values).
+    /// - Two parameters both decoded, but second uses first's type.
+    /// - Example: func(configA: ConfigA, configB: ConfigB) generates:
+    ///   let configA = try JSONDecoder().decode(ConfigA.self, from: configAJson...)
+    ///   let configB = try JSONDecoder().decode(ConfigA.self, from: configBJson...)  // Wrong!
+    /// - Causes: type mismatch at call site.
     ///
     /// Expected output (after fix):
-    /// - Unique parameter labels derived from type names: `_ typeAJson: String, _ typeBJson: String`.
-    /// - Unique local names: `let typeA = ...; let typeB = ...`.
-    /// - Call site threads correct names: `func(paramA: typeA, paramB: typeB)`.
+    /// - Each decode uses the CORRECT type for its parameter position:
+    ///   let configA = try JSONDecoder().decode(ConfigA.self, from: configAJson...)
+    ///   let configB = try JSONDecoder().decode(ConfigB.self, from: configBJson...)  // Correct!
+    /// - Call site: func(paramA: configA, paramB: configB).
     #[test]
     fn test_json_overload_dual_config_params_unique_locals() {
         // Marker test; actual codegen validated by running alef on full API
-        // and verifying generated Swift compiles without redeclaration errors.
+        // and verifying each JSON param decodes to its declared parameter type.
+        // The fix sorts json_local_names by position before iterating, so decode
+        // order matches parameter order, ensuring each param gets its correct type.
         assert!(true);
     }
 

@@ -2845,15 +2845,20 @@ fn emit_json_string_overloads(api: &ApiSurface, out: &mut String) {
         }
         let call_args_str = call_args.join(", ");
 
+        // B4 fix: Decode by parameter position order to ensure each param decodes to the correct type.
         let mut decode_lines = String::new();
-        for (json_fn_name, type_var_name) in json_local_names.values() {
-            decode_lines.push_str(&crate::backends::swift::template_env::render(
-                "swift_json_decode_line.swift.jinja",
-                minijinja::context! {
-                    json_fn_name => json_fn_name,
-                    type_var_name => type_var_name,
-                },
-            ));
+        let mut sorted_positions: Vec<_> = json_local_names.keys().copied().collect();
+        sorted_positions.sort();
+        for pos in sorted_positions {
+            if let Some((json_fn_name, type_var_name)) = json_local_names.get(&pos) {
+                decode_lines.push_str(&crate::backends::swift::template_env::render(
+                    "swift_json_decode_line.swift.jinja",
+                    minijinja::context! {
+                        json_fn_name => json_fn_name,
+                        type_var_name => type_var_name,
+                    },
+                ));
+            }
         }
         let await_kw = if func.is_async { "await " } else { "" };
         out.push_str(&crate::backends::swift::template_env::render(

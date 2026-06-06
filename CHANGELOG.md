@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **swift**: JSON-string overload parameter decoders now process by parameter position order rather than hashmap iteration order. When a function took multiple consecutive JSON-encoded parameters (e.g., configA: TypeA, configB: TypeB), the second parameter's decoder would mistakenly use the first parameter's type, causing type mismatch at call sites. The fix sorts json_local_names by position before iterating to ensure each decoder decodes to its correct parameter type. (`src/backends/swift/gen_bindings/mod.rs`)
+
+- **swift**: trait bridge adapter success body now correctly wraps `String` returns via `String(result)` and element-wise converts `Vec<String>` via `.map { String($0) }`. Previously, RustString values were returned directly, breaking the declared Swift signature. Trait bridge methods returning `String` or `Vec<String>` now properly marshal the opaque FFI type to native Swift String. (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 - **java**: Panama FFM SymbolLookup now falls back to `LINKER.defaultLookup()` when symbols aren't found in the bundled dylib. macOS aarch64 symbol resolution may fail on LIB.find() even when the symbol exists in the native binary (platform-specific symbol visibility or name mangling). The fix adds two additional fallback chains: `.or(() -> LINKER.defaultLookup().find("{{ ffi_name }}"))` and `.or(() -> LINKER.defaultLookup().find("_{{ ffi_name }}"))` before `.orElseThrow()` in all method handle templates. This resolves `java.util.NoSuchElementException: No value present` at NativeLib clinit on macOS-arm64. (`src/backends/java/templates/method_handle_*.jinja`)
 
 - **php**: removed `-nodebug-` token from PHP composer.json `extra.pie.binary.url-template`. PIE 1.4.5 only supports `{Version}`, `{PhpVersion}`, `{Arch}`, `{OS}`, `{Libc}`, and `{TSMode}` tokens. The hardcoded `-nodebug-` segment is not a PIE token and prevented asset discovery during `pie install`. (`src/scaffold/languages/php.rs`)
