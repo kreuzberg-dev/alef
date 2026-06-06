@@ -2226,9 +2226,13 @@ fn emit_client_class(
         emit_doc_comment(&method.doc, "    ", &mut methods_body);
         let mut method_body = String::new();
         if matches!(method.return_type, TypeRef::Unit) {
-            method_body.push_str(&format!(
-                "        {throws_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n",
-                throws_kw = if needs_throws { "try " } else { "" }
+            method_body.push_str(&crate::backends::swift::template_env::render(
+                "swift_client_method_unit_body.swift.jinja",
+                minijinja::context! {
+                    throws_kw => if needs_throws { "try " } else { "" },
+                    bridge_function => &bridge_fn_camel,
+                    args => &args_str,
+                },
             ));
         } else {
             let await_kw = if method.is_async { "await " } else { "" };
@@ -2243,21 +2247,39 @@ fn emit_client_class(
             };
             if bytes_suffix.is_empty() {
                 if needs_return_init {
-                    method_body.push_str(&format!(
-                        "        return try {return_ty}({try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str}))\n"
+                    method_body.push_str(&crate::backends::swift::template_env::render(
+                        "swift_client_method_dto_return_body.swift.jinja",
+                        minijinja::context! {
+                            return_type => &return_ty,
+                            try_kw => try_kw,
+                            await_kw => await_kw,
+                            bridge_function => &bridge_fn_camel,
+                            args => &args_str,
+                        },
                     ));
                 } else {
-                    method_body.push_str(&format!(
-                        "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                    method_body.push_str(&crate::backends::swift::template_env::render(
+                        "swift_client_method_return_body.swift.jinja",
+                        minijinja::context! {
+                            try_kw => try_kw,
+                            await_kw => await_kw,
+                            bridge_function => &bridge_fn_camel,
+                            args => &args_str,
+                        },
                     ));
                 }
             } else {
                 // For Bytes returns we can't chain `.map` on a throwing call directly,
                 // so capture the RustVec into a local and convert.
-                method_body.push_str(&format!(
-                    "        let _bytes = {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
+                method_body.push_str(&crate::backends::swift::template_env::render(
+                    "swift_client_method_bytes_body.swift.jinja",
+                    minijinja::context! {
+                        try_kw => try_kw,
+                        await_kw => await_kw,
+                        bridge_function => &bridge_fn_camel,
+                        args => &args_str,
+                    },
                 ));
-                method_body.push_str("        return Data(_bytes.map { $0 })\n");
             }
         }
         methods_body.push_str(&crate::backends::swift::template_env::render(
@@ -3667,7 +3689,12 @@ fn emit_inbound_protocols(
                 },
             ));
             for line in &conversion_lines {
-                out.push_str(&format!("        {line}\n"));
+                out.push_str(&crate::backends::swift::template_env::render(
+                    "swift_forwarder_conversion_line.swift.jinja",
+                    minijinja::context! {
+                        line => line,
+                    },
+                ));
             }
             let result_json = if let Some(result_type_name) = result_type_name.filter(|_| result_enum.is_some()) {
                 format!(
@@ -3951,11 +3978,14 @@ fn emit_single_free_function_forwarder(
     if !func.doc.is_empty() {
         emit_doc_comment(&func.doc, "", out);
     }
-    out.push_str(&format!(
-        "public func {swift_name}({sig}){throws_clause}{return_clause} {{\n"
-    ));
+    let mut conversion_body = String::new();
     for line in &conversion_lines {
-        out.push_str(&format!("    {line}\n"));
+        conversion_body.push_str(&crate::backends::swift::template_env::render(
+            "swift_forwarder_conversion_line.swift.jinja",
+            minijinja::context! {
+                line => line,
+            },
+        ));
     }
     let return_suffix =
         forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, func.error_type.is_some());
@@ -3973,15 +4003,16 @@ fn emit_single_free_function_forwarder(
     // Map across the throws boundary — it serializes to RustString via serde
     // and exposes the function as `throws -> RustString`. Detect those cases
     // and emit a JSON decode body instead of the single-expression return.
-    if func.error_type.is_some() && return_uses_json_bridge(&func.return_type) {
+    let body = if func.error_type.is_some() && return_uses_json_bridge(&func.return_type) {
         let decode_ty = forwarder_return_type(&func.return_type);
-        out.push_str(&format!(
-            "    let _rb_json = try RustBridge.{swift_name}({args}).toString()\n"
-        ));
-        out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "    return try JSONDecoder().decode({decode_ty}.self, from: _rb_data)\n"
-        ));
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_decode_json_body.swift.jinja",
+            minijinja::context! {
+                function_name => swift_name,
+                args => &args,
+                decode_type => &decode_ty,
+            },
+        )
     } else if non_throwing_optional_string_uses_json_bridge(&func.return_type, func.error_type.is_some()) {
         // swift-bridge JSON-serializes ALL `Option<T>` returns at the bridge boundary
         // (see `needs_json_bridge` in `gen_rust_crate/type_bridge.rs`: `Optional(_) => true`).
@@ -3993,13 +4024,14 @@ fn emit_single_free_function_forwarder(
         // becomes JSON `null` which decodes to `Optional<String>.none`, and a
         // present value decodes to `.some(value)`.
         let decode_ty = forwarder_return_type(&func.return_type);
-        out.push_str(&format!(
-            "    let _rb_json = RustBridge.{swift_name}({args}).toString()\n"
-        ));
-        out.push_str("    let _rb_data = _rb_json.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "    return (try? JSONDecoder().decode({decode_ty}.self, from: _rb_data)) ?? nil\n"
-        ));
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_decode_optional_json_body.swift.jinja",
+            minijinja::context! {
+                function_name => swift_name,
+                args => &args,
+                decode_type => &decode_ty,
+            },
+        )
     } else if matches!(&func.return_type, TypeRef::Named(n) if client_class_names.contains(n)) {
         // Bare Named return that is a Swift client class (declared in
         // `[crates.swift.client_constructor_body]`). The bridge call yields a
@@ -4008,10 +4040,15 @@ fn emit_single_free_function_forwarder(
         // `emit_client_class` to wrap the bridge handle.
         let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let class_name = swift_type_name(&func.return_type);
-        out.push_str(&format!(
-            "    let _rb = {bridge_call_try}RustBridge.{swift_name}({args})\n"
-        ));
-        out.push_str(&format!("    return {class_name}(_rb)\n"));
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_client_return_body.swift.jinja",
+            minijinja::context! {
+                bridge_call_try => bridge_call_try,
+                function_name => swift_name,
+                args => &args,
+                class_name => &class_name,
+            },
+        )
     } else if bare_named_dto_return(&func.return_type, known_dto_names) {
         // Bare Named DTO return: the bridge call yields a `RustBridge.{Dto}` value,
         // but the forwarder signature declares the high-level `{Dto}` struct/enum
@@ -4023,16 +4060,37 @@ fn emit_single_free_function_forwarder(
         // `RustBridge.QueryOnlyConfig` and fail to satisfy the declared type.
         let bridge_call_try = if func.error_type.is_some() { "try " } else { "" };
         let dto_name = swift_type_name(&func.return_type);
-        out.push_str(&format!(
-            "    let _rb = {bridge_call_try}RustBridge.{swift_name}({args})\n"
-        ));
-        out.push_str(&format!("    return try {dto_name}(_rb)\n"));
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_dto_return_body.swift.jinja",
+            minijinja::context! {
+                bridge_call_try => bridge_call_try,
+                function_name => swift_name,
+                args => &args,
+                dto_name => &dto_name,
+            },
+        )
     } else {
-        out.push_str(&format!(
-            "    return {effective_try}RustBridge.{swift_name}({args}){return_suffix}\n"
-        ));
-    }
-    out.push_str("}\n\n");
+        crate::backends::swift::template_env::render(
+            "swift_sync_forwarder_result_return_body.swift.jinja",
+            minijinja::context! {
+                effective_try => effective_try,
+                function_name => swift_name,
+                args => &args,
+                return_suffix => &return_suffix,
+            },
+        )
+    };
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_sync_forwarder.swift.jinja",
+        minijinja::context! {
+            function_name => swift_name,
+            params => &sig,
+            throws_clause => throws_clause,
+            return_clause => return_clause,
+            conversion_lines => conversion_body,
+            body => body,
+        },
+    ));
 }
 
 /// Emit an async `public func` forwarder for an async function.
@@ -5065,9 +5123,15 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
             // If we have throwing parameter decodes, wrap them (and the call) in do/catch
             if has_throwing_param {
-                content.push_str("        do {\n");
+                let mut setup_body = String::new();
                 for setup_line in &setup_lines {
-                    content.push_str(&format!("            let {setup_line}\n"));
+                    setup_body.push_str(&crate::backends::swift::template_env::render(
+                        "swift_function_param_box_setup_line.swift.jinja",
+                        minijinja::context! {
+                            indent => "            let ",
+                            line => setup_line,
+                        },
+                    ));
                 }
 
                 let call_args_str = call_args.join(", ");
@@ -5075,31 +5139,57 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
 
                 // Emit the bridge call with return marshaling
                 // If the method itself throws, this handles the inner try/catch
-                if method_throws {
+                let body = if method_throws {
                     // Method throws: use return marshal which includes do/catch
                     // But we're already in outer do, so we need special handling
                     match &method.return_type {
-                        TypeRef::Unit => {
-                            content.push_str(&format!("            try {bridge_call}\n"));
-                            content.push_str("            return encodeOkVoidEnvelope()\n");
-                        }
-                        _ => {
-                            content.push_str(&format!("            let result = try {bridge_call}\n"));
-                            content.push_str("            return encodeOkEnvelope(result)\n");
-                        }
+                        TypeRef::Unit => crate::backends::swift::template_env::render(
+                            "swift_function_param_box_throwing_unit.swift.jinja",
+                            minijinja::context! {
+                                indent => "            ",
+                                bridge_call => &bridge_call,
+                            },
+                        ),
+                        _ => crate::backends::swift::template_env::render(
+                            "swift_function_param_box_throwing_result.swift.jinja",
+                            minijinja::context! {
+                                indent => "            ",
+                                bridge_call => &bridge_call,
+                            },
+                        ),
                     }
                 } else {
                     // Method doesn't throw: just call and return
                     let return_lines = swift_shim_return_marshal(method, &bridge_call);
+                    let mut body = String::new();
                     for line in return_lines {
-                        content.push_str(&format!("            {line}\n"));
+                        body.push_str(&crate::backends::swift::template_env::render(
+                            "swift_function_param_box_setup_line.swift.jinja",
+                            minijinja::context! {
+                                indent => "            ",
+                                line => &line,
+                            },
+                        ));
                     }
-                }
-                content.push_str("        } catch { return encodeErrEnvelope(\"\\(error)\") }\n");
+                    body
+                };
+                content.push_str(&crate::backends::swift::template_env::render(
+                    "swift_function_param_box_catching_body.swift.jinja",
+                    minijinja::context! {
+                        setup_lines => setup_body,
+                        body => body,
+                    },
+                ));
             } else {
                 // No throwing param decodes: emit setup normally
                 for setup_line in &setup_lines {
-                    content.push_str(&format!("        {setup_line}\n"));
+                    content.push_str(&crate::backends::swift::template_env::render(
+                        "swift_function_param_box_setup_line.swift.jinja",
+                        minijinja::context! {
+                            indent => "        ",
+                            line => setup_line,
+                        },
+                    ));
                 }
 
                 let call_args_str = call_args.join(", ");
@@ -5108,11 +5198,20 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 // Use Phase B return marshaling
                 let return_lines = swift_shim_return_marshal(method, &bridge_call);
                 for line in return_lines {
-                    content.push_str(&format!("        {line}\n"));
+                    content.push_str(&crate::backends::swift::template_env::render(
+                        "swift_function_param_box_setup_line.swift.jinja",
+                        minijinja::context! {
+                            indent => "        ",
+                            line => &line,
+                        },
+                    ));
                 }
             }
 
-            content.push_str("    }\n\n");
+            content.push_str(&crate::backends::swift::template_env::render(
+                "swift_function_param_box_method_close.swift.jinja",
+                minijinja::context! {},
+            ));
         }
 
         content.push_str("}\n");

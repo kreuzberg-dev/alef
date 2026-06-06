@@ -398,6 +398,22 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_client_method.swift.jinja"),
     ),
     (
+        "swift_client_method_bytes_body.swift.jinja",
+        include_str!("templates/swift_client_method_bytes_body.swift.jinja"),
+    ),
+    (
+        "swift_client_method_dto_return_body.swift.jinja",
+        include_str!("templates/swift_client_method_dto_return_body.swift.jinja"),
+    ),
+    (
+        "swift_client_method_return_body.swift.jinja",
+        include_str!("templates/swift_client_method_return_body.swift.jinja"),
+    ),
+    (
+        "swift_client_method_unit_body.swift.jinja",
+        include_str!("templates/swift_client_method_unit_body.swift.jinja"),
+    ),
+    (
         "swift_streaming_client_method.swift.jinja",
         include_str!("templates/swift_streaming_client_method.swift.jinja"),
     ),
@@ -408,6 +424,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_async_forwarder.swift.jinja",
         include_str!("templates/swift_async_forwarder.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder.swift.jinja",
+        include_str!("templates/swift_sync_forwarder.swift.jinja"),
     ),
     (
         "swift_forwarder_conversion_line.swift.jinja",
@@ -432,6 +452,26 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_forwarder_unit_body.swift.jinja",
         include_str!("templates/swift_forwarder_unit_body.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder_client_return_body.swift.jinja",
+        include_str!("templates/swift_sync_forwarder_client_return_body.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder_decode_json_body.swift.jinja",
+        include_str!("templates/swift_sync_forwarder_decode_json_body.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder_decode_optional_json_body.swift.jinja",
+        include_str!("templates/swift_sync_forwarder_decode_optional_json_body.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder_dto_return_body.swift.jinja",
+        include_str!("templates/swift_sync_forwarder_dto_return_body.swift.jinja"),
+    ),
+    (
+        "swift_sync_forwarder_result_return_body.swift.jinja",
+        include_str!("templates/swift_sync_forwarder_result_return_body.swift.jinja"),
     ),
     (
         "swift_from_json_decode.swift.jinja",
@@ -897,6 +937,26 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_function_param_box_method_open.swift.jinja",
         include_str!("templates/swift_function_param_box_method_open.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_catching_body.swift.jinja",
+        include_str!("templates/swift_function_param_box_catching_body.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_method_close.swift.jinja",
+        include_str!("templates/swift_function_param_box_method_close.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_setup_line.swift.jinja",
+        include_str!("templates/swift_function_param_box_setup_line.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_throwing_result.swift.jinja",
+        include_str!("templates/swift_function_param_box_throwing_result.swift.jinja"),
+    ),
+    (
+        "swift_function_param_box_throwing_unit.swift.jinja",
+        include_str!("templates/swift_function_param_box_throwing_unit.swift.jinja"),
     ),
     (
         "swift_class_header.swift.jinja",

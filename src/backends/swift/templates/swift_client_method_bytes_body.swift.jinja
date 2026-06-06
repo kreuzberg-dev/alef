@@ -1,0 +1,2 @@
+        let _bytes = {{ try_kw }}{{ await_kw }}RustBridge.{{ bridge_function }}(self.inner{{ args }})
+        return Data(_bytes.map { $0 })
