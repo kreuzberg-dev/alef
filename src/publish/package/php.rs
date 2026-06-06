@@ -184,6 +184,15 @@ fn pie_archive_name(
     options: &PiePackageOptions<'_>,
 ) -> Result<String> {
     let lower = |s: &str| s.to_lowercase();
+    // PIE 1.4+ constructs candidate asset names from `$package->version()`, which
+    // Composer/Packagist returns with the leading `v` (e.g. `v1.9.0-rc.23`) when
+    // the source tag was `v<version>`. Mirror that prefix here so the published
+    // filename matches what PIE looks for.
+    let ver_prefixed = if version.starts_with('v') {
+        version.to_string()
+    } else {
+        format!("v{version}")
+    };
     if target.os == Os::Windows {
         let compiler = options
             .windows_compiler
@@ -191,7 +200,7 @@ fn pie_archive_name(
         Ok(lower(&format!(
             "php_{ext}-{ver}-{php}-{ts}-{cc}-{arch}.zip",
             ext = ext_name,
-            ver = version,
+            ver = ver_prefixed,
             php = options.php_version,
             ts = options.ts_mode.as_short(),
             cc = compiler,
@@ -205,7 +214,7 @@ fn pie_archive_name(
         Ok(lower(&format!(
             "php_{ext}-{ver}_php{php}-{arch}-{os}-{libc}-{ts}.tgz",
             ext = ext_name,
-            ver = version,
+            ver = ver_prefixed,
             php = options.php_version,
             arch = target.pie_arch()?,
             os = target.pie_os_family()?,
@@ -354,7 +363,7 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("demo_render", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_demo_render-3.4.0_php8.5-x86_64-linux-glibc-nts.tgz");
+        assert_eq!(name, "php_demo_render-v3.4.0_php8.5-x86_64-linux-glibc-nts.tgz");
     }
 
     #[test]
@@ -368,7 +377,7 @@ sources = ["src/lib.rs"]
             windows_compiler: None,
         };
         let name = pie_archive_name("myext", "1.0.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_myext-1.0.0_php8.4-arm64-linux-musl-zts.tgz");
+        assert_eq!(name, "php_myext-v1.0.0_php8.4-arm64-linux-musl-zts.tgz");
     }
 
     #[test]
@@ -376,7 +385,7 @@ sources = ["src/lib.rs"]
         let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
         let opts = nts_options("8.5");
         let name = pie_archive_name("demo_render", "3.4.0-rc.22", &target, &opts).unwrap();
-        assert_eq!(name, "php_demo_render-3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nts.tgz");
+        assert_eq!(name, "php_demo_render-v3.4.0-rc.22_php8.5-arm64-darwin-bsdlibc-nts.tgz");
     }
 
     #[test]
@@ -390,7 +399,17 @@ sources = ["src/lib.rs"]
             windows_compiler: Some("vs17"),
         };
         let name = pie_archive_name("demo_render", "3.4.0", &target, &opts).unwrap();
-        assert_eq!(name, "php_demo_render-3.4.0-8.5-nts-vs17-x86_64.zip");
+        assert_eq!(name, "php_demo_render-v3.4.0-8.5-nts-vs17-x86_64.zip");
+    }
+
+    #[test]
+    fn pie_filename_accepts_version_with_v_prefix() {
+        // PIE/Composer hands us the version with leading `v`; ensure we don't
+        // double-prefix when given `v1.2.3` directly.
+        let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
+        let opts = nts_options("8.5");
+        let name = pie_archive_name("demo_render", "v1.2.3", &target, &opts).unwrap();
+        assert_eq!(name, "php_demo_render-v1.2.3_php8.5-arm64-darwin-bsdlibc-nts.tgz");
     }
 
     #[test]
@@ -446,7 +465,7 @@ sources = ["src/lib.rs"]
             windows_compiler: None,
         };
         let name = pie_archive_name("demo_client", "1.4.0-rc.32", &target, &opts).unwrap();
-        assert_eq!(name, "php_demo_client-1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nts.tgz");
+        assert_eq!(name, "php_demo_client-v1.4.0-rc.32_php8.4-arm64-darwin-bsdlibc-nts.tgz");
     }
 
     // --- Archive layout ---

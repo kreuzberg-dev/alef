@@ -2163,8 +2163,8 @@ fn test_scaffold_php_emits_root_composer_json_mirroring_package() {
             label
         );
         assert!(
-            pie_url.contains("/releases/download/v{Version}/"),
-            "{} url-template must have GitHub release download pattern; got: {pie_url}",
+            pie_url.contains("/releases/download/{Version}/"),
+            "{} url-template must use {{Version}} in release path (PIE 1.4+ supplies a `v`-prefixed version); got: {pie_url}",
             label
         );
     }
