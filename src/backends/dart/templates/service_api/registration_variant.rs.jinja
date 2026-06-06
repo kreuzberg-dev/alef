@@ -4,7 +4,7 @@
 {%- for param in signature_params %}
         {{ param.name }}: {{ param.rust_type }},
 {%- endfor %}
-        handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
+        cb: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static,
     ) -> i32 {
 {%- if wrapper_call %}
         let inner = {{ wrapper_type_path }}::{{ constructor_method }}(
@@ -16,8 +16,8 @@
 {%- endif %}
 {%- endfor %}
         );
-        self.{{ base_method_name }}({{ wrapper_local_type }} { inner }, handler)
+        self.{{ base_method_name }}({{ wrapper_local_type }} { inner }, cb)
 {%- else %}
-        self.{{ base_method_name }}({{ signature_params | map(attribute='name') | join(', ') }}, handler)
+        self.{{ base_method_name }}({{ signature_params | map(attribute='name') | join(', ') }}, cb)
 {%- endif %}
     }

@@ -989,6 +989,38 @@ mod tests {
     }
 
     #[test]
+    fn frb_user_callback_param_uses_non_shadowing_name() {
+        let api = make_fixture_surface();
+        let config = ResolvedCrateConfig {
+            name: "test_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+
+        let rust = gen_service_rust(&api, &config);
+
+        // Verify that user-callback parameters use `cb`, not `handler`, to avoid
+        // shadowing FRB's internal `BaseHandler` field in generated Dart code.
+        // The parameter name `handler` caused FRB to emit `handler.executeSync()`
+        // calls against the user callback (a plain Function) instead of the field.
+        assert!(
+            rust.contains("cb: impl Fn(String) -> DartFnFuture<String>"),
+            "expected callback param named `cb` in:\n{rust}"
+        );
+
+        // Ensure the old shadowing name is NOT present
+        assert!(
+            !rust.contains("handler: impl Fn(String) -> DartFnFuture<String>"),
+            "callback param must not be named `handler` to avoid FRB shadowing in:\n{rust}"
+        );
+
+        // Verify that the callback is forwarded using the new name
+        assert!(
+            rust.contains("::new(cb)"),
+            "expected callback forwarding via `cb` in:\n{rust}"
+        );
+    }
+
+    #[test]
     fn test_registration_calls_inner_directly() {
         let api = make_fixture_surface();
         let config = ResolvedCrateConfig {

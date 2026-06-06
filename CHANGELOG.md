@@ -13,6 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+<!-- N+14-dart-frb-shadow -->
+- **Dart backend**: FRB-Rust service methods that accept user-callback parameters were emitting them with the name `handler`, which shadowed FRB 2.x's internal `BaseHandler` field in the generated Dart code. FRB codegen would then emit incorrect `handler.executeSync(SyncTask(...))` calls against the user function (a plain `Function(String)`) instead of the internal field, causing Dart compile errors. Fixed by renaming the emitted FRB-Rust callback parameter to `cb`, which does not shadow the internal field, eliminating the need for the post-generation `fix_handler_executor_calls` rewrite that was previously required. The fix is library-agnostic: any alef consumer with FRB service-method callbacks benefits from this rename. (`src/backends/dart/templates/service_api/registration_method.rs.jinja`, `src/backends/dart/templates/service_api/registration_variant.rs.jinja`, `src/backends/dart/gen_rust_crate/cargo.rs`)
+
 - **swift**: result-type enums (trait bridge result types, e.g. `VisitResult`) were included in phantom `Vec<T>` declarations but never declared as opaque `type` entries in the extern "Rust" block, causing swift-bridge-build to emit a parse error: `Type must be declared with 'type Name'`. The fix filters result-type enums (identified via `trait_bridges[].result_type` in `alef.toml`) from the list of enum types passed to phantom Vec accessor generation. Result-type enums are JSON-decoded locally in Swift (first-class Swift enums) and never appear in extern blocks; they cannot be referenced in phantom Vec declarations without triggering this parser error. (`src/backends/swift/gen_rust_crate/mod.rs`)
 
 <!-- N+14-configurator-extract -->
