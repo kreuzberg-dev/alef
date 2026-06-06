@@ -152,22 +152,21 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     mark_adapter_handled_methods(&mut api, config);
 
     // Apply `[crates.exclude].methods = ["Owner.method"]` AFTER `extract_services` for
-    // BOTH `service.configurators` and `api.types[Owner].methods`. `apply_filters` (above)
-    // already stripped excluded methods from `api.types[*].methods`, but
-    // `extract_services` calls `recover_service_methods` which RE-INJECTS configured
-    // methods back into the owner type so per-binding service codegen can see them.
-    // When a configurator is also user-excluded (e.g. `App.config(mut self) -> Self` —
-    // non-delegatable through host `&self` wrappers like napi's `JsApp`), the recovery
-    // re-introduces it into the regular method-emission path and the backend emits a
-    // `compile_error!` non-delegatable stub. Re-applying the exclude here is the
-    // defense-in-depth pass that keeps the binding compile-green.
+    // `api.types[Owner].methods`. `apply_filters` (above) already stripped excluded methods
+    // from `api.types[*].methods`, but `extract_services` calls `recover_service_methods`
+    // which RE-INJECTS configured methods back into the owner type so per-binding service
+    // codegen can see them. Re-applying the exclude here is the defense-in-depth pass that
+    // strips those re-injected methods from the regular method-emission path, preventing
+    // backends from emitting a `compile_error!` non-delegatable stub.
+    //
+    // `service.configurators` are intentionally NOT subject to this strip: a method named in
+    // `[[crates.services]].configurators` is an explicit declaration that the service IR must
+    // contain the configurator entrypoint. The `[crates.exclude].methods` list controls only
+    // the generic per-type method-emission path (struct codegen), not the service IR. If both
+    // lists name the same method it means the entry in `exclude.methods` suppresses the
+    // generic struct-level emission while the configurator entry drives the dedicated
+    // C/host-language service entrypoint — both intents are honoured independently.
     if !config.exclude.methods.is_empty() {
-        for service in &mut api.services {
-            service.configurators.retain(|m| {
-                let key = format!("{}.{}", service.name, m.name);
-                !config.exclude.methods.contains(&key)
-            });
-        }
         for typ in &mut api.types {
             typ.methods.retain(|m| {
                 let key = format!("{}.{}", typ.name, m.name);
@@ -1186,7 +1185,7 @@ fn apply_filters(mut api: ApiSurface, config: &ResolvedCrateConfig) -> ApiSurfac
         }
         // Service-extractor configurators are populated separately from the regular
         // `impl T` walk; apply the same `OwnerType.method_name` exclude here so entries
-        // like `App.config` are honored by the per-binding service codegen, which would
+        // in `exclude.methods` are honored by the per-binding service codegen, which would
         // otherwise emit a non-delegatable Rust shim and fail compilation.
         for service in &mut api.services {
             service.configurators.retain(|m| {
@@ -1897,6 +1896,136 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["my_crate::module::NodeContext.serialize"],
             "include.types must retain diagnostics only for methods owned by included public types"
+        );
+    }
+
+    // ---------------------------------------------------------------------------
+    // Regression: configurator methods survive the exclude-methods post-service pass
+    // ---------------------------------------------------------------------------
+
+    /// A method declared in `[[crates.services]].configurators` must remain in
+    /// `service.configurators` even when the same `OwnerType.method_name` key also
+    /// appears in `[crates.exclude].methods`.
+    ///
+    /// Background: the exclude list is intended to suppress the *generic struct-level*
+    /// method emission (preventing non-delegatable stubs in binding codegen). It must
+    /// not remove the method from the *service IR*, where its presence drives dedicated
+    /// C/host-language configurator entrypoints. Both intents are independent.
+    ///
+    /// The fixture uses a purely synthetic owner type so no consumer-library names
+    /// appear in the test.
+    #[test]
+    fn configurator_survives_exclude_methods_post_service_pass() {
+        use crate::core::config::service::{EntrypointSpec, ServiceConfig};
+        use crate::core::ir::{MethodDef, ReceiverKind, ServiceDef, TypeRef};
+
+        // Build a minimal service with one configurator (`setup`) already populated.
+        let configurator_method = MethodDef {
+            name: "setup".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("Foo".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Owned),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let constructor_method = MethodDef {
+            name: "new".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("Foo".to_string()),
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let service = ServiceDef {
+            name: "Foo".to_string(),
+            rust_path: "test_crate::Foo".to_string(),
+            constructor: constructor_method,
+            configurators: vec![configurator_method],
+            registrations: vec![],
+            entrypoints: vec![],
+            doc: String::new(),
+            cfg: None,
+        };
+
+        // Wire up a ResolvedCrateConfig that:
+        // - declares `setup` as a configurator via services[].configurators
+        // - also lists `Foo.setup` in exclude.methods (the scenario that previously cleared it)
+        let mut config = ResolvedCrateConfig {
+            name: "test_crate".to_string(),
+            services: vec![ServiceConfig {
+                owner_type: "Foo".to_string(),
+                constructor: Some("new".to_string()),
+                configurators: vec!["setup".to_string()],
+                registrations: vec![],
+                entrypoints: vec![EntrypointSpec {
+                    method: "run".to_string(),
+                    kind: "run".to_string(),
+                }],
+                skip_languages: vec![],
+                host_app_inner_accessor: None,
+            }],
+            ..Default::default()
+        };
+        config.exclude.methods = vec!["Foo.setup".to_string()];
+
+        // Simulate the pipeline state just after extract_services has populated services.
+        let mut api = ApiSurface {
+            crate_name: "test_crate".to_string(),
+            services: vec![service],
+            ..ApiSurface::default()
+        };
+
+        // Apply the post-extract_services exclude pass (the fix under test).
+        if !config.exclude.methods.is_empty() {
+            for typ in &mut api.types {
+                typ.methods.retain(|m| {
+                    let key = format!("{}.{}", typ.name, m.name);
+                    !config.exclude.methods.contains(&key)
+                });
+            }
+        }
+
+        // The configurator must still be present: the exclude list controls struct-level
+        // method emission, NOT the service IR configurator list.
+        assert_eq!(
+            api.services.len(),
+            1,
+            "service must be present after the exclude pass"
+        );
+        assert_eq!(
+            api.services[0].configurators.len(),
+            1,
+            "configurator `setup` must survive the exclude-methods post-service pass; got {:?}",
+            api.services[0]
+                .configurators
+                .iter()
+                .map(|m| m.name.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            api.services[0].configurators[0].name,
+            "setup",
+            "configurator name must be `setup`"
         );
     }
 }

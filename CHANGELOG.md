@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+<!-- N+14-configurator-extract -->
+- **extract pipeline**: configurator methods declared in `[[crates.services]].configurators` are no longer stripped from `service.configurators` when the same `OwnerType.method_name` key also appears in `[crates.exclude].methods`. The exclude list controls only the generic per-type struct-level method emission (preventing non-delegatable stubs); it must not remove a method from the service IR where its presence drives dedicated C/host-language configurator entrypoints. Both intents are independent and both are now honoured. (`src/cli/pipeline/extract.rs`)
+
 ## [0.23.17] - 2026-06-06
 
 ### Fixed
