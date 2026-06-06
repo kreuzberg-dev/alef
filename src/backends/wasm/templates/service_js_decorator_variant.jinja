@@ -1,0 +1,12 @@
+  /**
+{% for line in doc_lines %}
+   * {{ line }}
+{% endfor %}
+   */
+  {{ variant_name }}({{ sig }}): (fn: (...args: any[]) => any) => (...args: any[]) => any {
+    return (fn: (...args: any[]) => any) => {
+      this._registrations.push([{{ variant_name_json }}, [{{ metadata_args }}], fn]);
+      return fn;
+    };
+  }
+

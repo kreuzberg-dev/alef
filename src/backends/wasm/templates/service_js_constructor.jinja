@@ -1,0 +1,7 @@
+  constructor({{ constructor_params }}) {
+    this._registrations = [];
+{% for param in params %}
+    this._{{ param }} = {{ param }};
+{% endfor %}
+  }
+

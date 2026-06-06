@@ -92,6 +92,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         "serde_config_optional",
         include_str!("templates/serde_config_optional.jinja"),
     ),
+    (
+        "service_js_class_open.jinja",
+        include_str!("templates/service_js_class_open.jinja"),
+    ),
+    (
+        "service_js_constructor.jinja",
+        include_str!("templates/service_js_constructor.jinja"),
+    ),
+    (
+        "service_js_configurator.jinja",
+        include_str!("templates/service_js_configurator.jinja"),
+    ),
+    (
+        "service_js_direct_variant.jinja",
+        include_str!("templates/service_js_direct_variant.jinja"),
+    ),
+    (
+        "service_js_decorator_variant.jinja",
+        include_str!("templates/service_js_decorator_variant.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

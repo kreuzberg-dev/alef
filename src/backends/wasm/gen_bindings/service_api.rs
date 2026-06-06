@@ -47,11 +47,14 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
     let service = &api.services[0]; // Single service per IR surface
     let mut out = String::new();
 
-    out.push_str("// Auto-generated service API class for wasm-bindgen\n\n");
-
     // Emit the App class with constructor and configurator methods
     let class_name = "App";
-    out.push_str(&format!("export class {class_name} {{\n"));
+    out.push_str(&crate::backends::wasm::template_env::render(
+        "service_js_class_open.jinja",
+        minijinja::context! {
+            class_name => class_name,
+        },
+    ));
 
     // Constructor parameters (if any)
     let constructor_params: Vec<String> = service
@@ -68,15 +71,19 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
         })
         .collect();
 
-    out.push_str("  constructor(");
-    out.push_str(&constructor_params.join(", "));
-    out.push_str(") {\n");
-    out.push_str("    this._registrations = [];\n");
-    // Store constructor params as needed for configuration
-    for param in &service.constructor.params {
-        out.push_str(&format!("    this._{} = {};\n", param.name, param.name));
-    }
-    out.push_str("  }\n\n");
+    let constructor_param_names: Vec<&str> = service
+        .constructor
+        .params
+        .iter()
+        .map(|param| param.name.as_str())
+        .collect();
+    out.push_str(&crate::backends::wasm::template_env::render(
+        "service_js_constructor.jinja",
+        minijinja::context! {
+            constructor_params => constructor_params.join(", "),
+            params => constructor_param_names,
+        },
+    ));
 
     // Configurator methods
     for method in &service.configurators {
@@ -93,11 +100,14 @@ pub(super) fn gen_service_js(api: &ApiSurface) -> String {
             })
             .collect();
 
-        out.push_str(&format!("  {}({}) {{\n", method.name, method_params.join(", ")));
-        let doc = method.doc.as_str();
-        out.push_str(&format!("    // Configuration: {}\n", doc));
-        out.push_str("    return this;\n");
-        out.push_str("  }\n\n");
+        out.push_str(&crate::backends::wasm::template_env::render(
+            "service_js_configurator.jinja",
+            minijinja::context! {
+                method_name => &method.name,
+                method_params => method_params.join(", "),
+                doc => method.doc.as_str(),
+            },
+        ));
     }
 
     // Registration methods (per variant, respecting style)
@@ -162,26 +172,24 @@ fn emit_variant_direct_method_js(
     full_params.push("handler: (...args: any[]) => any".to_string());
     let full_sig = full_params.join(", ");
 
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    let default_doc;
+    let doc = if let Some(doc) = variant.doc.as_deref() {
+        doc
     } else {
-        out.push_str(&format!("   * Register a {} callback directly.\n", variant_name));
-    }
-    out.push_str("   */\n");
-
-    out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
-    out.push_str(&format!(
-        "    this._registrations.push([{:?}, [{}], handler]);\n",
-        variant_name,
-        variant_params
-            .iter()
-            .map(|p| p.split(':').next().unwrap().trim())
-            .collect::<Vec<_>>()
-            .join(", ")
+        default_doc = format!("Register a {variant_name} callback directly.");
+        &default_doc
+    };
+    let doc_lines = variant_doc_lines(doc);
+    out.push_str(&crate::backends::wasm::template_env::render(
+        "service_js_direct_variant.jinja",
+        minijinja::context! {
+            doc_lines => doc_lines,
+            variant_name => variant_name,
+            full_sig => full_sig,
+            variant_name_json => format!("{variant_name:?}"),
+            metadata_args => variant_metadata_args(variant_params),
+        },
     ));
-    out.push_str("    return this;\n");
-    out.push_str("  }\n\n");
 }
 
 /// Emit the decorator-factory form: `app.get(path): (handler) => any`.
@@ -193,33 +201,36 @@ fn emit_variant_decorator_factory_js(
 ) {
     let sig = variant_params.join(", ");
 
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
+    let default_doc;
+    let doc = if let Some(doc) = variant.doc.as_deref() {
+        doc
     } else {
-        out.push_str(&format!(
-            "   * Register a {} callback via decorator factory.\n",
-            variant_name
-        ));
-    }
-    out.push_str("   */\n");
+        default_doc = format!("Register a {variant_name} callback via decorator factory.");
+        &default_doc
+    };
+    let doc_lines = variant_doc_lines(doc);
+    out.push_str(&crate::backends::wasm::template_env::render(
+        "service_js_decorator_variant.jinja",
+        minijinja::context! {
+            doc_lines => doc_lines,
+            variant_name => variant_name,
+            sig => sig,
+            variant_name_json => format!("{variant_name:?}"),
+            metadata_args => variant_metadata_args(variant_params),
+        },
+    ));
+}
 
-    out.push_str(&format!(
-        "  {variant_name}({sig}): (fn: (...args: any[]) => any) => (...args: any[]) => any {{\n"
-    ));
-    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
-    out.push_str(&format!(
-        "      this._registrations.push([{:?}, [{}], fn]);\n",
-        variant_name,
-        variant_params
-            .iter()
-            .map(|p| p.split(':').next().unwrap().trim())
-            .collect::<Vec<_>>()
-            .join(", ")
-    ));
-    out.push_str("      return fn;\n");
-    out.push_str("    };\n");
-    out.push_str("  }\n\n");
+fn variant_doc_lines(doc: &str) -> Vec<String> {
+    doc.trim().lines().map(str::trim).map(str::to_owned).collect()
+}
+
+fn variant_metadata_args(variant_params: &[String]) -> String {
+    variant_params
+        .iter()
+        .map(|param| param.split(':').next().unwrap().trim())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Generate the Rust wasm-bindgen glue (`service.rs`).
