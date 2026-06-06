@@ -21,6 +21,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **rustler**: migrated remaining service API registration dispatch and entrypoint generated Rust blocks to Rustler Jinja templates, leaving type, name, metadata tuple, and argument list assembly in Rust. (`src/backends/rustler/gen_bindings/service_api.rs`)
 
+- **rustler**: migrated zero-arity Elixir NIF wrapper headers to Rustler Jinja templates, leaving arity and argument selection in Rust. (`src/backends/rustler/gen_bindings/mod.rs`)
+
 - **kotlin**: migrated remaining Kotlin and Kotlin Android generated-code `push_str(&format!(...))` emission in wrapper, JNI client, service, and trait-interface paths to backend Jinja templates, leaving expression/name assembly in Rust. (`src/backends/kotlin`, `src/backends/kotlin_android`)
 
 - **java**: migrated additional service API, stream-method, enum parameter, and primitive-return generated Java emission to backend Jinja templates, leaving expression/name/list assembly in Rust. (`src/backends/java`)

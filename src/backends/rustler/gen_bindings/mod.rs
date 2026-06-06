@@ -1294,9 +1294,12 @@ impl Backend for RustlerBackend {
                 }
 
                 if arity_params.is_empty() {
-                    content.push_str("  def ");
-                    content.push_str(&nif_fn_name);
-                    content.push_str(" do\n");
+                    content.push_str(&template_env::render(
+                        "elixir_def_zero_arity.jinja",
+                        minijinja::context! {
+                            func_name => &nif_fn_name,
+                        },
+                    ));
                     content.push_str(&template_env::render(
                         "elixir_def_nif_call.jinja",
                         minijinja::context! {

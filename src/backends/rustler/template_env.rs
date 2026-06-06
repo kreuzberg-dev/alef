@@ -565,6 +565,7 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         "      do_visitor_receive_loop({{ visitor_param }})\n",
     ),
     ("elixir_def_simple.jinja", "  def {{ func_name }}({{ params }}) do\n"),
+    ("elixir_def_zero_arity.jinja", "  def {{ func_name }} do\n"),
     (
         "elixir_def_nif_call.jinja",
         "    {{ native_mod }}.{{ func_name }}({{ args }})\n",
