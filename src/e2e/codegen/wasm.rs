@@ -396,7 +396,7 @@ impl E2eCodegen for WasmCodegen {
             });
         }
 
-        // Registry-mode test_apps/ runners (e.g. the kreuzcrawl
+        // Registry-mode test_apps/ runners (e.g. a consumer's
         // `task smoke:wasm` step) invoke a fixed `pnpm exec vitest run
         // tests/smoke.test.ts` smoke target by convention. Emit a minimal
         // smoke test file whenever no `smoke` fixture category is present
