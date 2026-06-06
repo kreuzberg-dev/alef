@@ -291,6 +291,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/elixir/test_helper_server.exs.jinja"),
     ),
     (
+        "elixir/test_helper_mock_server.exs.jinja",
+        include_str!("templates/elixir/test_helper_mock_server.exs.jinja"),
+    ),
+    (
         "dart/app_harness.dart.jinja",
         include_str!("templates/dart/app_harness.dart.jinja"),
     ),
