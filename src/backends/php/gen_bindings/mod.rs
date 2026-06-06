@@ -1205,9 +1205,19 @@ impl Backend for PhpBackend {
                 .enumerate()
                 .map(|(idx, p)| {
                     let ptype = php_type(&p.ty);
-                    let can_be_optional = p.optional || is_optional_default_constructible_param(p);
+                    // Check if the parameter is optional: either marked as p.optional, or the type
+                    // itself is nullable (like Option<T> which php_type renders as ?T), or it's a
+                    // default-constructible type that can use a null default.
+                    let type_is_nullable = ptype.starts_with('?');
+                    let can_be_optional = p.optional || type_is_nullable || is_optional_default_constructible_param(p);
                     if can_be_optional && tail_optional[idx] {
-                        format!("?{} ${} = null", ptype, p.name)
+                        // ptype may already be nullable (e.g., "?string" from php_type handling
+                        // TypeRef::Optional). Don't double-prepend the nullable prefix.
+                        if ptype.starts_with('?') {
+                            format!("{} ${} = null", ptype, p.name)
+                        } else {
+                            format!("?{} ${} = null", ptype, p.name)
+                        }
                     } else {
                         format!("{} ${}", ptype, p.name)
                     }

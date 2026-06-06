@@ -3802,6 +3802,87 @@ fn has_default_struct_keeps_derived_default_when_delegation_disabled() {
     );
 }
 
+/// Regression test: when a Rust function has `Option<T>` parameters (e.g., `mime_type: Option<&str>`),
+/// the PHP wrapper must emit nullable type hints (`?string`) with defaults (`= null`), not non-nullable.
+/// Previously, when `TypeRef::Optional` was already prepended by `php_type()`, the code would incorrectly
+/// add another `?` prefix, creating invalid double-nullable types or failing to detect existing nullability.
+#[test]
+fn test_php_option_param_emits_nullable_with_default() {
+    let backend = PhpBackend;
+
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "do_thing".to_string(),
+            rust_path: "test_lib::do_thing".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "required_str".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "optional_str".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::String)),
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: "Do a thing with strings".to_string(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_public_api(&api, &config).expect("generate ok");
+
+    let facade_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with(".php"))
+        .expect("facade file exists");
+
+    let content = &facade_file.content;
+
+    // Required parameter should be `string $required_str` (not nullable, no default).
+    assert!(
+        content.contains("string $required_str"),
+        "required parameter must be non-nullable; got:\n{content}"
+    );
+
+    // Optional parameter should be `?string $optional_str = null` (nullable with default).
+    // Must NOT be `??string` (double-nullable) or `string $optional_str` (missing null default).
+    assert!(
+        content.contains("?string $optional_str = null"),
+        "optional parameter must be ?string with = null default; got:\n{content}"
+    );
+
+    // Verify no double-nullable nonsense.
+    assert!(
+        !content.contains("??string"),
+        "must not have double-nullable ??string; got:\n{content}"
+    );
+}
+
 /// Every generated PHP source file must have a blank line immediately after the
 /// `<?php` opening tag. PSR-12's `blank_line_after_opening_tag` rule (enforced by
 /// php-cs-fixer) inserts one post-write, which would mutate the alef-hash-tracked
