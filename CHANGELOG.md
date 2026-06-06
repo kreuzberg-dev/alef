@@ -51,6 +51,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
 
+- **ffi**: migrated C service header parameter declaration fragments and service registration variant
+  dispatch argument fragments to FFI Jinja templates. (`src/backends/ffi`)
+
 - **pyo3/Python**: migrated remaining generated Python/Rust emission in service APIs, wrapper functions, capsule method rewriting, imports, and stubs from raw `format!`-backed string pushes to PyO3 backend Jinja templates. (`src/backends/pyo3`)
 
 - **napi**: migrated remaining parameterized capsule type-tag constants and struct static-method/wither generated Rust blocks to NAPI Jinja templates. (`src/backends/napi`)

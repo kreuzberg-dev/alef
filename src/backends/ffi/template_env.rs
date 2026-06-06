@@ -510,6 +510,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_api_h_opaque_typedef.h.jinja"),
     ),
     (
+        "service_api_h_param_decl.h.jinja",
+        include_str!("templates/service_api_h_param_decl.h.jinja"),
+    ),
+    (
         "service_api_h_registration_decl_start.h.jinja",
         include_str!("templates/service_api_h_registration_decl_start.h.jinja"),
     ),
@@ -564,6 +568,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "service_api_registration_dispatch_void.rs.jinja",
         include_str!("templates/service_api_registration_dispatch_void.rs.jinja"),
+    ),
+    (
+        "service_api_arg.rs.jinja",
+        include_str!("templates/service_api_arg.rs.jinja"),
     ),
     (
         "service_api_wrapper_ctor_arg.rs.jinja",

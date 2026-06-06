@@ -36,6 +36,35 @@ fn render(template_name: &str, ctx: minijinja::Value) -> String {
     crate::backends::ffi::template_env::render(template_name, ctx)
 }
 
+fn render_inline(template_name: &str, ctx: minijinja::Value) -> String {
+    render(template_name, ctx).trim_end_matches('\n').to_owned()
+}
+
+fn render_service_h_param_decl(c_type: String, param_name: &str) -> String {
+    render_inline(
+        "service_api_h_param_decl.h.jinja",
+        minijinja::context! {
+            c_type,
+            param_name => param_name.to_owned(),
+        },
+    )
+}
+
+fn render_service_api_arg(value: &str) -> String {
+    render_inline(
+        "service_api_arg.rs.jinja",
+        minijinja::context! {
+            value => value.to_owned(),
+        },
+    )
+}
+
+fn trim_pending_service_h_decl_newline(out: &mut String) {
+    if out.ends_with('\n') {
+        out.pop();
+    }
+}
+
 // ──────────────────────────────────────────────────── C Header (.h output) ──
 
 /// Generate the C FFI header that declares the callback typedef and service API.
@@ -110,7 +139,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
     // Registration functions
     for reg in &service.registrations {
         let reg_method_snake = reg.method.to_snake_case();
-        out.push_str(&render(
+        out.push_str(&render_inline(
             "service_api_h_registration_decl_start.h.jinja",
             minijinja::context! {
                 method_name => reg.method.clone(),
@@ -122,9 +151,12 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         ));
 
         // Metadata parameters
+        if !reg.metadata_params.is_empty() {
+            trim_pending_service_h_decl_newline(out);
+        }
         for meta_param in &reg.metadata_params {
             let c_type = typeref_to_c_type(&meta_param.ty);
-            out.push_str(&format!(",\n    {} {}", c_type, meta_param.name));
+            out.push_str(&render_service_h_param_decl(c_type, &meta_param.name));
         }
         out.push_str("\n);\n\n");
     }
@@ -139,7 +171,7 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         } else {
             "Finalize"
         };
-        out.push_str(&render(
+        out.push_str(&render_inline(
             "service_api_h_entrypoint_decl_start.h.jinja",
             minijinja::context! {
                 kind,
@@ -152,9 +184,12 @@ fn gen_service_h_decls(out: &mut String, service: &ServiceDef, _api: &ApiSurface
         ));
 
         // Parameters
+        if !ep.params.is_empty() {
+            trim_pending_service_h_decl_newline(out);
+        }
         for ep_param in &ep.params {
             let c_type = typeref_to_c_type(&ep_param.ty);
-            out.push_str(&format!(",\n    {} {}", c_type, ep_param.name));
+            out.push_str(&render_service_h_param_decl(c_type, &ep_param.name));
         }
 
         out.push_str("\n);\n\n");
@@ -716,7 +751,7 @@ fn gen_registration_variant(
     // are NOT overridden by this variant would need values — but by convention variants
     // with wrapper_call pin ALL non-free metadata params, so only the wrapper itself is needed.
     let meta_args: String = {
-        let mut args = format!("{}, ", wrapper_call.metadata_param);
+        let mut args = render_service_api_arg(&wrapper_call.metadata_param);
         // Any remaining non-pinned base metadata params that aren't the wrapper param
         for meta_param in &reg.metadata_params {
             if meta_param.name == wrapper_call.metadata_param {
@@ -731,7 +766,7 @@ fn gen_registration_variant(
                     .find(|o| o.param_name == meta_param.name)
                     .map(|o| o.value_expr.as_str())
                     .unwrap_or("");
-                args.push_str(&format!("{override_expr}, "));
+                args.push_str(&render_service_api_arg(override_expr));
             } else {
                 // Free param — use the marshaled binding
                 let binding_arg = sig_bindings
@@ -739,7 +774,7 @@ fn gen_registration_variant(
                     .find(|b| b.arg == meta_param.name)
                     .map(|b| b.arg.as_str())
                     .unwrap_or(meta_param.name.as_str());
-                args.push_str(&format!("{binding_arg}, "));
+                args.push_str(&render_service_api_arg(binding_arg));
             }
         }
         args
@@ -1158,6 +1193,23 @@ mod tests {
         assert!(rs.contains("tokio::runtime::Runtime"));
     }
 
+    #[test]
+    fn test_service_header_declares_metadata_and_entrypoint_params() {
+        let api = make_fixture_surface();
+        let header = gen_service_h(&api, "test_crate");
+
+        assert!(
+            header.contains("handler_callback_t callback,\n    void* context,\n    const char* path\n);"),
+            "registration metadata param missing from service header:\n{header}"
+        );
+        assert!(
+            header.contains(
+                "test_crate_test_service_ep_run(\n    test_crateTestServiceOpaque* owner,\n    const char* addr\n);"
+            ),
+            "entrypoint param missing from service header:\n{header}"
+        );
+    }
+
     // ── registration-variant tests ────────────────────────────────────────────
 
     fn make_surface_with_variant() -> ApiSurface {
@@ -1355,6 +1407,10 @@ mod tests {
         assert!(
             rs.contains("my_crate::RouteBuilder::new("),
             "wrapper constructor call not emitted"
+        );
+        assert!(
+            rs.contains("owner_ref.add_route(builder, handler)"),
+            "variant dispatch call must pass wrapper metadata before handler"
         );
     }
 
