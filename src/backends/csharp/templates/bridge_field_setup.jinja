@@ -1,0 +1,8 @@
+        var {{ field_name }} = {{ options_param_camel }}?.{{ field_name_pascal }};
+        var {{ options_param_camel }}Json = {{ options_param_camel }} != null ? JsonSerializer.Serialize({{ options_param_camel }}, JsonSerializationOptions) : "null";
+        var {{ options_param_camel }}Handle = NativeMethods.{{ options_pascal }}FromJson({{ options_param_camel }}Json);
+        try
+        {
+            if ({{ field_name }} != null)
+            {
+                using var bridge = new {{ trait_pascal }}Bridge({{ field_name }});

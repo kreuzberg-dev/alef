@@ -1,0 +1,4 @@
+{{ indent }}if (NativeMethods.LastErrorCode() != 0)
+{{ indent }}{
+{{ indent }}    throw GetLastError();
+{{ indent }}}

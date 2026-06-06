@@ -1,0 +1,2 @@
+{{ indent }}var nativeResult = NativeMethods.{{ native_method_name }}({{ args_str }});
+{{ indent }}if (nativeResult == global::System.IntPtr.Zero) throw new {{ exception_class }}("Method {{ method_cs_name }} failed");

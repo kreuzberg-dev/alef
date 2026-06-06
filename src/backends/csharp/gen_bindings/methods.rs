@@ -772,17 +772,20 @@ fn gen_wrapper_function(
         // For Optional(_) return types, null means None (not found), not an error.
         if func.return_type != TypeRef::Unit && returns_ptr(&func.return_type) {
             if matches!(func.return_type, TypeRef::Optional(_)) {
-                out.push_str(&format!(
-                    "{body_indent}if (nativeResult == IntPtr.Zero)\n{body_indent}{{\n{body_indent}    return null;\n{body_indent}}}\n",
+                out.push_str(&render(
+                    "null_result_return.jinja",
+                    minijinja::context! { indent => body_indent },
                 ));
             } else {
-                out.push_str(&format!(
-                    "{body_indent}if (nativeResult == IntPtr.Zero)\n{body_indent}{{\n{body_indent}    throw GetLastError();\n{body_indent}}}\n",
+                out.push_str(&render(
+                    "last_error_throw.jinja",
+                    minijinja::context! { indent => body_indent },
                 ));
             }
         } else if func.error_type.is_some() {
-            out.push_str(&format!(
-                "{body_indent}if (NativeMethods.LastErrorCode() != 0)\n{body_indent}{{\n{body_indent}    throw GetLastError();\n{body_indent}}}\n",
+            out.push_str(&render(
+                "last_error_throw.jinja",
+                minijinja::context! { indent => body_indent },
             ));
         }
 
@@ -834,6 +837,8 @@ fn gen_bridge_field_wrapper_function(
     _true_opaque_types: &HashSet<String>,
     _handle_returned_types: &HashSet<String>,
 ) -> String {
+    use crate::backends::csharp::template_env::render;
+
     let mut out = String::with_capacity(2048);
 
     // Visible params (bridge field is embedded in the options param)
@@ -845,8 +850,9 @@ fn gen_bridge_field_wrapper_function(
         if !func.doc.is_empty() {
             let param_name = param.name.to_lower_camel_case();
             let optional_text = if param.optional { "Optional." } else { "" };
-            out.push_str(&format!(
-                "    /// <param name=\"{param_name}\">{optional_text}</param>\n"
+            out.push_str(&render(
+                "bridge_field_param_doc.jinja",
+                minijinja::context! { param_name, optional_text },
             ));
         }
     }
@@ -859,7 +865,9 @@ fn gen_bridge_field_wrapper_function(
             out.push_str("async Task");
         } else {
             let return_type = csharp_type(&func.return_type);
-            out.push_str(&format!("async Task<{return_type}>"));
+            out.push_str(
+                render("async_task_generic.jinja", minijinja::context! { return_type }).trim_end_matches('\n'),
+            );
         }
     } else if func.return_type == TypeRef::Unit {
         out.push_str("void");
@@ -882,9 +890,21 @@ fn gen_bridge_field_wrapper_function(
         let param_name = param.name.to_lower_camel_case();
         let param_type = csharp_type(&param.ty);
         if param.optional && !param_type.ends_with('?') {
-            out.push_str(&format!("{param_type}? {param_name}"));
+            out.push_str(
+                render(
+                    "param_decl_inline_optional.jinja",
+                    minijinja::context! { param_type, param_name },
+                )
+                .trim_end_matches('\n'),
+            );
         } else {
-            out.push_str(&format!("{param_type} {param_name}"));
+            out.push_str(
+                render(
+                    "param_decl_inline_required.jinja",
+                    minijinja::context! { param_type, param_name },
+                )
+                .trim_end_matches('\n'),
+            );
         }
 
         if i < visible_params.len() - 1 {
@@ -909,46 +929,28 @@ fn gen_bridge_field_wrapper_function(
         _ => csharp_type(&func.return_type).into_owned(),
     };
 
-    // Extract bridge from options (must be optional)
-    out.push_str(&format!(
-        "        var {field_name} = {options_param_camel}?.{field_name_pascal};\n"
+    out.push_str(&render(
+        "bridge_field_setup.jinja",
+        minijinja::context! {
+            field_name,
+            options_param_camel,
+            field_name_pascal,
+            options_pascal,
+            trait_pascal,
+        },
     ));
-
-    // Serialize options to JSON (excluding bridge field via JsonIgnore)
-    out.push_str(&format!(
-        "        var {options_param_camel}Json = {options_param_camel} != null ? JsonSerializer.Serialize({options_param_camel}, JsonSerializationOptions) : \"null\";\n"
-    ));
-
-    // Deserialize into native options handle
-    out.push_str(&format!(
-        "        var {options_param_camel}Handle = NativeMethods.{options_pascal}FromJson({options_param_camel}Json);\n"
-    ));
-
-    // If-bridge-present logic
-    out.push_str(&format!(
-        "        try\n        {{\n            if ({field_name} != null)\n            {{\n"
-    ));
-    out.push_str(&format!(
-        "                using var bridge = new {trait_pascal}Bridge({field_name});\n"
-    ));
-    // Insert bridge into the static registry so FFI callbacks (which receive
-    // bridge._bridgeId as userData) can dispatch back to the managed visitor.
-    out.push_str(&format!("                lock ({trait_pascal}Bridge._registryLock)\n"));
-    out.push_str("                {\n");
-    out.push_str(&format!(
-        "                    {trait_pascal}Bridge._bridgeRegistry[bridge._bridgeId] = bridge;\n"
-    ));
-    out.push_str("                }\n");
-    out.push_str(&format!(
-        "                var bridgeHandle = NativeMethods.{trait_pascal}BridgeNew(bridge._vtable, bridge._bridgeId);\n"
+    out.push_str(&render(
+        "bridge_field_register.jinja",
+        minijinja::context! { trait_pascal },
     ));
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
 
     // Call native function with injected bridge
     let cs_native_name = to_csharp_name(&func.name);
-    out.push_str(&format!(
-        "                    NativeMethods.{options_pascal}Set{field_name_pascal}({options_param_camel}Handle, bridgeHandle);\n"
+    out.push_str(&render(
+        "bridge_field_inject.jinja",
+        minijinja::context! { options_pascal, field_name_pascal, options_param_camel },
     ));
 
     // Build the native call
@@ -958,7 +960,13 @@ fn gen_bridge_field_wrapper_function(
         out.push_str("                    ");
     }
 
-    out.push_str(&format!("NativeMethods.{cs_native_name}("));
+    out.push_str(
+        render(
+            "native_call_start.jinja",
+            minijinja::context! { method_name => &cs_native_name },
+        )
+        .trim_end_matches('\n'),
+    );
 
     // Build call args (non-options params for convert, or all params if not convert-like)
     let call_args: Vec<String> = func
@@ -988,36 +996,19 @@ fn gen_bridge_field_wrapper_function(
 
     // Handle return value through the generated FFI JSON helpers for the actual return type.
     if func.return_type != TypeRef::Unit {
-        out.push_str(&format!(
-            "                    var jsonPtr = NativeMethods.{result_pascal}ToJson(nativeResult);\n"
-        ));
-        out.push_str(
-            "                    var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
-        );
-        out.push_str("                    NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str(&format!(
-            "                    NativeMethods.{result_pascal}Free(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                    return JsonSerializer.Deserialize<{result_pascal}>(json ?? \"null\", JsonOptions)!;\n"
+        out.push_str(&render(
+            "bridge_field_json_return.jinja",
+            minijinja::context! { indent => "                    ", result_pascal },
         ));
     }
 
     out.push_str("                }\n");
     out.push_str("                finally\n");
     out.push_str("                {\n");
-    out.push_str(&format!(
-        "                    NativeMethods.{trait_pascal}BridgeFree(bridgeHandle);\n"
+    out.push_str(&render(
+        "bridge_field_unregister.jinja",
+        minijinja::context! { trait_pascal },
     ));
-    // Remove registry entry now that Rust will not call back again.
-    out.push_str(&format!(
-        "                    lock ({trait_pascal}Bridge._registryLock)\n"
-    ));
-    out.push_str("                    {\n");
-    out.push_str(&format!(
-        "                        {trait_pascal}Bridge._bridgeRegistry.Remove(bridge._bridgeId);\n"
-    ));
-    out.push_str("                    }\n");
     out.push_str("                }\n");
     out.push_str("            }\n");
     out.push_str("            else\n");
@@ -1030,7 +1021,13 @@ fn gen_bridge_field_wrapper_function(
         out.push_str("                ");
     }
 
-    out.push_str(&format!("NativeMethods.{cs_native_name}("));
+    out.push_str(
+        render(
+            "native_call_start.jinja",
+            minijinja::context! { method_name => &cs_native_name },
+        )
+        .trim_end_matches('\n'),
+    );
     for (i, arg) in call_args.iter().enumerate() {
         if i > 0 {
             out.push_str(", ");
@@ -1041,18 +1038,9 @@ fn gen_bridge_field_wrapper_function(
 
     if func.return_type != TypeRef::Unit {
         out.push_str("                if (nativeResult == IntPtr.Zero) throw GetLastError();\n");
-        out.push_str(&format!(
-            "                var jsonPtr = NativeMethods.{result_pascal}ToJson(nativeResult);\n"
-        ));
-        out.push_str(
-            "                var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n",
-        );
-        out.push_str("                NativeMethods.FreeString(jsonPtr);\n");
-        out.push_str(&format!(
-            "                NativeMethods.{result_pascal}Free(nativeResult);\n"
-        ));
-        out.push_str(&format!(
-            "                return JsonSerializer.Deserialize<{result_pascal}>(json ?? \"null\", JsonOptions)!;\n"
+        out.push_str(&render(
+            "bridge_field_json_return.jinja",
+            minijinja::context! { indent => "                ", result_pascal },
         ));
     }
 
@@ -1060,8 +1048,9 @@ fn gen_bridge_field_wrapper_function(
     out.push_str("        }\n");
     out.push_str("        finally\n");
     out.push_str("        {\n");
-    out.push_str(&format!(
-        "            NativeMethods.{options_pascal}Free({options_param_camel}Handle);\n"
+    out.push_str(&render(
+        "bridge_field_free_options.jinja",
+        minijinja::context! { options_pascal, options_param_camel },
     ));
     out.push_str("        }\n");
     out.push_str("    }\n\n");

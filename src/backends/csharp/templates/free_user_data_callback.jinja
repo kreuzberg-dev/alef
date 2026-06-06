@@ -1,0 +1,5 @@
+    private void FreeUserDataCallback(IntPtr userData) {
+        if (userData != IntPtr.Zero) {
+            {{ trait_pascal }}Bridge.FreeUserData(userData);
+        }
+    }

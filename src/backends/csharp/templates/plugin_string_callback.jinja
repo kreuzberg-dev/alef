@@ -1,0 +1,19 @@
+    private int {{ callback_name }}(IntPtr userData, out IntPtr {{ out_name }}, out IntPtr outError) {
+        try {
+            outError = IntPtr.Zero;
+            string {{ local_name }} = null!;
+            lock ({{ trait_pascal }}Bridge._registryLock) {
+                if (!{{ trait_pascal }}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {
+                    {{ out_name }} = IntPtr.Zero;
+                    return 1;
+                }
+                {{ local_name }} = bridge._impl.{{ property_name }};
+            }
+            {{ out_name }} = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8({{ local_name }});
+            return 0;
+        } catch (Exception ex) {
+            {{ out_name }} = IntPtr.Zero;
+            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);
+            return 1;
+        }
+    }

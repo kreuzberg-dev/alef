@@ -1,0 +1,5 @@
+                lock ({{ trait_pascal }}Bridge._registryLock)
+                {
+                    {{ trait_pascal }}Bridge._bridgeRegistry[bridge._bridgeId] = bridge;
+                }
+                var bridgeHandle = NativeMethods.{{ trait_pascal }}BridgeNew(bridge._vtable, bridge._bridgeId);

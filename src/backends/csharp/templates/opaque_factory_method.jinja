@@ -1,0 +1,13 @@
+    /// <summary>Creates a new <see cref="{{ class_name }}"/> handle.</summary>
+    public static {{ class_name }} Create({{ param_list }})
+    {
+        var handle = NativeMethods.{{ native_method }}({{ call_args }});
+        if (handle == IntPtr.Zero)
+        {
+            var ec = NativeMethods.LastErrorCode();
+            var ctxPtr = NativeMethods.LastErrorContext();
+            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "Create failed";
+            throw new {{ exception_name }}(ec, msg);
+        }
+        return new {{ class_name }}(handle);
+    }

@@ -419,101 +419,48 @@ fn gen_single_trait_bridge(
 
     // Plugin lifecycle callbacks
     if has_super_trait {
-        callbacks
-            .push_str("    private int NameFnCallback(IntPtr userData, out IntPtr outName, out IntPtr outError) {\n");
-        callbacks.push_str("        try {\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
-        callbacks.push_str("            string _name = null!;\n");
-        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!(
-            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
-            trait_pascal
+        callbacks.push_str(&render(
+            "plugin_string_callback.jinja",
+            minijinja::context! {
+                callback_name => "NameFnCallback",
+                out_name => "outName",
+                local_name => "_name",
+                trait_pascal,
+                property_name => "Name",
+            },
         ));
-        callbacks.push_str("                    outName = IntPtr.Zero;\n");
-        callbacks.push_str("                    return 1;\n");
-        callbacks.push_str("                }\n");
-        callbacks.push_str("                _name = bridge._impl.Name;\n");
-        callbacks.push_str("            }\n");
-        callbacks.push_str(
-            "            outName = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_name);\n",
-        );
-        callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outName = IntPtr.Zero;\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
-        callbacks.push_str("            return 1;\n");
-        callbacks.push_str("        }\n");
-        callbacks.push_str("    }\n");
         callbacks.push('\n');
 
-        callbacks.push_str(
-            "    private int VersionFnCallback(IntPtr userData, out IntPtr outVersion, out IntPtr outError) {\n",
-        );
-        callbacks.push_str("        try {\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
-        callbacks.push_str("            string _version = null!;\n");
-        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!(
-            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
-            trait_pascal
+        callbacks.push_str(&render(
+            "plugin_string_callback.jinja",
+            minijinja::context! {
+                callback_name => "VersionFnCallback",
+                out_name => "outVersion",
+                local_name => "_version",
+                trait_pascal,
+                property_name => "Version",
+            },
         ));
-        callbacks.push_str("                    outVersion = IntPtr.Zero;\n");
-        callbacks.push_str("                    return 1;\n");
-        callbacks.push_str("                }\n");
-        callbacks.push_str("                _version = bridge._impl.Version;\n");
-        callbacks.push_str("            }\n");
-        callbacks.push_str(
-            "            outVersion = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(_version);\n",
-        );
-        callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outVersion = IntPtr.Zero;\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
-        callbacks.push_str("            return 1;\n");
-        callbacks.push_str("        }\n");
-        callbacks.push_str("    }\n");
         callbacks.push('\n');
 
-        callbacks.push_str("    private int InitializeFnCallback(IntPtr userData, out IntPtr outError) {\n");
-        callbacks.push_str("        try {\n");
-        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!(
-            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
-            trait_pascal
+        callbacks.push_str(&render(
+            "plugin_void_callback.jinja",
+            minijinja::context! {
+                callback_name => "InitializeFnCallback",
+                trait_pascal,
+                method_name => "Initialize",
+            },
         ));
-        callbacks.push_str("                    outError = IntPtr.Zero;\n");
-        callbacks.push_str("                    return 1;\n");
-        callbacks.push_str("                }\n");
-        callbacks.push_str("                bridge._impl.Initialize();\n");
-        callbacks.push_str("            }\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
-        callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
-        callbacks.push_str("            return 1;\n");
-        callbacks.push_str("        }\n");
-        callbacks.push_str("    }\n");
         callbacks.push('\n');
 
-        callbacks.push_str("    private int ShutdownFnCallback(IntPtr userData, out IntPtr outError) {\n");
-        callbacks.push_str("        try {\n");
-        callbacks.push_str(&format!("            lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!(
-            "                if (!{}Bridge._bridgeRegistry.TryGetValue(userData, out var bridge)) {{\n",
-            trait_pascal
+        callbacks.push_str(&render(
+            "plugin_void_callback.jinja",
+            minijinja::context! {
+                callback_name => "ShutdownFnCallback",
+                trait_pascal,
+                method_name => "Shutdown",
+            },
         ));
-        callbacks.push_str("                    outError = IntPtr.Zero;\n");
-        callbacks.push_str("                    return 1;\n");
-        callbacks.push_str("                }\n");
-        callbacks.push_str("                bridge._impl.Shutdown();\n");
-        callbacks.push_str("            }\n");
-        callbacks.push_str("            outError = IntPtr.Zero;\n");
-        callbacks.push_str("            return 0;\n");
-        callbacks.push_str("        } catch (Exception ex) {\n");
-        callbacks.push_str("            outError = global::System.Runtime.InteropServices.Marshal.StringToCoTaskMemUTF8(ex.Message ?? ex.GetType().Name);\n");
-        callbacks.push_str("            return 1;\n");
-        callbacks.push_str("        }\n");
-        callbacks.push_str("    }\n");
         callbacks.push('\n');
     }
 
@@ -554,10 +501,9 @@ fn gen_single_trait_bridge(
             } else {
                 format!("IntPtr userData, {}", params_decl_no_trailing)
             };
-            callbacks.push_str(&format!(
-                "    private int {}FnCallback({}) {{\n",
-                to_csharp_name(&method.name),
-                params_with_userdata
+            callbacks.push_str(&render(
+                "callback_header_void.jinja",
+                minijinja::context! { method_pascal, params_with_userdata },
             ));
         } else if is_primitive_return {
             // Primitive return: return directly (no out params)
@@ -584,11 +530,9 @@ fn gen_single_trait_bridge(
             } else {
                 format!("IntPtr userData, {}", params_decl_no_trailing)
             };
-            callbacks.push_str(&format!(
-                "    private {} {}FnCallback({}) {{\n",
-                return_c_type,
-                to_csharp_name(&method.name),
-                params_with_userdata
+            callbacks.push_str(&render(
+                "callback_header_primitive.jinja",
+                minijinja::context! { return_c_type, method_pascal, params_with_userdata },
             ));
         } else {
             // Complex return: use out params
@@ -605,20 +549,10 @@ fn gen_single_trait_bridge(
             }
         }
         // Recover the bridge instance from the registry using userData as key
-        callbacks.push_str(&format!(
-            "        {}Bridge? _bridgeFromRegistry = null;\n",
-            trait_pascal
+        callbacks.push_str(&render(
+            "callback_registry_acquire.jinja",
+            minijinja::context! { trait_pascal },
         ));
-        callbacks.push_str(&format!("        lock ({}Bridge._registryLock) {{\n", trait_pascal));
-        callbacks.push_str(&format!(
-            "            if ({}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {{\n",
-            trait_pascal
-        ));
-        callbacks.push_str("                _bridgeFromRegistry = bridgeFromRegistry;\n");
-        callbacks.push_str("                // Increment callback refcount to prevent GC while callback executes\n");
-        callbacks.push_str("                _bridgeFromRegistry.IncrementCallbackRef();\n");
-        callbacks.push_str("            }\n");
-        callbacks.push_str("        }\n");
 
         // If bridge not found, return error gracefully
         callbacks.push_str("        if (_bridgeFromRegistry == null) {\n");
@@ -710,7 +644,10 @@ fn gen_single_trait_bridge(
             } else {
                 format!("bridge._impl.{}({})", method_pascal, param_call)
             };
-            callbacks.push_str(&format!("            var methodResult = {};\n", method_call_syntax));
+            callbacks.push_str(&render(
+                "callback_primitive_call.jinja",
+                minijinja::context! { method_call_syntax },
+            ));
             // Convert return value based on method return type
             if matches!(&method.return_type, TypeRef::Primitive(PrimitiveType::Bool)) {
                 // bool → int (0 or 1)
@@ -810,11 +747,10 @@ fn gen_single_trait_bridge(
     callbacks.push('\n');
 
     // free_user_data callback
-    callbacks.push_str("    private void FreeUserDataCallback(IntPtr userData) {\n");
-    callbacks.push_str("        if (userData != IntPtr.Zero) {\n");
-    callbacks.push_str(&format!("            {}Bridge.FreeUserData(userData);\n", trait_pascal));
-    callbacks.push_str("        }\n");
-    callbacks.push_str("    }\n");
+    callbacks.push_str(&render(
+        "free_user_data_callback.jinja",
+        minijinja::context! { trait_pascal },
+    ));
     callbacks.push('\n');
 
     // Render the bridge class with callbacks

@@ -914,6 +914,8 @@ pub(super) fn emit_named_param_setup(
     _types: &[TypeDef],
     enum_names: &HashSet<String>,
 ) {
+    use crate::backends::csharp::template_env::render;
+
     for param in params {
         let param_name = param.name.to_lower_camel_case();
         let json_var = format!("{param_name}Json");
@@ -930,12 +932,16 @@ pub(super) fn emit_named_param_setup(
                 if enum_names.contains(type_name) {
                     // For optional enums, emit: var enumHandle = paramName != null ? (int)paramName : -1;
                     if param.optional {
-                        out.push_str(&format!(
-                            "{indent}var {handle_var} = {param_name} != null ? (int){param_name} : -1;\n"
+                        out.push_str(&render(
+                            "named_param_enum_optional.jinja",
+                            minijinja::context! { indent, handle_var, param_name },
                         ));
                     } else {
                         // For required enums, just cast: var enumHandle = (int)paramName;
-                        out.push_str(&format!("{indent}var {handle_var} = (int){param_name};\n"));
+                        out.push_str(&render(
+                            "named_param_enum_required.jinja",
+                            minijinja::context! { indent, handle_var, param_name },
+                        ));
                     }
                     continue;
                 }

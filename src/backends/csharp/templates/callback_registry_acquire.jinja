@@ -1,0 +1,8 @@
+        {{ trait_pascal }}Bridge? _bridgeFromRegistry = null;
+        lock ({{ trait_pascal }}Bridge._registryLock) {
+            if ({{ trait_pascal }}Bridge._bridgeRegistry.TryGetValue(userData, out var bridgeFromRegistry)) {
+                _bridgeFromRegistry = bridgeFromRegistry;
+                // Increment callback refcount to prevent GC while callback executes
+                _bridgeFromRegistry.IncrementCallbackRef();
+            }
+        }

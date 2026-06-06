@@ -1,0 +1,3 @@
+        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);
+        var selfHandle = NativeMethods.{{ native_type_prefix }}FromJson(selfJson);
+        if (selfHandle == global::System.IntPtr.Zero) throw new {{ exception_class }}("Failed to serialise {{ class_name }}");

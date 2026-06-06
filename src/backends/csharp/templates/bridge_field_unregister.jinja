@@ -1,0 +1,5 @@
+                    NativeMethods.{{ trait_pascal }}BridgeFree(bridgeHandle);
+                    lock ({{ trait_pascal }}Bridge._registryLock)
+                    {
+                        {{ trait_pascal }}Bridge._bridgeRegistry.Remove(bridge._bridgeId);
+                    }

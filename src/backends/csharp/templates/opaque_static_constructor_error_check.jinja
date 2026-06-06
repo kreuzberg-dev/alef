@@ -1,0 +1,7 @@
+        if (handle == IntPtr.Zero)
+        {
+            var ec = NativeMethods.LastErrorCode();
+            var ctxPtr = NativeMethods.LastErrorContext();
+            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ fallback_message }}";
+            throw new {{ exception_name }}(ec, msg);
+        }

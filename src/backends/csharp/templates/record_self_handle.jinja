@@ -1,0 +1,2 @@
+        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);
+        var selfHandle = NativeMethods.{{ native_type_prefix }}FromJson(selfJson);

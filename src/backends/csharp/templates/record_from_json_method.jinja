@@ -1,0 +1,21 @@
+
+    /// <summary>
+    /// Parse a <see cref="{{ class_name }}"/> from a JSON string.
+    /// </summary>
+    /// <exception cref="{{ exception_class }}">When the JSON cannot be deserialised.</exception>
+    public static {{ class_name }} FromJson(string json)
+    {
+        try
+        {
+            return JsonSerializer.Deserialize<{{ class_name }}>(json, JsonOptions)
+                ?? throw new {{ exception_class }}($"Failed to parse {{ class_name }} from JSON: deserializer returned null");
+        }
+        catch ({{ exception_class }})
+        {
+            throw;
+        }
+        catch (Exception e)
+        {
+            throw new {{ exception_class }}($"Failed to parse {{ class_name }} from JSON: {e.Message}", e);
+        }
+    }

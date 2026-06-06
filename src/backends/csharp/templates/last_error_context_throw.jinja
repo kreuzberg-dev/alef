@@ -1,0 +1,7 @@
+{{ indent }}if (NativeMethods.LastErrorCode() != 0)
+{{ indent }}{
+{{ indent }}    var ec = NativeMethods.LastErrorCode();
+{{ indent }}    var ctxPtr = NativeMethods.LastErrorContext();
+{{ indent }}    var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? "{{ operation }} failed";
+{{ indent }}    throw new {{ exception_name }}(ec, msg);
+{{ indent }}}

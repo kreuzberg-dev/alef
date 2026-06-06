@@ -205,6 +205,8 @@ fn gen_opaque_static_constructor(
     enum_names: &HashSet<String>,
     true_opaque_types: &HashSet<String>,
 ) -> String {
+    use crate::backends::csharp::template_env::render;
+
     let mut out = String::new();
 
     // Public param list
@@ -219,13 +221,15 @@ fn gen_opaque_static_constructor(
         .collect();
     let param_list = param_parts.join(", ");
 
-    // XML doc comment
-    out.push_str(&format!(
-        "    /// <summary>Creates a new <see cref=\"{class_name}\"/> instance.</summary>\n"
+    out.push_str(&render(
+        "opaque_static_constructor_summary.jinja",
+        minijinja::context! { class_name },
     ));
 
-    // Public constructor signature
-    out.push_str(&format!("    public {class_name}({param_list})\n    {{\n"));
+    out.push_str(&render(
+        "opaque_static_constructor_signature.jinja",
+        minijinja::context! { class_name, param_list },
+    ));
 
     // Emit setup for Named and Bytes parameters (marshal to handles)
     emit_named_param_setup(
@@ -249,26 +253,23 @@ fn gen_opaque_static_constructor(
     // FFI function name: {class_name}New (matches gen_opaque_factory_method pattern)
     let ffi_method_name = format!("{}New", class_name);
 
-    // Call the FFI constructor
-    out.push_str(&format!(
-        "        var handle = NativeMethods.{ffi_method_name}({native_args_str});\n"
+    out.push_str(&render(
+        "opaque_static_constructor_handle.jinja",
+        minijinja::context! { ffi_method_name, native_args_str },
     ));
 
-    // Error check
-    out.push_str("        if (handle == IntPtr.Zero)\n        {\n");
-    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
-    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
-    out.push_str(
-        "            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Constructor failed\";\n",
-    );
-    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
-    out.push_str("        }\n");
+    out.push_str(&render(
+        "opaque_static_constructor_error_check.jinja",
+        minijinja::context! { exception_name, fallback_message => "Constructor failed" },
+    ));
 
     // Emit cleanup for Named and Bytes parameters
     emit_named_param_teardown(&mut out, &method.params, true_opaque_types, enum_names);
 
-    // Initialize the SafeHandle wrapper
-    out.push_str(&format!("        _safeHandle = new {class_name}SafeHandle(handle);\n"));
+    out.push_str(&render(
+        "opaque_safehandle_init.jinja",
+        minijinja::context! { class_name },
+    ));
 
     out.push_str("    }\n");
 
@@ -276,6 +277,8 @@ fn gen_opaque_static_constructor(
 }
 
 fn gen_opaque_factory_method(class_name: &str, exception_name: &str, ctor: &ClientConstructorConfig) -> String {
+    use crate::backends::csharp::template_env::render;
+
     let mut out = String::new();
 
     // Public param list: `string apiKey`
@@ -301,25 +304,10 @@ fn gen_opaque_factory_method(class_name: &str, exception_name: &str, ctor: &Clie
 
     let native_method = format!("{class_name}New");
 
-    out.push_str(&format!(
-        "    /// <summary>Creates a new <see cref=\"{class_name}\"/> handle.</summary>\n"
+    out.push_str(&render(
+        "opaque_factory_method.jinja",
+        minijinja::context! { class_name, exception_name, param_list, native_method, call_args },
     ));
-    out.push_str(&format!(
-        "    public static {class_name} Create({param_list})\n    {{\n"
-    ));
-    out.push_str(&format!(
-        "        var handle = NativeMethods.{native_method}({call_args});\n"
-    ));
-    out.push_str("        if (handle == IntPtr.Zero)\n        {\n");
-    out.push_str("            var ec = NativeMethods.LastErrorCode();\n");
-    out.push_str("            var ctxPtr = NativeMethods.LastErrorContext();\n");
-    out.push_str(
-        "            var msg = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"Create failed\";\n",
-    );
-    out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
-    out.push_str("        }\n");
-    out.push_str(&format!("        return new {class_name}(handle);\n"));
-    out.push_str("    }\n");
 
     out
 }
@@ -613,9 +601,10 @@ fn gen_opaque_method(
 
         if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
             if matches!(method.return_type, TypeRef::Optional(_)) {
-                out.push_str(
-                    "            if (nativeResult == IntPtr.Zero)\n            {\n                return null;\n            }\n",
-                );
+                out.push_str(&render(
+                    "null_result_return.jinja",
+                    minijinja::context! { indent => "            " },
+                ));
             } else {
                 out.push_str(&render(
                     "null_result_throw.jinja",
@@ -623,8 +612,9 @@ fn gen_opaque_method(
                 ));
             }
         } else if method.error_type.is_some() {
-            out.push_str(&format!(
-                "            if (NativeMethods.LastErrorCode() != 0)\n            {{\n                var ec = NativeMethods.LastErrorCode();\n                var ctxPtr = NativeMethods.LastErrorContext();\n                var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n                throw new {exception_name}(ec, msg);\n            }}\n"
+            out.push_str(&render(
+                "last_error_context_throw.jinja",
+                minijinja::context! { indent => "            ", operation => &cs_native_name, exception_name },
             ));
         }
 
@@ -694,9 +684,10 @@ fn gen_opaque_method(
 
         if method.return_type != TypeRef::Unit && returns_ptr(&method.return_type) {
             if matches!(method.return_type, TypeRef::Optional(_)) {
-                out.push_str(
-                    "        if (nativeResult == IntPtr.Zero)\n        {\n            return null;\n        }\n",
-                );
+                out.push_str(&render(
+                    "null_result_return.jinja",
+                    minijinja::context! { indent => "        " },
+                ));
             } else {
                 out.push_str(&render(
                     "null_result_throw.jinja",
@@ -704,8 +695,9 @@ fn gen_opaque_method(
                 ));
             }
         } else if method.error_type.is_some() {
-            out.push_str(&format!(
-                "        if (NativeMethods.LastErrorCode() != 0)\n        {{\n            var ec = NativeMethods.LastErrorCode();\n            var ctxPtr = NativeMethods.LastErrorContext();\n            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(ctxPtr) ?? \"{cs_native_name} failed\";\n            throw new {exception_name}(ec, msg);\n        }}\n"
+            out.push_str(&render(
+                "last_error_context_throw.jinja",
+                minijinja::context! { indent => "        ", operation => &cs_native_name, exception_name },
             ));
         }
 
@@ -1127,64 +1119,16 @@ pub(super) fn gen_record_type(
     // deserialization step and the FFI call.  Without this, malformed
     // JSON surfaces as a raw `JsonException` that the test does not
     // catch.  Mirrors the Java backend's `fromJson` factory.
-    out.push_str("\n    /// <summary>\n");
-    out.push_str("    /// Parse a <see cref=\"");
-    out.push_str(&class_name);
-    out.push_str("\"/> from a JSON string.\n");
-    out.push_str("    /// </summary>\n");
-    out.push_str("    /// <exception cref=\"");
-    out.push_str(exception_class);
-    out.push_str("\">When the JSON cannot be deserialised.</exception>\n");
-    out.push_str("    public static ");
-    out.push_str(&class_name);
-    out.push_str(" FromJson(string json)\n");
-    out.push_str("    {\n");
-    out.push_str("        try\n");
-    out.push_str("        {\n");
-    out.push_str("            return JsonSerializer.Deserialize<");
-    out.push_str(&class_name);
-    out.push_str(">(json, JsonOptions)\n");
-    out.push_str("                ?? throw new ");
-    out.push_str(exception_class);
-    out.push_str("($\"Failed to parse ");
-    out.push_str(&class_name);
-    out.push_str(" from JSON: deserializer returned null\");\n");
-    out.push_str("        }\n");
-    out.push_str("        catch (");
-    out.push_str(exception_class);
-    out.push_str(")\n");
-    out.push_str("        {\n");
-    out.push_str("            throw;\n");
-    out.push_str("        }\n");
-    out.push_str("        catch (Exception e)\n");
-    out.push_str("        {\n");
-    out.push_str("            throw new ");
-    out.push_str(exception_class);
-    out.push_str("($\"Failed to parse ");
-    out.push_str(&class_name);
-    out.push_str(" from JSON: {e.Message}\", e);\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n");
+    out.push_str(&render(
+        "record_from_json_method.jinja",
+        minijinja::context! { class_name, exception_class },
+    ));
     // JsonOptions is used for deserializing FFI responses (sparse JSON with defaults omitted).
     // It uses `WhenWritingDefault` to skip zero / false / null on the read side, but this
     // only affects symmetric serialization (when we round-trip objects back to FFI).
     // For sending config objects to FFI, we must use JsonSerializationOptions (no skipping)
     // so that explicitly-set false/0/null values are preserved across the FFI boundary.
-    out.push_str("\n    private static readonly JsonSerializerOptions JsonOptions = new()\n");
-    out.push_str("    {\n");
-    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingDefault,\n");
-    out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-    out.push_str("    };\n");
-    out.push_str("\n    /// <summary>Options for serializing config/input objects to FFI. Strips nulls\n");
-    out.push_str("    /// (nullable C# fields default to null and would override required Rust fields with\n");
-    out.push_str(
-        "    /// non-deserialisable nulls) but preserves explicit false/0 so caller intent is kept.</summary>\n",
-    );
-    out.push_str("    private static readonly JsonSerializerOptions JsonSerializationOptions = new()\n");
-    out.push_str("    {\n");
-    out.push_str("        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,\n");
-    out.push_str("        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },\n");
-    out.push_str("    };\n");
+    out.push_str(&render("record_json_options.jinja", minijinja::context! {}));
 
     // Emit record-level methods (static factories and instance withers).
     // These supersede the IntPtr-leaking counterparts on the static wrapper class:
@@ -1225,6 +1169,8 @@ fn emit_record_methods(
     true_opaque_types: &HashSet<String>,
     enum_names: &HashSet<String>,
 ) {
+    use crate::backends::csharp::template_env::render;
+
     let native_type_prefix = class_name;
 
     for method in &typ.methods {
@@ -1261,32 +1207,29 @@ fn emit_record_methods(
         let sanitized_method_doc = super::sanitize_rust_syntax_for_csharp(&method.doc);
         if !sanitized_method_doc.trim().is_empty() {
             let first_line = sanitized_method_doc.lines().next().unwrap_or("").replace('"', "\\\"");
-            out.push_str(&format!(
-                "\n    /// <summary>\n    /// {first_line}\n    /// </summary>\n"
-            ));
+            out.push_str(&render("record_method_doc.jinja", minijinja::context! { first_line }));
         } else {
             out.push('\n');
         }
 
-        if has_receiver {
-            // Instance wither: `public ClassName Method(params)`
-            out.push_str(&format!("    public {class_name} {method_cs_name}("));
-        } else {
-            // Static factory: `public static ClassName Method(params)`
-            out.push_str(&format!("    public static {class_name} {method_cs_name}("));
-        }
-
-        out.push_str(&params_sig.join(", "));
-        out.push_str(")\n    {\n");
+        let params_sig = params_sig.join(", ");
+        out.push_str(&render(
+            "record_method_signature.jinja",
+            minijinja::context! {
+                is_static => !has_receiver,
+                class_name,
+                method_cs_name,
+                params_sig,
+            },
+        ));
 
         if method.error_type.is_some() {
             // Methods that may fail: wrap in try/catch and surface as exception.
             if has_receiver {
                 // Obtain handle by serialising this instance.
-                out.push_str(&format!(
-                    "        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);\n\
-                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n\
-                             if (selfHandle == global::System.IntPtr.Zero) throw new {exception_class}(\"Failed to serialise {class_name}\");\n"
+                out.push_str(&render(
+                    "record_self_handle_checked.jinja",
+                    minijinja::context! { native_type_prefix, exception_class, class_name },
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
@@ -1305,24 +1248,27 @@ fn emit_record_methods(
                     super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
                 }));
                 let args_str = call_args.join(", ");
-                out.push_str(&format!(
-                    "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                                 if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n"
+                out.push_str(&render(
+                    "record_native_result_checked.jinja",
+                    minijinja::context! {
+                        indent => "            ",
+                        native_method_name,
+                        args_str,
+                        exception_class,
+                        method_cs_name,
+                    },
                 ));
-                out.push_str(&format!(
-                    "            var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                                 var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                                 NativeMethods.FreeString(jsonPtr);\n\
-                                 NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                                 return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
-                         }}\n\
-                         finally\n        {{\n"
+                out.push_str(&render(
+                    "record_json_return.jinja",
+                    minijinja::context! { indent => "            ", native_type_prefix, class_name },
                 ));
+                out.push_str("        }\n        finally\n        {\n");
                 emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
-                out.push_str(&format!(
-                    "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
-                                 }}\n"
+                out.push_str(&render(
+                    "record_self_handle_free.jinja",
+                    minijinja::context! { native_type_prefix },
                 ));
+                out.push_str("        }\n");
             } else {
                 // Check if any params need handle setup
                 let needs_handle_params = method.params.iter().any(|p| {
@@ -1359,14 +1305,19 @@ fn emit_record_methods(
                 } else {
                     "        "
                 };
-                out.push_str(&format!(
-                    "{indent}var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                            {indent}if (nativeResult == global::System.IntPtr.Zero) throw new {exception_class}(\"Method {method_cs_name} failed\");\n\
-                            {indent}var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                            {indent}var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                            {indent}NativeMethods.FreeString(jsonPtr);\n\
-                            {indent}NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                            {indent}return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                out.push_str(&render(
+                    "record_native_result_checked.jinja",
+                    minijinja::context! {
+                        indent,
+                        native_method_name,
+                        args_str,
+                        exception_class,
+                        method_cs_name,
+                    },
+                ));
+                out.push_str(&render(
+                    "record_json_return.jinja",
+                    minijinja::context! { indent, native_type_prefix, class_name },
                 ));
 
                 if needs_handle_params {
@@ -1384,9 +1335,9 @@ fn emit_record_methods(
         } else {
             // Infallible methods (no error_type).
             if has_receiver {
-                out.push_str(&format!(
-                    "        var selfJson = JsonSerializer.Serialize(this, JsonSerializationOptions);\n\
-                             var selfHandle = NativeMethods.{native_type_prefix}FromJson(selfJson);\n"
+                out.push_str(&render(
+                    "record_self_handle.jinja",
+                    minijinja::context! { native_type_prefix },
                 ));
                 out.push_str("        try\n        {\n");
                 // Setup Named params inside try block
@@ -1405,21 +1356,21 @@ fn emit_record_methods(
                     super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
                 }));
                 let args_str = call_args.join(", ");
-                out.push_str(&format!(
-                    "            var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                                 var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                                 var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                                 NativeMethods.FreeString(jsonPtr);\n\
-                                 NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                                 return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n\
-                         }}\n\
-                         finally\n        {{\n"
+                out.push_str(&render(
+                    "record_native_result.jinja",
+                    minijinja::context! { indent => "            ", native_method_name, args_str },
                 ));
+                out.push_str(&render(
+                    "record_json_return.jinja",
+                    minijinja::context! { indent => "            ", native_type_prefix, class_name },
+                ));
+                out.push_str("        }\n        finally\n        {\n");
                 emit_named_param_teardown_indented(out, &method.params, "            ", true_opaque_types, enum_names);
-                out.push_str(&format!(
-                    "            NativeMethods.{native_type_prefix}Free(selfHandle);\n\
-                                 }}\n"
+                out.push_str(&render(
+                    "record_self_handle_free.jinja",
+                    minijinja::context! { native_type_prefix },
                 ));
+                out.push_str("        }\n");
             } else {
                 // Check if any params need handle setup
                 let needs_handle_params = method.params.iter().any(|p| {
@@ -1456,13 +1407,13 @@ fn emit_record_methods(
                 } else {
                     "        "
                 };
-                out.push_str(&format!(
-                    "{indent}var nativeResult = NativeMethods.{native_method_name}({args_str});\n\
-                            {indent}var jsonPtr = NativeMethods.{native_type_prefix}ToJson(nativeResult);\n\
-                            {indent}var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);\n\
-                            {indent}NativeMethods.FreeString(jsonPtr);\n\
-                            {indent}NativeMethods.{native_type_prefix}Free(nativeResult);\n\
-                            {indent}return JsonSerializer.Deserialize<{class_name}>(json ?? \"null\", JsonOptions)!;\n"
+                out.push_str(&render(
+                    "record_native_result.jinja",
+                    minijinja::context! { indent, native_method_name, args_str },
+                ));
+                out.push_str(&render(
+                    "record_json_return.jinja",
+                    minijinja::context! { indent, native_type_prefix, class_name },
                 ));
 
                 if needs_handle_params {

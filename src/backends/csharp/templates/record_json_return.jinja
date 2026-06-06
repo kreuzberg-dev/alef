@@ -1,0 +1,5 @@
+{{ indent }}var jsonPtr = NativeMethods.{{ native_type_prefix }}ToJson(nativeResult);
+{{ indent }}var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(jsonPtr);
+{{ indent }}NativeMethods.FreeString(jsonPtr);
+{{ indent }}NativeMethods.{{ native_type_prefix }}Free(nativeResult);
+{{ indent }}return JsonSerializer.Deserialize<{{ class_name }}>(json ?? "null", JsonOptions)!;

@@ -206,7 +206,10 @@ pub(super) fn gen_native_methods(
                 "dll_import_attr.jinja",
                 minijinja::context! { entry_point => &new_entry },
             ));
-            out.push_str(&format!("    internal static extern IntPtr {new_cs}({params_str});\n"));
+            out.push_str(&render(
+                "client_constructor_pinvoke.jinja",
+                minijinja::context! { new_cs, params_str },
+            ));
             out.push('\n');
         }
     }
