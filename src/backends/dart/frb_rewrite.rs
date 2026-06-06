@@ -136,8 +136,13 @@ fn frb_init_prologue_replacement(package_name: &str, module_name: &str, stem: &s
   static Future<ExternalLibrary?> {marker}() async {{
     try {{
       const candidates = <String>[
+        // macOS: framework bundle (preferred modern packaging)
+        '{stem}.framework/{stem}',
+        // macOS: bare dylib fallback
         'lib{stem}.dylib',
+        // Linux
         'lib{stem}.so',
+        // Windows
         '{stem}.dll',
       ];
 
@@ -1208,8 +1213,12 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
             "loader must target the bridge-generated dir, got:\n{out}"
         );
         assert!(
+            out.contains("'sample_router_dart.framework/sample_router_dart'"),
+            "missing macOS framework candidate, got:\n{out}"
+        );
+        assert!(
             out.contains("'libsample_router_dart.dylib'"),
-            "missing macOS candidate, got:\n{out}"
+            "missing macOS dylib candidate, got:\n{out}"
         );
         assert!(
             out.contains("'libsample_router_dart.so'"),
