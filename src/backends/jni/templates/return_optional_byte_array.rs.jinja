@@ -1,0 +1,7 @@
+{{ indent }}match v {
+{{ indent }}    None => std::ptr::null_mut(),
+{{ indent }}    Some(bytes) => match env.byte_array_from_slice({{ bytes_expr }}) {
+{{ indent }}        Ok(arr) => { use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }
+{{ indent }}        Err(_) => std::ptr::null_mut(),
+{{ indent }}    },
+{{ indent }}}

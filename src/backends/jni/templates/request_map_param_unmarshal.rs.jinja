@@ -1,0 +1,4 @@
+    let {{ name }}: {{ type_path }} = match req_map.get("{{ name }}").and_then(|v| serde_json::from_value(v.clone()).ok()) {
+        Some(v) => v,
+        None => { throw_jni_error(env, "missing param: {{ name }}"); return {{ ret_null }}; }
+    };

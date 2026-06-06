@@ -1,0 +1,5 @@
+    let {{ name }}_vec: Vec<String> = match serde_json::from_str(&req_str) {
+        Ok(v) => v,
+        Err(e) => { throw_jni_error(env, &format!("request deserialize: {e}")); return {{ ret_null }}; }
+    };
+    let {{ name }} = {{ name }}_vec.clone();

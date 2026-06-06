@@ -401,6 +401,69 @@ fn emit_client_shims(
 // Individual shim emitters
 // ---------------------------------------------------------------------------
 
+fn render_param_decl(name: &str, type_name: &str) -> String {
+    template_env::render(
+        "param_decl.rs.jinja",
+        context! {
+            name => name,
+            type_name => type_name,
+        },
+    )
+}
+
+fn render_string_unmarshal(name: &str, ret_null: &str) -> String {
+    template_env::render(
+        "string_unmarshal.rs.jinja",
+        context! {
+            name => name,
+            ret_null => ret_null,
+        },
+    )
+}
+
+fn render_byte_array_unmarshal(name: &str, ret_null: &str, is_optional: bool) -> String {
+    template_env::render(
+        "byte_array_unmarshal.rs.jinja",
+        context! {
+            name => name,
+            ret_null => ret_null,
+            is_optional => is_optional,
+        },
+    )
+}
+
+fn render_complex_unmarshal(name: &str, type_path: &str, ret_null: &str, is_optional: bool) -> String {
+    template_env::render(
+        "complex_unmarshal.rs.jinja",
+        context! {
+            name => name,
+            type_path => type_path,
+            ret_null => ret_null,
+            is_optional => is_optional,
+        },
+    )
+}
+
+fn render_request_string_unmarshal(ret_null: &str, error_prefix: &str) -> String {
+    template_env::render(
+        "request_string_unmarshal.rs.jinja",
+        context! {
+            ret_null => ret_null,
+            error_prefix => error_prefix,
+        },
+    )
+}
+
+fn render_vec_string_refs(refs_name: &str, source_name: &str) -> String {
+    template_env::render(
+        "vec_string_refs.rs.jinja",
+        context! {
+            refs_name => refs_name,
+            source_name => source_name,
+        },
+    )
+}
+
 /// Emit a shim for a top-level API function.
 ///
 /// When the return type is an opaque named type the function returns `jlong`
@@ -449,33 +512,29 @@ fn emit_function_shim(
         };
         match base_ty {
             TypeRef::String => {
-                param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
-                unmarshal.push_str(&format!(
-                    "    let {rust_name} = match jstring_to_string(env, {rust_name}) {{\n"
-                ));
-                unmarshal.push_str("        Ok(s) => s,\n");
-                unmarshal.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                ));
-                unmarshal.push_str("    };\n");
+                param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
+                unmarshal.push_str(&render_string_unmarshal(&rust_name, err_null));
                 // Build call-site expression.  Optional Strings: the Kotlin
                 // facade passes "" (empty string) as the null-sentinel for
                 // String? params via `value ?: ""`, because JNI primitive
                 // signatures cannot express nullability.  Treat empty as
                 // None so the Rust callee receives the correct Option<_>.
                 if p.optional {
-                    call_args.push_str(&format!(
-                        "if {rust_name}.is_empty() {{ None }} else {{ Some({rust_name}) }}"
-                    ));
+                    call_args.push_str("if ");
+                    call_args.push_str(&rust_name);
+                    call_args.push_str(".is_empty() { None } else { Some(");
+                    call_args.push_str(&rust_name);
+                    call_args.push_str(") }");
                 } else if p.is_ref {
-                    call_args.push_str(&format!("&{rust_name}"));
+                    call_args.push('&');
+                    call_args.push_str(&rust_name);
                 } else {
                     call_args.push_str(&rust_name);
                 }
             }
             TypeRef::Primitive(prim) => {
                 let jni_ty = jni_primitive_type(prim);
-                param_sigs.push_str(&format!("    {rust_name}: {jni_ty},\n"));
+                param_sigs.push_str(&render_param_decl(&rust_name, jni_ty));
                 let cast = primitive_cast(prim);
                 let cast_expr = if cast.is_empty() {
                     rust_name.clone()
@@ -491,89 +550,45 @@ fn emit_function_shim(
                     // correct Option<_>.
                     let zero_lit = primitive_zero_literal(prim);
                     if let Some(zero) = zero_lit {
-                        call_args.push_str(&format!(
-                            "if {rust_name} != {zero} {{ Some({cast_expr}) }} else {{ None }}"
-                        ));
+                        call_args.push_str("if ");
+                        call_args.push_str(&rust_name);
+                        call_args.push_str(" != ");
+                        call_args.push_str(zero);
+                        call_args.push_str(" { Some(");
+                        call_args.push_str(&cast_expr);
+                        call_args.push_str(") } else { None }");
                     } else {
-                        call_args.push_str(&format!("Some({cast_expr})"));
+                        call_args.push_str("Some(");
+                        call_args.push_str(&cast_expr);
+                        call_args.push(')');
                     }
                 } else {
                     call_args.push_str(&cast_expr);
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
-                param_sigs.push_str(&format!("    {rust_name}: jbyteArray,\n"));
-                unmarshal.push_str(&format!(
-                    "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
-                ));
+                param_sigs.push_str(&render_param_decl(&rust_name, "jbyteArray"));
+                unmarshal.push_str(&render_byte_array_unmarshal(&rust_name, err_null, p.optional));
                 if p.optional {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("        Ok(0) => None,\n");
-                    unmarshal.push_str(&format!(
-                        "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("            Ok(v) => Some(v),\n");
-                    unmarshal.push_str(&format!(
-                        "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("        },\n");
-                    unmarshal.push_str(&format!(
-                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("    };\n");
                     call_args.push_str(&rust_name);
                 } else {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("        Ok(v) => v,\n");
-                    unmarshal.push_str(&format!(
-                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("    };\n");
                     if p.is_ref {
-                        call_args.push_str(&format!("&{rust_name}"));
+                        call_args.push('&');
+                        call_args.push_str(&rust_name);
                     } else {
                         call_args.push_str(&rust_name);
                     }
                 }
             }
             TypeRef::Bytes => {
-                param_sigs.push_str(&format!("    {rust_name}: jbyteArray,\n"));
-                unmarshal.push_str(&format!(
-                    "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
-                ));
+                param_sigs.push_str(&render_param_decl(&rust_name, "jbyteArray"));
+                unmarshal.push_str(&render_byte_array_unmarshal(&rust_name, err_null, p.optional));
                 if p.optional {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("        Ok(0) => None,\n");
-                    unmarshal.push_str(&format!(
-                        "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("            Ok(v) => Some(v),\n");
-                    unmarshal.push_str(&format!(
-                        "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("        },\n");
-                    unmarshal.push_str(&format!(
-                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("    };\n");
                     call_args.push_str(&rust_name);
                 } else {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                    ));
-                    unmarshal.push_str("        Ok(v) => v,\n");
-                    unmarshal.push_str(&format!(
-                        "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("    };\n");
                     if p.is_ref {
-                        call_args.push_str(&format!("&{rust_name}"));
+                        call_args.push('&');
+                        call_args.push_str(&rust_name);
                     } else {
                         call_args.push_str(&rust_name);
                     }
@@ -583,29 +598,21 @@ fn emit_function_shim(
                 // Opaque handle param: receive as jlong, dereference via raw pointer.
                 // SAFETY: the Kotlin caller holds a Long obtained from the matching
                 // constructor shim and guarantees the handle is live for this call.
-                param_sigs.push_str(&format!("    {rust_name}: jlong,\n"));
+                param_sigs.push_str(&render_param_decl(&rust_name, "jlong"));
                 let type_path = format!("core_crate::{type_name}");
-                unmarshal.push_str(&format!(
-                    "    // SAFETY: {rust_name} was allocated by the matching constructor shim and\n"
-                ));
-                unmarshal.push_str("    // remains valid until the destructor shim is called.\n");
-                unmarshal.push_str(&format!(
-                    "    let {rust_name}: &{type_path} = unsafe {{ &*({rust_name} as *const {type_path}) }};\n"
+                unmarshal.push_str(&template_env::render(
+                    "opaque_handle_unmarshal.rs.jinja",
+                    context! {
+                        name => rust_name,
+                        type_path => type_path,
+                    },
                 ));
                 // Pass as reference (already &T via deref).
                 call_args.push_str(&rust_name);
             }
             _ => {
                 // Complex types passed as JSON string from Kotlin side.
-                param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
-                unmarshal.push_str(&format!(
-                    "    let {rust_name}_str = match jstring_to_string(env, {rust_name}) {{\n"
-                ));
-                unmarshal.push_str("        Ok(s) => s,\n");
-                unmarshal.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {err_null}; }}\n"
-                ));
-                unmarshal.push_str("    };\n");
+                param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
                 let type_path = type_ref_to_core_path(base_ty, "core_crate");
                 // Optional complex params: the Kotlin/Java caller passes an empty
                 // string (`""`) when the host-language value is null, the legacy
@@ -613,41 +620,21 @@ fn emit_function_shim(
                 // Accept that sentinel as `None` instead of attempting to parse
                 // it as JSON (which fails with `EOF while parsing a value`).
                 if p.optional {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: Option<{type_path}> = if {rust_name}_str.is_empty() {{\n"
-                    ));
-                    unmarshal.push_str("        None\n");
-                    unmarshal.push_str("    } else {\n");
-                    unmarshal.push_str(&format!(
-                        "        match serde_json::from_str::<{type_path}>(&{rust_name}_str) {{\n"
-                    ));
-                    unmarshal.push_str("            Ok(v) => Some(v),\n");
-                    unmarshal.push_str(&format!(
-                        "            Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("        }\n");
-                    unmarshal.push_str("    };\n");
+                    unmarshal.push_str(&render_complex_unmarshal(&rust_name, &type_path, err_null, true));
                     call_args.push_str(&rust_name);
                 } else {
-                    unmarshal.push_str(&format!(
-                        "    let {rust_name}: {type_path} = match serde_json::from_str(&{rust_name}_str) {{\n"
-                    ));
-                    unmarshal.push_str("        Ok(v) => v,\n");
-                    unmarshal.push_str(&format!(
-                        "        Err(e) => {{ throw_jni_error(env, &format!(\"deserialize: {{e}}\")); return {err_null}; }}\n"
-                    ));
-                    unmarshal.push_str("    };\n");
+                    unmarshal.push_str(&render_complex_unmarshal(&rust_name, &type_path, err_null, false));
                     // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
                     let is_vec_string_ref =
                         p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
                     if is_vec_string_ref {
                         let refs_name = format!("{rust_name}_refs");
-                        unmarshal.push_str(&format!(
-                            "    let {refs_name}: Vec<&str> = {rust_name}.iter().map(String::as_str).collect();\n"
-                        ));
-                        call_args.push_str(&format!("&{refs_name}"));
+                        unmarshal.push_str(&render_vec_string_refs(&refs_name, &rust_name));
+                        call_args.push('&');
+                        call_args.push_str(&refs_name);
                     } else if p.is_ref {
-                        call_args.push_str(&format!("&{rust_name}"));
+                        call_args.push('&');
+                        call_args.push_str(&rust_name);
                     } else {
                         call_args.push_str(&rust_name);
                     }
@@ -760,9 +747,9 @@ fn emit_method_shim(
         };
         match base_ty {
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
-                format!("    {rust_name}: jbyteArray,\n")
+                render_param_decl(&rust_name, "jbyteArray")
             }
-            TypeRef::Bytes => format!("    {rust_name}: jbyteArray,\n"),
+            TypeRef::Bytes => render_param_decl(&rust_name, "jbyteArray"),
             _ => "    request_json: JString,\n".to_string(),
         }
     } else {
@@ -817,9 +804,7 @@ fn emit_method_shim(
             p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
         if is_vec_string_ref {
             let refs_name = format!("{rust_name}_refs");
-            out.push_str(&format!(
-                "    let {refs_name}: Vec<&str> = {rust_name}_vec.iter().map(String::as_str).collect();\n"
-            ));
+            out.push_str(&render_vec_string_refs(&refs_name, &format!("{rust_name}_vec")));
             format!("&{refs_name}")
         } else if unmarshal_produces_option {
             // Binding is already `Option<T>` — pass through.
@@ -833,18 +818,12 @@ fn emit_method_shim(
         }
     } else {
         // Multi-param: decode JSON map.
-        out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-        out.push_str("        Ok(s) => s,\n");
-        out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"invalid request_json: {{e}}\")); return {ret_null}; }}\n"));
-        out.push_str("    };\n");
-        out.push_str(
-            "    let req_map: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(&req_str) {\n",
-        );
-        out.push_str("        Ok(m) => m,\n");
-        out.push_str(&format!(
-            "        Err(e) => {{ throw_jni_error(env, &format!(\"param deserialize: {{e}}\")); return {ret_null}; }}\n"
+        out.push_str(&template_env::render(
+            "request_map_unmarshal.rs.jinja",
+            context! {
+                ret_null => ret_null,
+            },
         ));
-        out.push_str("    };\n");
         let mut args = Vec::new();
         for p in params {
             let rust_name = p.name.replace('-', "_");
@@ -854,22 +833,20 @@ fn emit_method_shim(
                 other => other,
             };
             let type_path = type_ref_to_core_path(base_ty, "core_crate");
-            out.push_str(&format!(
-                "    let {rust_name}: {type_path} = match req_map.get(\"{rust_name}\").and_then(|v| serde_json::from_value(v.clone()).ok()) {{\n"
+            out.push_str(&template_env::render(
+                "request_map_param_unmarshal.rs.jinja",
+                context! {
+                    name => rust_name,
+                    type_path => type_path,
+                    ret_null => ret_null,
+                },
             ));
-            out.push_str("        Some(v) => v,\n");
-            out.push_str(&format!(
-                "        None => {{ throw_jni_error(env, \"missing param: {rust_name}\"); return {ret_null}; }}\n"
-            ));
-            out.push_str("    };\n");
             // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
             let is_vec_string_ref =
                 p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
             let call_arg = if is_vec_string_ref {
                 let refs_name = format!("{rust_name}_refs");
-                out.push_str(&format!(
-                    "    let {refs_name}: Vec<&str> = {rust_name}.iter().map(String::as_str).collect();\n"
-                ));
+                out.push_str(&render_vec_string_refs(&refs_name, &rust_name));
                 format!("&{refs_name}")
             } else if p.optional {
                 format!("Some({rust_name})")
@@ -960,143 +937,61 @@ fn emit_single_param_unmarshal(out: &mut String, rust_name: &str, ty: &TypeRef, 
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // jbyteArray → Vec<u8> via env.convert_byte_array.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
-            out.push_str(&format!(
-                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
-            ));
-            if is_optional {
-                out.push_str(&format!(
-                    "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("        Ok(0) => None,\n");
-                out.push_str(&format!(
-                    "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("            Ok(v) => Some(v),\n");
-                out.push_str(&format!(
-                    "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("        },\n");
-                out.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("    };\n");
-            } else {
-                out.push_str(&format!(
-                    "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("        Ok(v) => v,\n");
-                out.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("    };\n");
-            }
+            out.push_str(&render_byte_array_unmarshal(rust_name, ret_null, is_optional));
         }
         TypeRef::Bytes => {
             // jbyteArray → Vec<u8> via env.convert_byte_array.
             // The caller uses is_ref=true which will pass &<name> (coerces &Vec<u8> → &[u8]).
             // No bytes crate dependency needed.
             // SAFETY: `source` is a valid jbyteArray produced by the JNI caller.
-            out.push_str(&format!(
-                "    let {rust_name}_jarr = unsafe {{ jni::objects::JByteArray::from_raw(env, {rust_name}) }};\n"
-            ));
-            if is_optional {
-                out.push_str(&format!(
-                    "    let {rust_name}: Option<Vec<u8>> = match env.get_array_length(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("        Ok(0) => None,\n");
-                out.push_str(&format!(
-                    "        Ok(_) => match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("            Ok(v) => Some(v),\n");
-                out.push_str(&format!(
-                    "            Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("        },\n");
-                out.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("    };\n");
-            } else {
-                out.push_str(&format!(
-                    "    let {rust_name}: Vec<u8> = match env.convert_byte_array(&{rust_name}_jarr) {{\n"
-                ));
-                out.push_str("        Ok(v) => v,\n");
-                out.push_str(&format!(
-                    "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-                ));
-                out.push_str("    };\n");
-            }
+            out.push_str(&render_byte_array_unmarshal(rust_name, ret_null, is_optional));
         }
         TypeRef::Path => {
             // JString → PathBuf via raw string (no JSON decode).
-            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            out.push_str(&render_request_string_unmarshal(ret_null, ""));
+            out.push_str(&template_env::render(
+                "path_unmarshal.rs.jinja",
+                context! {
+                    name => rust_name,
+                },
             ));
-            out.push_str("    };\n");
-            out.push_str(&format!("    let {rust_name} = std::path::PathBuf::from(req_str);\n"));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String) => {
             // Vec<String> — deserialize into `<name>_vec` so the caller can optionally
             // produce `<name>_refs: Vec<&str>` for `&[&str]` call sites.
-            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
+            out.push_str(&render_request_string_unmarshal(ret_null, ""));
+            out.push_str(&template_env::render(
+                "vec_string_unmarshal.rs.jinja",
+                context! {
+                    name => rust_name,
+                    ret_null => ret_null,
+                },
             ));
-            out.push_str("    };\n");
-            out.push_str(&format!(
-                "    let {rust_name}_vec: Vec<String> = match serde_json::from_str(&req_str) {{\n"
-            ));
-            out.push_str("        Ok(v) => v,\n");
-            out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
-            out.push_str("    };\n");
-            // Bind the non-ref call site alias so it's usable when is_ref=false.
-            out.push_str(&format!("    let {rust_name} = {rust_name}_vec.clone();\n"));
         }
         TypeRef::String => {
-            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-            ));
-            out.push_str("    };\n");
+            out.push_str(&render_request_string_unmarshal(ret_null, ""));
             // A JSON-encoded string from Kotlin: `MAPPER.writeValueAsString(strParam)` → `"\"hello\""`
-            out.push_str(&format!(
-                "    let {rust_name}: String = match serde_json::from_str(&req_str) {{\n"
+            out.push_str(&template_env::render(
+                "request_string_value_unmarshal.rs.jinja",
+                context! {
+                    name => rust_name,
+                },
             ));
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str("        Err(_) => req_str,\n");
-            out.push_str("    };\n");
         }
         _ => {
-            out.push_str("    let req_str = match jstring_to_string(env, request_json) {\n");
-            out.push_str("        Ok(s) => s,\n");
-            out.push_str(&format!(
-                "        Err(e) => {{ throw_jni_error(env, &format!(\"{{e}}\")); return {ret_null}; }}\n"
-            ));
-            out.push_str("    };\n");
+            out.push_str(&render_request_string_unmarshal(ret_null, ""));
             let type_path = type_ref_to_core_path(ty, "core_crate");
-            if is_optional {
-                // Kotlin passes "" as the sentinel for None (so we don't have to
-                // round-trip a JSON `null` and the wire stays clean for the Some case).
-                out.push_str(&format!(
-                    "    let {rust_name}: Option<{type_path}> = if req_str.is_empty() {{ None }} else {{\n"
-                ));
-                out.push_str("        match serde_json::from_str(&req_str) {\n");
-                out.push_str("            Ok(v) => Some(v),\n");
-                out.push_str(&format!("            Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
-                out.push_str("        }\n");
-                out.push_str("    };\n");
-            } else {
-                out.push_str(&format!(
-                    "    let {rust_name}: {type_path} = match serde_json::from_str(&req_str) {{\n"
-                ));
-                out.push_str("        Ok(v) => v,\n");
-                out.push_str(&format!("        Err(e) => {{ throw_jni_error(env, &format!(\"request deserialize: {{e}}\")); return {ret_null}; }}\n"));
-                out.push_str("    };\n");
-            }
+            // Kotlin passes "" as the sentinel for None (so we don't have to
+            // round-trip a JSON `null` and the wire stays clean for the Some case).
+            out.push_str(&template_env::render(
+                "json_value_unmarshal.rs.jinja",
+                context! {
+                    name => rust_name,
+                    type_path => type_path,
+                    ret_null => ret_null,
+                    is_optional => is_optional,
+                },
+            ));
         }
     }
 }
@@ -1122,65 +1017,69 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
             // jni 0.22 + jni-sys 0.4 made `jboolean` a `bool` (it was `u8` in
             // 0.21), so a `bool as bool` cast is a Rust compile error. Return
             // the value as-is.
-            out.push_str(&format!("{indent}v\n"));
+            out.push_str(&template_env::render(
+                "return_bool.rs.jinja",
+                context! {
+                    indent => indent,
+                },
+            ));
         }
         TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
             // Vec<u8> → jbyteArray
-            out.push_str(&format!("{indent}match env.byte_array_from_slice(&v) {{\n"));
-            out.push_str(&format!(
-                "{indent}    Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            out.push_str(&template_env::render(
+                "return_byte_array.rs.jinja",
+                context! {
+                    indent => indent,
+                    bytes_expr => "&v",
+                },
             ));
-            out.push_str(&format!("{indent}    Err(_) => std::ptr::null_mut(),\n"));
-            out.push_str(&format!("{indent}}}\n"));
         }
         TypeRef::Bytes => {
             // bytes::Bytes → jbyteArray (same as Vec<u8>)
-            out.push_str(&format!("{indent}match env.byte_array_from_slice(v.as_ref()) {{\n"));
-            out.push_str(&format!(
-                "{indent}    Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            out.push_str(&template_env::render(
+                "return_byte_array.rs.jinja",
+                context! {
+                    indent => indent,
+                    bytes_expr => "v.as_ref()",
+                },
             ));
-            out.push_str(&format!("{indent}    Err(_) => std::ptr::null_mut(),\n"));
-            out.push_str(&format!("{indent}}}\n"));
         }
         TypeRef::Optional(inner)
             if matches!(inner.as_ref(), TypeRef::Bytes)
                 || matches!(inner.as_ref(), TypeRef::Vec(vec_inner) if matches!(vec_inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8))) =>
         {
-            out.push_str(&format!("{indent}match v {{\n"));
-            out.push_str(&format!("{indent}    None => std::ptr::null_mut(),\n"));
-            match inner.as_ref() {
-                TypeRef::Bytes => {
-                    out.push_str(&format!(
-                        "{indent}    Some(bytes) => match env.byte_array_from_slice(bytes.as_ref()) {{\n"
-                    ));
-                }
-                _ => {
-                    out.push_str(&format!(
-                        "{indent}    Some(bytes) => match env.byte_array_from_slice(&bytes) {{\n"
-                    ));
-                }
-            }
-            out.push_str(&format!(
-                "{indent}        Ok(arr) => {{ use jni::objects::JObject; JObject::from(arr).into_raw() as jbyteArray }}\n"
+            let bytes_expr = match inner.as_ref() {
+                TypeRef::Bytes => "bytes.as_ref()",
+                _ => "&bytes",
+            };
+            out.push_str(&template_env::render(
+                "return_optional_byte_array.rs.jinja",
+                context! {
+                    indent => indent,
+                    bytes_expr => bytes_expr,
+                },
             ));
-            out.push_str(&format!("{indent}        Err(_) => std::ptr::null_mut(),\n"));
-            out.push_str(&format!("{indent}    }},\n"));
-            out.push_str(&format!("{indent}}}\n"));
         }
         TypeRef::Primitive(p) => {
             // Cast the Rust primitive to the corresponding JNI numeric type.
             // This handles mismatches like u16 → jshort (i16), usize → jlong (i64).
             let jni_ty = jni_primitive_type(p);
-            out.push_str(&format!("{indent}v as {jni_ty}\n"));
+            out.push_str(&template_env::render(
+                "return_primitive.rs.jinja",
+                context! {
+                    indent => indent,
+                    jni_ty => jni_ty,
+                },
+            ));
         }
         _ => {
-            out.push_str(&format!("{indent}let s = match serde_json::to_string(&v) {{\n"));
-            out.push_str(&format!("{indent}    Ok(s) => s,\n"));
-            out.push_str(&format!(
-                "{indent}    Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
+            out.push_str(&template_env::render(
+                "return_json.rs.jinja",
+                context! {
+                    indent => indent,
+                    ret_null => ret_null,
+                },
             ));
-            out.push_str(&format!("{indent}}};\n"));
-            out.push_str(&format!("{indent}string_to_jstring(env, &s)\n"));
         }
     }
 }
@@ -1213,17 +1112,12 @@ fn emit_constructor_shim(
         let rust_name = param.name.replace('-', "_");
         if param.ty.contains("c_char") {
             // String parameter: receive as JString and unmarshal to Rust String.
-            param_sigs.push_str(&format!("    {rust_name}: JString,\n"));
-            unmarshal.push_str(&format!(
-                "    let {rust_name} = match jstring_to_string(env, {rust_name}) {{\n"
-            ));
-            unmarshal.push_str("        Ok(s) => s,\n");
-            unmarshal.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
-            unmarshal.push_str("    };\n");
+            param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
+            unmarshal.push_str(&render_string_unmarshal(&rust_name, "0"));
             call_args.push(rust_name.clone());
         } else {
             // Non-string: use as-is (caller passes primitive JNI type).
-            param_sigs.push_str(&format!("    {rust_name}: jlong,\n"));
+            param_sigs.push_str(&render_param_decl(&rust_name, "jlong"));
             call_args.push(rust_name.clone());
         }
     }
@@ -1297,21 +1191,28 @@ fn emit_streaming_shims(
     let stream_call_block;
     if let Some(first_param) = adapter.params.first() {
         let param_type = first_param.ty.rsplit("::").next().unwrap_or(&first_param.ty);
-        request_unmarshal.push_str(&format!(
-            "    let request: core_crate::{param_type} = match serde_json::from_str(&req_str) {{\n"
+        request_unmarshal.push_str(&template_env::render(
+            "stream_request_unmarshal.rs.jinja",
+            context! {
+                param_type => param_type,
+            },
         ));
-        request_unmarshal.push_str("        Ok(v) => v,\n");
-        request_unmarshal.push_str("        Err(e) => { throw_jni_error(env, &format!(\"{e}\")); return 0; }\n");
-        request_unmarshal.push_str("    };\n");
-        stream_call_block = format!(
-            "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}(request).await }}))) else {{\n"
+        stream_call_block = template_env::render(
+            "stream_call_block.rs.jinja",
+            context! {
+                adapter_method => adapter_method,
+                request_arg => "request",
+            },
         );
     } else {
-        stream_call_block = format!(
-            "    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async {{ client.{adapter_method}().await }}))) else {{\n"
+        stream_call_block = template_env::render(
+            "stream_call_block.rs.jinja",
+            context! {
+                adapter_method => adapter_method,
+                request_arg => "",
+            },
         );
     }
-    let stream_call_block = format!("{stream_call_block}        return 0;\n    }};\n");
 
     out.push_str(&template_env::render(
         "streaming_shims.rs.jinja",

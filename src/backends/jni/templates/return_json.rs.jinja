@@ -1,0 +1,5 @@
+{{ indent }}let s = match serde_json::to_string(&v) {
+{{ indent }}    Ok(s) => s,
+{{ indent }}    Err(e) => { throw_jni_error(env, &format!("serialize: {e}")); return {{ ret_null }}; }
+{{ indent }}};
+{{ indent }}string_to_jstring(env, &s)

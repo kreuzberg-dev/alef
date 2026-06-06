@@ -1,0 +1,4 @@
+    let req_str = match jstring_to_string(env, request_json) {
+        Ok(s) => s,
+        Err(e) => { throw_jni_error(env, &format!("{{ error_prefix }}{e}")); return {{ ret_null }}; }
+    };

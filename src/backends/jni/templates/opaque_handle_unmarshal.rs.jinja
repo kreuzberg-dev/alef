@@ -1,0 +1,3 @@
+    // SAFETY: {{ name }} was allocated by the matching constructor shim and
+    // remains valid until the destructor shim is called.
+    let {{ name }}: &{{ type_path }} = unsafe { &*({{ name }} as *const {{ type_path }}) };

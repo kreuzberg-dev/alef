@@ -1,0 +1,8 @@
+    let req_str = match jstring_to_string(env, request_json) {
+        Ok(s) => s,
+        Err(e) => { throw_jni_error(env, &format!("invalid request_json: {e}")); return {{ ret_null }}; }
+    };
+    let req_map: serde_json::Map<String, serde_json::Value> = match serde_json::from_str(&req_str) {
+        Ok(m) => m,
+        Err(e) => { throw_jni_error(env, &format!("param deserialize: {e}")); return {{ ret_null }}; }
+    };

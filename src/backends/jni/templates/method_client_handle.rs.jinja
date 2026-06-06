@@ -8,4 +8,3 @@
 {% else %}
     let client: &core_crate::{{ type_name }} = unsafe { &*(handle as *const core_crate::{{ type_name }}) };
 {% endif %}
-

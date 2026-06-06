@@ -78,6 +78,85 @@ static TEMPLATES: &[(&str, &str)] = &[
         "entrypoint_finalize.rs.jinja",
         include_str!("templates/entrypoint_finalize.rs.jinja"),
     ),
+    ("param_decl.rs.jinja", include_str!("templates/param_decl.rs.jinja")),
+    (
+        "service_param_decl.rs.jinja",
+        include_str!("templates/service_param_decl.rs.jinja"),
+    ),
+    (
+        "string_unmarshal.rs.jinja",
+        include_str!("templates/string_unmarshal.rs.jinja"),
+    ),
+    (
+        "byte_array_unmarshal.rs.jinja",
+        include_str!("templates/byte_array_unmarshal.rs.jinja"),
+    ),
+    (
+        "opaque_handle_unmarshal.rs.jinja",
+        include_str!("templates/opaque_handle_unmarshal.rs.jinja"),
+    ),
+    (
+        "complex_unmarshal.rs.jinja",
+        include_str!("templates/complex_unmarshal.rs.jinja"),
+    ),
+    (
+        "request_string_unmarshal.rs.jinja",
+        include_str!("templates/request_string_unmarshal.rs.jinja"),
+    ),
+    (
+        "request_map_unmarshal.rs.jinja",
+        include_str!("templates/request_map_unmarshal.rs.jinja"),
+    ),
+    (
+        "request_map_param_unmarshal.rs.jinja",
+        include_str!("templates/request_map_param_unmarshal.rs.jinja"),
+    ),
+    (
+        "vec_string_refs.rs.jinja",
+        include_str!("templates/vec_string_refs.rs.jinja"),
+    ),
+    (
+        "path_unmarshal.rs.jinja",
+        include_str!("templates/path_unmarshal.rs.jinja"),
+    ),
+    (
+        "vec_string_unmarshal.rs.jinja",
+        include_str!("templates/vec_string_unmarshal.rs.jinja"),
+    ),
+    (
+        "request_string_value_unmarshal.rs.jinja",
+        include_str!("templates/request_string_value_unmarshal.rs.jinja"),
+    ),
+    (
+        "json_value_unmarshal.rs.jinja",
+        include_str!("templates/json_value_unmarshal.rs.jinja"),
+    ),
+    (
+        "wrapper_setup.rs.jinja",
+        include_str!("templates/wrapper_setup.rs.jinja"),
+    ),
+    (
+        "stream_request_unmarshal.rs.jinja",
+        include_str!("templates/stream_request_unmarshal.rs.jinja"),
+    ),
+    (
+        "stream_call_block.rs.jinja",
+        include_str!("templates/stream_call_block.rs.jinja"),
+    ),
+    ("return_bool.rs.jinja", include_str!("templates/return_bool.rs.jinja")),
+    (
+        "return_byte_array.rs.jinja",
+        include_str!("templates/return_byte_array.rs.jinja"),
+    ),
+    (
+        "return_optional_byte_array.rs.jinja",
+        include_str!("templates/return_optional_byte_array.rs.jinja"),
+    ),
+    (
+        "return_primitive.rs.jinja",
+        include_str!("templates/return_primitive.rs.jinja"),
+    ),
+    ("return_json.rs.jinja", include_str!("templates/return_json.rs.jinja")),
 ];
 
 pub(crate) fn render(name: &str, context: minijinja::Value) -> String {

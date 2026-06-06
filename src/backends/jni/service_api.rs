@@ -37,6 +37,16 @@ fn internal_class_component(name: &str) -> String {
     to_class_name(name)
 }
 
+fn render_service_param_decl(name: &str, type_name: &str) -> String {
+    template_env::render(
+        "service_param_decl.rs.jinja",
+        context! {
+            name => name,
+            type_name => type_name,
+        },
+    )
+}
+
 /// Map a `TypeRef` to a JNI FFI type.
 fn typeref_to_jni_type(ty: &TypeRef, _core_import: &str) -> String {
     match ty {
@@ -284,7 +294,7 @@ fn gen_register_jni_function(
         let mut metadata_params_decl = String::new();
         for meta_param in &reg.metadata_params {
             let rust_type = typeref_to_jni_type(&meta_param.ty, core_import);
-            metadata_params_decl.push_str(&format!(",\n    {}: {}", meta_param.name, rust_type));
+            metadata_params_decl.push_str(&render_service_param_decl(&meta_param.name, &rust_type));
         }
         let dispatch_method_name = &contract.dispatch.name;
         let mut register_args: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
@@ -351,7 +361,7 @@ fn gen_register_variant_jni_function(
         let mut free_params_decl = String::new();
         for param in &variant.signature_params {
             let rust_type = typeref_to_jni_type(&param.ty, core_import);
-            free_params_decl.push_str(&format!(",\n    {}: {}", param.name, rust_type));
+            free_params_decl.push_str(&render_service_param_decl(&param.name, &rust_type));
         }
 
         // Build wrapper if wrapper_call is present
@@ -371,12 +381,14 @@ fn gen_register_variant_jni_function(
                     }
                 }
             }
-            wrapper_block.push_str(&format!(
-                "    let {} = {}::{}({});\n\n",
-                wc.metadata_param,
-                wc.wrapper_type_path,
-                wc.constructor_method,
-                constructor_args.join(", ")
+            wrapper_block.push_str(&template_env::render(
+                "wrapper_setup.rs.jinja",
+                context! {
+                    name => wc.metadata_param,
+                    wrapper_type_path => wc.wrapper_type_path,
+                    constructor_method => wc.constructor_method,
+                    constructor_args => constructor_args.join(", "),
+                },
             ));
         }
 
@@ -438,7 +450,7 @@ fn gen_entrypoint_jni_function(
     let mut params_decl = String::new();
     for ep_param in &ep.params {
         let jni_type = typeref_to_jni_type(&ep_param.ty, core_import);
-        params_decl.push_str(&format!(",\n    {}: {}", ep_param.name, jni_type));
+        params_decl.push_str(&render_service_param_decl(&ep_param.name, &jni_type));
     }
     let call_args = ep
         .params

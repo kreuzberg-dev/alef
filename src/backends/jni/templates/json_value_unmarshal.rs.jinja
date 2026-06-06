@@ -1,0 +1,13 @@
+{% if is_optional %}
+    let {{ name }}: Option<{{ type_path }}> = if req_str.is_empty() { None } else {
+        match serde_json::from_str(&req_str) {
+            Ok(v) => Some(v),
+            Err(e) => { throw_jni_error(env, &format!("request deserialize: {e}")); return {{ ret_null }}; }
+        }
+    };
+{% else %}
+    let {{ name }}: {{ type_path }} = match serde_json::from_str(&req_str) {
+        Ok(v) => v,
+        Err(e) => { throw_jni_error(env, &format!("request deserialize: {e}")); return {{ ret_null }}; }
+    };
+{% endif %}

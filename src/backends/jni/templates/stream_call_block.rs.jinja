@@ -1,0 +1,3 @@
+    let Some(stream_result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| runtime().block_on(async { client.{{ adapter_method }}({{ request_arg }}).await }))) else {
+        return 0;
+    };
