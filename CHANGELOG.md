@@ -11,9 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **config schema**: added a generated, versioned JSON Schema for `alef.toml` at `schemas/alef.schema.json`, a new `alef schema` command with `--check` support, and `task set-version` integration so schema metadata stays in lockstep with Alef release versions.
 
+### Fixed
+
+- **extendr/R**: extended JSON bridging to handle bare enums (RegionKind, PiiCategory, etc.), non-opaque structs (DiffOptions, LlmConfig, etc.), and Vec<Enum> parameters that extendr cannot auto-convert from Robj. Functions with these types now correctly deserialize from JSON strings at the R boundary instead of failing type conversion.
+
 ### Changed
 
 - **backends**: migrated more generated-source emission in C# opaque/record/trait callbacks, Dart FFI/Rust-crate/trait helpers, Extendr/R, FFI, Go service/type/trait helpers, Java, JNI shim marshalling, Kotlin/Kotlin Android wrappers, Magnus/Ruby service/tagged enum helpers, NAPI, PHP service/trait helpers, PyO3/Python, Rustler/Elixir wrapper helpers, Swift struct/Rust-wrapper helpers, WASM service wrappers, and Zig service/trait helpers from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/extendr`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/kotlin`, `src/backends/kotlin_android`, `src/backends/magnus`, `src/backends/napi`, `src/backends/php`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/wasm`, `src/backends/zig`)
+
+- **rustler**: migrated remaining service API registration dispatch and entrypoint generated Rust blocks to Rustler Jinja templates, leaving type, name, metadata tuple, and argument list assembly in Rust. (`src/backends/rustler/gen_bindings/service_api.rs`)
 
 - **kotlin**: migrated remaining Kotlin and Kotlin Android generated-code `push_str(&format!(...))` emission in wrapper, JNI client, service, and trait-interface paths to backend Jinja templates, leaving expression/name assembly in Rust. (`src/backends/kotlin`, `src/backends/kotlin_android`)
 
