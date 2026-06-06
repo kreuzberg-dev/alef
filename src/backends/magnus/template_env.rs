@@ -145,6 +145,74 @@ static TEMPLATES: &[(&str, &str)] = &[
         "module_class_method_register.rs.jinja",
         include_str!("templates/module_class_method_register.rs.jinja"),
     ),
+    (
+        "service_rb_header.rb.jinja",
+        include_str!("templates/service_rb_header.rb.jinja"),
+    ),
+    (
+        "service_rb_initialize.rb.jinja",
+        include_str!("templates/service_rb_initialize.rb.jinja"),
+    ),
+    (
+        "service_rb_configurator.rb.jinja",
+        include_str!("templates/service_rb_configurator.rb.jinja"),
+    ),
+    (
+        "service_rb_entrypoint.rb.jinja",
+        include_str!("templates/service_rb_entrypoint.rb.jinja"),
+    ),
+    (
+        "service_rb_registration_method.rb.jinja",
+        include_str!("templates/service_rb_registration_method.rb.jinja"),
+    ),
+    (
+        "service_rb_direct_registration_method.rb.jinja",
+        include_str!("templates/service_rb_direct_registration_method.rb.jinja"),
+    ),
+    (
+        "service_rb_registration_variant.rb.jinja",
+        include_str!("templates/service_rb_registration_variant.rb.jinja"),
+    ),
+    (
+        "service_rs_header.rs.jinja",
+        include_str!("templates/service_rs_header.rs.jinja"),
+    ),
+    (
+        "service_rs_handler_bridge.rs.jinja",
+        include_str!("templates/service_rs_handler_bridge.rs.jinja"),
+    ),
+    (
+        "service_rs_ruby_proc_gvl_helpers.rs.jinja",
+        include_str!("templates/service_rs_ruby_proc_gvl_helpers.rs.jinja"),
+    ),
+    (
+        "service_rs_meta_array_extract.rs.jinja",
+        include_str!("templates/service_rs_meta_array_extract.rs.jinja"),
+    ),
+    (
+        "service_rs_run_function_header.rs.jinja",
+        include_str!("templates/service_rs_run_function_header.rs.jinja"),
+    ),
+    (
+        "service_rs_registration_match_arm_header.rs.jinja",
+        include_str!("templates/service_rs_registration_match_arm_header.rs.jinja"),
+    ),
+    (
+        "service_rs_run_function_footer.rs.jinja",
+        include_str!("templates/service_rs_run_function_footer.rs.jinja"),
+    ),
+    (
+        "service_rs_async_entrypoint_call.rs.jinja",
+        include_str!("templates/service_rs_async_entrypoint_call.rs.jinja"),
+    ),
+    (
+        "tagged_enum_marker_module.rb.jinja",
+        include_str!("templates/tagged_enum_marker_module.rb.jinja"),
+    ),
+    (
+        "tagged_enum_variant_class.rb.jinja",
+        include_str!("templates/tagged_enum_variant_class.rb.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

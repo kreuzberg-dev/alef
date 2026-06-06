@@ -1,0 +1,8 @@
+func (v {{ variant_struct_name }}) MarshalJSON() ([]byte, error) {
+	return json.Marshal(v.Value)
+}
+
+func (v *{{ variant_struct_name }}) UnmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &v.Value)
+}
+

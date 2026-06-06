@@ -1,0 +1,50 @@
+/// Generated Magnus bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a Ruby proc so it can be used as `Arc<dyn {{ trait_name }}>`
+/// from Rust async code. Calls the proc with GVL acquired.
+pub struct {{ bridge_name }} {
+    proc_handle: Opaque<Value>,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from a Ruby proc.
+    pub fn new(proc_handle: Opaque<Value>) -> Self {
+        Self { proc_handle }
+    }
+}
+
+// SAFETY: Opaque<Value> is Send+Sync; calls acquire the GVL.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+        Box::pin(async move {
+            // Call the Ruby proc with the GVL re-acquired directly.
+            // SAFETY: `app_run` releases the GVL via `rb_thread_call_without_gvl`
+            // and drives a `new_current_thread` Tokio runtime inside that callback.
+            // Every async task therefore runs on the same OS thread that released
+            // the GVL; `call_ruby_proc_with_gvl` re-acquires it safely from here.
+            // Using spawn_blocking would create a non-Ruby OS thread from which
+            // `rb_thread_call_with_gvl` would abort the process.
+            let outcome: {{ wire_output }} = (|| {
+                // Serialize the request to JSON
+                let req_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                let resp_json = call_ruby_proc_with_gvl(&self.proc_handle, &req_json)?;
+
+                // Deserialize the JSON result back into the wire response DTO.
+                let response: {{ resp_path }} = serde_json::from_str(&resp_json)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            })();
+
+            {{ tail }}
+        })
+    }
+}
+

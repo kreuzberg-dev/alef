@@ -852,31 +852,15 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
     let tag_field = enum_def.serde_tag.as_deref().unwrap_or("kind");
 
     // --- Marker module ---
-    out.push_str(&format!("module {module_name}\n"));
+    let mut doc_comment = String::new();
     if !enum_def.doc.is_empty() {
-        emit_yard_doc(&mut out, &enum_def.doc, "  ");
+        emit_yard_doc(&mut doc_comment, &enum_def.doc, "  ");
     } else {
-        out.push_str(&format!("  # Marker module for the {class_name} sum type.\n"));
+        doc_comment.push_str(&format!("  # Marker module for the {class_name} sum type.\n"));
     }
-    out.push_str(&format!("  module {class_name}\n"));
-    out.push_str("    extend T::Helpers\n");
-    // Blank line after the module-inclusion group before non-inclusion code
-    // (Layout/EmptyLinesAfterModuleInclusion).
-    out.push_str("    extend T::Sig\n\n");
     // `interface!` already declares the module abstract; calling `abstract!` again
     // raises `T::Private::Abstract::Declare: already declared as abstract`.
-    out.push_str("    interface!\n\n");
-
-    // Dispatcher from_hash on the module (routes by discriminator tag)
-    out.push_str("    # Dispatch from a Hash to the appropriate variant constructor.\n");
-    out.push_str("    # @param hash [Hash] with discriminator field and variant-specific fields\n");
-    out.push_str("    # @return [variant_class] an instance of the appropriate variant\n");
-    out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.untyped) }\n");
-    out.push_str("    def self.from_hash(hash)\n");
-    out.push_str(&format!(
-        "      discriminator = hash[:{tag_field}] || hash[\"{tag_field}\"]\n"
-    ));
-    out.push_str("      case discriminator\n");
+    let mut dispatch_arms = String::new();
     for variant in &enum_def.variants {
         let wire_name = crate::codegen::naming::wire_variant_value(
             &variant.name,
@@ -884,50 +868,50 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
             enum_def.serde_rename_all.as_deref().or(Some("snake_case")),
         );
         let variant_const = format!("{}{}", class_name, &variant.name);
-        out.push_str(&format!(
+        dispatch_arms.push_str(&format!(
             "      when \"{wire_name}\" then {variant_const}.from_hash(hash)\n"
         ));
     }
-    out.push_str("      else raise \"Unknown discriminator: #{discriminator}\"\n");
-    out.push_str("      end\n");
-    // No trailing blank line: the dispatcher is the last member of the marker
-    // module, so a blank here trips Layout/EmptyLinesAroundModuleBody.
-    out.push_str("    end\n");
-
-    out.push_str("  end\n\n");
+    out.push_str(&crate::backends::magnus::template_env::render(
+        "tagged_enum_marker_module.rb.jinja",
+        minijinja::context! {
+            module_name => module_name,
+            class_name => class_name,
+            doc_comment => doc_comment,
+            tag_field => tag_field,
+            dispatch_arms => dispatch_arms,
+        },
+    ));
 
     // --- Per-variant Data.define classes ---
     for variant in &enum_def.variants {
         let variant_class = format!("{}{}", class_name, &variant.name);
         let field_names: Vec<&str> = variant.fields.iter().map(|f| f.name.as_str()).collect();
 
+        let mut doc_comment = String::new();
         if !variant.doc.is_empty() {
-            emit_yard_doc(&mut out, &variant.doc, "  ");
+            emit_yard_doc(&mut doc_comment, &variant.doc, "  ");
         } else {
-            out.push_str(&format!("  # Variant {variant_class} of the {class_name} sum type.\n"));
+            doc_comment.push_str(&format!("  # Variant {variant_class} of the {class_name} sum type.\n"));
         }
 
         // Data.define(...) declaration — Ruby requires symbol arguments
-        if field_names.is_empty() {
-            out.push_str(&format!("  {variant_class} = Data.define do\n"));
+        let symbol_args = if field_names.is_empty() {
+            String::new()
         } else {
-            let symbol_args: Vec<String> = variant
+            variant
                 .fields
                 .iter()
                 .map(|f| {
                     let attr_name = if f.name == "_0" { "value" } else { f.name.as_str() };
                     format!(":{attr_name}")
                 })
-                .collect();
-            out.push_str(&format!(
-                "  {variant_class} = Data.define({}) do\n",
-                symbol_args.join(", ")
-            ));
-        }
-        out.push_str(&format!("    include {class_name}\n"));
-        out.push_str("    extend T::Sig\n\n");
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
 
         // Sorbet sigs for the Data attributes — wrap auto-generated accessors via super
+        let mut field_accessors = String::new();
         for field in &variant.fields {
             let attr_name = if field.name == "_0" {
                 "value"
@@ -936,32 +920,29 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
             };
             let sorbet_t = sorbet_type_for_field(&field.ty, field.optional);
             if !field.doc.is_empty() {
-                emit_yard_doc(&mut out, &field.doc, "    ");
+                emit_yard_doc(&mut field_accessors, &field.doc, "    ");
             } else {
-                out.push_str(&format!("    # @return [{sorbet_t}]\n"));
+                field_accessors.push_str(&format!("    # @return [{sorbet_t}]\n"));
             }
-            out.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
+            field_accessors.push_str(&format!("    sig {{ returns({sorbet_t}) }}\n"));
             // Wrap the Data-auto-generated accessor so the sig has a method to attach to.
             // `# rubocop:disable Lint/UselessMethodDefinition` keeps `rubocop -a` from
             // stripping the def (which would leave the sig orphaned and break Sorbet).
-            out.push_str(&format!(
+            field_accessors.push_str(&format!(
                 "    def {attr_name} = super # rubocop:disable Lint/UselessMethodDefinition\n\n"
             ));
         }
 
         // Variant predicate methods (return true for this variant, false for others)
+        let mut predicate_methods = String::new();
         for variant_name in &variant_names {
             let v_snake = crate::codegen::naming::pascal_to_snake(variant_name);
             let returns_true = *variant_name == variant.name;
-            out.push_str("    sig { returns(T::Boolean) }\n");
-            out.push_str(&format!("    def {v_snake}? = {}\n\n", returns_true));
+            predicate_methods.push_str("    sig { returns(T::Boolean) }\n");
+            predicate_methods.push_str(&format!("    def {v_snake}? = {}\n\n", returns_true));
         }
 
         // Class-level `from_hash` factory — per-variant
-        out.push_str("    # @param hash [Hash] deserialized from the native extension\n");
-        out.push_str("    # @return [self]\n");
-        out.push_str("    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.attached_class) }\n");
-        out.push_str("    def self.from_hash(hash)\n");
         let field_args: Vec<String> = variant
             .fields
             .iter()
@@ -981,14 +962,24 @@ fn gen_tagged_enum_ruby_classes(enum_def: &crate::core::ir::EnumDef, module_name
                 format!("{param_name}: {val_expr}")
             })
             .collect();
-        if field_args.is_empty() {
-            out.push_str("      new\n");
+        let from_hash_call = if field_args.is_empty() {
+            "new".to_string()
         } else {
-            out.push_str(&format!("      new({})\n", field_args.join(", ")));
-        }
-        out.push_str("    end\n");
+            format!("new({})", field_args.join(", "))
+        };
 
-        out.push_str("  end\n\n");
+        out.push_str(&crate::backends::magnus::template_env::render(
+            "tagged_enum_variant_class.rb.jinja",
+            minijinja::context! {
+                doc_comment => doc_comment,
+                symbol_args => symbol_args,
+                variant_class => variant_class,
+                class_name => class_name,
+                field_accessors => field_accessors,
+                predicate_methods => predicate_methods,
+                from_hash_call => from_hash_call,
+            },
+        ));
     }
 
     // The variant loop leaves a trailing blank line; drop it so the enclosing

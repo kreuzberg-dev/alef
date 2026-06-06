@@ -1,0 +1,4 @@
+  def {{ method_name }}({{ params }}) do
+{% for update in updates %}    self = %__MODULE__{self | {{ update }}: {{ update }}}
+{% endfor %}    self
+  end

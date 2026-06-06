@@ -1,0 +1,6 @@
+  def {{ builder_name }}({{ params }}) do
+    fn(handler) ->
+      {{ variant_name }}({{ call_args }}, handler)
+    end
+  end
+

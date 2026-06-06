@@ -268,6 +268,50 @@ static TEMPLATES: &[(&str, &str)] = &[
         "swift_enum_header.jinja",
         include_str!("templates/swift_enum_header.jinja"),
     ),
+    (
+        "first_class_struct.swift.jinja",
+        include_str!("templates/first_class_struct.swift.jinja"),
+    ),
+    (
+        "swift_enum_decl.swift.jinja",
+        include_str!("templates/swift_enum_decl.swift.jinja"),
+    ),
+    (
+        "swift_enum_raw_decl.swift.jinja",
+        include_str!("templates/swift_enum_raw_decl.swift.jinja"),
+    ),
+    (
+        "swift_enum_into_rust.swift.jinja",
+        include_str!("templates/swift_enum_into_rust.swift.jinja"),
+    ),
+    (
+        "swift_tagged_codable.swift.jinja",
+        include_str!("templates/swift_tagged_codable.swift.jinja"),
+    ),
+    (
+        "swift_untagged_codable.swift.jinja",
+        include_str!("templates/swift_untagged_codable.swift.jinja"),
+    ),
+    (
+        "swift_client_class.swift.jinja",
+        include_str!("templates/swift_client_class.swift.jinja"),
+    ),
+    (
+        "swift_client_method.swift.jinja",
+        include_str!("templates/swift_client_method.swift.jinja"),
+    ),
+    (
+        "swift_streaming_client_method.swift.jinja",
+        include_str!("templates/swift_streaming_client_method.swift.jinja"),
+    ),
+    (
+        "swift_streaming_free_function.swift.jinja",
+        include_str!("templates/swift_streaming_free_function.swift.jinja"),
+    ),
+    (
+        "swift_async_forwarder.swift.jinja",
+        include_str!("templates/swift_async_forwarder.swift.jinja"),
+    ),
     ("enum_case_unit.jinja", include_str!("templates/enum_case_unit.jinja")),
     (
         "enum_case_with_data.jinja",

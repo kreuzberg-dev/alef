@@ -1,0 +1,6 @@
+  def new({{ params }}) do
+    %__MODULE__{
+{% for init in field_inits %}      {{ init }},
+{% endfor %}    }
+  end
+

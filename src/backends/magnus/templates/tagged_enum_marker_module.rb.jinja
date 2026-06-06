@@ -1,0 +1,19 @@
+module {{ module_name }}
+{{ doc_comment }}  module {{ class_name }}
+    extend T::Helpers
+    extend T::Sig
+
+    interface!
+
+    # Dispatch from a Hash to the appropriate variant constructor.
+    # @param hash [Hash] with discriminator field and variant-specific fields
+    # @return [variant_class] an instance of the appropriate variant
+    sig { params(hash: T::Hash[T.untyped, T.untyped]).returns(T.untyped) }
+    def self.from_hash(hash)
+      discriminator = hash[:{{ tag_field }}] || hash["{{ tag_field }}"]
+      case discriminator
+{{ dispatch_arms }}      else raise "Unknown discriminator: #{discriminator}"
+      end
+    end
+  end
+

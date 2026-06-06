@@ -1,0 +1,18 @@
+type TraitReplySender = tokio::sync::oneshot::Sender<String>;
+type TraitReplyMap = Mutex<HashMap<u64, TraitReplySender>>;
+
+static TRAIT_REPLY_MAP: OnceLock<TraitReplyMap> = OnceLock::new();
+
+fn trait_reply_map() -> &'static TraitReplyMap {
+    TRAIT_REPLY_MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// Complete a pending trait call with the JSON response from Elixir.
+#[rustler::nif]
+pub fn complete_trait_call(reply_id: u64, response_json: String) -> Atom {
+    if let Some(tx) = trait_reply_map().lock().unwrap().remove(&reply_id) {
+        let _ = tx.send(response_json);
+    }
+    atoms::ok()
+}
+

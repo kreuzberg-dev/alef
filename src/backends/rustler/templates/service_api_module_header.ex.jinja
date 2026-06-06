@@ -1,0 +1,7 @@
+defmodule {{ module_name }} do
+{% if doc_body %}  @moduledoc """
+{{ doc_body }}  """
+
+{% endif %}{% if module_prefix %}  alias {{ module_prefix }}.Native
+
+{% endif %}

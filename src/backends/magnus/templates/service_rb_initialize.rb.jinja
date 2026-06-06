@@ -1,0 +1,5 @@
+    def initialize{{ param_sig }}
+{{ doc_comment }}      @registrations = []
+{% for arg in stored_args %}      @{{ arg }} = {{ arg }}
+{% endfor %}    end
+

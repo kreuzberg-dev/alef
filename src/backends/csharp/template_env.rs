@@ -387,6 +387,70 @@ static TEMPLATES: &[(&str, &str)] = &[
         "opaque_bytes_result_call.jinja",
         include_str!("templates/opaque_bytes_result_call.jinja"),
     ),
+    (
+        "opaque_streaming_static_wrapper.jinja",
+        include_str!("templates/opaque_streaming_static_wrapper.jinja"),
+    ),
+    (
+        "service_class_header.jinja",
+        include_str!("templates/service_class_header.jinja"),
+    ),
+    (
+        "service_configurator_method.jinja",
+        include_str!("templates/service_configurator_method.jinja"),
+    ),
+    (
+        "service_constructor.jinja",
+        include_str!("templates/service_constructor.jinja"),
+    ),
+    (
+        "service_dispose_method.jinja",
+        include_str!("templates/service_dispose_method.jinja"),
+    ),
+    (
+        "service_entrypoint_method.jinja",
+        include_str!("templates/service_entrypoint_method.jinja"),
+    ),
+    (
+        "service_handler_trampoline.jinja",
+        include_str!("templates/service_handler_trampoline.jinja"),
+    ),
+    (
+        "service_native_ctor_free.jinja",
+        include_str!("templates/service_native_ctor_free.jinja"),
+    ),
+    (
+        "service_native_methods_header.jinja",
+        include_str!("templates/service_native_methods_header.jinja"),
+    ),
+    (
+        "service_pinvoke_declaration.jinja",
+        include_str!("templates/service_pinvoke_declaration.jinja"),
+    ),
+    (
+        "service_registration_method.jinja",
+        include_str!("templates/service_registration_method.jinja"),
+    ),
+    (
+        "service_variant_registration_method.jinja",
+        include_str!("templates/service_variant_registration_method.jinja"),
+    ),
+    (
+        "streaming_adapter_wrapper.jinja",
+        include_str!("templates/streaming_adapter_wrapper.jinja"),
+    ),
+    (
+        "trait_clear_facade.jinja",
+        include_str!("templates/trait_clear_facade.jinja"),
+    ),
+    (
+        "trait_register_facade.jinja",
+        include_str!("templates/trait_register_facade.jinja"),
+    ),
+    (
+        "trait_unregister_facade.jinja",
+        include_str!("templates/trait_unregister_facade.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

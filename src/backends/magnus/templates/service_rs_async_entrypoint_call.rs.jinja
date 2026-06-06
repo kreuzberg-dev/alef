@@ -1,0 +1,55 @@
+    // SAFETY: `{{ fn_name }}` is called from the Ruby main thread (via `function!` macro),
+    // so the GVL is currently held. We release the GVL via `rb_thread_call_without_gvl`
+    // and run a current-thread Tokio runtime inside that callback. This is the SAME
+    // OS thread that released the GVL, so `rb_thread_call_with_gvl` re-acquisition
+    // from within the current-thread runtime's tasks is valid.
+    struct RunState {
+        owner: Option<{{ owner_path }}>,
+        result: Option<Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>>,
+    }
+    // SAFETY: RunState is only accessed from the single callback thread.
+    unsafe impl Send for RunState {}
+    unsafe impl Sync for RunState {}
+
+    extern "C" fn run_without_gvl(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+        // SAFETY: data is a valid &mut RunState, valid for the full callback duration.
+        let state = unsafe { &mut *(data as *mut RunState) };
+        let app = match state.owner.take() {
+            Some(a) => a,
+            None => {
+                state.result = Some(Err(Box::new(std::io::Error::other("App already consumed"))
+                    as Box<dyn std::error::Error + Send + Sync>));
+                return std::ptr::null_mut();
+            }
+        };
+        let rt_result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        state.result = Some(match rt_result {
+            Ok(rt) => rt
+                .block_on(app.{{ ep_method }}({{ args_str }}))
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+            Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),
+        });
+        std::ptr::null_mut()
+    }
+    extern "C" fn unblock_run(_data: *mut std::ffi::c_void) {}
+
+    let mut state = RunState { owner: Some(owner), result: None };
+    // SAFETY: `state` lives until after `rb_thread_call_without_gvl` returns.
+    unsafe {
+        rb_sys::rb_thread_call_without_gvl(
+            Some(run_without_gvl),
+            &mut state as *mut RunState as *mut std::ffi::c_void,
+            Some(unblock_run),
+            std::ptr::null_mut(),
+        );
+    }
+
+    state
+        .result
+        .unwrap_or_else(|| {
+            Err(Box::new(std::io::Error::other("server did not run"))
+                as Box<dyn std::error::Error + Send + Sync>)
+        })
+        .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;

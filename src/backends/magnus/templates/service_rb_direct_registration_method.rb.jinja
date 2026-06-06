@@ -1,0 +1,5 @@
+    def {{ direct_name }}{{ direct_param_sig }}
+      # Register a {{ method_name }} callback directly without block syntax.
+      @registrations.push(["{{ method_name }}", {{ meta_tuple }}, {{ callback }}])
+      self
+    end

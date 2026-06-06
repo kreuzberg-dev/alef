@@ -1,0 +1,20 @@
+/// Registration variant `{{ variant_name }}` for the `{{ base_method }}` base method.
+///
+/// This NIF pre-builds the wrapper and delegates to the base registration.
+#[rustler::nif(schedule = "DirtyCpu")]
+pub fn {{ nif_name }}({{ param_sig }}) -> NifResult<Atom> {
+    let registration_list: Vec<rustler::Term<'_>> = registrations
+        .decode::<Vec<rustler::Term<'_>>>()
+        .unwrap_or_else(|_| vec![]);
+
+    let mut owner = {{ owner_path }}::new();
+
+{% if wrapper_type_name %}    // Build {{ wrapper_type_name }} via {{ wrapper_type_path }}
+    let wrapper = {{ wrapper_type_path }}::{{ constructor_method }}(
+{{ wrapper_args }}    );
+
+{% endif %}    // Register the handler with wrapper or direct metadata
+    for reg_entry in registration_list {
+        if let Ok((_method, _metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()
+        {
+

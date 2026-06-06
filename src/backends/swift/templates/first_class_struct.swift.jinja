@@ -1,0 +1,19 @@
+public struct {{ type_name }}: Codable, Sendable, Hashable {
+{{ properties }}    public init({{ init_params }}) {
+{{ init_assignments }}    }
+{% if coding_keys %}
+    private enum CodingKeys: String, CodingKey {
+{{ coding_keys }}    }
+{% endif %}
+{% if decoder_init %}
+{{ decoder_init }}{% endif %}
+}
+
+// MARK: - Internal FFI conversions for {{ type_name }}
+internal extension {{ type_name }} {
+    init(_ rb: RustBridge.{{ type_name }}Ref) throws {
+{{ ffi_init_assignments }}    }
+
+    func intoRust() throws -> RustBridge.{{ type_name }} {
+{{ into_rust_body }}    }
+}

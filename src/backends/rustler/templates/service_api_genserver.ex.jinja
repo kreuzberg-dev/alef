@@ -1,0 +1,61 @@
+  # GenServer for dispatching trait_call messages from Rust.
+  defmodule {{ server_module }} do
+    use GenServer
+
+    def start_link(state) do
+      GenServer.start_link(__MODULE__, state)
+    end
+
+    def init(state) do
+      {:ok, state}
+    end
+
+    def handle_cast({:trait_call, method, args_json, reply_id}, registrations) do
+      # Decode JSON args and dispatch to registered handler
+      case decode_args_and_dispatch(method, args_json, registrations) do
+        {:ok, response} ->
+          Native.complete_trait_call(reply_id, response)
+        {:error, reason} ->
+          error_response = %{"error" => reason}
+          Native.complete_trait_call(reply_id, error_response)
+      end
+      {:noreply, registrations}
+    end
+
+    defp decode_args_and_dispatch(method, args_json, registrations) do
+      # Find handler entry for the method
+      case find_handler(method, registrations) do
+        nil ->
+          {:error, "Handler not registered for method: #{method}"}
+        {^method, _metadata, handler} ->
+          # Decode JSON args (assumes handler accepts a single arg)
+          case Jason.decode(args_json) do
+            {:ok, args} ->
+              # Call the registered handler with decoded args
+              try do
+                response = handler.(args)
+                # Encode response to JSON
+                case Jason.encode(response) do
+                  {:ok, response_json} -> {:ok, response_json}
+                  {:error, reason} -> {:error, "Failed to encode response: #{reason}"}
+                end
+              rescue
+                e ->
+                  {:error, "Handler raised exception: #{inspect(e)}"}
+              end
+            {:error, reason} ->
+              {:error, "Failed to decode args: #{reason}"}
+          end
+      end
+    end
+
+    defp find_handler(_method, []), do: nil
+    defp find_handler(target, [{name, _metadata, _handler} = entry | _rest]) when name == target do
+      entry
+    end
+    defp find_handler(target, [_head | rest]) do
+      find_handler(target, rest)
+    end
+
+  end
+

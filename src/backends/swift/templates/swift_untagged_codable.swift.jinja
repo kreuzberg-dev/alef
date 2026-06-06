@@ -1,0 +1,10 @@
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+{{ decode_attempts }}        throw DecodingError.dataCorruptedError(in: container, debugDescription: "no matching untagged variant")
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+{{ encode_cases }}        }
+    }

@@ -24,6 +24,10 @@ use std::path::PathBuf;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::magnus::template_env::render(template_name, ctx)
+}
+
 /// Convert a `TypeRef` to a simple Ruby type annotation string.
 fn ruby_type_annotation(ty: &TypeRef) -> String {
     match ty {
@@ -89,11 +93,16 @@ fn format_ruby_comment(text: &str, indent: usize) -> String {
 pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_require_name: &str) -> String {
     let mut out = String::new();
 
-    out.push_str("# frozen_string_literal: true\n\n");
-    out.push_str(&format!("require \"{gem_require_name}\"\n\n"));
+    out.push_str(&render(
+        "service_rb_header.rb.jinja",
+        minijinja::context! {
+            gem_require_name => gem_require_name,
+            has_services => !api.services.is_empty(),
+            native_module_name => native_module_name,
+        },
+    ));
 
     if !api.services.is_empty() {
-        out.push_str(&format!("module {native_module_name}\n"));
         for service in &api.services {
             gen_service_class(&mut out, service, api, native_module_name);
         }
@@ -134,18 +143,14 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
             format!("({})", init_params.join(", "))
         };
 
-        out.push_str(&format!("    def initialize{param_sig}\n"));
-        if !ctor.doc.is_empty() {
-            out.push_str(&format_ruby_comment(&ctor.doc, 6));
-        }
-        out.push_str("      @registrations = []\n");
-
-        // Store constructor params as instance state
-        for arg in &stored_args {
-            out.push_str(&format!("      @{arg} = {arg}\n"));
-        }
-
-        out.push_str("    end\n\n");
+        out.push_str(&render(
+            "service_rb_initialize.rb.jinja",
+            minijinja::context! {
+                param_sig => param_sig,
+                doc_comment => format_ruby_comment(&ctor.doc, 6),
+                stored_args => stored_args,
+            },
+        ));
     }
 
     // Configurator methods — positional params so callers can pass objects directly
@@ -166,17 +171,16 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
         };
         let method_name = &method.name;
 
-        out.push_str(&format!("    def {method_name}{param_sig}\n"));
-        if !method.doc.is_empty() {
-            out.push_str(&format_ruby_comment(&method.doc, 6));
-        }
-
-        // Store each configurator param as instance state
-        for p in &method.params {
-            out.push_str(&format!("      @{} = {}\n", p.name, p.name));
-        }
-        out.push_str("      self\n");
-        out.push_str("    end\n\n");
+        let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+        out.push_str(&render(
+            "service_rb_configurator.rb.jinja",
+            minijinja::context! {
+                method_name => method_name,
+                param_sig => param_sig,
+                doc_comment => format_ruby_comment(&method.doc, 6),
+                params => params,
+            },
+        ));
     }
 
     // Registration methods accepting blocks
@@ -203,31 +207,35 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("    def {ep_name}{param_sig}\n"));
-                if !ep.doc.is_empty() {
-                    out.push_str(&format_ruby_comment(&ep.doc, 6));
-                }
                 // Convention: native fn is `{snake_service_name}_{entrypoint_name}`
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("      {native_module_name}.{native_fn}(@registrations"));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n");
-                out.push_str("    end\n\n");
+                let call_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+                out.push_str(&render(
+                    "service_rb_entrypoint.rb.jinja",
+                    minijinja::context! {
+                        method_name => ep_name,
+                        param_sig => param_sig,
+                        doc_comment => format_ruby_comment(&ep.doc, 6),
+                        native_module_name => native_module_name,
+                        native_fn => native_fn,
+                        call_args => call_args,
+                    },
+                ));
             }
             EntrypointKind::Finalize => {
-                out.push_str(&format!("    def {ep_name}{param_sig}\n"));
-                if !ep.doc.is_empty() {
-                    out.push_str(&format_ruby_comment(&ep.doc, 6));
-                }
                 let native_fn = format!("{service_snake}_{ep_name}", service_snake = class_name.to_snake_case());
-                out.push_str(&format!("      {native_module_name}.{native_fn}(@registrations"));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n");
-                out.push_str("    end\n\n");
+                let call_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
+                out.push_str(&render(
+                    "service_rb_entrypoint.rb.jinja",
+                    minijinja::context! {
+                        method_name => ep_name,
+                        param_sig => param_sig,
+                        doc_comment => format_ruby_comment(&ep.doc, 6),
+                        native_module_name => native_module_name,
+                        native_fn => native_fn,
+                        call_args => call_args,
+                    },
+                ));
             }
         }
     }
@@ -266,11 +274,6 @@ fn gen_registration_method(
         format!("({}, &block)", positional_params.join(", "))
     };
 
-    out.push_str(&format!("    def {method_name}{param_sig}\n"));
-    if !reg.doc.is_empty() {
-        out.push_str(&format_ruby_comment(&reg.doc, 6));
-    }
-
     // Collect metadata param names for the tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let meta_tuple = if meta_names.is_empty() {
@@ -279,11 +282,15 @@ fn gen_registration_method(
         format!("[{}]", meta_names.join(", "))
     };
 
-    out.push_str(&format!(
-        "      @registrations.push([\"{method_name}\", {meta_tuple}, block])\n"
+    out.push_str(&render(
+        "service_rb_registration_method.rb.jinja",
+        minijinja::context! {
+            method_name => method_name,
+            param_sig => param_sig,
+            doc_comment => format_ruby_comment(&reg.doc, 6),
+            meta_tuple => meta_tuple,
+        },
     ));
-    out.push_str("      self\n");
-    out.push_str("    end\n\n");
 
     // Also expose a positional companion `register_{method_name}(meta..., handler)`
     // so harness code and scripts can pass a callable without using Ruby block syntax.
@@ -297,16 +304,16 @@ fn gen_registration_method(
             let positional_meta: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
             format!("({}, {})", positional_meta.join(", "), reg.callback_param)
         };
-        out.push_str(&format!("    def {direct_name}{direct_param_sig}\n"));
-        out.push_str(&format!(
-            "      # Register a {method_name} callback directly without block syntax.\n"
+        out.push_str(&render(
+            "service_rb_direct_registration_method.rb.jinja",
+            minijinja::context! {
+                direct_name => direct_name,
+                direct_param_sig => direct_param_sig,
+                method_name => method_name,
+                meta_tuple => meta_tuple,
+                callback => reg.callback_param,
+            },
         ));
-        out.push_str(&format!(
-            "      @registrations.push([\"{method_name}\", {meta_tuple}, {callback}])\n",
-            callback = reg.callback_param
-        ));
-        out.push_str("      self\n");
-        out.push_str("    end\n\n");
     }
 
     // Emit registration variants (shortcuts for common patterns)
@@ -381,19 +388,20 @@ fn gen_registration_variant(
         format!("({}, &block)", free_params_sig.join(", "))
     };
 
-    out.push_str(&format!("    def {variant_name}{param_sig}\n"));
-
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format_ruby_comment(doc, 6));
+    let doc_comment = if let Some(doc) = &variant.doc {
+        format_ruby_comment(doc, 6)
     } else {
-        out.push_str(&format!("      # Register a handler for the {variant_name} variant.\n"));
-    }
-
-    out.push_str(&format!(
-        "      @registrations.push([\"{variant_name}\", {meta_tuple}, block])\n"
+        format!("      # Register a handler for the {variant_name} variant.\n")
+    };
+    out.push_str(&render(
+        "service_rb_registration_variant.rb.jinja",
+        minijinja::context! {
+            variant_name => variant_name,
+            param_sig => param_sig,
+            doc_comment => doc_comment,
+            meta_tuple => meta_tuple,
+        },
     ));
-    out.push_str("      self\n");
-    out.push_str("    end\n\n");
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -412,9 +420,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let mut out = String::new();
 
     // File-level allow attributes to keep clippy happy in generated code
-    out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use magnus::{method, prelude::*, value::{InnerValue, Opaque}, RArray, RHash, Ruby, Value};\n");
-    out.push_str("use std::sync::Arc;\n\n");
+    out.push_str(&render("service_rs_header.rs.jinja", minijinja::context! {}));
 
     // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -481,32 +487,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    out.push_str(&format!(
-        "/// Generated Magnus bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a Ruby proc so it can be used as `Arc<dyn {trait_name}>`\n\
-         /// from Rust async code. Calls the proc with GVL acquired.\n\
-         pub struct {bridge_name} {{\n    \
-             proc_handle: Opaque<Value>,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from a Ruby proc.\n    \
-             pub fn new(proc_handle: Opaque<Value>) -> Self {{\n        \
-                 Self {{ proc_handle }}\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // Safety: Opaque<Value> is Send+Sync because Magnus uses internal locking.
-    out.push_str(&format!(
-        "// SAFETY: Opaque<Value> is Send+Sync; calls acquire the GVL.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
-    ));
-
     // Trait impl — build the request and response paths using core_import
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
@@ -538,138 +518,29 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // Returns a boxed future directly (canonical object-safe async-trait shape)
     // rather than via the async_trait macro, matching a contract whose dispatch
     // method is hand-written as `-> Pin<Box<dyn Future<..> + Send + '_>>`.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n            \
-                     // Call the Ruby proc with the GVL re-acquired directly.\n            \
-                     // SAFETY: `app_run` releases the GVL via `rb_thread_call_without_gvl`\n            \
-                     // and drives a `new_current_thread` Tokio runtime inside that callback.\n            \
-                     // Every async task therefore runs on the same OS thread that released\n            \
-                     // the GVL; `call_ruby_proc_with_gvl` re-acquires it safely from here.\n            \
-                     // Using spawn_blocking would create a non-Ruby OS thread from which\n            \
-                     // `rb_thread_call_with_gvl` would abort the process.\n            \
-                     let outcome: {wire_output} = (|| {{\n                \
-                         // Serialize the request to JSON\n                \
-                         let req_json = serde_json::to_string(&{wire_name})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let resp_json = call_ruby_proc_with_gvl(&self.proc_handle, &req_json)?;\n\n            \
-                         // Deserialize the JSON result back into the wire response DTO.\n            \
-                         let response: {resp_path} = serde_json::from_str(&resp_json)\n                \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n            \
-                         Ok(response)\n        \
-                     }})();\n\n        \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "service_rs_handler_bridge.rs.jinja",
+        minijinja::context! {
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+            core_import => core_import,
+            dispatch_name => dispatch_name,
+            extra_param => extra_param,
+            wire_name => wire_name,
+            req_path => req_path,
+            resp_path => resp_path,
+            output_type => output_type,
+            wire_output => wire_output,
+            box_err => box_err,
+            tail => tail,
+        },
     ));
 
-    // Emit the helper function that safely calls a Ruby proc with the GVL acquired
-    out.push_str("/// Call a Ruby proc with the GVL acquired via rb_sys.\n");
-    out.push_str("/// Called from within a `rb_thread_call_without_gvl` callback (same OS thread).\n");
-    out.push_str("fn call_ruby_proc_with_gvl(\n");
-    out.push_str("    proc_handle: &Opaque<Value>,\n");
-    out.push_str("    req_json: &str,\n");
-    out.push_str(") -> Result<String, Box<dyn std::error::Error + Send + Sync>> {\n");
-    out.push_str("    let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;\n");
-    out.push_str("    \n");
-    out.push_str("    // SAFETY: rb_thread_call_with_gvl is safe to call from any thread.\n");
-    out.push_str("    // It acquires the GVL and calls the callback with it held.\n");
-    out.push_str("    // We use a helper extern fn to bridge the gap.\n");
-    out.push_str("    unsafe {\n");
-    out.push_str("        let mut state = RubyProcCallState {\n");
-    out.push_str("            proc_handle: proc_handle.clone(),\n");
-    out.push_str("            req_json: req_json.to_string(),\n");
-    out.push_str("            result: None,\n");
-    out.push_str("        };\n");
-    out.push_str("        rb_sys::rb_thread_call_with_gvl(\n");
-    out.push_str("            Some(ruby_proc_gvl_callback),\n");
-    out.push_str("            &mut state as *mut _ as *mut std::ffi::c_void,\n");
-    out.push_str("        );\n");
-    out.push_str("        state.result.unwrap_or_else(|| {\n");
-    out.push_str("            Err(Box::new(std::io::Error::new(\n");
-    out.push_str("                std::io::ErrorKind::Other,\n");
-    out.push_str("                \"GVL callback failed to set result\",\n");
-    out.push_str("            )) as Box<dyn std::error::Error + Send + Sync>)\n");
-    out.push_str("        })\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
-
-    out.push_str("struct RubyProcCallState {\n");
-    out.push_str("    proc_handle: Opaque<Value>,\n");
-    out.push_str("    req_json: String,\n");
-    out.push_str("    result: Option<Result<String, Box<dyn std::error::Error + Send + Sync>>>,\n");
-    out.push_str("}\n\n");
-
-    out.push_str("// SAFETY: RubyProcCallState is only accessed from within the GVL callback.\n");
-    out.push_str("unsafe impl Send for RubyProcCallState {}\n");
-    out.push_str("unsafe impl Sync for RubyProcCallState {}\n\n");
-
-    out.push_str("// Callback invoked by rb_thread_call_with_gvl with the GVL held.\n");
-    out.push_str("extern \"C\" fn ruby_proc_gvl_callback(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {\n");
-    out.push_str("    // SAFETY: data is a pointer to our RubyProcCallState, guaranteed valid for the duration of the callback.\n");
-    out.push_str("    unsafe {\n");
-    out.push_str("        let state = &mut *(data as *mut RubyProcCallState);\n");
-    out.push_str("        let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;\n");
-    out.push_str("        \n");
-    out.push_str("        // We are now on a Ruby thread with the GVL held. Safe to call Magnus APIs.\n");
-    out.push_str("        let ruby = match Ruby::get() {\n");
-    out.push_str("            Ok(r) => r,\n");
-    out.push_str("            Err(_) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::new(\n");
-    out.push_str("                    std::io::ErrorKind::Other,\n");
-    out.push_str("                    \"Could not obtain Ruby handle within GVL callback\",\n");
-    out.push_str("                )) as Box<dyn std::error::Error + Send + Sync>));\n");
-    out.push_str("                return std::ptr::null_mut();\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("        \n");
-    out.push_str("        let proc_value = state.proc_handle.get_inner_with(&ruby);\n");
-    out.push_str("        \n");
-    out.push_str("        // Parse request JSON into a Ruby Hash\n");
-    out.push_str("        let json_mod = match ruby.eval::<Value>(\"JSON\") {\n");
-    out.push_str("            Ok(m) => m,\n");
-    out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
-    out.push_str("                return std::ptr::null_mut();\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("        \n");
-    out.push_str(
-        "        let req_hash = match json_mod.funcall::<_, _, Value>(\"parse\", (state.req_json.as_str(),)) {\n",
-    );
-    out.push_str("            Ok(h) => h,\n");
-    out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
-    out.push_str("                return std::ptr::null_mut();\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("        \n");
-    out.push_str("        // Call the proc with the request hash\n");
-    out.push_str("        let result = match proc_value.funcall::<_, _, Value>(\"call\", (req_hash,)) {\n");
-    out.push_str("            Ok(r) => r,\n");
-    out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
-    out.push_str("                return std::ptr::null_mut();\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("        \n");
-    out.push_str("        // Serialize result back to JSON\n");
-    out.push_str("        match json_mod.funcall::<_, _, String>(\"generate\", (result,)) {\n");
-    out.push_str("            Ok(resp_json_str) => {\n");
-    out.push_str("                state.result = Some(Ok(resp_json_str));\n");
-    out.push_str("            }\n");
-    out.push_str("            Err(e) => {\n");
-    out.push_str("                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));\n");
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n");
-    out.push_str("    std::ptr::null_mut()\n");
-    out.push_str("}\n\n");
+    // Emit the helper function that safely calls a Ruby proc with the GVL acquired.
+    out.push_str(&render(
+        "service_rs_ruby_proc_gvl_helpers.rs.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Emit a match arm for a registration variant shortcut (e.g., "get", "post").
@@ -708,14 +579,10 @@ fn gen_variant_match_arm(
         }
 
         if !free_params.is_empty() {
-            out.push_str("                let meta_array = RArray::try_convert(\n");
-            out.push_str("                    entry_array\n");
-            out.push_str("                        .entry::<Value>(1 as isize)\n");
-            out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
-            out.push_str("                )\n");
-            out.push_str(
-                "                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n",
-            );
+            out.push_str(&render(
+                "service_rs_meta_array_extract.rs.jinja",
+                minijinja::context! {},
+            ));
 
             for (i, param) in free_params.iter().enumerate() {
                 let rust_ty = typeref_to_rust_type(&param.ty, core_import);
@@ -862,44 +729,18 @@ fn gen_run_function(
     }
     let fn_param_sig = fn_params.join(", ");
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from Ruby.\n\
-         ///\n\
-         /// Each entry in `registrations` is a `[method_name, metadata_array, proc]` triple\n\
-         /// produced by the Ruby service class. Constructs an owned service instance,\n\
-         /// registers all handlers (acquiring GVL for each Ruby proc call), then invokes\n\
-         /// the entrypoint.\n\
-         ///\n\
-         /// This function runs on a Ruby thread (entered via function! macro from init), so the GVL is already held.\n\
-         pub fn {fn_name}({fn_param_sig}) -> magnus::error::Result<()> {{\n"
-    ));
-
     // Build the owner instance as a mutable owned value (no Arc<Mutex<…>> wrapping)
     let ctor_call = build_ctor_call(service, owner_path, core_import);
-    out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
-
-    // Get the Ruby handle (we are on a Ruby thread via function! macro)
-    out.push_str("    let ruby = Ruby::get().expect(\"function! macro callbacks run on a Ruby thread\");\n\n");
-
-    // Iterate registrations and dispatch (GVL is held)
-    out.push_str("    let regs_array = RArray::try_convert(registrations)\n");
-    out.push_str("        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
-
-    out.push_str("    for i in 0..regs_array.len() {\n");
-    out.push_str("        let entry = regs_array\n");
-    out.push_str("            .entry::<Value>(i as isize)\n");
-    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-    out.push_str("        let entry_array = RArray::try_convert(entry)\n");
-    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-    out.push_str("        let method_name: String = entry_array\n");
-    out.push_str("            .entry::<String>(0 as isize)\n");
-    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n");
-    out.push_str("        let proc_value = entry_array\n");
-    out.push_str("            .entry::<Value>(2 as isize)\n");
-    out.push_str("            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n\n");
-
-    // Dispatch on method name
-    out.push_str("        match method_name.as_str() {\n");
+    out.push_str(&render(
+        "service_rs_run_function_header.rs.jinja",
+        minijinja::context! {
+            owner_path => owner_path,
+            ep_method => ep_method,
+            fn_name => fn_name,
+            fn_param_sig => fn_param_sig,
+            ctor_call => ctor_call,
+        },
+    ));
     for reg in &service.registrations {
         let reg_method = &reg.method;
         let contract_name = &reg.callback_contract;
@@ -908,24 +749,21 @@ fn gen_run_function(
             let bridge_name = format!("Rb{}Bridge", contract.trait_name.to_upper_camel_case());
             let meta_count = reg.metadata_params.len();
 
-            out.push_str(&format!("            \"{reg_method}\" => {{\n"));
-            out.push_str(&format!(
-                "                let bridge = {bridge_name}::new(proc_value.into());\n"
-            ));
-            // Create handler trait object — no generic parameter needed
-            out.push_str(&format!(
-                "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+            out.push_str(&render(
+                "service_rs_registration_match_arm_header.rs.jinja",
+                minijinja::context! {
+                    reg_method => reg_method,
+                    bridge_name => bridge_name,
+                    core_import => core_import,
+                    contract_name => contract_name,
+                },
             ));
 
             if meta_count > 0 {
-                out.push_str("                let meta_array = RArray::try_convert(\n");
-                out.push_str("                    entry_array\n");
-                out.push_str("                        .entry::<Value>(1 as isize)\n");
-                out.push_str("                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,\n");
-                out.push_str("                )\n");
-                out.push_str(
-                    "                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;\n",
-                );
+                out.push_str(&render(
+                    "service_rs_meta_array_extract.rs.jinja",
+                    minijinja::context! {},
+                ));
 
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     let rust_ty = typeref_to_rust_type(&meta_param.ty, core_import);
@@ -1017,19 +855,14 @@ fn gen_run_function(
             }
         }
     }
-    out.push_str("            _ => {\n");
-    out.push_str(
-        "                return Err(magnus::Error::new(\n                    ruby.exception_arg_error(),\n                    format!(\"unknown registration method: {method_name}\"),\n                ));\n",
-    );
-    out.push_str("            }\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-
     // Call the entrypoint on the owned, registered owner
     let ep_call = build_ep_call(ep, service, core_import);
-    out.push_str(&ep_call);
-
-    out.push_str("    Ok(())\n}\n\n");
+    out.push_str(&render(
+        "service_rs_run_function_footer.rs.jinja",
+        minijinja::context! {
+            ep_call => ep_call,
+        },
+    ));
 }
 
 /// Build the Rust constructor call for the service owner.
@@ -1063,63 +896,14 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
         // SAFETY: called on a Ruby thread (GVL held); `rb_thread_call_without_gvl` releases
         // it and invokes the callback on the SAME OS thread, making `rb_thread_call_with_gvl`
         // valid from within the callback's Tokio tasks.
-        format!(
-            "    // SAFETY: `{fn_name}` is called from the Ruby main thread (via `function!` macro),\n    \
-             // so the GVL is currently held. We release the GVL via `rb_thread_call_without_gvl`\n    \
-             // and run a current-thread Tokio runtime inside that callback. This is the SAME\n    \
-             // OS thread that released the GVL, so `rb_thread_call_with_gvl` re-acquisition\n    \
-             // from within the current-thread runtime's tasks is valid.\n    \
-             struct RunState {{\n        \
-                 owner: Option<{owner_path}>,\n        \
-                 result: Option<Result<(), Box<dyn std::error::Error + Send + Sync + 'static>>>,\n    \
-             }}\n    \
-             // SAFETY: RunState is only accessed from the single callback thread.\n    \
-             unsafe impl Send for RunState {{}}\n    \
-             unsafe impl Sync for RunState {{}}\n\n    \
-             extern \"C\" fn run_without_gvl(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {{\n        \
-                 // SAFETY: data is a valid &mut RunState, valid for the full callback duration.\n        \
-                 let state = unsafe {{ &mut *(data as *mut RunState) }};\n        \
-                 let app = match state.owner.take() {{\n            \
-                     Some(a) => a,\n            \
-                     None => {{\n                \
-                         state.result = Some(Err(Box::new(std::io::Error::other(\"App already consumed\"))\n                    \
-                             as Box<dyn std::error::Error + Send + Sync>));\n                \
-                         return std::ptr::null_mut();\n            \
-                     }}\n        \
-                 }};\n        \
-                 let rt_result = tokio::runtime::Builder::new_current_thread()\n            \
-                     .enable_all()\n            \
-                     .build();\n        \
-                 state.result = Some(match rt_result {{\n            \
-                     Ok(rt) => rt\n                \
-                         .block_on(app.{ep_method}({args_str}))\n                \
-                         .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>),\n            \
-                     Err(e) => Err(Box::new(e) as Box<dyn std::error::Error + Send + Sync>),\n        \
-                 }});\n        \
-                 std::ptr::null_mut()\n    \
-             }}\n    \
-             extern \"C\" fn unblock_run(_data: *mut std::ffi::c_void) {{}}\n\n    \
-             let mut state = RunState {{ owner: Some(owner), result: None }};\n    \
-             // SAFETY: `state` lives until after `rb_thread_call_without_gvl` returns.\n    \
-             unsafe {{\n        \
-                 rb_sys::rb_thread_call_without_gvl(\n            \
-                     Some(run_without_gvl),\n            \
-                     &mut state as *mut RunState as *mut std::ffi::c_void,\n            \
-                     Some(unblock_run),\n            \
-                     std::ptr::null_mut(),\n        \
-                 );\n    \
-             }}\n\n    \
-             state\n        \
-                 .result\n        \
-                 .unwrap_or_else(|| {{\n            \
-                     Err(Box::new(std::io::Error::other(\"server did not run\"))\n                \
-                         as Box<dyn std::error::Error + Send + Sync>)\n        \
-                 }})\n        \
-                 .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n",
-            fn_name = fn_name,
-            owner_path = owner_path,
-            ep_method = ep_method,
-            args_str = args_str,
+        render(
+            "service_rs_async_entrypoint_call.rs.jinja",
+            minijinja::context! {
+                fn_name => fn_name,
+                owner_path => owner_path,
+                ep_method => ep_method,
+                args_str => args_str,
+            },
         )
     } else {
         if ep.error_type.is_some() {

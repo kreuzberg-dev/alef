@@ -1,0 +1,7 @@
+                let meta_array = RArray::try_convert(
+                    entry_array
+                        .entry::<Value>(1 as isize)
+                        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?,
+                )
+                .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+

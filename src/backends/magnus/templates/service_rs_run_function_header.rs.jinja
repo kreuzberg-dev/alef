@@ -1,0 +1,30 @@
+/// Drive `{{ owner_path }}::{{ ep_method }}` from Ruby.
+///
+/// Each entry in `registrations` is a `[method_name, metadata_array, proc]` triple
+/// produced by the Ruby service class. Constructs an owned service instance,
+/// registers all handlers (acquiring GVL for each Ruby proc call), then invokes
+/// the entrypoint.
+///
+/// This function runs on a Ruby thread (entered via function! macro from init), so the GVL is already held.
+pub fn {{ fn_name }}({{ fn_param_sig }}) -> magnus::error::Result<()> {
+    let mut owner = {{ ctor_call }};
+
+    let ruby = Ruby::get().expect("function! macro callbacks run on a Ruby thread");
+
+    let regs_array = RArray::try_convert(registrations)
+        .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+
+    for i in 0..regs_array.len() {
+        let entry = regs_array
+            .entry::<Value>(i as isize)
+            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+        let entry_array = RArray::try_convert(entry)
+            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+        let method_name: String = entry_array
+            .entry::<String>(0 as isize)
+            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+        let proc_value = entry_array
+            .entry::<Value>(2 as isize)
+            .map_err(|e| magnus::Error::new(ruby.exception_type_error(), e.to_string()))?;
+
+        match method_name.as_str() {

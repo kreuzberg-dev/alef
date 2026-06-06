@@ -321,6 +321,30 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/tagged_union_struct_header.jinja"),
     ),
     (
+        "data_enum_interface.jinja",
+        include_str!("templates/data_enum_interface.jinja"),
+    ),
+    (
+        "data_enum_struct_header.jinja",
+        include_str!("templates/data_enum_struct_header.jinja"),
+    ),
+    (
+        "data_enum_scalar_tuple_field.jinja",
+        include_str!("templates/data_enum_scalar_tuple_field.jinja"),
+    ),
+    (
+        "data_enum_marker_method.jinja",
+        include_str!("templates/data_enum_marker_method.jinja"),
+    ),
+    (
+        "data_enum_type_method.jinja",
+        include_str!("templates/data_enum_type_method.jinja"),
+    ),
+    (
+        "data_enum_scalar_marshalers.jinja",
+        include_str!("templates/data_enum_scalar_marshalers.jinja"),
+    ),
+    (
         "tagged_union_tag_field.jinja",
         include_str!("templates/tagged_union_tag_field.jinja"),
     ),

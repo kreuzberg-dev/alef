@@ -58,72 +58,55 @@ fn gen_opaque_streaming_static_wrapper(
     meta: &StreamingMethodMeta,
     _exception_name: &str,
 ) -> String {
+    use crate::backends::csharp::template_env::render;
+
     let mut out = String::new();
 
     let class_name = csharp_type_name(opaque_type_name);
     let method_name = to_csharp_name(&method.name);
     let item_type = csharp_type_name(&meta.item_type);
+    let method_name = if method.is_async {
+        format!("{method_name}Async")
+    } else {
+        method_name
+    };
+    let params_decl = method
+        .params
+        .iter()
+        .map(|param| {
+            let param_name = param.name.to_lower_camel_case();
+            let param_type = csharp_type(&param.ty);
+            format!("{param_type} {param_name}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let args = method
+        .params
+        .iter()
+        .map(|param| param.name.to_lower_camel_case())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let doc_lines: Vec<String> = method.doc.lines().map(str::to_owned).collect();
+    let param_docs: Vec<String> = method
+        .params
+        .iter()
+        .map(|param| param.name.to_lower_camel_case())
+        .collect();
 
-    // Emit XML doc comment. Multi-paragraph rustdoc (blank-line-separated)
-    // must have `/// ` prefixed on every line, otherwise C# parses the
-    // unprefixed continuation lines as raw code.
-    out.push_str("    /// <summary>\n");
-    for line in method.doc.lines() {
-        out.push_str("    /// ");
-        out.push_str(line);
-        out.push('\n');
-    }
-    out.push_str("    /// </summary>\n");
-    out.push_str(&format!(
-        "    /// <param name=\"engine\">Opaque handle to {}</param>\n",
-        opaque_type_name
+    out.push_str(&render(
+        "opaque_streaming_static_wrapper.jinja",
+        minijinja::context! {
+            doc_lines,
+            opaque_type_name,
+            param_docs,
+            is_async => method.is_async,
+            item_type,
+            method_name,
+            class_name,
+            params_decl,
+            args,
+        },
     ));
-    for param in &method.params {
-        let param_name = param.name.to_lower_camel_case();
-        out.push_str(&format!("    /// <param name=\"{param_name}\"></param>\n"));
-    }
-
-    // Static method signature: takes opaque handle + params, returns IAsyncEnumerable<ItemType>
-    out.push_str("    public static ");
-    if method.is_async {
-        out.push_str(&format!("async IAsyncEnumerable<{item_type}> {method_name}Async("));
-    } else {
-        out.push_str(&format!("IAsyncEnumerable<{item_type}> {method_name}("));
-    }
-
-    out.push_str(&format!("{class_name} engine"));
-    for param in &method.params {
-        let param_name = param.name.to_lower_camel_case();
-        let param_type = csharp_type(&param.ty);
-        out.push_str(&format!(", {param_type} {param_name}"));
-    }
-    out.push_str(")\n");
-    out.push_str("    {\n");
-
-    // Delegate to the instance method on the engine handle. The instance
-    // method follows the same C# naming convention as this static wrapper:
-    // async instance methods are emitted with an `Async` suffix, so the
-    // static `ChatStreamAsync` wrapper must call `engine.ChatStreamAsync(...)`,
-    // not `engine.ChatStream(...)`.
-    if method.is_async {
-        out.push_str("        await foreach (var item in engine.");
-        out.push_str(&format!("{method_name}Async("));
-    } else {
-        out.push_str("        foreach (var item in engine.");
-        out.push_str(&format!("{method_name}("));
-    }
-    for (i, param) in method.params.iter().enumerate() {
-        if i > 0 {
-            out.push_str(", ");
-        }
-        let param_name = param.name.to_lower_camel_case();
-        out.push_str(&param_name);
-    }
-    out.push_str("))\n");
-    out.push_str("        {\n");
-    out.push_str("            yield return item;\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
 
     out
 }
@@ -131,6 +114,8 @@ fn gen_opaque_streaming_static_wrapper(
 /// Generate a wrapper method for a streaming adapter.
 /// Emits a public async method that returns IAsyncEnumerable<ItemType>.
 fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: &str, _api: &ApiSurface) -> String {
+    use crate::backends::csharp::template_env::render;
+
     let adapter_name = &adapter.name;
     let method_name = to_csharp_name(adapter_name);
     let Some(owner_type) = adapter.owner_type.as_deref() else {
@@ -199,38 +184,19 @@ fn gen_adapter_wrapper(adapter: &AdapterConfig, _prefix: &str, _exception_name: 
     let next_method = format!("{owner_cs_name}{adapter_cs_name}Next");
     let free_method = format!("{owner_cs_name}{adapter_cs_name}Free");
 
-    format!(
-        "    public static async IAsyncEnumerable<{cs_item_type}> {method_name}({params_decl})\n    {{\n\
-         {setup_code}\
-         var iterHandle = NativeMethods.{start_method}({native_args_str});\n\
-         if (iterHandle == IntPtr.Zero) throw GetLastError();\n\
-         try\n\
-         {{\n\
-             while (true)\n\
-             {{\n\
-                 var itemPtr = NativeMethods.{next_method}(iterHandle);\n\
-                 if (itemPtr == IntPtr.Zero) break;\n\
-                 try\n\
-                 {{\n\
-                     var json = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(itemPtr);\n\
-                     if (!string.IsNullOrEmpty(json))\n\
-                     {{\n\
-                         var item = JsonSerializer.Deserialize<{cs_item_type}>(json, JsonOptions)!;\n\
-                         yield return item;\n\
-                     }}\n\
-                 }}\n\
-                 finally\n\
-                 {{\n\
-                     NativeMethods.FreeString(itemPtr);\n\
-                 }}\n\
-             }}\n\
-         }}\n\
-         finally\n\
-         {{\n\
-             NativeMethods.{free_method}(iterHandle);\n\
-             {cleanup_code}\n\
-         }}\n\
-     }}\n\n"
+    render(
+        "streaming_adapter_wrapper.jinja",
+        minijinja::context! {
+            item_type => cs_item_type,
+            method_name,
+            params_decl,
+            setup_code,
+            start_method,
+            native_args => native_args_str,
+            next_method,
+            free_method,
+            cleanup_code,
+        },
     )
 }
 
@@ -383,62 +349,27 @@ pub(super) fn gen_wrapper_class(
 
         // Register{TraitName} — takes IntPtr handle from bridge factory, completes registration
         let register_method_name = format!("Register{trait_pascal}");
-        out.push_str(&format!(
-            "    /// <summary>Complete native registration of a {trait_pascal} implementation</summary>\n"
+        out.push_str(&render(
+            "trait_register_facade.jinja",
+            minijinja::context! {
+                trait_name => trait_pascal,
+                method_name => register_method_name,
+                has_super,
+                exception_name,
+            },
         ));
-        out.push_str(&format!(
-            "    public static void {}(IntPtr handle)\n",
-            register_method_name
-        ));
-        out.push_str("    {\n");
-        out.push_str("        if (handle == IntPtr.Zero) throw new ArgumentException(\"handle is null\");\n");
-        out.push_str(&format!(
-            "        var bridge = GCHandle.FromIntPtr(handle).Target as {}Bridge ?? throw new InvalidOperationException(\"Invalid bridge handle\");\n",
-            trait_pascal
-        ));
-        out.push_str(&format!(
-            "        var impl = bridge.GetType().GetField(\"_impl\", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(bridge) as I{};\n",
-            trait_pascal
-        ));
-        out.push_str(
-            "        if (impl == null) throw new InvalidOperationException(\"Cannot extract impl from bridge\");\n",
-        );
-        if has_super {
-            out.push_str("        var name = impl.Name;\n");
-        } else {
-            out.push_str("        var name = System.Guid.NewGuid().ToString();\n");
-        }
-        out.push_str(&format!(
-            "        var ec = NativeMethods.Register{}(name, bridge._vtable, handle, out var outError);\n",
-            trait_pascal
-        ));
-        out.push_str("        if (ec != 0) {\n");
-        out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Register failed\";\n");
-        out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
-        out.push_str("        }\n");
-        out.push_str("    }\n\n");
 
         // Unregister{TraitName} — only if unregister_fn is configured
         if bridge_cfg.unregister_fn.is_some() {
             let unregister_method_name = format!("Unregister{trait_pascal}");
-            out.push_str(&format!(
-                "    /// <summary>Unregister a {trait_pascal} implementation by name</summary>\n"
+            out.push_str(&render(
+                "trait_unregister_facade.jinja",
+                minijinja::context! {
+                    trait_name => trait_pascal,
+                    method_name => unregister_method_name,
+                    exception_name,
+                },
             ));
-            out.push_str(&format!(
-                "    public static void {}(string name)\n",
-                unregister_method_name
-            ));
-            out.push_str("    {\n");
-            out.push_str("        ArgumentNullException.ThrowIfNull(name);\n");
-            out.push_str(&format!(
-                "        var ec = NativeMethods.Unregister{}(name, out var outError);\n",
-                trait_pascal
-            ));
-            out.push_str("        if (ec != 0) {\n");
-            out.push_str("            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? \"Unregister failed\";\n");
-            out.push_str(&format!("            throw new {exception_name}(ec, msg);\n"));
-            out.push_str("        }\n");
-            out.push_str("    }\n\n");
         }
     }
 
@@ -451,14 +382,13 @@ pub(super) fn gen_wrapper_class(
             let trait_pascal = csharp_type_name(&bridge_cfg.trait_name);
             let clear_method_name = to_csharp_name(clear_fn);
 
-            out.push_str(&format!(
-                "    /// <summary>Clear all registered {} implementations</summary>\n",
-                trait_pascal
+            out.push_str(&render(
+                "trait_clear_facade.jinja",
+                minijinja::context! {
+                    trait_name => trait_pascal,
+                    method_name => clear_method_name,
+                },
             ));
-            out.push_str(&format!("    public static void {}()\n", clear_method_name));
-            out.push_str("    {\n");
-            out.push_str(&format!("        {}Registry.Clear();\n", trait_pascal));
-            out.push_str("    }\n\n");
         }
     }
 

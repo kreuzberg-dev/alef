@@ -1,0 +1,100 @@
+/// Call a Ruby proc with the GVL acquired via rb_sys.
+/// Called from within a `rb_thread_call_without_gvl` callback (same OS thread).
+fn call_ruby_proc_with_gvl(
+    proc_handle: &Opaque<Value>,
+    req_json: &str,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;
+
+    // SAFETY: rb_thread_call_with_gvl is safe to call from any thread.
+    // It acquires the GVL and calls the callback with it held.
+    // We use a helper extern fn to bridge the gap.
+    unsafe {
+        let mut state = RubyProcCallState {
+            proc_handle: proc_handle.clone(),
+            req_json: req_json.to_string(),
+            result: None,
+        };
+        rb_sys::rb_thread_call_with_gvl(
+            Some(ruby_proc_gvl_callback),
+            &mut state as *mut _ as *mut std::ffi::c_void,
+        );
+        state.result.unwrap_or_else(|| {
+            Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "GVL callback failed to set result",
+            )) as Box<dyn std::error::Error + Send + Sync>)
+        })
+    }
+}
+
+struct RubyProcCallState {
+    proc_handle: Opaque<Value>,
+    req_json: String,
+    result: Option<Result<String, Box<dyn std::error::Error + Send + Sync>>>,
+}
+
+// SAFETY: RubyProcCallState is only accessed from within the GVL callback.
+unsafe impl Send for RubyProcCallState {}
+unsafe impl Sync for RubyProcCallState {}
+
+// Callback invoked by rb_thread_call_with_gvl with the GVL held.
+extern "C" fn ruby_proc_gvl_callback(data: *mut std::ffi::c_void) -> *mut std::ffi::c_void {
+    // SAFETY: data is a pointer to our RubyProcCallState, guaranteed valid for the duration of the callback.
+    unsafe {
+        let state = &mut *(data as *mut RubyProcCallState);
+        let box_err = |e: Box<dyn std::error::Error + Send + Sync>| e;
+
+        // We are now on a Ruby thread with the GVL held. Safe to call Magnus APIs.
+        let ruby = match Ruby::get() {
+            Ok(r) => r,
+            Err(_) => {
+                state.result = Some(Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Could not obtain Ruby handle within GVL callback",
+                )) as Box<dyn std::error::Error + Send + Sync>));
+                return std::ptr::null_mut();
+            }
+        };
+
+        let proc_value = state.proc_handle.get_inner_with(&ruby);
+
+        // Parse request JSON into a Ruby Hash
+        let json_mod = match ruby.eval::<Value>("JSON") {
+            Ok(m) => m,
+            Err(e) => {
+                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));
+                return std::ptr::null_mut();
+            }
+        };
+
+        let req_hash = match json_mod.funcall::<_, _, Value>("parse", (state.req_json.as_str(),)) {
+            Ok(h) => h,
+            Err(e) => {
+                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Call the proc with the request hash
+        let result = match proc_value.funcall::<_, _, Value>("call", (req_hash,)) {
+            Ok(r) => r,
+            Err(e) => {
+                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));
+                return std::ptr::null_mut();
+            }
+        };
+
+        // Serialize result back to JSON
+        match json_mod.funcall::<_, _, String>("generate", (result,)) {
+            Ok(resp_json_str) => {
+                state.result = Some(Ok(resp_json_str));
+            }
+            Err(e) => {
+                state.result = Some(Err(Box::new(std::io::Error::other(e.to_string())) as Box<dyn std::error::Error + Send + Sync>));
+            }
+        }
+    }
+    std::ptr::null_mut()
+}
+

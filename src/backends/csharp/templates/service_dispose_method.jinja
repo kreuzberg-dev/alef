@@ -1,0 +1,16 @@
+    public void Dispose() {
+        if (_handle != IntPtr.Zero) {
+            NativeMethods.{{ native_free }}(_handle);
+            _handle = IntPtr.Zero;
+        }
+        // Clean up all registered callbacks for this instance
+        lock (_registeredCallbacks) {
+            var keys = _registeredCallbacks.Keys.ToList();
+            foreach (var key in keys) {
+                var handle = _registeredCallbacks[key];
+                handle.Free();
+                _registeredCallbacks.Remove(key);
+            }
+        }
+    }
+

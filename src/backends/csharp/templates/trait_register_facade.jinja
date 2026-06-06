@@ -1,0 +1,19 @@
+    /// <summary>Complete native registration of a {{ trait_name }} implementation</summary>
+    public static void {{ method_name }}(IntPtr handle)
+    {
+        if (handle == IntPtr.Zero) throw new ArgumentException("handle is null");
+        var bridge = GCHandle.FromIntPtr(handle).Target as {{ trait_name }}Bridge ?? throw new InvalidOperationException("Invalid bridge handle");
+        var impl = bridge.GetType().GetField("_impl", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?.GetValue(bridge) as I{{ trait_name }};
+        if (impl == null) throw new InvalidOperationException("Cannot extract impl from bridge");
+{% if has_super %}
+        var name = impl.Name;
+{% else %}
+        var name = System.Guid.NewGuid().ToString();
+{% endif %}
+        var ec = NativeMethods.Register{{ trait_name }}(name, bridge._vtable, handle, out var outError);
+        if (ec != 0) {
+            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Register failed";
+            throw new {{ exception_name }}(ec, msg);
+        }
+    }
+

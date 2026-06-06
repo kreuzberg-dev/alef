@@ -1,0 +1,12 @@
+            _ => {
+                return Err(magnus::Error::new(
+                    ruby.exception_arg_error(),
+                    format!("unknown registration method: {method_name}"),
+                ));
+            }
+        }
+    }
+
+{{ ep_call }}    Ok(())
+}
+

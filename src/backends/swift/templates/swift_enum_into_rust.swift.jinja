@@ -1,0 +1,7 @@
+extension {{ name }} {
+    func intoRust() throws -> RustBridge.{{ name }} {
+        let data = try JSONEncoder().encode(self)
+        let json = String(data: data, encoding: .utf8) ?? "null"
+        return try RustBridge.{{ from_json_fn }}(json)
+    }
+}

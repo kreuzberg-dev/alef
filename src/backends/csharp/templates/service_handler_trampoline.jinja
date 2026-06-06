@@ -1,0 +1,22 @@
+    /// <summary>
+    /// Unmanaged callback trampoline that recovers the GC handle and invokes the handler.
+    /// </summary>
+    public static IntPtr HandlerTrampoline(IntPtr ctx, IntPtr requestJson) {
+        try {
+            // Recover the GCHandle and invoke the delegate
+            var handle = GCHandle.FromIntPtr(ctx);
+            if (handle.Target is Func<string, string> handler) {
+                // Unmarshal the request JSON
+                string requestStr = Marshal.PtrToStringUTF8(requestJson) ?? "{}";
+                // Invoke the handler and get the response
+                string responseStr = handler(requestStr);
+                // Allocate response string in native memory (malloc-backed on Unix; the
+                // native side takes ownership and frees it).
+                return Marshal.StringToCoTaskMemUTF8(responseStr);
+            }
+        } catch {
+            // Return null on error
+        }
+        return IntPtr.Zero;
+    }
+

@@ -1,0 +1,5 @@
+public enum {{ name }}: Codable, Sendable, Hashable {
+{{ variants }}{% if codable_body %}
+
+{{ codable_body }}{% endif %}
+}

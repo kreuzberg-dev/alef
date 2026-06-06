@@ -1,0 +1,11 @@
+    /// <summary>Unregister a {{ trait_name }} implementation by name</summary>
+    public static void {{ method_name }}(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        var ec = NativeMethods.Unregister{{ trait_name }}(name, out var outError);
+        if (ec != 0) {
+            var msg = global::System.Runtime.InteropServices.Marshal.PtrToStringUTF8(outError) ?? "Unregister failed";
+            throw new {{ exception_name }}(ec, msg);
+        }
+    }
+

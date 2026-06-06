@@ -24,7 +24,10 @@ use crate::core::ir::{
     ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, RegistrationVariantStyle, ServiceDef, TypeRef,
 };
 use heck::{ToSnakeCase, ToUpperCamelCase};
+use minijinja::context;
 use std::path::PathBuf;
+
+use crate::backends::rustler::template_env::render;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
@@ -109,6 +112,19 @@ fn elixir_heredoc_body(text: &str, indent: usize) -> String {
     out
 }
 
+fn push_elixir_doc(out: &mut String, doc: &str, attr: &str) {
+    if doc.is_empty() {
+        return;
+    }
+    out.push_str(&render(
+        "service_api_doc.ex.jinja",
+        context! {
+            attr => attr,
+            body => elixir_heredoc_body(doc, 2),
+        },
+    ));
+}
+
 fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_prefix: &str) {
     let module_name = if !module_prefix.is_empty() {
         format!("{}.{}", module_prefix, service.name)
@@ -117,38 +133,31 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
     };
     let module_snake = service.name.to_snake_case();
 
-    // Module declaration + @moduledoc.
-    //
-    // Module names are already implicitly under the `Elixir.` namespace; the
-    // `defmodule Elixir.<Name>` form prepends a redundant `Elixir.` so the
-    // compiled module ends up as `Elixir.Elixir.<Name>`. Emit the bare name.
-    // When a module_prefix is present (e.g., the package namespace), namespace the
-    // service module under it to match sibling modules like `<Prefix>.RouteBuilder`.
-    out.push_str(&format!("defmodule {module_name} do\n"));
-    if !service.doc.is_empty() {
-        out.push_str("  @moduledoc \"\"\"\n");
-        out.push_str(&elixir_heredoc_body(&service.doc, 2));
-        out.push_str("  \"\"\"\n\n");
-    }
+    let doc_body = if service.doc.is_empty() {
+        String::new()
+    } else {
+        elixir_heredoc_body(&service.doc, 2)
+    };
+    out.push_str(&render(
+        "service_api_module_header.ex.jinja",
+        context! {
+            module_name => module_name,
+            doc_body => doc_body,
+            module_prefix => module_prefix,
+        },
+    ));
 
-    // Alias the consumer's `Native` module so unqualified `Native.<fn>(...)`
-    // calls in this module's body resolve to `<Prefix>.Native.<fn>(...)`.
-    if !module_prefix.is_empty() {
-        out.push_str(&format!("  alias {module_prefix}.Native\n\n"));
-    }
-
-    // Struct definition
-    out.push_str("  defstruct [\n");
-    out.push_str("    :registrations,\n");
-    for p in &service.constructor.params {
-        out.push_str(&format!("    :{},\n", p.name));
-    }
+    let mut fields = Vec::new();
+    fields.extend(service.constructor.params.iter().map(|p| p.name.as_str()));
     for method in &service.configurators {
-        for p in &method.params {
-            out.push_str(&format!("    :{},\n", p.name));
-        }
+        fields.extend(method.params.iter().map(|p| p.name.as_str()));
     }
-    out.push_str("  ]\n\n");
+    out.push_str(&render(
+        "service_api_struct.ex.jinja",
+        context! {
+            fields => fields,
+        },
+    ));
 
     // Constructor
     {
@@ -164,18 +173,14 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
             }
         }
 
-        if !ctor.doc.is_empty() {
-            out.push_str("  @doc \"\"\"\n");
-            out.push_str(&elixir_heredoc_body(&ctor.doc, 2));
-            out.push_str("  \"\"\"\n");
-        }
-        out.push_str(&format!("  def new({}) do\n", params.join(", ")));
-        out.push_str("    %__MODULE__{\n");
-        for init in field_inits {
-            out.push_str(&format!("      {},\n", init));
-        }
-        out.push_str("    }\n");
-        out.push_str("  end\n\n");
+        push_elixir_doc(out, &ctor.doc, "doc");
+        out.push_str(&render(
+            "service_api_constructor.ex.jinja",
+            context! {
+                params => params.join(", "),
+                field_inits => field_inits,
+            },
+        ));
     }
 
     // Configurator methods
@@ -190,17 +195,16 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
             }
         }
 
-        if !method.doc.is_empty() {
-            out.push_str("  @doc \"\"\"\n");
-            out.push_str(&elixir_heredoc_body(&method.doc, 2));
-            out.push_str("  \"\"\"\n");
-        }
-        out.push_str(&format!("  def {}({}) do\n", method_name, params.join(", ")));
-        for p in &method.params {
-            out.push_str(&format!("    self = %__MODULE__{{self | {}: {}}}\n", p.name, p.name));
-        }
-        out.push_str("    self\n");
-        out.push_str("  end\n\n");
+        push_elixir_doc(out, &method.doc, "doc");
+        let updates = method.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+        out.push_str(&render(
+            "service_api_configurator.ex.jinja",
+            context! {
+                method_name => method_name,
+                params => params.join(", "),
+                updates => updates,
+            },
+        ));
     }
 
     // Registration methods as decorator-style helpers
@@ -225,34 +229,32 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
 
         match ep.kind {
             EntrypointKind::Run => {
-                if !ep.doc.is_empty() {
-                    out.push_str("  @doc \"\"\"\n");
-                    out.push_str(&elixir_heredoc_body(&ep.doc, 2));
-                    out.push_str("  \"\"\"\n");
-                }
-                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
+                push_elixir_doc(out, &ep.doc, "doc");
                 let native_fn = format!("{}_{}", module_snake, ep_name);
-                out.push_str(&format!("    Native.{}(self.registrations", native_fn));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n");
-                out.push_str("  end\n\n");
+                let call_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
+                out.push_str(&render(
+                    "service_api_entrypoint.ex.jinja",
+                    context! {
+                        ep_name => ep_name,
+                        params => params.join(", "),
+                        native_fn => native_fn,
+                        call_args => call_args,
+                    },
+                ));
             }
             EntrypointKind::Finalize => {
-                if !ep.doc.is_empty() {
-                    out.push_str("  @doc \"\"\"\n");
-                    out.push_str(&elixir_heredoc_body(&ep.doc, 2));
-                    out.push_str("  \"\"\"\n");
-                }
-                out.push_str(&format!("  def {}({}) do\n", ep_name, params.join(", ")));
+                push_elixir_doc(out, &ep.doc, "doc");
                 let native_fn = format!("{}_{}", module_snake, ep_name);
-                out.push_str(&format!("    Native.{}(self.registrations", native_fn));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(")\n");
-                out.push_str("  end\n\n");
+                let call_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
+                out.push_str(&render(
+                    "service_api_entrypoint.ex.jinja",
+                    context! {
+                        ep_name => ep_name,
+                        params => params.join(", "),
+                        native_fn => native_fn,
+                        call_args => call_args,
+                    },
+                ));
             }
         }
     }
@@ -269,20 +271,16 @@ fn gen_registration_method(
 ) {
     let method_name = &reg.method;
 
-    if !reg.doc.is_empty() {
-        out.push_str("  @doc \"\"\"\n");
-        out.push_str(&elixir_heredoc_body(&reg.doc, 2));
-        out.push_str("  \"\"\"\n");
-    }
-    out.push_str(&format!("  def {}(self", method_name));
+    push_elixir_doc(out, &reg.doc, "doc");
+    let mut params = "self".to_owned();
     for p in &reg.metadata_params {
         if p.optional {
-            out.push_str(&format!(", {} \\\\ nil", p.name));
+            params.push_str(&format!(", {} \\\\ nil", p.name));
         } else {
-            out.push_str(&format!(", {}", p.name));
+            params.push_str(&format!(", {}", p.name));
         }
     }
-    out.push_str(", handler) do\n");
+    params.push_str(", handler");
 
     // Build metadata tuple
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
@@ -292,52 +290,18 @@ fn gen_registration_method(
         format!("{{{}}}", meta_names.join(", "))
     };
 
-    out.push_str("    # Wrap handler closure in a process if it's not already one\n");
-    out.push_str("    handler_pid = case handler do\n");
-    out.push_str("      pid when is_pid(pid) -> pid\n");
-    out.push_str("      fun when is_function(fun) ->\n");
-    out.push_str("        {:ok, pid} = GenServer.start_link(__MODULE__.HandlerWrapper, fun)\n");
-    out.push_str("        pid\n");
-    out.push_str("    end\n\n");
-    out.push_str(&format!(
-        "    entry = {{\"{}\", {}, handler_pid}}\n",
-        method_name, meta_tuple
+    out.push_str(&render(
+        "service_api_registration_method.ex.jinja",
+        context! {
+            method_name => method_name,
+            params => params,
+            meta_tuple => meta_tuple,
+        },
     ));
-    out.push_str("    %__MODULE__{self | registrations: [entry | self.registrations]}\n");
-    out.push_str("  end\n\n");
 
     // Emit a simple HandlerWrapper GenServer if this is the route registration
     if method_name == "route" {
-        out.push_str("  # HandlerWrapper GenServer: wraps a closure for use as a handler\n");
-        out.push_str("  defmodule HandlerWrapper do\n");
-        out.push_str("    use GenServer\n\n");
-        out.push_str("    def start_link(handler_fn) do\n");
-        out.push_str("      GenServer.start_link(__MODULE__, handler_fn)\n");
-        out.push_str("    end\n\n");
-        out.push_str("    def init(handler_fn) do\n");
-        out.push_str("      {:ok, handler_fn}\n");
-        out.push_str("    end\n\n");
-        out.push_str("    def handle_cast({:trait_call, _method, args_json, reply_id}, handler_fn) do\n");
-        out.push_str("      case Jason.decode(args_json) do\n");
-        out.push_str("        {:ok, _args} ->\n");
-        out.push_str("          # Call the wrapped closure\n");
-        out.push_str("          try do\n");
-        out.push_str("            response = handler_fn.(nil)\n");
-        out.push_str("            response_json = Jason.encode!(response)\n");
-        out.push_str("            Native.complete_trait_call(reply_id, response_json)\n");
-        out.push_str("          rescue\n");
-        out.push_str(
-            "            _e -> Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"handler error\\\"}\")\n",
-        );
-        out.push_str("          end\n");
-        out.push_str("        {:error, _} ->\n");
-        out.push_str(
-            "          Native.complete_trait_call(reply_id, \"{\\\"error\\\": \\\"json decode error\\\"}\")\n",
-        );
-        out.push_str("      end\n");
-        out.push_str("      {:noreply, handler_fn}\n");
-        out.push_str("    end\n");
-        out.push_str("  end\n\n");
+        out.push_str(&render("service_api_handler_wrapper.ex.jinja", context! {}));
     }
 
     // Emit registration variants (decorator-style shortcuts)
@@ -439,55 +403,63 @@ fn emit_verb_decorator_variant(
     let base_method = &base_reg.method;
 
     if let Some(doc) = &variant.doc {
-        out.push_str("  @doc \"\"\"\n");
-        out.push_str(&elixir_heredoc_body(doc, 2));
-        out.push_str("  \"\"\"\n");
+        push_elixir_doc(out, doc, "doc");
     }
 
     // Emit signature: app, then signature_params, then handler
-    out.push_str(&format!("  def {}(app", variant_name));
+    let mut params = "app".to_owned();
     for param in &variant.signature_params {
         if param.optional {
-            out.push_str(&format!(", {} \\\\ nil", param.name));
+            params.push_str(&format!(", {} \\\\ nil", param.name));
         } else {
-            out.push_str(&format!(", {}", param.name));
+            params.push_str(&format!(", {}", param.name));
         }
     }
-    out.push_str(", handler) do\n");
+    params.push_str(", handler");
 
-    if let Some(wrapper_expr) = build_elixir_wrapper_constructor_expr(variant, module_prefix) {
-        // Wrapper pattern: build the wrapper object, then delegate to the base method.
-        out.push_str(&format!("    {wrapper_expr}\n"));
-        out.push_str(&format!(
-            "    {}(app, {}, handler)\n",
-            base_method,
-            base_reg
-                .metadata_params
-                .iter()
-                .map(|p| p.name.as_str())
-                .collect::<Vec<_>>()
-                .join(", ")
-        ));
-    } else {
-        // Direct pattern: build call args by substituting overrides into the base params.
-        let mut call_args: Vec<String> = Vec::new();
-        for base_param in &base_reg.metadata_params {
-            if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
-                // Fixed override: convert Rust expression to Elixir
-                call_args.push(rust_enum_expr_to_elixir(&override_.value_expr, module_prefix));
-            } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
-                call_args.push(sig_param.name.clone());
+    let (wrapper_expr, call_args) =
+        if let Some(wrapper_expr) = build_elixir_wrapper_constructor_expr(variant, module_prefix) {
+            (
+                wrapper_expr,
+                format!(
+                    "app, {}",
+                    base_reg
+                        .metadata_params
+                        .iter()
+                        .map(|p| p.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ),
+            )
+        } else {
+            // Direct pattern: build call args by substituting overrides into the base params.
+            let mut call_args: Vec<String> = Vec::new();
+            for base_param in &base_reg.metadata_params {
+                if let Some(override_) = variant.overrides.iter().find(|o| o.param_name == base_param.name) {
+                    // Fixed override: convert Rust expression to Elixir
+                    call_args.push(rust_enum_expr_to_elixir(&override_.value_expr, module_prefix));
+                } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
+                    call_args.push(sig_param.name.clone());
+                }
             }
-        }
-        let args_str = if call_args.is_empty() {
-            String::new()
-        } else {
-            format!(", {}", call_args.join(", "))
+            let call_args = if call_args.is_empty() {
+                "app".to_owned()
+            } else {
+                format!("app, {}", call_args.join(", "))
+            };
+            (String::new(), call_args)
         };
-        out.push_str(&format!("    {}(app{}, handler)\n", base_method, args_str));
-    }
 
-    out.push_str("  end\n\n");
+    out.push_str(&render(
+        "service_api_verb_decorator.ex.jinja",
+        context! {
+            variant_name => variant_name,
+            params => params,
+            wrapper_expr => wrapper_expr,
+            base_method => base_method,
+            call_args => call_args,
+        },
+    ));
 }
 
 /// Emit the builder form: `def variant_decorator(app, path, ...) do ... end` returning a closure.
@@ -505,33 +477,32 @@ fn emit_builder_variant(
     let builder_name = format!("{}_decorator", variant_name);
 
     if let Some(doc) = &variant.doc {
-        out.push_str("  @doc \"\"\"\n");
-        out.push_str(&elixir_heredoc_body(doc, 2));
-        out.push_str("  \"\"\"\n");
+        push_elixir_doc(out, doc, "doc");
     }
 
     // Emit signature: app, then signature_params (no handler)
-    out.push_str(&format!("  def {}(app", builder_name));
+    let mut params = "app".to_owned();
     for param in &variant.signature_params {
         if param.optional {
-            out.push_str(&format!(", {} \\\\ nil", param.name));
+            params.push_str(&format!(", {} \\\\ nil", param.name));
         } else {
-            out.push_str(&format!(", {}", param.name));
+            params.push_str(&format!(", {}", param.name));
         }
     }
-    out.push_str(") do\n");
+    let call_args = std::iter::once("app".to_owned())
+        .chain(variant.signature_params.iter().map(|p| p.name.clone()))
+        .collect::<Vec<_>>()
+        .join(", ");
 
-    // Return a function that accepts the handler and delegates to the verb form.
-    // The verb form already handles wrapper construction, so simply call it.
-    out.push_str("    fn(handler) ->\n");
-    out.push_str(&format!("      {}(app", variant_name));
-    for param in &variant.signature_params {
-        out.push_str(&format!(", {}", param.name));
-    }
-    out.push_str(", handler)\n");
-    out.push_str("    end\n");
-
-    out.push_str("  end\n\n");
+    out.push_str(&render(
+        "service_api_builder_variant.ex.jinja",
+        context! {
+            builder_name => builder_name,
+            params => params,
+            variant_name => variant_name,
+            call_args => call_args,
+        },
+    ));
     let _ = module_prefix; // consumed via emit_verb_decorator_variant delegation
 }
 
@@ -539,69 +510,12 @@ fn gen_genserver_module(out: &mut String, service: &ServiceDef, _api: &ApiSurfac
     let module_name = &service.name;
     let server_module = format!("{}.Handler", module_name);
 
-    out.push_str("  # GenServer for dispatching trait_call messages from Rust.\n");
-    out.push_str(&format!("  defmodule {} do\n", server_module));
-    out.push_str("    use GenServer\n\n");
-    out.push_str("    def start_link(state) do\n");
-    out.push_str("      GenServer.start_link(__MODULE__, state)\n");
-    out.push_str("    end\n\n");
-    out.push_str("    def init(state) do\n");
-    out.push_str("      {:ok, state}\n");
-    out.push_str("    end\n\n");
-
-    // Handle trait_call messages from Rust
-    out.push_str("    def handle_cast({:trait_call, method, args_json, reply_id}, registrations) do\n");
-    out.push_str("      # Decode JSON args and dispatch to registered handler\n");
-    out.push_str("      case decode_args_and_dispatch(method, args_json, registrations) do\n");
-    out.push_str("        {:ok, response} ->\n");
-    out.push_str("          Native.complete_trait_call(reply_id, response)\n");
-    out.push_str("        {:error, reason} ->\n");
-    out.push_str("          error_response = %{\"error\" => reason}\n");
-    out.push_str("          Native.complete_trait_call(reply_id, error_response)\n");
-    out.push_str("      end\n");
-    out.push_str("      {:noreply, registrations}\n");
-    out.push_str("    end\n\n");
-
-    // Helper to decode JSON args and dispatch to registered handler
-    out.push_str("    defp decode_args_and_dispatch(method, args_json, registrations) do\n");
-    out.push_str("      # Find handler entry for the method\n");
-    out.push_str("      case find_handler(method, registrations) do\n");
-    out.push_str("        nil ->\n");
-    out.push_str("          {:error, \"Handler not registered for method: #{method}\"}\n");
-    out.push_str("        {^method, _metadata, handler} ->\n");
-    out.push_str("          # Decode JSON args (assumes handler accepts a single arg)\n");
-    out.push_str("          case Jason.decode(args_json) do\n");
-    out.push_str("            {:ok, args} ->\n");
-    out.push_str("              # Call the registered handler with decoded args\n");
-    out.push_str("              try do\n");
-    out.push_str("                response = handler.(args)\n");
-    out.push_str("                # Encode response to JSON\n");
-    out.push_str("                case Jason.encode(response) do\n");
-    out.push_str("                  {:ok, response_json} -> {:ok, response_json}\n");
-    out.push_str("                  {:error, reason} -> {:error, \"Failed to encode response: #{reason}\"}\n");
-    out.push_str("                end\n");
-    out.push_str("              rescue\n");
-    out.push_str("                e ->\n");
-    out.push_str("                  {:error, \"Handler raised exception: #{inspect(e)}\"}\n");
-    out.push_str("              end\n");
-    out.push_str("            {:error, reason} ->\n");
-    out.push_str("              {:error, \"Failed to decode args: #{reason}\"}\n");
-    out.push_str("          end\n");
-    out.push_str("      end\n");
-    out.push_str("    end\n\n");
-
-    // Helper to find handler entry by method name in registrations list
-    out.push_str("    defp find_handler(_method, []), do: nil\n");
-    out.push_str(
-        "    defp find_handler(target, [{name, _metadata, _handler} = entry | _rest]) when name == target do\n",
-    );
-    out.push_str("      entry\n");
-    out.push_str("    end\n");
-    out.push_str("    defp find_handler(target, [_head | rest]) do\n");
-    out.push_str("      find_handler(target, rest)\n");
-    out.push_str("    end\n\n");
-
-    out.push_str("  end\n\n");
+    out.push_str(&render(
+        "service_api_genserver.ex.jinja",
+        context! {
+            server_module => server_module,
+        },
+    ));
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -618,26 +532,12 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use rustler::{Encoder, LocalPid, NifResult, OwnedEnv, ResourceArc, types::atom::Atom};\n");
-    out.push_str("use rustler::Error as NifError;\n");
-    out.push_str("use std::collections::HashMap;\n");
-    out.push_str("use std::sync::Arc;\n");
-    out.push_str("use std::sync::atomic::{AtomicU64, Ordering};\n");
-    out.push_str("use std::sync::{Mutex, OnceLock};\n");
-    // GAP 1: Import the core crate for trait types and RouteBuilder
-    out.push_str(&format!("use {}::*;\n\n", core_import));
-
-    out.push_str("/// Atom constants used by the service NIFs.\n");
-    out.push_str("mod atoms {\n");
-    out.push_str("    rustler::atoms! {\n");
-    out.push_str("        ok,\n");
-    out.push_str("        error,\n");
-    out.push_str("        trait_call,\n");
-    out.push_str("    }\n");
-    out.push_str("}\n\n");
-
-    out.push_str("static REPLY_ID_COUNTER: AtomicU64 = AtomicU64::new(0);\n\n");
+    out.push_str(&render(
+        "service_api_rs_header.rs.jinja",
+        context! {
+            core_import => core_import,
+        },
+    ));
 
     // Global registry of pending oneshot senders, keyed by reply_id. The handler
     // bridge inserts a sender when it sends a `{:trait_call, ...}` message to the
@@ -645,30 +545,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     // the `complete_trait_call` NIF with the reply_id and the JSON response,
     // which removes the sender from the map and forwards the response through
     // the oneshot channel.
-    out.push_str(
-        "type TraitReplySender = tokio::sync::oneshot::Sender<String>;\n\
-         type TraitReplyMap = Mutex<HashMap<u64, TraitReplySender>>;\n\n\
-         static TRAIT_REPLY_MAP: OnceLock<TraitReplyMap> = OnceLock::new();\n\n\
-         fn trait_reply_map() -> &'static TraitReplyMap {\n    \
-             TRAIT_REPLY_MAP.get_or_init(|| Mutex::new(HashMap::new()))\n\
-         }\n\n",
-    );
-
-    // Top-level `complete_trait_call` NIF — invoked by the Elixir GenServer
-    // after handling a `{:trait_call, ...}` message. Removes the pending
-    // sender for `reply_id` from the global map and forwards `response_json`
-    // through the oneshot channel; the awaiting handler-bridge dispatch then
-    // resolves with the JSON body.
-    out.push_str(
-        "/// Complete a pending trait call with the JSON response from Elixir.\n\
-         #[rustler::nif]\n\
-         pub fn complete_trait_call(reply_id: u64, response_json: String) -> Atom {\n    \
-             if let Some(tx) = trait_reply_map().lock().unwrap().remove(&reply_id) {\n        \
-                 let _ = tx.send(response_json);\n    \
-             }\n    \
-             atoms::ok()\n\
-         }\n\n",
-    );
+    out.push_str(&render("service_api_trait_reply_support.rs.jinja", context! {}));
 
     // Emit one handler bridge per unique handler contract referenced
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -733,36 +610,6 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         .collect();
     let wire_name = contract.wire_param_name.as_deref().unwrap_or("request");
 
-    out.push_str(&format!(
-        "/// Generated rustler bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps an Elixir GenServer pid so it can be used\n\
-         /// as `Arc<dyn {trait_name}>` from Rust async code.\n\
-         /// Uses message-passing to avoid blocking the BEAM scheduler.\n\
-         /// Pending replies are stored in the module-level `TRAIT_REPLY_MAP`\n\
-         /// keyed by `reply_id`; the GenServer completes them via the\n\
-         /// `complete_trait_call` NIF.\n\
-         pub struct {bridge_name} {{\n    \
-             pid: LocalPid,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from an Elixir GenServer pid.\n    \
-             pub fn new(pid: LocalPid) -> Self {{\n        \
-                 Self {{ pid }}\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // SAFETY: LocalPid is thread-safe in Rustler (it's an atom reference).
-    out.push_str(&format!(
-        "// SAFETY: LocalPid is Send+Sync as guaranteed by Rustler.\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
-    ));
-
     // Build request/response type paths
     let req_path = if req_type == "Value" {
         "serde_json::Value".to_string()
@@ -791,48 +638,22 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
         None => "outcome".to_string(),
     };
 
-    // Trait impl. Returns a boxed future directly (the canonical object-safe
-    // async-trait shape) instead of via the async_trait macro, so it satisfies
-    // a contract whose dispatch method is hand-written as
-    // `-> Pin<Box<dyn Future<..> + Send + '_>>`.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n            \
-                     let outcome: {wire_output} = async move {{\n                \
-                         let request_json = serde_json::to_string(&{wire_name})\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n\n                \
-                         let reply_id = REPLY_ID_COUNTER.fetch_add(1, Ordering::Relaxed);\n                \
-                         let (tx, rx) = tokio::sync::oneshot::channel();\n                \
-                         trait_reply_map().lock().unwrap().insert(reply_id, tx);\n\n                \
-                         // Send trait_call message to Elixir GenServer\n                \
-                         {{\n                    \
-                             let pid = self.pid;\n                    \
-                             let method_name = \"{dispatch_name}\";\n                    \
-                             let request_json_clone = request_json.clone();\n                    \
-                             tokio::task::spawn_blocking(move || {{\n                        \
-                                 let mut env = OwnedEnv::new();\n                        \
-                                 let _ = env.send_and_clear(&pid, |env| {{\n                            \
-                                     (Atom::from_str(env, \"trait_call\").unwrap(),\n                            \
-                                      method_name, request_json_clone.as_str(), reply_id).encode(env)\n                        \
-                                 }});\n                    \
-                             }}).await.ok();\n                \
-                         }}\n\n                \
-                         // Await response\n                \
-                         let response_json = rx.await\n                    \
-                             .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as {box_err})?;\n\n                \
-                         let response: {resp_path} = serde_json::from_str(&response_json)\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         Ok(response)\n            \
-                     }}\n            \
-                     .await;\n\n            \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "service_api_handler_bridge.rs.jinja",
+        context! {
+            trait_name => trait_name,
+            bridge_name => bridge_name,
+            core_import => core_import,
+            dispatch_name => dispatch_name,
+            extra_param => extra_param,
+            wire_name => wire_name,
+            req_path => req_path,
+            output_type => output_type,
+            wire_output => wire_output,
+            box_err => box_err,
+            resp_path => resp_path,
+            tail => tail,
+        },
     ));
 }
 
@@ -864,42 +685,17 @@ fn gen_run_nif(
     }
     let param_sig = params.join(", ");
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from Elixir.\n\
-         ///\n\
-         /// This NIF is scheduled on the dirty CPU scheduler to avoid blocking\n\
-         /// the BEAM scheduler during the (potentially long) run operation.\n\
-         ///\n\
-         /// # Arguments\n\
-         ///\n\
-         /// - `registrations` — Elixir list of `{{method_name, metadata, handler}}` tuples\n\
-         ///   where `handler` is an Elixir function/closure that accepts request JSON and returns response JSON.\n"
+    let ep_param_names = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>();
+    out.push_str(&render(
+        "service_api_run_nif_header.rs.jinja",
+        context! {
+            owner_path => owner_path,
+            ep_method => ep_method,
+            ep_params => ep_param_names,
+            fn_name => fn_name,
+            param_sig => param_sig,
+        },
     ));
-    for p in &ep.params {
-        out.push_str(&format!("/// - `{}` — entrypoint parameter\n", p.name));
-    }
-    out.push_str("///\n");
-    out.push_str("/// # Returns\n");
-    out.push_str("/// `:ok` or `{{:error, reason}}` after the entrypoint completes.\n");
-
-    out.push_str(&format!(
-        "#[rustler::nif(schedule = \"DirtyCpu\")]\n\
-         pub fn {fn_name}({param_sig}) -> NifResult<Atom> {{\n"
-    ));
-
-    out.push_str("    // Parse registrations from Elixir term\n");
-    out.push_str("    let registration_list: Vec<rustler::Term<'_>> = registrations\n");
-    out.push_str("        .decode::<Vec<rustler::Term<'_>>>()\n");
-    out.push_str("        .unwrap_or_else(|_| vec![]);\n\n");
-
-    out.push_str("    // Build the service owner from its constructor\n");
-    out.push_str(&format!("    let mut owner = {owner_path}::new();\n\n"));
-
-    out.push_str("    // Register handlers from Elixir registrations\n");
-    out.push_str("    // Each registration entry is a tuple: {method_name, metadata, handler_pid}\n");
-    out.push_str("    for reg_entry in registration_list {\n");
-    out.push_str("        if let Ok((method_name, metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()\n");
-    out.push_str("        {\n");
 
     // Generate dispatch for each registration
     for (i, reg) in service.registrations.iter().enumerate() {
@@ -1002,43 +798,44 @@ fn gen_run_nif(
     if !service.registrations.is_empty() {
         out.push_str("            }\n");
     }
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-
-    // Generate entrypoint call
-    out.push_str("    // Call the entrypoint method\n");
+    let mut entrypoint_call = String::new();
     match ep.kind {
         EntrypointKind::Run => {
             // For async run, we need to block on the future
             let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
-            out.push_str("    let rt = tokio::runtime::Runtime::new().map_err(|_e| {\n");
-            out.push_str("        NifError::Atom(\"runtime_error\")\n");
-            out.push_str("    })?;\n\n");
+            entrypoint_call.push_str("    let rt = tokio::runtime::Runtime::new().map_err(|_e| {\n");
+            entrypoint_call.push_str("        NifError::Atom(\"runtime_error\")\n");
+            entrypoint_call.push_str("    })?;\n\n");
             if ep.params.is_empty() {
-                out.push_str("    let result = rt.block_on(owner.run());\n");
+                entrypoint_call.push_str("    let result = rt.block_on(owner.run());\n");
             } else {
-                out.push_str(&format!("    let result = rt.block_on(owner.run({}));\n", ep_params));
+                entrypoint_call.push_str(&format!("    let result = rt.block_on(owner.run({}));\n", ep_params));
             }
-            out.push_str("    match result {\n");
-            out.push_str("        Ok(_) => Ok(atoms::ok()),\n");
-            out.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
-            out.push_str("    }\n");
+            entrypoint_call.push_str("    match result {\n");
+            entrypoint_call.push_str("        Ok(_) => Ok(atoms::ok()),\n");
+            entrypoint_call.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
+            entrypoint_call.push_str("    }\n");
         }
         EntrypointKind::Finalize => {
             // For finalize, call the method by its actual name (e.g. `into_router`).
             let ep_params = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
             if ep.params.is_empty() {
-                out.push_str(&format!("    match owner.{}() {{\n", ep_method));
+                entrypoint_call.push_str(&format!("    match owner.{}() {{\n", ep_method));
             } else {
-                out.push_str(&format!("    match owner.{}({}) {{\n", ep_method, ep_params));
+                entrypoint_call.push_str(&format!("    match owner.{}({}) {{\n", ep_method, ep_params));
             }
-            out.push_str("        Ok(_) => Ok(atoms::ok()),\n");
-            out.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
-            out.push_str("    }\n");
+            entrypoint_call.push_str("        Ok(_) => Ok(atoms::ok()),\n");
+            entrypoint_call.push_str("        Err(_e) => Err(NifError::Atom(\"error\")),\n");
+            entrypoint_call.push_str("    }\n");
         }
     }
 
-    out.push_str("}\n\n");
+    out.push_str(&render(
+        "service_api_run_nif_footer.rs.jinja",
+        context! {
+            entrypoint_call => entrypoint_call,
+        },
+    ));
 }
 
 /// Emit a NIF for one registration variant.
@@ -1070,61 +867,45 @@ fn gen_registration_variant_nif(
     params.push("handler: rustler::LocalPid".to_owned());
     let param_sig = params.join(", ");
 
-    out.push_str(&format!(
-        "/// Registration variant `{}` for the `{}` base method.\n\
-         ///\n\
-         /// This NIF pre-builds the wrapper and delegates to the base registration.\n\
-         #[rustler::nif(schedule = \"DirtyCpu\")]\n\
-         pub fn {}({}) -> NifResult<Atom> {{\n",
-        variant_name, base_method, nif_name, param_sig
+    let (wrapper_type_name, wrapper_type_path, constructor_method, wrapper_args) =
+        if let Some(wrapper_call) = &variant.wrapper_call {
+            let wrapper_args = wrapper_call
+                .args
+                .iter()
+                .map(|arg| match arg {
+                    crate::core::ir::WrapperConstructorArg::Fixed {
+                        param_name: _,
+                        value_expr,
+                    } => format!("        {},\n", value_expr),
+                    crate::core::ir::WrapperConstructorArg::Free { param } => {
+                        format!("        {},\n", param.name)
+                    }
+                })
+                .collect::<String>();
+            (
+                wrapper_call.wrapper_type_name.as_str(),
+                wrapper_call.wrapper_type_path.as_str(),
+                wrapper_call.constructor_method.as_str(),
+                wrapper_args,
+            )
+        } else {
+            ("", "", "", String::new())
+        };
+
+    out.push_str(&render(
+        "service_api_registration_variant_nif_header.rs.jinja",
+        context! {
+            variant_name => variant_name,
+            base_method => base_method,
+            nif_name => nif_name,
+            param_sig => param_sig,
+            owner_path => owner_path,
+            wrapper_type_name => wrapper_type_name,
+            wrapper_type_path => wrapper_type_path,
+            constructor_method => constructor_method,
+            wrapper_args => wrapper_args,
+        },
     ));
-
-    // Parse registrations
-    out.push_str("    let registration_list: Vec<rustler::Term<'_>> = registrations\n");
-    out.push_str("        .decode::<Vec<rustler::Term<'_>>>()\n");
-    out.push_str("        .unwrap_or_else(|_| vec![]);\n\n");
-
-    // Build service owner
-    out.push_str(&format!("    let mut owner = {owner_path}::new();\n\n"));
-
-    // Build wrapper if needed
-    if let Some(wrapper_call) = &variant.wrapper_call {
-        let wrapper_type_path = &wrapper_call.wrapper_type_path;
-        let wrapper_type_name = &wrapper_call.wrapper_type_name;
-        let constructor_method = &wrapper_call.constructor_method;
-
-        out.push_str(&format!(
-            "    // Build {} via {}\n",
-            wrapper_type_name, wrapper_type_path
-        ));
-        out.push_str(&format!(
-            "    let wrapper = {wrapper_type_path}::{constructor_method}(\n"
-        ));
-
-        for arg in &wrapper_call.args {
-            match arg {
-                crate::core::ir::WrapperConstructorArg::Fixed {
-                    param_name: _,
-                    value_expr,
-                } => {
-                    out.push_str(&format!("        {},\n", value_expr));
-                }
-                crate::core::ir::WrapperConstructorArg::Free { param } => {
-                    out.push_str(&format!("        {},\n", param.name));
-                }
-            }
-        }
-
-        out.push_str("    );\n\n");
-    }
-
-    // Register handlers
-    out.push_str("    // Register the handler with wrapper or direct metadata\n");
-    out.push_str("    for reg_entry in registration_list {\n");
-    out.push_str(
-        "        if let Ok((_method, _metadata, handler_pid)) = reg_entry.decode::<(String, rustler::Term<'_>, rustler::LocalPid)>()\n",
-    );
-    out.push_str("        {\n");
 
     let metadata_param_names: Vec<&str> = base_reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
 
@@ -1212,11 +993,10 @@ fn gen_registration_variant_nif(
         ));
     }
 
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-
-    out.push_str("    Ok(atoms::ok())\n");
-    out.push_str("}\n\n");
+    out.push_str(&render(
+        "service_api_registration_variant_nif_footer.rs.jinja",
+        context! {},
+    ));
 }
 
 /// Map a `TypeRef` to a Rust type string for use in generated NIF signatures.

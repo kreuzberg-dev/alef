@@ -808,17 +808,16 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             variants => variant_names.join(", "),
         },
     ));
-    out.push_str(&format!(
-        "// Sealed interface — use one of {}{}, {}{}.\n",
-        go_enum_name,
-        variant_names.first().unwrap_or(&""),
-        go_enum_name,
-        variant_names.get(1).unwrap_or(&"")
+    let first_variant = format!("{}{}", go_enum_name, variant_names.first().unwrap_or(&""));
+    let second_variant = format!("{}{}", go_enum_name, variant_names.get(1).unwrap_or(&""));
+    out.push_str(&crate::backends::go::template_env::render(
+        "data_enum_interface.jinja",
+        minijinja::context! {
+            go_enum_name => &go_enum_name,
+            first_variant => &first_variant,
+            second_variant => &second_variant,
+        },
     ));
-    out.push_str(&format!("type {go_enum_name} interface {{\n"));
-    out.push_str(&format!("\tis{go_enum_name}()\n"));
-    out.push_str("\tType() string\n");
-    out.push_str("}\n\n");
 
     // Emit one concrete struct per variant
     for variant in &enum_def.variants {
@@ -849,13 +848,24 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             };
 
         // Struct definition with only this variant's fields
-        out.push_str(&format!("type {variant_struct_name} struct {{\n"));
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_struct_header.jinja",
+            minijinja::context! {
+                variant_struct_name => &variant_struct_name,
+            },
+        ));
         if let Some(field) = scalar_tuple_field {
             // Scalar tuple variant: emit `Value <type>` to hold the payload.
             // The `json:"-"` tag prevents encoding/json from picking it up
             // through default field marshalling — we emit a custom
             // MarshalJSON/UnmarshalJSON below that handles the bare scalar.
-            out.push_str(&format!("\tValue {} `json:\"-\"`\n", go_type(&field.ty)));
+            let field_type = go_type(&field.ty);
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_scalar_tuple_field.jinja",
+                minijinja::context! {
+                    field_type => &field_type,
+                },
+            ));
         }
         for field in &variant.fields {
             if is_tuple_field(field) {
@@ -892,30 +902,34 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
         out.push_str("}\n\n");
 
         // Implement the sealed marker method
-        out.push_str(&format!("func ({variant_struct_name}) is{go_enum_name}() {{}}\n\n"));
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_marker_method.jinja",
+            minijinja::context! {
+                variant_struct_name => &variant_struct_name,
+                go_enum_name => &go_enum_name,
+            },
+        ));
 
         // Implement the Type() method
         let wire_value = enum_variant_wire_value(variant, enum_def);
-        out.push_str(&format!(
-            "func ({variant_struct_name}) Type() string {{ return \"{}\" }}\n\n",
-            wire_value
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_type_method.jinja",
+            minijinja::context! {
+                variant_struct_name => &variant_struct_name,
+                wire_value => &wire_value,
+            },
         ));
 
         if scalar_tuple_field.is_some() {
             // Scalar tuple variant: marshal as a bare JSON scalar (the inner Value),
             // and unmarshal a bare JSON scalar into Value. Skip the default
             // tag-wrapping aux-struct dance entirely.
-            out.push_str(&format!(
-                "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_scalar_marshalers.jinja",
+                minijinja::context! {
+                    variant_struct_name => &variant_struct_name,
+                },
             ));
-            out.push_str("\treturn json.Marshal(v.Value)\n");
-            out.push_str("}\n\n");
-
-            out.push_str(&format!(
-                "func (v *{variant_struct_name}) UnmarshalJSON(data []byte) error {{\n"
-            ));
-            out.push_str("\treturn json.Unmarshal(data, &v.Value)\n");
-            out.push_str("}\n\n");
         } else {
             // Implement MarshalJSON for the concrete struct
             out.push_str(&format!(

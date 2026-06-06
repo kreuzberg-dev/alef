@@ -649,9 +649,6 @@ fn emit_first_class_struct(
     let type_name = &ty.name;
     let type_snake = AsSnakeCase(type_name.as_str()).to_string();
 
-    // ── Layer 1: public struct declaration ───────────────────────────────────
-    out.push_str(&format!("public struct {type_name}: Codable, Sendable, Hashable {{\n"));
-
     // Emit `public let` stored properties.
     // The extractor unwraps Option<T> into (ty: T, optional: true) -- check field.optional
     // in addition to TypeRef::Optional to handle both IR representations correctly.
@@ -661,15 +658,16 @@ fn emit_first_class_struct(
     // are wrapped in backticks (`` `default` ``) rather than escaped with a
     // trailing underscore.
     let visible_fields: Vec<_> = binding_fields(&ty.fields).collect();
+    let mut properties = String::new();
     for field in &visible_fields {
-        emit_doc_comment(&field.doc, "    ", out);
+        emit_doc_comment(&field.doc, "    ", &mut properties);
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
         let already_optional = matches!(&field.ty, TypeRef::Optional(_));
         let swift_ty = mapper.map_type(&field.ty);
         if field.optional && !already_optional {
-            out.push_str(&format!("    public let {camel}: {swift_ty}?\n"));
+            properties.push_str(&format!("    public let {camel}: {swift_ty}?\n"));
         } else {
-            out.push_str(&format!("    public let {camel}: {swift_ty}\n"));
+            properties.push_str(&format!("    public let {camel}: {swift_ty}\n"));
         }
     }
 
@@ -689,12 +687,12 @@ fn emit_first_class_struct(
             }
         })
         .collect();
-    out.push_str(&format!("    public init({}) {{\n", params.join(", ")));
+    let init_params = params.join(", ");
+    let mut init_assignments = String::new();
     for field in &visible_fields {
         let camel = swift_case_ident(&field.name.to_lower_camel_case());
-        out.push_str(&format!("        self.{camel} = {camel}\n"));
+        init_assignments.push_str(&format!("        self.{camel} = {camel}\n"));
     }
-    out.push_str("    }\n");
 
     // CodingKeys: emit when at least one field's camelCase name differs from the
     // serde wire key, OR when `ty.has_default` is true (the custom decoder below
@@ -704,14 +702,13 @@ fn emit_first_class_struct(
             let camel = field.name.to_lower_camel_case();
             camel != field.name
         });
+    let mut coding_keys = String::new();
     if needs_coding_keys {
-        out.push_str("    private enum CodingKeys: String, CodingKey {\n");
         for field in &visible_fields {
             let camel = swift_case_ident(&field.name.to_lower_camel_case());
             let wire_key = &field.name;
-            out.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
+            coding_keys.push_str(&format!("        case {camel} = \"{wire_key}\"\n"));
         }
-        out.push_str("    }\n");
     }
 
     // Custom `init(from decoder:)` when the Rust source has `#[derive(Default)]` or
@@ -719,15 +716,10 @@ fn emit_first_class_struct(
     // that omits non-Optional declared properties; the custom init uses
     // `decodeIfPresent + ?? <fallback>` so JSON inputs from Rust serializers using
     // `#[serde(default)]` / `#[serde(skip_serializing_if = ...)]` decode successfully.
+    let mut decoder_init = String::new();
     if ty.has_default {
-        emit_decoder_init(mapper, &visible_fields, out);
+        emit_decoder_init(mapper, &visible_fields, &mut decoder_init);
     }
-
-    out.push_str("}\n");
-
-    // ── Layer 2: internal FFI conversion extension ────────────────────────────
-    out.push_str(&format!("\n// MARK: - Internal FFI conversions for {type_name}\n"));
-    out.push_str(&format!("internal extension {type_name} {{\n"));
 
     // init(_ rb: RustBridge.FooRef) throws
     //
@@ -742,7 +734,7 @@ fn emit_first_class_struct(
     // while the RustBridge accessor uses the trailing-underscore form
     // (`swift_ident`) to match the swift-bridge-generated Rust method name —
     // see `gen_rust_crate::extern_block::emit_extern_block_for_type`.
-    out.push_str(&format!("    init(_ rb: RustBridge.{type_name}Ref) throws {{\n"));
+    let mut ffi_init_assignments = String::new();
     for field in &visible_fields {
         let swift_field = swift_case_ident(&field.name.to_lower_camel_case());
         // The RustBridge accessor name now follows lowerCamelCase because the
@@ -826,9 +818,8 @@ fn emit_first_class_struct(
                 untagged_enum_names,
             )
         };
-        out.push_str(&format!("        self.{swift_field} = {expr}\n"));
+        ffi_init_assignments.push_str(&format!("        self.{swift_field} = {expr}\n"));
     }
-    out.push_str("    }\n");
 
     // func intoRust() — prefer a direct `RustBridge.{Type}(...)` bulk-constructor call
     // when the swift-bridge `#[swift_bridge(init)] fn new(...)` extern is emitted for
@@ -839,20 +830,30 @@ fn emit_first_class_struct(
     // The bulk path mirrors the symmetric direct-field-access pattern in
     // `init(_ rb: RustBridge.{Type}) throws` above and avoids the JSONEncoder + Rust-side
     // `serde_json::from_str` work for primitive-only DTOs.
-    out.push_str(&format!("    func intoRust() throws -> RustBridge.{type_name} {{\n"));
+    let mut into_rust_body = String::new();
     let direct_call = emit_into_rust_direct_call(ty, mapper, exclude_fields, type_name);
     match direct_call {
-        Some(call) => out.push_str(&call),
+        Some(call) => into_rust_body.push_str(&call),
         None => {
             let from_json_fn = format!("{type_snake}_from_json").to_lower_camel_case();
-            out.push_str("        let data = try JSONEncoder().encode(self)\n");
-            out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
-            out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
+            into_rust_body.push_str("        let data = try JSONEncoder().encode(self)\n");
+            into_rust_body.push_str("        let json = String(data: data, encoding: .utf8) ?? \"{}\"\n");
+            into_rust_body.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
         }
     }
-    out.push_str("    }\n");
-
-    out.push_str("}\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "first_class_struct.swift.jinja",
+        minijinja::context! {
+            type_name => type_name,
+            properties => properties,
+            init_params => init_params,
+            init_assignments => init_assignments,
+            coding_keys => coding_keys,
+            decoder_init => decoder_init,
+            ffi_init_assignments => ffi_init_assignments,
+            into_rust_body => into_rust_body,
+        },
+    ));
 }
 
 /// Renders a typed `DefaultValue` into a Swift literal expression suitable for use as
@@ -1317,10 +1318,6 @@ fn vec_elem_convert_expr(
 fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
     let tag_key = en.serde_tag.as_deref().unwrap_or("type");
 
-    // Emit CodingKeys enum
-    out.push_str("    private enum CodingKeys: String, CodingKey {\n");
-    out.push_str(&format!("        case {}\n", tag_key));
-
     // Collect all unique field names across all variants. Use swift_associated_label
     // so positional tuple-variant fields (named "0", "1", … or "_0", "_1", …) become
     // `field0`, `field1`, … — bare digits are invalid Swift identifiers, and the
@@ -1335,25 +1332,16 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         }
     }
 
+    let mut coding_key_cases = String::new();
     for (swift_name, rust_name) in field_keys {
         if swift_name == rust_name {
-            out.push_str(&format!("        case {}\n", swift_name));
+            coding_key_cases.push_str(&format!("        case {}\n", swift_name));
         } else {
-            out.push_str(&format!("        case {} = \"{}\"\n", swift_name, rust_name));
+            coding_key_cases.push_str(&format!("        case {} = \"{}\"\n", swift_name, rust_name));
         }
     }
 
-    out.push_str("    }\n\n");
-
-    // Emit init(from:)
-    out.push_str("    public init(from decoder: Decoder) throws {\n");
-    out.push_str("        let container = try decoder.container(keyedBy: CodingKeys.self)\n");
-    out.push_str(&format!(
-        "        let type = try container.decode(String.self, forKey: .{})\n",
-        tag_key
-    ));
-    out.push_str("        switch type {\n");
-
+    let mut decode_cases = String::new();
     for variant in &en.variants {
         let variant_tag = crate::codegen::naming::wire_variant_value(
             &variant.name,
@@ -1362,12 +1350,12 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         );
 
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
-        out.push_str(&format!("        case \"{}\":\n", variant_tag));
+        decode_cases.push_str(&format!("        case \"{}\":\n", variant_tag));
 
         if variant.fields.is_empty() {
-            out.push_str(&format!("            self = .{}\n", case_name));
+            decode_cases.push_str(&format!("            self = .{}\n", case_name));
         } else {
-            out.push_str(&format!("            self = .{}(", case_name));
+            decode_cases.push_str(&format!("            self = .{}(", case_name));
             for (i, field) in variant.fields.iter().enumerate() {
                 let label = swift_associated_label(&field.name, i);
                 let already_optional = matches!(&field.ty, TypeRef::Optional(_));
@@ -1376,41 +1364,25 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
 
                 if is_optional {
                     // For Optional types, use decodeIfPresent with the type as-is
-                    out.push_str(&format!(
+                    decode_cases.push_str(&format!(
                         "{}: try container.decodeIfPresent({}.self, forKey: .{})",
                         label, ty, label
                     ));
                 } else {
-                    out.push_str(&format!(
+                    decode_cases.push_str(&format!(
                         "{}: try container.decode({}.self, forKey: .{})",
                         label, ty, label
                     ));
                 }
                 if i < variant.fields.len() - 1 {
-                    out.push_str(", ");
+                    decode_cases.push_str(", ");
                 }
             }
-            out.push_str(")\n");
+            decode_cases.push_str(")\n");
         }
     }
 
-    out.push_str("        default:\n");
-    out.push_str("            throw DecodingError.dataCorruptedError(\n");
-    out.push_str(&format!("                forKey: .{},\n", tag_key));
-    out.push_str("                in: container,\n");
-    out.push_str(&format!(
-        "                debugDescription: \"Unknown {} type: \\(type)\"\n",
-        en.name
-    ));
-    out.push_str("            )\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n\n");
-
-    // Emit encode(to:)
-    out.push_str("    public func encode(to encoder: Encoder) throws {\n");
-    out.push_str("        var container = encoder.container(keyedBy: CodingKeys.self)\n");
-    out.push_str("        switch self {\n");
-
+    let mut encode_cases = String::new();
     for variant in &en.variants {
         let variant_tag = crate::codegen::naming::wire_variant_value(
             &variant.name,
@@ -1421,8 +1393,8 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
 
         if variant.fields.is_empty() {
-            out.push_str(&format!("        case .{}:\n", case_name));
-            out.push_str(&format!(
+            encode_cases.push_str(&format!("        case .{}:\n", case_name));
+            encode_cases.push_str(&format!(
                 "            try container.encode(\"{}\", forKey: .{})\n",
                 variant_tag, tag_key
             ));
@@ -1432,8 +1404,8 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 let label = swift_associated_label(&field.name, i);
                 bindings.push(format!("let {}", label));
             }
-            out.push_str(&format!("        case .{}({}):\n", case_name, bindings.join(", ")));
-            out.push_str(&format!(
+            encode_cases.push_str(&format!("        case .{}({}):\n", case_name, bindings.join(", ")));
+            encode_cases.push_str(&format!(
                 "            try container.encode(\"{}\", forKey: .{})\n",
                 variant_tag, tag_key
             ));
@@ -1444,12 +1416,12 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 let is_optional = field.optional || already_optional;
 
                 if is_optional {
-                    out.push_str(&format!(
+                    encode_cases.push_str(&format!(
                         "            try container.encodeIfPresent({}, forKey: .{})\n",
                         label, label
                     ));
                 } else {
-                    out.push_str(&format!(
+                    encode_cases.push_str(&format!(
                         "            try container.encode({}, forKey: .{})\n",
                         label, label
                     ));
@@ -1458,8 +1430,16 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
         }
     }
 
-    out.push_str("        }\n");
-    out.push_str("    }\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_tagged_codable.swift.jinja",
+        minijinja::context! {
+            enum_name => &en.name,
+            tag_key => tag_key,
+            coding_key_cases => coding_key_cases,
+            decode_cases => decode_cases,
+            encode_cases => encode_cases,
+        },
+    ));
 }
 
 /// Emits a custom Codable conformance for a `#[serde(untagged)]` enum so
@@ -1475,9 +1455,7 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
 /// throws `DecodingError.dataCorruptedError`. Encoder writes the payload
 /// value directly into a single-value container.
 fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMapper) {
-    // init(from:)
-    out.push_str("    public init(from decoder: Decoder) throws {\n");
-    out.push_str("        let container = try decoder.singleValueContainer()\n");
+    let mut decode_attempts = String::new();
     for variant in &en.variants {
         if variant.fields.len() != 1 {
             continue;
@@ -1485,31 +1463,29 @@ fn emit_serde_untagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMap
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         let payload_ty = mapper.map_type(&variant.fields[0].ty);
         let label = swift_associated_label(&variant.fields[0].name, 0);
-        out.push_str(&format!(
+        decode_attempts.push_str(&format!(
             "        if let value = try? container.decode({payload_ty}.self) {{\n            self = .{case_name}({label}: value)\n            return\n        }}\n"
         ));
     }
-    out.push_str(
-        "        throw DecodingError.dataCorruptedError(in: container, debugDescription: \"no matching untagged variant\")\n",
-    );
-    out.push_str("    }\n\n");
 
-    // encode(to:)
-    out.push_str("    public func encode(to encoder: Encoder) throws {\n");
-    out.push_str("        var container = encoder.singleValueContainer()\n");
-    out.push_str("        switch self {\n");
+    let mut encode_cases = String::new();
     for variant in &en.variants {
         if variant.fields.len() != 1 {
             continue;
         }
         let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
         let label = swift_associated_label(&variant.fields[0].name, 0);
-        out.push_str(&format!(
+        encode_cases.push_str(&format!(
             "        case .{case_name}(let {label}):\n            try container.encode({label})\n"
         ));
     }
-    out.push_str("        }\n");
-    out.push_str("    }\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_untagged_codable.swift.jinja",
+        minijinja::context! {
+            decode_attempts => decode_attempts,
+            encode_cases => encode_cases,
+        },
+    ));
 }
 
 /// Emits a Swift enum or typealias for the given `EnumDef`.
@@ -1548,17 +1524,14 @@ fn emit_enum(
         // and per-variant serde_rename overrides) so JSONDecoder/JSONEncoder round-trip
         // correctly against the Rust wire format.
         let _ = mapper; // mapper unused for case bodies — suppress unused warning
-        out.push_str(&format!(
-            "public enum {}: String, Codable, Sendable, Hashable {{\n",
-            en.name
-        ));
+        let mut cases = String::new();
         for variant in &en.variants {
-            emit_doc_comment(&variant.doc, "    ", out);
+            emit_doc_comment(&variant.doc, "    ", &mut cases);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
             let raw_value = unit_enum_wire_value(variant, en.serde_rename_all.as_deref());
             if raw_value == case_name.trim_matches('`') {
                 // Raw value matches the Swift case name — no explicit annotation needed.
-                out.push_str(&crate::backends::swift::template_env::render(
+                cases.push_str(&crate::backends::swift::template_env::render(
                     "enum_case_unit.jinja",
                     minijinja::context! {
                         case_name => &case_name,
@@ -1566,10 +1539,16 @@ fn emit_enum(
                 ));
             } else {
                 // Explicit raw-value annotation required (e.g. `case toolCalls = "tool_calls"`).
-                out.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+                cases.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
             }
         }
-        out.push_str("}\n");
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_raw_decl.swift.jinja",
+            minijinja::context! {
+                name => &en.name,
+                cases => cases,
+            },
+        ));
         emit_enum_into_rust_extension(&en.name, out);
         return;
     }
@@ -1605,35 +1584,51 @@ fn emit_enum(
 
     if has_serde_tag {
         // Emit as enum with custom Codable for internally-tagged format
-        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
+        let mut variants = String::new();
         for variant in &en.variants {
-            emit_variant_with_data(variant, out, mapper);
+            emit_variant_with_data(variant, &mut variants, mapper);
         }
-        out.push('\n');
-        emit_serde_tagged_codable(en, out, mapper);
-        out.push_str("}\n");
+        let mut codable_body = String::new();
+        emit_serde_tagged_codable(en, &mut codable_body, mapper);
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_decl.swift.jinja",
+            minijinja::context! {
+                name => &en.name,
+                variants => variants,
+                codable_body => codable_body,
+            },
+        ));
     } else if is_serde_untagged {
         // Emit as enum with custom Codable that matches serde's untagged
         // wire format (bare value, no `{"variant": ...}` wrapper).
-        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
+        let mut variants = String::new();
         for variant in &en.variants {
-            emit_variant_with_data(variant, out, mapper);
+            emit_variant_with_data(variant, &mut variants, mapper);
         }
-        out.push('\n');
-        emit_serde_untagged_codable(en, out, mapper);
-        out.push_str("}\n");
-    } else {
-        // Emit as enum with auto-synthesized Codable (externally-tagged)
+        let mut codable_body = String::new();
+        emit_serde_untagged_codable(en, &mut codable_body, mapper);
         out.push_str(&crate::backends::swift::template_env::render(
-            "swift_enum_header.jinja",
+            "swift_enum_decl.swift.jinja",
             minijinja::context! {
                 name => &en.name,
+                variants => variants,
+                codable_body => codable_body,
             },
         ));
+    } else {
+        // Emit as enum with auto-synthesized Codable (externally-tagged)
+        let mut variants = String::new();
         for variant in &en.variants {
-            emit_variant_with_data(variant, out, mapper);
+            emit_variant_with_data(variant, &mut variants, mapper);
         }
-        out.push_str("}\n");
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_decl.swift.jinja",
+            minijinja::context! {
+                name => &en.name,
+                variants => variants,
+                codable_body => "",
+            },
+        ));
     }
 
     emit_enum_into_rust_extension(&en.name, out);
@@ -1692,26 +1687,29 @@ fn emit_enum_without_into_rust(
     if all_unit {
         // Emit all-unit enum without intoRust() extension (unlike emit_enum).
         let _ = mapper;
-        out.push_str(&format!(
-            "public enum {}: String, Codable, Sendable, Hashable {{\n",
-            en.name
-        ));
+        let mut cases = String::new();
         for variant in &en.variants {
-            emit_doc_comment(&variant.doc, "    ", out);
+            emit_doc_comment(&variant.doc, "    ", &mut cases);
             let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
             let raw_value = unit_enum_wire_value(variant, en.serde_rename_all.as_deref());
             if raw_value == case_name.trim_matches('`') {
-                out.push_str(&crate::backends::swift::template_env::render(
+                cases.push_str(&crate::backends::swift::template_env::render(
                     "enum_case_unit.jinja",
                     minijinja::context! {
                         case_name => &case_name,
                     },
                 ));
             } else {
-                out.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
+                cases.push_str(&format!("    case {case_name} = \"{raw_value}\"\n"));
             }
         }
-        out.push_str("}\n");
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_raw_decl.swift.jinja",
+            minijinja::context! {
+                name => &en.name,
+                cases => cases,
+            },
+        ));
         // Do NOT call emit_enum_into_rust_extension — that's the key difference.
         return;
     }
@@ -1719,11 +1717,18 @@ fn emit_enum_without_into_rust(
     // For data-variant enums, check if all variants are Codable-safe.
     if all_variants_codable_safe(en, known_dto_names) {
         // Emit as a native Swift enum with associated values, without intoRust().
-        out.push_str(&format!("public enum {}: Codable, Sendable, Hashable {{\n", en.name));
+        let mut variants = String::new();
         for variant in &en.variants {
-            emit_variant_with_data(variant, out, mapper);
+            emit_variant_with_data(variant, &mut variants, mapper);
         }
-        out.push_str("}\n");
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_enum_decl.swift.jinja",
+            minijinja::context! {
+                name => &en.name,
+                variants => variants,
+                codable_body => "",
+            },
+        ));
         // Do NOT call emit_enum_into_rust_extension — that's the key difference.
     } else {
         // Fall back to typealias (same as emit_enum) if not all variants are Codable-safe.
@@ -1752,13 +1757,13 @@ fn emit_enum_without_into_rust(
 /// generated bindings inside the same module, never end-users.
 fn emit_enum_into_rust_extension(name: &str, out: &mut String) {
     let from_json_fn = format!("{}_from_json", AsSnakeCase(name)).to_lower_camel_case();
-    out.push_str(&format!("extension {name} {{\n"));
-    out.push_str(&format!("    func intoRust() throws -> RustBridge.{name} {{\n"));
-    out.push_str("        let data = try JSONEncoder().encode(self)\n");
-    out.push_str("        let json = String(data: data, encoding: .utf8) ?? \"null\"\n");
-    out.push_str(&format!("        return try RustBridge.{from_json_fn}(json)\n"));
-    out.push_str("    }\n");
-    out.push_str("}\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_enum_into_rust.swift.jinja",
+        minijinja::context! {
+            name => name,
+            from_json_fn => from_json_fn,
+        },
+    ));
 }
 
 /// Returns the serde wire value for a unit enum variant.
@@ -2007,26 +2012,7 @@ fn emit_client_class(
     let snake_name = type_name.to_snake_case();
     let constructor_fn = swift_ident(&format!("create_{snake_name}").to_lower_camel_case());
 
-    out.push_str(&format!("public final class {type_name} {{\n"));
-    out.push_str(&format!("    private let inner: RustBridge.{type_name}\n"));
-    out.push_str("    public init(apiKey: String, baseUrl: String? = nil) throws {\n");
-    // swift-bridge generates the constructor as a free function with positional
-    // parameters (no argument labels). Calling it with `apiKey:baseUrl:` labels
-    // would not match the generated signature.
-    out.push_str(&format!(
-        "        self.inner = try RustBridge.{constructor_fn}(apiKey, baseUrl)\n"
-    ));
-    out.push_str("    }\n");
-    // Internal init from the raw bridge handle so free-function forwarders
-    // that construct the client through alternate Rust APIs (e.g.
-    // `create_client(api_key, base_url, timeout_secs, ...)` or
-    // `create_client_from_json(json)`) can wrap their bridge return into
-    // the public Swift class without going through the limited
-    // `init(apiKey:baseUrl:)` constructor.
-    out.push_str(&format!("    internal init(_ inner: RustBridge.{type_name}) {{\n"));
-    out.push_str("        self.inner = inner\n");
-    out.push_str("    }\n");
-
+    let mut methods_body = String::new();
     for method in methods {
         // Skip async-less, sanitized, or static methods.
         if method.sanitized {
@@ -2109,12 +2095,10 @@ fn emit_client_class(
 
         // Emit `/// doc` when available — routed through the shared template helper so
         // method documentation matches the formatting used for types, enums, and errors.
-        emit_doc_comment(&method.doc, "    ", out);
-        out.push_str(&format!(
-            "    public func {method_camel}({params_str}){async_clause}{throws_clause}{return_clause} {{\n"
-        ));
+        emit_doc_comment(&method.doc, "    ", &mut methods_body);
+        let mut method_body = String::new();
         if matches!(method.return_type, TypeRef::Unit) {
-            out.push_str(&format!(
+            method_body.push_str(&format!(
                 "        {throws_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n",
                 throws_kw = if needs_throws { "try " } else { "" }
             ));
@@ -2131,24 +2115,34 @@ fn emit_client_class(
             };
             if bytes_suffix.is_empty() {
                 if needs_return_init {
-                    out.push_str(&format!(
+                    method_body.push_str(&format!(
                         "        return try {return_ty}({try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str}))\n"
                     ));
                 } else {
-                    out.push_str(&format!(
+                    method_body.push_str(&format!(
                         "        return {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
                     ));
                 }
             } else {
                 // For Bytes returns we can't chain `.map` on a throwing call directly,
                 // so capture the RustVec into a local and convert.
-                out.push_str(&format!(
+                method_body.push_str(&format!(
                     "        let _bytes = {try_kw}{await_kw}RustBridge.{bridge_fn_camel}(self.inner{args_str})\n"
                 ));
-                out.push_str("        return Data(_bytes.map { $0 })\n");
+                method_body.push_str("        return Data(_bytes.map { $0 })\n");
             }
         }
-        out.push_str("    }\n");
+        methods_body.push_str(&crate::backends::swift::template_env::render(
+            "swift_client_method.swift.jinja",
+            minijinja::context! {
+                method_name => &method_camel,
+                params => &params_str,
+                async_clause => async_clause,
+                throws_clause => throws_clause,
+                return_clause => return_clause,
+                body => method_body,
+            },
+        ));
     }
 
     // Emit wrapper methods for streaming adapters owned by this client type.
@@ -2157,16 +2151,25 @@ fn emit_client_class(
     // in the Rust crate.  Emit a public `async throws` wrapper that calls the
     // corresponding RustBridge free function so Swift callers can initiate a stream
     // (errors like HTTP 401 propagate before any chunks arrive, making the function throw).
+    let mut streaming_methods = String::new();
     for adapter in config
         .adapters
         .iter()
         .filter(|a| matches!(a.pattern, AdapterPattern::Streaming))
         .filter(|a| a.owner_type.as_deref() == Some(type_name))
     {
-        emit_streaming_client_method(adapter, &snake_name, first_class_types, out);
+        emit_streaming_client_method(adapter, &snake_name, first_class_types, &mut streaming_methods);
     }
 
-    out.push_str("}\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_client_class.swift.jinja",
+        minijinja::context! {
+            type_name => type_name,
+            constructor_fn => constructor_fn,
+            methods => methods_body,
+            streaming_methods => streaming_methods,
+        },
+    ));
 }
 
 /// Emit an `AsyncThrowingStream<Item, Error>` wrapper for a streaming adapter
@@ -2248,50 +2251,26 @@ fn emit_streaming_client_method(
         format!(", {}", call_args.join(", "))
     };
 
-    // Open the streaming method.
-    out.push_str(&format!(
-        "    public func {method_camel}({params_str}) async throws -> AsyncThrowingStream<{item_type}, Error> {{\n"
-    ));
-    // Kick the stream on a detached Task so the calling executor stays free
-    // while the request opens (which itself blocks on a tokio runtime inside Rust).
-    out.push_str("        let inner = self.inner\n");
-    out.push_str("        let handle = try await Task.detached(priority: .userInitiated) {\n");
-    out.push_str(&format!(
-        "            try RustBridge.{start_fn_camel}(inner{call_args_str})\n"
-    ));
-    out.push_str("        }.value\n\n");
-
-    // Build the AsyncThrowingStream. The drain Task owns the handle and is
-    // cancelled by `onTermination` so the handle's deinit fires promptly.
-    out.push_str(&format!(
-        "        return AsyncThrowingStream<{item_type}, Error> {{ continuation in\n"
-    ));
-    out.push_str("            let task = Task.detached(priority: .userInitiated) {\n");
-    out.push_str("                do {\n");
-    out.push_str("                    while !Task.isCancelled {\n");
-    out.push_str("                        let json = try handle.next().toString()\n");
-    out.push_str("                        if json.isEmpty { break }\n");
-    if first_class_types.contains(item_type) {
+    let chunk_decode = if first_class_types.contains(item_type) {
         // First-class struct: decode with JSONDecoder directly — no RustBridge shim.
-        out.push_str("                        let chunkData = json.data(using: .utf8) ?? Data()\n");
-        out.push_str(&format!(
-            "                        let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
-        ));
+        format!(
+            "                        let chunkData = json.data(using: .utf8) ?? Data()\n\
+                                     let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
+        )
     } else {
-        out.push_str(&format!(
-            "                        let chunk = try RustBridge.{item_type_from_json}(json)\n"
-        ));
-    }
-    out.push_str("                        continuation.yield(chunk)\n");
-    out.push_str("                    }\n");
-    out.push_str("                    continuation.finish()\n");
-    out.push_str("                } catch {\n");
-    out.push_str("                    continuation.finish(throwing: error)\n");
-    out.push_str("                }\n");
-    out.push_str("            }\n");
-    out.push_str("            continuation.onTermination = { _ in task.cancel() }\n");
-    out.push_str("        }\n");
-    out.push_str("    }\n");
+        format!("                        let chunk = try RustBridge.{item_type_from_json}(json)\n")
+    };
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_streaming_client_method.swift.jinja",
+        minijinja::context! {
+            method_name => &method_camel,
+            params => &params_str,
+            item_type => item_type,
+            start_fn => &start_fn_camel,
+            call_args => call_args_str,
+            chunk_decode => chunk_decode,
+        },
+    ));
 }
 
 /// Emit an `extension RustBridge.{Owner}{Adapter}StreamHandle: @unchecked Sendable {}`
@@ -2435,42 +2414,27 @@ fn emit_streaming_free_functions(
             format!(", {}", call_args.join(", "))
         };
 
-        out.push_str(&format!(
-            "public func {method_camel}({params_str}) async throws -> AsyncThrowingStream<{item_type}, Error> {{\n"
-        ));
-        out.push_str("    let handle = try await Task.detached(priority: .userInitiated) {\n");
-        out.push_str(&format!(
-            "        try RustBridge.{start_fn_camel}({owner_camel}{call_args_str})\n"
-        ));
-        out.push_str("    }.value\n\n");
-        out.push_str(&format!(
-            "    return AsyncThrowingStream<{item_type}, Error> {{ continuation in\n"
-        ));
-        out.push_str("        let task = Task.detached(priority: .userInitiated) {\n");
-        out.push_str("            do {\n");
-        out.push_str("                while !Task.isCancelled {\n");
-        out.push_str("                    let json = try handle.next().toString()\n");
-        out.push_str("                    if json.isEmpty { break }\n");
-        if first_class_types.contains(item_type) {
-            out.push_str("                    let chunkData = json.data(using: .utf8) ?? Data()\n");
-            out.push_str(&format!(
-                "                    let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
-            ));
+        let chunk_decode = if first_class_types.contains(item_type) {
+            format!(
+                "                    let chunkData = json.data(using: .utf8) ?? Data()\n\
+                                 let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
+            )
         } else {
-            out.push_str(&format!(
-                "                    let chunk = try RustBridge.{item_type_from_json}(json)\n"
-            ));
-        }
-        out.push_str("                    continuation.yield(chunk)\n");
-        out.push_str("                }\n");
-        out.push_str("                continuation.finish()\n");
-        out.push_str("            } catch {\n");
-        out.push_str("                continuation.finish(throwing: error)\n");
-        out.push_str("            }\n");
-        out.push_str("        }\n");
-        out.push_str("        continuation.onTermination = { _ in task.cancel() }\n");
-        out.push_str("    }\n");
-        out.push_str("}\n\n");
+            format!("                    let chunk = try RustBridge.{item_type_from_json}(json)\n")
+        };
+        out.push_str(&crate::backends::swift::template_env::render(
+            "swift_streaming_free_function.swift.jinja",
+            minijinja::context! {
+                function_name => &method_camel,
+                params => &params_str,
+                item_type => item_type,
+                start_fn => &start_fn_camel,
+                owner_arg => &owner_camel,
+                call_args => call_args_str,
+                chunk_decode => chunk_decode,
+            },
+        ));
+        out.push('\n');
     }
 }
 
@@ -3942,9 +3906,6 @@ fn emit_async_free_function_forwarder(
     if !func.doc.is_empty() {
         emit_doc_comment(&func.doc, "", out);
     }
-    out.push_str(&format!(
-        "public func {swift_name}({sig}) async{throws_clause}{return_clause} {{\n"
-    ));
 
     let effective_try = if func.error_type.is_some() || return_conversion_throws {
         "try "
@@ -3990,65 +3951,75 @@ fn emit_async_free_function_forwarder(
         ),
     };
 
-    out.push_str(&format!(
-        "    return {effective_try}await Task.detached(priority: .userInitiated) {{\n"
-    ));
-
+    let mut conversion_body = String::new();
     // Emit conversion lines inside the closure to avoid capturing non-Sendable RustVec objects
     for line in &conversion_lines {
-        out.push_str(&format!("        {line}\n"));
+        conversion_body.push_str(&format!("        {line}\n"));
     }
 
+    let mut body = String::new();
     if matches!(&func.return_type, TypeRef::Named(name) if known_dto_names.contains(name)) {
-        out.push_str(&format!("        let _rb_obj = {bridge_call}\n"));
-        out.push_str(&format!("{return_stmt}\n"));
+        body.push_str(&format!("        let _rb_obj = {bridge_call}\n"));
+        body.push_str(&format!("{return_stmt}\n"));
     } else if return_uses_json_bridge(&func.return_type) && func.error_type.is_some() {
-        out.push_str(&format!("        let _rb_result = {bridge_call}\n"));
-        out.push_str(&format!("{return_stmt}\n"));
+        body.push_str(&format!("        let _rb_result = {bridge_call}\n"));
+        body.push_str(&format!("{return_stmt}\n"));
     } else if matches!(&func.return_type, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_))) {
         // Vec<Named> return: when the function is throwing, we can't use .map with a throwing closure.
         // Instead, use a for loop that collects into an array, which allows try expressions.
-        out.push_str(&format!("        let result = {bridge_call}\n"));
+        body.push_str(&format!("        let result = {bridge_call}\n"));
         if func.error_type.is_some() {
             // Throwing path: use for loop to handle try expressions
             if let TypeRef::Vec(inner) = &func.return_type {
                 if let TypeRef::Named(name) = inner.as_ref() {
                     let struct_name = swift_ident(name);
-                    out.push_str("        var items: [");
-                    out.push_str(&forwarder_return_type(inner.as_ref()));
-                    out.push_str("] = []\n");
-                    out.push_str("        for ref in result {\n");
+                    body.push_str("        var items: [");
+                    body.push_str(&forwarder_return_type(inner.as_ref()));
+                    body.push_str("] = []\n");
+                    body.push_str("        for ref in result {\n");
                     if known_dto_names.contains(name) {
                         // Codable value struct: just convert, no isOwned field
-                        out.push_str(&format!("            let item = try {struct_name}(ref)\n"));
+                        body.push_str(&format!("            let item = try {struct_name}(ref)\n"));
                     } else {
                         // Opaque class: convert and mark as borrowed
-                        out.push_str(&format!(
+                        body.push_str(&format!(
                             "            var item = try RustBridge.{struct_name}(ptr: ref.ptr)\n"
                         ));
-                        out.push_str("            item.isOwned = false\n");
+                        body.push_str("            item.isOwned = false\n");
                     }
-                    out.push_str("            items.append(item)\n");
-                    out.push_str("        }\n");
-                    out.push_str("        return items\n");
+                    body.push_str("            items.append(item)\n");
+                    body.push_str("        }\n");
+                    body.push_str("        return items\n");
                 } else {
                     // Fallback: use the suffix (shouldn't reach here)
                     let suffix =
                         forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, true);
-                    out.push_str(&format!("        return result{suffix}\n"));
+                    body.push_str(&format!("        return result{suffix}\n"));
                 }
             }
         } else {
             // Non-throwing path: use .map suffix
             let suffix = forwarder_return_conversion_suffix_with_throws(&func.return_type, known_dto_names, false);
-            out.push_str(&format!("        return result{suffix}\n"));
+            body.push_str(&format!("        return result{suffix}\n"));
         }
     } else {
-        out.push_str(&format!("        let result = {bridge_call}\n"));
-        out.push_str(&format!("{return_stmt}\n"));
+        body.push_str(&format!("        let result = {bridge_call}\n"));
+        body.push_str(&format!("{return_stmt}\n"));
     }
 
-    out.push_str("    }.value\n}\n\n");
+    out.push_str(&crate::backends::swift::template_env::render(
+        "swift_async_forwarder.swift.jinja",
+        minijinja::context! {
+            function_name => swift_name,
+            params => sig,
+            throws_clause => throws_clause,
+            return_clause => return_clause,
+            effective_try => effective_try,
+            conversion_lines => conversion_body,
+            body => body,
+        },
+    ));
+    out.push('\n');
 }
 
 /// Returns `true` when `ty` is a bare `Named(name)` reference whose Swift mirror

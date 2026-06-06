@@ -1,0 +1,22 @@
+    private enum CodingKeys: String, CodingKey {
+        case {{ tag_key }}
+{{ coding_key_cases }}    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let type = try container.decode(String.self, forKey: .{{ tag_key }})
+        switch type {
+{{ decode_cases }}        default:
+            throw DecodingError.dataCorruptedError(
+                forKey: .{{ tag_key }},
+                in: container,
+                debugDescription: "Unknown {{ enum_name }} type: \(type)"
+            )
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+{{ encode_cases }}        }
+    }

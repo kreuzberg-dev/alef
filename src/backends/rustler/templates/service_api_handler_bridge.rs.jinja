@@ -1,0 +1,66 @@
+/// Generated rustler bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps an Elixir GenServer pid so it can be used
+/// as `Arc<dyn {{ trait_name }}>` from Rust async code.
+/// Uses message-passing to avoid blocking the BEAM scheduler.
+/// Pending replies are stored in the module-level `TRAIT_REPLY_MAP`
+/// keyed by `reply_id`; the GenServer completes them via the
+/// `complete_trait_call` NIF.
+pub struct {{ bridge_name }} {
+    pid: LocalPid,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from an Elixir GenServer pid.
+    pub fn new(pid: LocalPid) -> Self {
+        Self { pid }
+    }
+}
+
+// SAFETY: LocalPid is Send+Sync as guaranteed by Rustler.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+        Box::pin(async move {
+            let outcome: {{ wire_output }} = async move {
+                let request_json = serde_json::to_string(&{{ wire_name }})
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+
+                let reply_id = REPLY_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+                let (tx, rx) = tokio::sync::oneshot::channel();
+                trait_reply_map().lock().unwrap().insert(reply_id, tx);
+
+                // Send trait_call message to Elixir GenServer
+                {
+                    let pid = self.pid;
+                    let method_name = "{{ dispatch_name }}";
+                    let request_json_clone = request_json.clone();
+                    tokio::task::spawn_blocking(move || {
+                        let mut env = OwnedEnv::new();
+                        let _ = env.send_and_clear(&pid, |env| {
+                            (Atom::from_str(env, "trait_call").unwrap(),
+                             method_name, request_json_clone.as_str(), reply_id).encode(env)
+                        });
+                    }).await.ok();
+                }
+
+                // Await response
+                let response_json = rx.await
+                    .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::Other, e)) as {{ box_err }})?;
+
+                let response: {{ resp_path }} = serde_json::from_str(&response_json)
+                    .map_err(|e| Box::new(e) as {{ box_err }})?;
+                Ok(response)
+            }
+            .await;
+
+            {{ tail }}
+        })
+    }
+}
+

@@ -1,0 +1,5 @@
+    def {{ method_name }}{{ param_sig }}
+{{ doc_comment }}{% for param in params %}      @{{ param }} = {{ param }}
+{% endfor %}      self
+    end
+

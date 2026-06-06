@@ -1,0 +1,5 @@
+  def {{ variant_name }}({{ params }}) do
+{% if wrapper_expr %}    {{ wrapper_expr }}
+{% endif %}    {{ base_method }}({{ call_args }}, handler)
+  end
+

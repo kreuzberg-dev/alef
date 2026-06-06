@@ -1,0 +1,21 @@
+    /// <summary>
+{% for line in doc_lines %}
+    /// {{ line }}
+{% endfor %}
+    /// </summary>
+    /// <param name="engine">Opaque handle to {{ opaque_type_name }}</param>
+{% for param_name in param_docs %}
+    /// <param name="{{ param_name }}"></param>
+{% endfor %}
+    public static {% if is_async %}async {% endif %}IAsyncEnumerable<{{ item_type }}> {{ method_name }}({{ class_name }} engine{% if params_decl %}, {{ params_decl }}{% endif %})
+    {
+{% if is_async %}
+        await foreach (var item in engine.{{ method_name }}({{ args }}))
+{% else %}
+        foreach (var item in engine.{{ method_name }}({{ args }}))
+{% endif %}
+        {
+            yield return item;
+        }
+    }
+
