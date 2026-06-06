@@ -458,6 +458,17 @@ def mock_server() -> Generator[str, None, None]:
     """
     existing = os.environ.get("MOCK_SERVER_URL")
     if existing:
+        # Expand the parent-set MOCK_SERVERS JSON into per-fixture
+        # MOCK_SERVER_<FIXTURE_ID> env vars so tests reading
+        # `MOCK_SERVER_<UPPER>` find the dedicated per-fixture URL
+        # (without this, tests fall back to the shared-server namespaced
+        # URL where origin-relative asset paths 404).
+        _mock_servers = os.environ.get("MOCK_SERVERS")
+        if _mock_servers:
+            import json as _json  # noqa: PLC0415
+
+            for _fid, _furl in _json.loads(_mock_servers).items():
+                os.environ[f"MOCK_SERVER_{{_fid.upper()}}"] = _furl
         yield existing
         return
     proc = subprocess.Popen(  # noqa: S603
