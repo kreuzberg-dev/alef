@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **dart**: emit named parameter `{ProcessConfig? config}` for facade methods instead of positional `[ProcessConfig? config]`. The dart binding generator was emitting a positional optional parameter while the dart test-app generator already invoked methods with the named-arg syntax `process('src', config: cfg)`, producing the compile-time error `No named parameter with the name 'config'`. Switched the facade generator to named-optional, matching how every other binding language exposes the same parameter and what the test code expects. (`src/backends/dart/gen_bindings/functions.rs`)
+
+- **homebrew**: use pkg-config canonical `.pc` file name in e2e test_app. The `run_tests.sh` script was passing the FFI formula name (e.g. `libhtml-to-markdown`) to pkg-config, but alef's C FFI packaging emits `.pc` files named after the crate (e.g. `html-to-markdown.pc`). Homebrew formulae may rename this during install, creating a mismatch. Now passed the crate name (`config.name`) to pkg-config lookups, ensuring the canonical `.pc` file name is used. (`src/e2e/codegen/homebrew.rs`)
+- **php**: strip `-rs` suffix from derived Packagist package names in registry-mode e2e generation. When `[crates.e2e.registry.packages.php].name` is not explicitly configured, alef derives the package name from `call.module` (e.g., `html_to_markdown`). For FFI crates that include `-rs` in the module name (like `html_to_markdown_rs` from `html-to-markdown-ffi`), the Packagist package name omits this suffix per the language convention (`kreuzberg-dev/html-to-markdown`, not `kreuzberg-dev/html-to-markdown-rs`). The fallback derivation now strips the `-rs` suffix if present, fixing PIE install failures in `install.sh` when the config name is omitted. (`src/e2e/codegen/php.rs`)
+
+- **php_ext**: use same package-name derivation logic as regular PHP e2e binding. The php_ext test_app generator was falling back to `example/{config.name}-ext` when the package name was not configured, instead of deriving from `call.module` with `-rs` suffix stripping like the regular PHP binding. Now tries php_ext-specific config first, falls back to the PHP package name, then derives from `call.module` (stripping `-rs` suffix per Packagist conventions). This fixes PIE install failures in `test_apps/php_ext/run_tests.sh` when explicit config is omitted. (`src/e2e/codegen/php_ext.rs`)
+
+- **r**: emit `install.R` script in registry-mode e2e test_app. R packages need explicit installation before tests run; the generated test_app now includes an `install.R` downloader that fetches the published tarball from GitHub releases and installs it via `install.packages()`. The task runner for `test-apps:smoke:r` must call `Rscript install.R` before invoking tests. (`src/e2e/codegen/r.rs`)
+
 ## [0.23.24] - 2026-06-06
 
 ### Added
