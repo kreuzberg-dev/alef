@@ -1,0 +1,10 @@
+	var wire struct {
+{% if tag_field %}
+		{{ tag_field }} string `json:"{{ tag_name }}"`
+{% endif %}
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return nil, err
+	}
+
+	switch wire.{{ discriminator_field }} {

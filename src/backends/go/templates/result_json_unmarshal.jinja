@@ -1,0 +1,14 @@
+	jsonPtr := C.{{ to_json_fn }}(ptr)
+	if jsonPtr == nil {
+		return nil, fmt.Errorf("failed to convert result to JSON")
+	}
+{% if use_prefix_free_string %}
+	defer C.{{ ffi_prefix }}_free_string(jsonPtr)
+{% else %}
+	defer C.free(unsafe.Pointer(jsonPtr))
+{% endif %}
+	var result {{ return_type_name }}
+	if err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal result: %w", err)
+	}
+	return &result, nil

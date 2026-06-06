@@ -1,0 +1,10 @@
+	if len(data) == 0 {
+		return nil, fmt.Errorf("cannot unmarshal empty JSON into {{ go_enum_name }}")
+	}
+	var firstByte byte
+	for _, b := range data {
+		if b != ' ' && b != '\t' && b != '\n' && b != '\r' {
+			firstByte = b
+			break
+		}
+	}

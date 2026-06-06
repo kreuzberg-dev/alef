@@ -1,0 +1,8 @@
+// {{ go_func_name }} wraps the {{ owner_type }}.{{ method_call_name }} streaming adapter,
+// exposing it as a module-level function for test and consumer convenience.
+func {{ go_func_name }}({{ params }}) ({{ return_type }}) {
+{% if request_construction %}
+	{{ request_construction }}
+{% endif %}
+	return {{ method_call }}
+}

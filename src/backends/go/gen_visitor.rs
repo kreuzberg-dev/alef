@@ -890,8 +890,13 @@ fn helper_c_param_setup(func: &FunctionDef, options_type: &str) -> String {
         if matches!(param.ty, TypeRef::String | TypeRef::Path) {
             let go_name = crate::codegen::naming::go_param_name(&param.name);
             let c_name = crate::codegen::naming::go_param_name(&format!("c_{}", param.name));
-            out.push_str(&format!("\t{c_name} := C.CString({go_name})\n"));
-            out.push_str(&format!("\tdefer C.free(unsafe.Pointer({c_name}))\n\n"));
+            out.push_str(&crate::backends::go::template_env::render(
+                "c_string_arg_setup.jinja",
+                minijinja::context! {
+                    c_name => &c_name,
+                    go_name => &go_name,
+                },
+            ));
         }
     }
     out

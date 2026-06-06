@@ -932,16 +932,21 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             ));
         } else {
             // Implement MarshalJSON for the concrete struct
-            out.push_str(&format!(
-                "func (v {variant_struct_name}) MarshalJSON() ([]byte, error) {{\n"
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_marshal_json_header.jinja",
+                minijinja::context! {
+                    variant_struct_name => &variant_struct_name,
+                },
             ));
-            out.push_str("\ttype aux struct {\n");
             if let Some(tag_name) = &enum_def.serde_tag {
                 let tag_json_name = tag_name.as_str();
-                out.push_str(&format!(
-                    "\t\t{} string `json:\"{}\"`\n",
-                    to_go_name(tag_name),
-                    tag_json_name
+                out.push_str(&crate::backends::go::template_env::render(
+                    "data_enum_marshal_aux_field.jinja",
+                    minijinja::context! {
+                        field_go_name => to_go_name(tag_name),
+                        field_type => "string",
+                        json_tag => format!("json:\"{tag_json_name}\""),
+                    },
                 ));
             }
             for field in &variant.fields {
@@ -960,22 +965,45 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
                 } else {
                     format!("json:\"{json_name}\"")
                 };
-                out.push_str(&format!("\t\t{field_go_name} {field_type} `{json_tag}`\n"));
+                out.push_str(&crate::backends::go::template_env::render(
+                    "data_enum_marshal_aux_field.jinja",
+                    minijinja::context! {
+                        field_go_name => &field_go_name,
+                        field_type => &field_type,
+                        json_tag => &json_tag,
+                    },
+                ));
             }
-            out.push_str("\t}\n");
-            out.push_str("\treturn json.Marshal(aux{\n");
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_marshal_json_values_header.jinja",
+                minijinja::Value::default(),
+            ));
             if let Some(tag_name) = &enum_def.serde_tag {
-                out.push_str(&format!("\t\t{}: v.Type(),\n", to_go_name(tag_name)));
+                out.push_str(&crate::backends::go::template_env::render(
+                    "data_enum_marshal_aux_value.jinja",
+                    minijinja::context! {
+                        field_go_name => to_go_name(tag_name),
+                        value_expr => "v.Type()",
+                    },
+                ));
             }
             for field in &variant.fields {
                 if is_tuple_field(field) {
                     continue;
                 }
                 let field_go_name = to_go_name(&field.name);
-                out.push_str(&format!("\t\t{field_go_name}: v.{field_go_name},\n"));
+                out.push_str(&crate::backends::go::template_env::render(
+                    "data_enum_marshal_aux_value.jinja",
+                    minijinja::context! {
+                        field_go_name => &field_go_name,
+                        value_expr => format!("v.{field_go_name}"),
+                    },
+                ));
             }
-            out.push_str("\t})\n");
-            out.push_str("}\n\n");
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_marshal_json_footer.jinja",
+                minijinja::Value::default(),
+            ));
         }
     }
 
@@ -983,28 +1011,22 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
     // Untagged enums use shape-discriminated try-each-variant unmarshalling.
     // Tagged enums (internally tagged with serde_tag) use the wire-struct
     // discriminator field switch.
-    out.push_str(&format!(
-        "// Unmarshal{go_enum_name} decodes JSON data into the appropriate concrete {go_enum_name} variant.\n"
-    ));
-    out.push_str(&format!(
-        "func Unmarshal{go_enum_name}(data []byte) ({go_enum_name}, error) {{\n"
+    out.push_str(&crate::backends::go::template_env::render(
+        "data_enum_unmarshal_header.jinja",
+        minijinja::context! {
+            go_enum_name => &go_enum_name,
+        },
     ));
 
     if enum_def.serde_untagged {
         // Untagged path: sniff the first non-whitespace byte to filter candidates,
         // then try each variant in declared order.
-        out.push_str("\tif len(data) == 0 {\n");
-        out.push_str(&format!(
-            "\t\treturn nil, fmt.Errorf(\"cannot unmarshal empty JSON into {go_enum_name}\")\n"
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_unmarshal_empty_check.jinja",
+            minijinja::context! {
+                go_enum_name => &go_enum_name,
+            },
         ));
-        out.push_str("\t}\n");
-        out.push_str("\tvar firstByte byte\n");
-        out.push_str("\tfor _, b := range data {\n");
-        out.push_str("\t\tif b != ' ' && b != '\\t' && b != '\\n' && b != '\\r' {\n");
-        out.push_str("\t\t\tfirstByte = b\n");
-        out.push_str("\t\t\tbreak\n");
-        out.push_str("\t\t}\n");
-        out.push_str("\t}\n");
 
         for variant in &enum_def.variants {
             let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
@@ -1029,55 +1051,55 @@ fn gen_data_enum_type(enum_def: &EnumDef) -> String {
             };
 
             if let Some(check) = shape_check {
-                out.push_str(&format!("\tif {check} {{\n"));
-                out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
-                out.push_str("\t\tif err := json.Unmarshal(data, &v); err == nil {\n");
-                out.push_str("\t\t\treturn v, nil\n");
-                out.push_str("\t\t}\n");
-                out.push_str("\t}\n");
+                out.push_str(&crate::backends::go::template_env::render(
+                    "data_enum_unmarshal_shape_variant.jinja",
+                    minijinja::context! {
+                        check => check,
+                        variant_struct_name => &variant_struct_name,
+                    },
+                ));
             }
         }
 
-        out.push_str(&format!(
-            "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} shape: %s\", string(data))\n"
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_unmarshal_unknown_shape.jinja",
+            minijinja::context! {
+                go_enum_name => &go_enum_name,
+            },
         ));
     } else {
         // Tagged path (internally-tagged or externally-tagged): read the discriminator
         // field from the wire struct, then switch on its value.
-        out.push_str("\tvar wire struct {\n");
-        if let Some(tag_name) = &enum_def.serde_tag {
-            out.push_str(&format!(
-                "\t\t{} string `json:\"{}\"`\n",
-                to_go_name(tag_name),
-                tag_name
-            ));
-        }
-        out.push_str("\t}\n");
-        out.push_str("\tif err := json.Unmarshal(data, &wire); err != nil {\n");
-        out.push_str("\t\treturn nil, err\n");
-        out.push_str("\t}\n\n");
-
         let tag_field = enum_def.serde_tag.as_ref().map(|tn| to_go_name(tn));
         let discriminator_field = tag_field.as_deref().unwrap_or("Type");
 
-        out.push_str(&format!("\tswitch wire.{discriminator_field} {{\n"));
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_unmarshal_wire_header.jinja",
+            minijinja::context! {
+                tag_field => tag_field.as_deref(),
+                tag_name => enum_def.serde_tag.as_deref(),
+                discriminator_field => discriminator_field,
+            },
+        ));
         for variant in &enum_def.variants {
             let wire_value = enum_variant_wire_value(variant, enum_def);
             let variant_struct_name = format!("{go_enum_name}{}", to_go_name(&variant.name));
-            out.push_str(&format!("\tcase \"{}\":\n", wire_value));
-            out.push_str(&format!("\t\tvar v {variant_struct_name}\n"));
-            out.push_str("\t\tif err := json.Unmarshal(data, &v); err != nil {\n");
-            out.push_str("\t\t\treturn nil, err\n");
-            out.push_str("\t\t}\n");
-            out.push_str("\t\treturn v, nil\n");
+            out.push_str(&crate::backends::go::template_env::render(
+                "data_enum_unmarshal_wire_variant.jinja",
+                minijinja::context! {
+                    wire_value => &wire_value,
+                    variant_struct_name => &variant_struct_name,
+                },
+            ));
         }
-        out.push_str("\t}\n");
-        out.push_str(&format!(
-            "\treturn nil, fmt.Errorf(\"unknown {go_enum_name} type: %q\", wire.{discriminator_field})\n"
+        out.push_str(&crate::backends::go::template_env::render(
+            "data_enum_unmarshal_unknown_type.jinja",
+            minijinja::context! {
+                go_enum_name => &go_enum_name,
+                discriminator_field => discriminator_field,
+            },
         ));
     }
-
-    out.push_str("}\n");
 
     out
 }
@@ -1415,7 +1437,12 @@ pub(super) fn gen_struct_type(
     if !data_enum_fields.is_empty() {
         out.push('\n');
         // Emit: func (s *StructName) UnmarshalJSON(data []byte) error {
-        out.push_str(&format!("func (s *{go_name}) UnmarshalJSON(data []byte) error {{\n"));
+        out.push_str(&crate::backends::go::template_env::render(
+            "struct_unmarshal_json_header.jinja",
+            minijinja::context! {
+                go_name => &go_name,
+            },
+        ));
 
         // Emit the anonymous helper struct with all fields,
         // replacing data-enum fields with json.RawMessage.
@@ -1445,8 +1472,14 @@ pub(super) fn gen_struct_type(
                 } else {
                     "json.RawMessage"
                 };
-                out.push_str(&format!(
-                    "\t\t{go_field_name} {raw_type} `json:\"{json_name},omitempty\"`\n"
+                let json_tag = format!("json:\"{json_name},omitempty\"");
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_raw_field.jinja",
+                    minijinja::context! {
+                        go_field_name => &go_field_name,
+                        field_type => raw_type,
+                        json_tag => &json_tag,
+                    },
                 ));
             } else {
                 // Use the normal field type and tag.
@@ -1466,13 +1499,20 @@ pub(super) fn gen_struct_type(
                 } else {
                     format!("json:\"{json_name}\"")
                 };
-                out.push_str(&format!("\t\t{go_field_name} {field_type} `{json_tag}`\n"));
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_raw_field.jinja",
+                    minijinja::context! {
+                        go_field_name => &go_field_name,
+                        field_type => &field_type,
+                        json_tag => &json_tag,
+                    },
+                ));
             }
         }
-        out.push_str("\t}\n");
-        out.push_str("\tif err := json.Unmarshal(data, &raw); err != nil {\n");
-        out.push_str("\t\treturn err\n");
-        out.push_str("\t}\n");
+        out.push_str(&crate::backends::go::template_env::render(
+            "struct_unmarshal_after_raw.jinja",
+            minijinja::Value::default(),
+        ));
 
         // Copy all non-data-enum fields.
         for field in binding_fields(&typ.fields) {
@@ -1486,7 +1526,12 @@ pub(super) fn gen_struct_type(
             let go_field_name = to_go_name(&field.name);
             let is_data_enum = data_enum_fields.iter().any(|def| def.go_name == go_field_name);
             if !is_data_enum {
-                out.push_str(&format!("\ts.{go_field_name} = raw.{go_field_name}\n"));
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_copy_field.jinja",
+                    minijinja::context! {
+                        go_field_name => &go_field_name,
+                    },
+                ));
             }
         }
 
@@ -1498,50 +1543,41 @@ pub(super) fn gen_struct_type(
                 // via the generated UnmarshalX helper. The struct field type is
                 // `[]<sealed-interface>`, which encoding/json cannot populate
                 // directly from a heterogeneous JSON array (interfaces are opaque).
-                out.push_str(&format!("\tif len(raw.{}) > 0 {{\n", def.go_name));
-                out.push_str(&format!(
-                    "\t\ts.{} = make([]{}, 0, len(raw.{}))\n",
-                    def.go_name, def.enum_go_name, def.go_name
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_data_enum_slice.jinja",
+                    minijinja::context! {
+                        go_name => &def.go_name,
+                        enum_go_name => &def.enum_go_name,
+                        unmarshal_fn => &unmarshal_fn,
+                    },
                 ));
-                out.push_str(&format!("\t\tfor _, item := range raw.{} {{\n", def.go_name));
-                out.push_str(&format!("\t\t\tv, err := {unmarshal_fn}(item)\n"));
-                out.push_str("\t\t\tif err != nil {\n");
-                out.push_str("\t\t\t\treturn err\n");
-                out.push_str("\t\t\t}\n");
-                out.push_str(&format!("\t\t\ts.{} = append(s.{}, v)\n", def.go_name, def.go_name));
-                out.push_str("\t\t}\n");
-                out.push_str("\t}\n");
             } else if def.is_optional {
                 // Optional field: only decode when the raw bytes are non-nil/non-empty and not "null".
                 // The struct field type is the bare sealed-interface (no `*`), since
                 // Go interfaces are already nullable — so assign `v` directly.
-                out.push_str(&format!(
-                    "\tif len(raw.{}) > 0 && string(raw.{}) != \"null\" {{\n",
-                    def.go_name, def.go_name
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_data_enum_value.jinja",
+                    minijinja::context! {
+                        go_name => &def.go_name,
+                        unmarshal_fn => &unmarshal_fn,
+                    },
                 ));
-                out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
-                out.push_str("\t\tif err != nil {\n");
-                out.push_str("\t\t\treturn err\n");
-                out.push_str("\t\t}\n");
-                out.push_str(&format!("\t\ts.{} = v\n", def.go_name));
-                out.push_str("\t}\n");
             } else {
                 // Required field: always decode (raw is guaranteed non-nil by the struct unmarshal above).
-                out.push_str(&format!(
-                    "\tif len(raw.{}) > 0 && string(raw.{}) != \"null\" {{\n",
-                    def.go_name, def.go_name
+                out.push_str(&crate::backends::go::template_env::render(
+                    "struct_unmarshal_data_enum_value.jinja",
+                    minijinja::context! {
+                        go_name => &def.go_name,
+                        unmarshal_fn => &unmarshal_fn,
+                    },
                 ));
-                out.push_str(&format!("\t\tv, err := {unmarshal_fn}(raw.{})\n", def.go_name));
-                out.push_str("\t\tif err != nil {\n");
-                out.push_str("\t\t\treturn err\n");
-                out.push_str("\t\t}\n");
-                out.push_str(&format!("\t\ts.{} = v\n", def.go_name));
-                out.push_str("\t}\n");
             }
         }
 
-        out.push_str("\treturn nil\n");
-        out.push_str("}\n");
+        out.push_str(&crate::backends::go::template_env::render(
+            "struct_unmarshal_json_footer.jinja",
+            minijinja::Value::default(),
+        ));
     }
 
     out

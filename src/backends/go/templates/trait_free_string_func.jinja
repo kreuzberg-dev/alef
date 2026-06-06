@@ -1,0 +1,6 @@
+func go{{ trait_pascal }}FreeString(ptr *C.char) {
+	if ptr != nil {
+		C.free(unsafe.Pointer(ptr))
+	}
+}
+

@@ -1,0 +1,18 @@
+// Service: {{ service_name }}
+// extern {{ service_name }}Opaque* {{ service_lower }}_{{ service_snake }}_new(void);
+// extern void {{ service_lower }}_{{ service_snake }}_free({{ service_name }}Opaque* ptr);
+{% for registration in registrations %}
+// extern int {{ registration.symbol }}(
+//     {{ service_name }}Opaque* owner,
+//     char* (*callback)(void*, const char*),
+//     void* context{% for param in registration.params %},
+//     {{ param.c_type }} {{ param.name }}{% endfor %}
+// );
+{% endfor %}
+{% for entrypoint in entrypoints %}
+// extern {{ entrypoint.return_c_type }} {{ entrypoint.symbol }}(
+//     {{ service_name }}Opaque* owner{% for param in entrypoint.params %},
+//     {{ param.c_type }} {{ param.name }}{% endfor %}
+// );
+{% endfor %}
+

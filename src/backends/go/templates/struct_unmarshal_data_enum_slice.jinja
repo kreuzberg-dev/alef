@@ -1,0 +1,10 @@
+	if len(raw.{{ go_name }}) > 0 {
+		s.{{ go_name }} = make([]{{ enum_go_name }}, 0, len(raw.{{ go_name }}))
+		for _, item := range raw.{{ go_name }} {
+			v, err := {{ unmarshal_fn }}(item)
+			if err != nil {
+				return err
+			}
+			s.{{ go_name }} = append(s.{{ go_name }}, v)
+		}
+	}

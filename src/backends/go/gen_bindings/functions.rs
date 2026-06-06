@@ -6,7 +6,6 @@ use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, ParamDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::HashSet;
-use std::fmt::Write as FmtWrite;
 
 /// Returns true if any parameter in the list requires JSON marshaling (non-opaque Named, Vec, or Map).
 ///
@@ -297,9 +296,12 @@ pub(super) fn gen_function_wrapper(
                 }
                 // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
                 // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
-                out.push_str(&format!(
-                    "\t\treturn {}, err\n",
-                    crate::backends::go::type_map::go_zero_value(&func.return_type)
+                let zero_value = crate::backends::go::type_map::go_zero_value(&func.return_type);
+                out.push_str(&crate::backends::go::template_env::render(
+                    "return_zero_err.jinja",
+                    minijinja::context! {
+                        zero_value => &zero_value,
+                    },
                 ));
                 out.push_str("\t}\n");
             }
@@ -560,12 +562,15 @@ pub(super) fn gen_convert_with_visitor_wrapper(
             .chain(std::iter::once(format!("{options_var}.{options_field_go}")))
             .collect::<Vec<_>>()
             .join(", ");
-        out.push_str(&format!(
-            "\tif {options_var} != nil && {options_var}.{options_field_go} != nil {{\n"
+        out.push_str(&crate::backends::go::template_env::render(
+            "visitor_helper_guard.jinja",
+            minijinja::context! {
+                options_var => options_var,
+                options_field_go => &options_field_go,
+                helper_name => &helper_name,
+                helper_args => &helper_args,
+            },
         ));
-        out.push_str(&format!("\t\treturn {helper_name}({helper_args})\n"));
-        out.push_str("\t}\n");
-        out.push('\n');
     }
 
     // Otherwise, call the FFI function directly without visitor support.
@@ -581,9 +586,13 @@ pub(super) fn gen_convert_with_visitor_wrapper(
         let go_name = go_param_name(&param.name);
         let c_name = go_param_name(&format!("c_{}", param.name));
         if matches!(param.ty, TypeRef::String | TypeRef::Path) {
-            out.push_str(&format!("\t{c_name} := C.CString({go_name})\n"));
-            out.push_str(&format!("\tdefer C.free(unsafe.Pointer({c_name}))\n"));
-            out.push('\n');
+            out.push_str(&crate::backends::go::template_env::render(
+                "c_string_arg_setup.jinja",
+                minijinja::context! {
+                    c_name => &c_name,
+                    go_name => &go_name,
+                },
+            ));
             c_args.push(c_name);
         } else {
             c_args.push(go_name);
@@ -592,37 +601,35 @@ pub(super) fn gen_convert_with_visitor_wrapper(
 
     if options_param.is_some() {
         let options_var = options_go_name.as_deref().expect("checked above");
-        out.push_str(&format!("\tvar cOptions *C.{options_c_type}\n"));
-        out.push_str(&format!("\tif {options_var} != nil {{\n"));
-        out.push_str(&format!("\t\tjsonBytes, err := json.Marshal({options_var})\n"));
-        out.push_str("\t\tif err != nil {\n");
-        out.push_str("\t\t\treturn nil, fmt.Errorf(\"failed to marshal options: %w\", err)\n");
-        out.push_str("\t\t}\n");
-        out.push_str("\t\ttmpStr := C.CString(string(jsonBytes))\n");
-        out.push_str(&format!(
-            "\t\tcOptions = C.{ffi_prefix}_{options_type_snake}_from_json(tmpStr)\n"
+        let from_json_fn = format!("{ffi_prefix}_{options_type_snake}_from_json");
+        let free_fn = format!("{ffi_prefix}_{options_type_snake}_free");
+        let options_description = options_type_snake.replace('_', " ");
+        out.push_str(&crate::backends::go::template_env::render(
+            "options_json_to_c.jinja",
+            minijinja::context! {
+                options_c_type => &options_c_type,
+                options_var => options_var,
+                from_json_fn => &from_json_fn,
+                free_fn => &free_fn,
+                options_description => &options_description,
+            },
         ));
-        out.push_str("\t\tif cOptions == nil {\n");
-        out.push_str("\t\t\tif err := lastError(); err != nil {\n");
-        out.push_str("\t\t\t\tC.free(unsafe.Pointer(tmpStr))\n");
-        out.push_str("\t\t\t\treturn nil, err\n");
-        out.push_str("\t\t\t}\n");
-        out.push_str("\t\t\tC.free(unsafe.Pointer(tmpStr))\n");
-        out.push_str(&format!(
-            "\t\t\treturn nil, fmt.Errorf(\"failed to decode {}\")\n",
-            options_type_snake.replace('_', " ")
-        ));
-        out.push_str("\t\t}\n");
-        out.push_str("\t\tC.free(unsafe.Pointer(tmpStr))\n");
-        out.push_str(&format!(
-            "\t\tdefer C.{ffi_prefix}_{options_type_snake}_free(cOptions)\n"
-        ));
-        out.push_str("\t}\n");
-        out.push('\n');
 
-        out.push_str(&format!("\tptr := {ffi_name}({})\n", c_args.join(", ")));
+        out.push_str(&crate::backends::go::template_env::render(
+            "ffi_ptr_call.jinja",
+            minijinja::context! {
+                ffi_name => &ffi_name,
+                c_args => c_args.join(", "),
+            },
+        ));
     } else {
-        out.push_str(&format!("\tptr := {ffi_name}({})\n", c_args.join(", ")));
+        out.push_str(&crate::backends::go::template_env::render(
+            "ffi_ptr_call.jinja",
+            minijinja::context! {
+                ffi_name => &ffi_name,
+                c_args => c_args.join(", "),
+            },
+        ));
     }
 
     out.push_str("\tif ptr == nil {\n");
@@ -641,23 +648,16 @@ pub(super) fn gen_convert_with_visitor_wrapper(
     ));
     out.push('\n');
 
-    out.push_str(&format!(
-        "\tjsonPtr := C.{ffi_prefix}_{return_type_snake}_to_json(ptr)\n"
-    ));
-    out.push_str("\tif jsonPtr == nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to convert result to JSON\")\n");
-    out.push_str("\t}\n");
+    let to_json_fn = format!("{ffi_prefix}_{return_type_snake}_to_json");
     out.push_str(&crate::backends::go::template_env::render(
-        "c_free_string_defer.jinja",
+        "result_json_unmarshal.jinja",
         minijinja::context! {
+            to_json_fn => &to_json_fn,
+            use_prefix_free_string => true,
             ffi_prefix => ffi_prefix,
+            return_type_name => return_type_name,
         },
     ));
-    out.push_str(&format!("\tvar result {return_type_name}\n"));
-    out.push_str("\tif err := json.Unmarshal([]byte(C.GoString(jsonPtr)), &result); err != nil {\n");
-    out.push_str("\t\treturn nil, fmt.Errorf(\"failed to unmarshal result: %w\", err)\n");
-    out.push_str("\t}\n");
-    out.push_str("\treturn &result, nil\n");
     out.push_str(&crate::backends::go::template_env::render(
         "function_body_end.jinja",
         minijinja::Value::default(),
@@ -814,29 +814,18 @@ pub(super) fn gen_adapter_wrapper(
         }
     };
 
-    // Emit the wrapper function
-    let mut out = String::new();
-    let _ = writeln!(
-        out,
-        "// {go_func_name} wraps the {owner_type}.{method_call_name} streaming adapter,"
-    );
-    let _ = writeln!(
-        out,
-        "// exposing it as a module-level function for test and consumer convenience."
-    );
-    let _ = writeln!(
-        out,
-        "func {go_func_name}({}) ({}) {{",
-        param_parts.join(", "),
-        return_type
-    );
-    if let Some(construction) = request_construction {
-        let _ = write!(out, "\t{}", construction);
-    }
-    let _ = writeln!(out, "return {}", method_call);
-    let _ = writeln!(out, "}}");
-
-    out
+    crate::backends::go::template_env::render(
+        "adapter_wrapper.jinja",
+        minijinja::context! {
+            go_func_name => &go_func_name,
+            owner_type => owner_type,
+            method_call_name => &method_call_name,
+            params => param_parts.join(", "),
+            return_type => &return_type,
+            request_construction => request_construction.as_deref(),
+            method_call => &method_call,
+        },
+    )
 }
 
 #[cfg(test)]

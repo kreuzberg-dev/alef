@@ -1,0 +1,7 @@
+	if len(raw.{{ go_name }}) > 0 && string(raw.{{ go_name }}) != "null" {
+		v, err := {{ unmarshal_fn }}(raw.{{ go_name }})
+		if err != nil {
+			return err
+		}
+		s.{{ go_name }} = v
+	}

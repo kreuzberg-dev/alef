@@ -1,0 +1,20 @@
+	var cOptions *C.{{ options_c_type }}
+	if {{ options_var }} != nil {
+		jsonBytes, err := json.Marshal({{ options_var }})
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal options: %w", err)
+		}
+		tmpStr := C.CString(string(jsonBytes))
+		cOptions = C.{{ from_json_fn }}(tmpStr)
+		if cOptions == nil {
+			if err := lastError(); err != nil {
+				C.free(unsafe.Pointer(tmpStr))
+				return nil, err
+			}
+			C.free(unsafe.Pointer(tmpStr))
+			return nil, fmt.Errorf("failed to decode {{ options_description }}")
+		}
+		C.free(unsafe.Pointer(tmpStr))
+		defer C.{{ free_fn }}(cOptions)
+	}
+

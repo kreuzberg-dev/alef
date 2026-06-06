@@ -1,0 +1,5 @@
+	var {{ var_name }} json.RawMessage
+	if {{ param }} != nil {
+		{{ var_name }} = json.RawMessage(C.GoString({{ param }}))
+	}
+

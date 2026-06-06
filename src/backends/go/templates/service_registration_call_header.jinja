@@ -1,0 +1,4 @@
+	ret := C.{{ service_lower }}_{{ service_snake }}_register_{{ reg_method_snake }}(
+		(*C.{{ upper_prefix }}{{ service_name }}Opaque)(s.owner),
+		C.get_service_handler_callback(),
+		unsafe.Pointer(ctxID),

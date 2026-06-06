@@ -453,7 +453,13 @@ pub(super) fn gen_method_wrapper(
                     }
                     // Use the type-appropriate zero value: `nil` for pointer/slice/Named returns,
                     // `0`/`false`/`""` for scalar Primitive/Duration value-form returns.
-                    out.push_str(&format!("\t\treturn {}, err\n", go_zero_value(&method.return_type)));
+                    let zero_value = go_zero_value(&method.return_type);
+                    out.push_str(&crate::backends::go::template_env::render(
+                        "return_zero_err.jinja",
+                        minijinja::context! {
+                            zero_value => &zero_value,
+                        },
+                    ));
                     out.push_str("\t}\n");
                 }
                 // Free the FFI-allocated string after unmarshaling.

@@ -201,8 +201,11 @@ pub fn gen_trait_bridges_file(
                 && api.types.iter().any(|t| t.name == bridge_cfg.trait_name)
             {
                 let trait_snake = heck::AsSnakeCase(&bridge_cfg.trait_name).to_string();
-                out.push_str(&format!(
-                    "\t{trait_snake}Registry = &handleRegistry{{handles: make(map[string]cgo.Handle)}}\n"
+                out.push_str(&crate::backends::go::template_env::render(
+                    "handle_registry_var.jinja",
+                    minijinja::context! {
+                        trait_snake => &trait_snake,
+                    },
                 ));
             }
         }
@@ -442,8 +445,11 @@ fn gen_trait_bridge(
         },
     ));
 
-    out.push_str(&format!(
-        "\t\tfree_string: (*[0]byte)(unsafe.Pointer(C.go{trait_pascal}FreeString)),\n"
+    out.push_str(&crate::backends::go::template_env::render(
+        "vtable_free_string_field.jinja",
+        minijinja::context! {
+            trait_pascal => &trait_pascal,
+        },
     ));
 
     // free_user_data deletes the cgo.Handle when the bridge is dropped by Rust
@@ -928,12 +934,12 @@ fn gen_plugin_trampolines(out: &mut String, trait_name: &str, trait_pascal: &str
             name => format!("go{trait_pascal}FreeString"),
         },
     ));
-    out.push_str(&format!("func go{trait_pascal}FreeString(ptr *C.char) {{\n"));
-    out.push_str("\tif ptr != nil {\n");
-    out.push_str("\t\tC.free(unsafe.Pointer(ptr))\n");
-    out.push_str("\t}\n");
-    out.push_str("}\n");
-    out.push('\n');
+    out.push_str(&crate::backends::go::template_env::render(
+        "trait_free_string_func.jinja",
+        minijinja::context! {
+            trait_pascal => &trait_pascal,
+        },
+    ));
 }
 
 /// Build the C trampoline function signature for extern declaration in the CGo preamble.
@@ -1049,11 +1055,13 @@ fn gen_param_conversion(out: &mut String, param: &crate::core::ir::ParamDef) {
             // The companion {name}Len parameter is emitted alongside the pointer.
             let name = &param.name;
             let len_name = format!("{name}Len");
-            out.push_str(&format!(
-                "\tvar {var_name} []byte\n\
-                 \tif {name} != nil {{\n\
-                 \t\t{var_name} = unsafe.Slice((*byte)(unsafe.Pointer({name})), int({len_name}))\n\
-                 \t}}\n\n"
+            out.push_str(&crate::backends::go::template_env::render(
+                "trampoline_bytes_param_decode.jinja",
+                minijinja::context! {
+                    var_name => &var_name,
+                    name => name,
+                    len_name => &len_name,
+                },
             ));
         }
         TypeRef::Vec(_) => {
@@ -1188,19 +1196,13 @@ fn gen_param_conversion(out: &mut String, param: &crate::core::ir::ParamDef) {
             // `json.RawMessage`; the C-side carries the JSON payload as a NUL-terminated
             // string. Copy the bytes through so the user gets the raw JSON document
             // without forcing them to unmarshal into a Go type that was never emitted.
-            out.push_str(&format!("\tvar {var_name} json.RawMessage\n"));
             out.push_str(&crate::backends::go::template_env::render(
-                "if_nil_check.jinja",
+                "trampoline_raw_message_decode.jinja",
                 minijinja::context! {
+                    var_name => &var_name,
                     param => param.name.as_str(),
                 },
             ));
-            out.push_str(&format!(
-                "\t\t{var_name} = json.RawMessage(C.GoString({}))\n",
-                param.name
-            ));
-            out.push_str("\t}\n");
-            out.push('\n');
         }
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType::*;

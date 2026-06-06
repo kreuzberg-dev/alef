@@ -1,0 +1,13 @@
+	if ret != 0 {
+		unregisterHandler(ctxID)
+{% if returns_error %}
+		return fmt.Errorf("registration failed: error code %d", ret)
+{% else %}
+		panic(fmt.Sprintf("registration failed: error code %d", ret))
+{% endif %}
+	}
+{% if returns_error %}
+	return nil
+{% endif %}
+}
+

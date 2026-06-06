@@ -51,6 +51,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_close_method.jinja"),
     ),
     (
+        "service_c_imports_comment.jinja",
+        include_str!("templates/service_c_imports_comment.jinja"),
+    ),
+    (
+        "service_start_background.jinja",
+        include_str!("templates/service_start_background.jinja"),
+    ),
+    (
         "cgo_preamble_binding.jinja",
         include_str!("templates/cgo_preamble_binding.jinja"),
     ),
@@ -83,6 +91,25 @@ static TEMPLATES: &[(&str, &str)] = &[
         "function_signature.jinja",
         include_str!("templates/function_signature.jinja"),
     ),
+    (
+        "c_string_arg_setup.jinja",
+        include_str!("templates/c_string_arg_setup.jinja"),
+    ),
+    (
+        "visitor_helper_guard.jinja",
+        include_str!("templates/visitor_helper_guard.jinja"),
+    ),
+    (
+        "options_json_to_c.jinja",
+        include_str!("templates/options_json_to_c.jinja"),
+    ),
+    ("ffi_ptr_call.jinja", include_str!("templates/ffi_ptr_call.jinja")),
+    (
+        "result_json_unmarshal.jinja",
+        include_str!("templates/result_json_unmarshal.jinja"),
+    ),
+    ("adapter_wrapper.jinja", include_str!("templates/adapter_wrapper.jinja")),
+    ("return_zero_err.jinja", include_str!("templates/return_zero_err.jinja")),
     (
         "function_body_end.jinja",
         include_str!("templates/function_body_end.jinja"),
@@ -150,6 +177,74 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/go_doc_comment_line.jinja"),
     ),
     (
+        "go_doc_block_line.jinja",
+        include_str!("templates/go_doc_block_line.jinja"),
+    ),
+    (
+        "service_register_comment.jinja",
+        include_str!("templates/service_register_comment.jinja"),
+    ),
+    (
+        "service_variant_comment.jinja",
+        include_str!("templates/service_variant_comment.jinja"),
+    ),
+    (
+        "service_configurator_comment.jinja",
+        include_str!("templates/service_configurator_comment.jinja"),
+    ),
+    (
+        "service_entrypoint_comment.jinja",
+        include_str!("templates/service_entrypoint_comment.jinja"),
+    ),
+    (
+        "service_method_header.jinja",
+        include_str!("templates/service_method_header.jinja"),
+    ),
+    (
+        "service_registration_call_header.jinja",
+        include_str!("templates/service_registration_call_header.jinja"),
+    ),
+    (
+        "service_variant_call_header.jinja",
+        include_str!("templates/service_variant_call_header.jinja"),
+    ),
+    (
+        "service_call_arg_line.jinja",
+        include_str!("templates/service_call_arg_line.jinja"),
+    ),
+    (
+        "service_registration_return.jinja",
+        include_str!("templates/service_registration_return.jinja"),
+    ),
+    (
+        "service_configurator_call_header.jinja",
+        include_str!("templates/service_configurator_call_header.jinja"),
+    ),
+    (
+        "service_call_arg_continuation.jinja",
+        include_str!("templates/service_call_arg_continuation.jinja"),
+    ),
+    (
+        "service_configurator_footer.jinja",
+        include_str!("templates/service_configurator_footer.jinja"),
+    ),
+    (
+        "service_entrypoint_call_header.jinja",
+        include_str!("templates/service_entrypoint_call_header.jinja"),
+    ),
+    (
+        "service_entrypoint_return_opaque_err.jinja",
+        include_str!("templates/service_entrypoint_return_opaque_err.jinja"),
+    ),
+    (
+        "service_entrypoint_return_opaque.jinja",
+        include_str!("templates/service_entrypoint_return_opaque.jinja"),
+    ),
+    (
+        "service_entrypoint_return_err.jinja",
+        include_str!("templates/service_entrypoint_return_err.jinja"),
+    ),
+    (
         "go_const_declaration.jinja",
         include_str!("templates/go_const_declaration.jinja"),
     ),
@@ -164,6 +259,26 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "vtable_method_field.jinja",
         include_str!("templates/vtable_method_field.jinja"),
+    ),
+    (
+        "handle_registry_var.jinja",
+        include_str!("templates/handle_registry_var.jinja"),
+    ),
+    (
+        "vtable_free_string_field.jinja",
+        include_str!("templates/vtable_free_string_field.jinja"),
+    ),
+    (
+        "trait_free_string_func.jinja",
+        include_str!("templates/trait_free_string_func.jinja"),
+    ),
+    (
+        "trampoline_bytes_param_decode.jinja",
+        include_str!("templates/trampoline_bytes_param_decode.jinja"),
+    ),
+    (
+        "trampoline_raw_message_decode.jinja",
+        include_str!("templates/trampoline_raw_message_decode.jinja"),
     ),
     (
         "plugin_trampoline_lifecycle.jinja",
@@ -345,6 +460,54 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/data_enum_scalar_marshalers.jinja"),
     ),
     (
+        "data_enum_marshal_json_header.jinja",
+        include_str!("templates/data_enum_marshal_json_header.jinja"),
+    ),
+    (
+        "data_enum_marshal_aux_field.jinja",
+        include_str!("templates/data_enum_marshal_aux_field.jinja"),
+    ),
+    (
+        "data_enum_marshal_json_values_header.jinja",
+        include_str!("templates/data_enum_marshal_json_values_header.jinja"),
+    ),
+    (
+        "data_enum_marshal_aux_value.jinja",
+        include_str!("templates/data_enum_marshal_aux_value.jinja"),
+    ),
+    (
+        "data_enum_marshal_json_footer.jinja",
+        include_str!("templates/data_enum_marshal_json_footer.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_header.jinja",
+        include_str!("templates/data_enum_unmarshal_header.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_empty_check.jinja",
+        include_str!("templates/data_enum_unmarshal_empty_check.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_shape_variant.jinja",
+        include_str!("templates/data_enum_unmarshal_shape_variant.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_unknown_shape.jinja",
+        include_str!("templates/data_enum_unmarshal_unknown_shape.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_wire_header.jinja",
+        include_str!("templates/data_enum_unmarshal_wire_header.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_wire_variant.jinja",
+        include_str!("templates/data_enum_unmarshal_wire_variant.jinja"),
+    ),
+    (
+        "data_enum_unmarshal_unknown_type.jinja",
+        include_str!("templates/data_enum_unmarshal_unknown_type.jinja"),
+    ),
+    (
         "tagged_union_tag_field.jinja",
         include_str!("templates/tagged_union_tag_field.jinja"),
     ),
@@ -403,6 +566,34 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "struct_marshal_json_footer.jinja",
         include_str!("templates/struct_marshal_json_footer.jinja"),
+    ),
+    (
+        "struct_unmarshal_json_header.jinja",
+        include_str!("templates/struct_unmarshal_json_header.jinja"),
+    ),
+    (
+        "struct_unmarshal_raw_field.jinja",
+        include_str!("templates/struct_unmarshal_raw_field.jinja"),
+    ),
+    (
+        "struct_unmarshal_after_raw.jinja",
+        include_str!("templates/struct_unmarshal_after_raw.jinja"),
+    ),
+    (
+        "struct_unmarshal_copy_field.jinja",
+        include_str!("templates/struct_unmarshal_copy_field.jinja"),
+    ),
+    (
+        "struct_unmarshal_data_enum_slice.jinja",
+        include_str!("templates/struct_unmarshal_data_enum_slice.jinja"),
+    ),
+    (
+        "struct_unmarshal_data_enum_value.jinja",
+        include_str!("templates/struct_unmarshal_data_enum_value.jinja"),
+    ),
+    (
+        "struct_unmarshal_json_footer.jinja",
+        include_str!("templates/struct_unmarshal_json_footer.jinja"),
     ),
     (
         "config_option_type_header.jinja",

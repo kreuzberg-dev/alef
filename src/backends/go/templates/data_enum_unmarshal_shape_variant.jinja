@@ -1,0 +1,6 @@
+	if {{ check }} {
+		var v {{ variant_struct_name }}
+		if err := json.Unmarshal(data, &v); err == nil {
+			return v, nil
+		}
+	}

@@ -122,55 +122,60 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
 fn gen_service_c_imports_comment(out: &mut String, service: &ServiceDef, _api: &ApiSurface, ffi_prefix: &str) {
     let service_snake = service.name.to_snake_case();
     let service_lower = ffi_prefix.to_lowercase();
+    let registrations = service
+        .registrations
+        .iter()
+        .map(|reg| {
+            let reg_method_snake = reg.method.to_snake_case();
+            let params = reg
+                .metadata_params
+                .iter()
+                .map(|meta_param| {
+                    minijinja::context! {
+                        c_type => typeref_to_c_type(&meta_param.ty),
+                        name => &meta_param.name,
+                    }
+                })
+                .collect::<Vec<_>>();
+            minijinja::context! {
+                symbol => format!("{service_lower}_{service_snake}_register_{reg_method_snake}"),
+                params => params,
+            }
+        })
+        .collect::<Vec<_>>();
+    let entrypoints = service
+        .entrypoints
+        .iter()
+        .map(|ep| {
+            let ep_name_snake = ep.method.to_snake_case();
+            let params = ep
+                .params
+                .iter()
+                .map(|ep_param| {
+                    minijinja::context! {
+                        c_type => typeref_to_c_type(&ep_param.ty),
+                        name => &ep_param.name,
+                    }
+                })
+                .collect::<Vec<_>>();
+            minijinja::context! {
+                return_c_type => typeref_to_c_type(&ep.return_type),
+                symbol => format!("{service_lower}_{service_snake}_ep_{ep_name_snake}"),
+                params => params,
+            }
+        })
+        .collect::<Vec<_>>();
 
-    out.push_str(&format!("// Service: {}\n", service.name));
-
-    // Constructor
-    out.push_str(&format!(
-        "// extern {}Opaque* {}_{}_new(void);\n",
-        service.name, service_lower, service_snake
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_c_imports_comment.jinja",
+        minijinja::context! {
+            service_name => &service.name,
+            service_lower => &service_lower,
+            service_snake => &service_snake,
+            registrations => registrations,
+            entrypoints => entrypoints,
+        },
     ));
-
-    // Destructor
-    out.push_str(&format!(
-        "// extern void {}_{}_free({}Opaque* ptr);\n",
-        service_lower, service_snake, service.name
-    ));
-
-    // Registration functions
-    for reg in &service.registrations {
-        let reg_method_snake = reg.method.to_snake_case();
-        out.push_str(&format!(
-            "// extern int {}_{}_register_{}(\n\
-             //     {}Opaque* owner,\n\
-             //     char* (*callback)(void*, const char*),\n\
-             //     void* context",
-            service_lower, service_snake, reg_method_snake, service.name
-        ));
-
-        for meta_param in &reg.metadata_params {
-            let c_type = typeref_to_c_type(&meta_param.ty);
-            out.push_str(&format!(",\n//     {} {}", c_type, meta_param.name));
-        }
-        out.push_str("\n// );\n");
-    }
-
-    // Entrypoint functions
-    for ep in &service.entrypoints {
-        let ep_name_snake = ep.method.to_snake_case();
-        let return_c_type = typeref_to_c_type(&ep.return_type);
-        out.push_str(&format!(
-            "// extern {} {}_{}_ep_{}(\n//     {}Opaque* owner",
-            return_c_type, service_lower, service_snake, ep_name_snake, service.name
-        ));
-
-        for ep_param in &ep.params {
-            let c_type = typeref_to_c_type(&ep_param.ty);
-            out.push_str(&format!(",\n//     {} {}", c_type, ep_param.name));
-        }
-        out.push_str("\n// );\n");
-    }
-    out.push('\n');
 }
 
 /// Map TypeRef to C type for function signatures in comments.
@@ -202,6 +207,37 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
     }
 }
 
+fn service_c_arg_expr(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_prefix: &str) -> String {
+    match ty {
+        TypeRef::String => format!("C.CString({param_name})"),
+        TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
+            format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))")
+        }
+        _ => {
+            let c_type = typeref_to_c_type(ty);
+            format!("{c_type}({param_name})")
+        }
+    }
+}
+
+fn emit_service_call_arg(out: &mut String, expr: &str) {
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_call_arg_line.jinja",
+        minijinja::context! {
+            expr => expr,
+        },
+    ));
+}
+
+fn emit_service_call_arg_continuation(out: &mut String, expr: &str) {
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_call_arg_continuation.jinja",
+        minijinja::context! {
+            expr => expr,
+        },
+    ));
+}
+
 /// Generate the handler registry and cgo trampoline.
 fn gen_handler_registry(out: &mut String) {
     out.push_str(&crate::backends::go::template_env::render(
@@ -221,7 +257,12 @@ fn go_doc_block(doc: &str) -> String {
         if line.is_empty() {
             out.push_str("//\n");
         } else {
-            out.push_str(&format!("// {line}\n"));
+            out.push_str(&crate::backends::go::template_env::render(
+                "go_doc_block_line.jinja",
+                minijinja::context! {
+                    line => line,
+                },
+            ));
         }
     }
     out
@@ -279,7 +320,7 @@ fn gen_service_struct(
     // Registration variant methods (e.g., Get, Post shortcuts)
     for reg in &service.registrations {
         for variant in &reg.variants {
-            gen_registration_variant(out, service, reg, variant, ffi_prefix);
+            gen_registration_variant(out, service, reg, variant, api, ffi_prefix);
         }
     }
 
@@ -326,9 +367,12 @@ fn gen_registration_method(
     }
     let param_sig = params.join(", ");
 
-    out.push_str(&format!(
-        "// Register{} registers a handler for the {} registration.\n",
-        method_name_pascal, method_name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_register_comment.jinja",
+        minijinja::context! {
+            method_name_pascal => &method_name_pascal,
+            method_name => method_name,
+        },
     ));
     if !reg.doc.is_empty() {
         out.push_str(&go_doc_block(&reg.doc));
@@ -345,19 +389,21 @@ fn gen_registration_method(
         String::new()
     };
 
-    out.push_str(&format!(
-        "func (s *{}) Register{}({}) {} {{\n",
-        service_name, method_name_pascal, param_sig, return_sig
-    ));
-    out.push_str("\ts.mu.Lock()\n");
-    out.push_str("\tdefer s.mu.Unlock()\n");
-    out.push_str("\tif s.owner == nil {\n");
-    if reg.error_type.is_some() {
-        out.push_str("\t\treturn errors.New(\"service is closed\")\n");
+    let closed_return = if reg.error_type.is_some() {
+        "\t\treturn errors.New(\"service is closed\")\n"
     } else {
-        out.push_str("\t\tpanic(\"service is closed\")\n");
-    }
-    out.push_str("\t}\n\n");
+        "\t\tpanic(\"service is closed\")\n"
+    };
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_method_header.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            method_name => format!("Register{method_name_pascal}"),
+            params => &param_sig,
+            return_sig => &return_sig,
+            closed_return => closed_return,
+        },
+    ));
 
     // Register the handler in Go's registry
     out.push_str("\tctxID := registerHandler(handler)\n");
@@ -366,51 +412,31 @@ fn gen_registration_method(
     // Pass the exported Go callback function's address as an opaque void* pointer.
     // The FFI function will transmute it back to the proper function pointer type.
     let upper_prefix = ffi_prefix.to_uppercase();
-    out.push_str(&format!(
-        "\tret := C.{}_{}_register_{}(\n\
-         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.get_service_handler_callback(),\n\
-         \t\tunsafe.Pointer(ctxID),\n",
-        service_lower, service_snake, reg_method_snake
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_registration_call_header.jinja",
+        minijinja::context! {
+            service_lower => &service_lower,
+            service_snake => &service_snake,
+            reg_method_snake => &reg_method_snake,
+            upper_prefix => &upper_prefix,
+            service_name => service_name,
+        },
     ));
 
     // Add metadata params as arguments, marshaling opaque types correctly. Go requires a trailing
     // comma on every argument when the closing paren sits on its own line, so each line ends with `,`.
     for meta_param in &reg.metadata_params {
-        match &meta_param.ty {
-            TypeRef::String => {
-                out.push_str(&format!("\t\tC.CString({}),\n", meta_param.name));
-            }
-            TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
-                // Opaque type: pass (*C.{PREFIX}{TypeName})(unsafe.Pointer({param}.ptr))
-                out.push_str(&format!(
-                    "\t\t(*C.{}{})(unsafe.Pointer({}.ptr)),\n",
-                    upper_prefix, type_name, meta_param.name
-                ));
-            }
-            _ => {
-                // Primitive or other type: pass directly (cast via C type)
-                let c_type = typeref_to_c_type(&meta_param.ty);
-                out.push_str(&format!("\t\t{c_type}({}),\n", meta_param.name));
-            }
-        }
+        let expr = service_c_arg_expr(&meta_param.name, &meta_param.ty, api, &upper_prefix);
+        emit_service_call_arg(out, &expr);
     }
     out.push_str("\t)\n\n");
 
-    if reg.error_type.is_some() {
-        out.push_str("\tif ret != 0 {\n");
-        out.push_str("\t\tunregisterHandler(ctxID)\n");
-        out.push_str("\t\treturn fmt.Errorf(\"registration failed: error code %d\", ret)\n");
-        out.push_str("\t}\n");
-        out.push_str("\treturn nil\n");
-    } else {
-        out.push_str("\tif ret != 0 {\n");
-        out.push_str("\t\tunregisterHandler(ctxID)\n");
-        out.push_str("\t\tpanic(fmt.Sprintf(\"registration failed: error code %d\", ret))\n");
-        out.push_str("\t}\n");
-    }
-
-    out.push_str("}\n\n");
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_registration_return.jinja",
+        minijinja::context! {
+            returns_error => reg.error_type.is_some(),
+        },
+    ));
 }
 
 /// Generate a registration variant method for one variant shortcut (e.g., Get, Post).
@@ -419,6 +445,7 @@ fn gen_registration_variant(
     service: &ServiceDef,
     reg: &RegistrationDef,
     variant: &crate::core::ir::RegistrationVariant,
+    api: &ApiSurface,
     ffi_prefix: &str,
 ) {
     let service_name = &service.name;
@@ -435,9 +462,12 @@ fn gen_registration_variant(
     }
     let param_sig = params.join(", ");
 
-    out.push_str(&format!(
-        "// {}() registers a handler via the {} variant.\n",
-        variant_name_pascal, variant.name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_variant_comment.jinja",
+        minijinja::context! {
+            variant_name_pascal => &variant_name_pascal,
+            variant_name => &variant.name,
+        },
     ));
     if let Some(doc) = &variant.doc {
         out.push_str(&go_doc_block(doc));
@@ -454,19 +484,21 @@ fn gen_registration_variant(
         String::new()
     };
 
-    out.push_str(&format!(
-        "func (s *{}) {}({}) {} {{\n",
-        service_name, variant_name_pascal, param_sig, return_sig
-    ));
-    out.push_str("\ts.mu.Lock()\n");
-    out.push_str("\tdefer s.mu.Unlock()\n");
-    out.push_str("\tif s.owner == nil {\n");
-    if reg.error_type.is_some() {
-        out.push_str("\t\treturn errors.New(\"service is closed\")\n");
+    let closed_return = if reg.error_type.is_some() {
+        "\t\treturn errors.New(\"service is closed\")\n"
     } else {
-        out.push_str("\t\tpanic(\"service is closed\")\n");
-    }
-    out.push_str("\t}\n\n");
+        "\t\tpanic(\"service is closed\")\n"
+    };
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_method_header.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            method_name => &variant_name_pascal,
+            params => &param_sig,
+            return_sig => &return_sig,
+            closed_return => closed_return,
+        },
+    ));
 
     // Register the handler in Go's registry
     out.push_str("\tctxID := registerHandler(handler)\n");
@@ -476,12 +508,15 @@ fn gen_registration_variant(
     // The FFI exports the variant symbol as `{prefix}_{service}_{variant}` —
     // the registration method name is NOT included in the variant symbol name.
     // Get the function pointer from a public C helper function.
-    out.push_str(&format!(
-        "\tret := C.{}_{}_{}(\n\
-         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner),\n\
-         \t\tC.get_service_handler_callback(),\n\
-         \t\tunsafe.Pointer(ctxID),\n",
-        service_lower, service_snake, variant_name_snake
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_variant_call_header.jinja",
+        minijinja::context! {
+            service_lower => &service_lower,
+            service_snake => &service_snake,
+            variant_name_snake => &variant_name_snake,
+            upper_prefix => &upper_prefix,
+            service_name => service_name,
+        },
     ));
 
     // Emit the free args that follow the fixed trampoline args.
@@ -493,21 +528,8 @@ fn gen_registration_variant(
     if let Some(wc) = &variant.wrapper_call {
         for arg in &wc.args {
             if let WrapperConstructorArg::Free { param } = arg {
-                match &param.ty {
-                    TypeRef::String => {
-                        out.push_str(&format!("\t\tC.CString({}),\n", param.name));
-                    }
-                    TypeRef::Named(type_name) => {
-                        out.push_str(&format!(
-                            "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
-                            param.name
-                        ));
-                    }
-                    _ => {
-                        let c_type = typeref_to_c_type(&param.ty);
-                        out.push_str(&format!("\t\t{c_type}({}),\n", param.name));
-                    }
-                }
+                let expr = service_c_arg_expr(&param.name, &param.ty, api, &upper_prefix);
+                emit_service_call_arg(out, &expr);
             }
         }
     } else {
@@ -515,40 +537,19 @@ fn gen_registration_variant(
             if variant.overrides.iter().any(|o| o.param_name == base_param.name) {
                 // Fixed override — baked into the FFI function; do not re-emit.
             } else if let Some(sig_param) = variant.signature_params.iter().find(|s| s.name == base_param.name) {
-                match &sig_param.ty {
-                    TypeRef::String => {
-                        out.push_str(&format!("\t\tC.CString({}),\n", sig_param.name));
-                    }
-                    TypeRef::Named(type_name) => {
-                        out.push_str(&format!(
-                            "\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr)),\n",
-                            sig_param.name
-                        ));
-                    }
-                    _ => {
-                        let c_type = typeref_to_c_type(&sig_param.ty);
-                        out.push_str(&format!("\t\t{c_type}({}),\n", sig_param.name));
-                    }
-                }
+                let expr = service_c_arg_expr(&sig_param.name, &sig_param.ty, api, &upper_prefix);
+                emit_service_call_arg(out, &expr);
             }
         }
     }
     out.push_str("\t)\n\n");
 
-    if reg.error_type.is_some() {
-        out.push_str("\tif ret != 0 {\n");
-        out.push_str("\t\tunregisterHandler(ctxID)\n");
-        out.push_str("\t\treturn fmt.Errorf(\"registration failed: error code %d\", ret)\n");
-        out.push_str("\t}\n");
-        out.push_str("\treturn nil\n");
-    } else {
-        out.push_str("\tif ret != 0 {\n");
-        out.push_str("\t\tunregisterHandler(ctxID)\n");
-        out.push_str("\t\tpanic(fmt.Sprintf(\"registration failed: error code %d\", ret))\n");
-        out.push_str("\t}\n");
-    }
-
-    out.push_str("}\n\n");
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_registration_return.jinja",
+        minijinja::context! {
+            returns_error => reg.error_type.is_some(),
+        },
+    ));
 }
 
 /// Generate a configurator method for one configurator method.
@@ -587,60 +588,49 @@ fn gen_configurator_method(
         params.join(", ")
     };
 
-    out.push_str(&format!(
-        "// {}() configures the service via '{}'.\n",
-        cfg_method_pascal, cfg.name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_configurator_comment.jinja",
+        minijinja::context! {
+            cfg_method_pascal => &cfg_method_pascal,
+            cfg_name => &cfg.name,
+        },
     ));
     if !cfg.doc.is_empty() {
         out.push_str(&go_doc_block(&cfg.doc));
     }
 
-    out.push_str(&format!(
-        "func (s *{}) {}({}) error {{\n",
-        service_name, cfg_method_pascal, param_sig
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_method_header.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            method_name => &cfg_method_pascal,
+            params => &param_sig,
+            return_sig => " error",
+            closed_return => "\t\treturn errors.New(\"service is closed\")\n",
+        },
     ));
-    out.push_str("\ts.mu.Lock()\n");
-    out.push_str("\tdefer s.mu.Unlock()\n");
-    out.push_str("\tif s.owner == nil {\n");
-    out.push_str("\t\treturn errors.New(\"service is closed\")\n");
-    out.push_str("\t}\n\n");
 
     let upper_prefix = ffi_prefix.to_uppercase();
-    out.push_str(&format!(
-        "\tnew_owner := C.{}_{}_{}(\n\
-         \t\t(*C.{upper_prefix}{service_name}Opaque)(s.owner)",
-        service_lower, service_snake, cfg_method_snake
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_configurator_call_header.jinja",
+        minijinja::context! {
+            service_lower => &service_lower,
+            service_snake => &service_snake,
+            cfg_method_snake => &cfg_method_snake,
+            upper_prefix => &upper_prefix,
+            service_name => service_name,
+        },
     ));
 
     // Add config params as arguments, marshaling correctly
     for cfg_param in &cfg.params {
-        out.push(',');
-        match &cfg_param.ty {
-            TypeRef::String => {
-                out.push_str(&format!("\n\t\tC.CString({})", cfg_param.name));
-            }
-            TypeRef::Named(type_name) if api.types.iter().any(|t| t.name == *type_name) => {
-                // Opaque type: pass (*C.{PREFIX}{TypeName})(unsafe.Pointer({param}.ptr))
-                out.push_str(&format!(
-                    "\n\t\t(*C.{upper_prefix}{type_name})(unsafe.Pointer({}.ptr))",
-                    cfg_param.name
-                ));
-            }
-            _ => {
-                // Primitive or other type: pass directly (cast via C type)
-                let c_type = typeref_to_c_type(&cfg_param.ty);
-                out.push_str(&format!("\n\t\t{c_type}({})", cfg_param.name));
-            }
-        }
+        let expr = service_c_arg_expr(&cfg_param.name, &cfg_param.ty, api, &upper_prefix);
+        emit_service_call_arg_continuation(out, &expr);
     }
-    out.push_str(",\n\t)\n\n");
-
-    out.push_str("\tif new_owner == nil {\n");
-    out.push_str("\t\treturn errors.New(\"configurator failed\")\n");
-    out.push_str("\t}\n");
-    out.push_str("\ts.owner = unsafe.Pointer(new_owner)\n");
-    out.push_str("\treturn nil\n");
-    out.push_str("}\n\n");
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_configurator_footer.jinja",
+        minijinja::Value::default(),
+    ));
 }
 
 /// Generate an entrypoint method for one entrypoint.
@@ -693,28 +683,33 @@ fn gen_entrypoint_method(
         (None, false) => String::new(),
     };
 
-    out.push_str(&format!(
-        "// {}() runs the service's {} entrypoint.\n",
-        ep_method_pascal, ep_method
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_entrypoint_comment.jinja",
+        minijinja::context! {
+            ep_method_pascal => &ep_method_pascal,
+            ep_method => ep_method,
+        },
     ));
     if !ep.doc.is_empty() {
         out.push_str(&go_doc_block(&ep.doc));
     }
 
-    out.push_str(&format!(
-        "func (s *{}) {}({}){} {{\n",
-        service_name, ep_method_pascal, param_sig, return_sig
+    let closed_return = match (&opaque_return, has_err) {
+        (Some(_), true) => "\t\treturn nil, errors.New(\"service is closed\")\n",
+        (Some(_), false) => "\t\treturn nil\n",
+        (None, true) => "\t\treturn errors.New(\"service is closed\")\n",
+        (None, false) => "\t\tpanic(\"service is closed\")\n",
+    };
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_method_header.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            method_name => &ep_method_pascal,
+            params => &param_sig,
+            return_sig => &return_sig,
+            closed_return => closed_return,
+        },
     ));
-    out.push_str("\ts.mu.Lock()\n");
-    out.push_str("\tdefer s.mu.Unlock()\n");
-    out.push_str("\tif s.owner == nil {\n");
-    match (&opaque_return, has_err) {
-        (Some(_), true) => out.push_str("\t\treturn nil, errors.New(\"service is closed\")\n"),
-        (Some(_), false) => out.push_str("\t\treturn nil\n"),
-        (None, true) => out.push_str("\t\treturn errors.New(\"service is closed\")\n"),
-        (None, false) => out.push_str("\t\tpanic(\"service is closed\")\n"),
-    }
-    out.push_str("\t}\n\n");
 
     // Call the C entrypoint, capturing its return when it carries a value or status.
     let capture = if opaque_return.is_some() || has_err {
@@ -722,34 +717,48 @@ fn gen_entrypoint_method(
     } else {
         ""
     };
-    out.push_str(&format!(
-        "\t{capture}C.{}_{}_ep_{}(\n\
-         \t\t(*C.{upper_prefix}{}Opaque)(s.owner),\n",
-        service_lower, service_snake, ep_name_snake, service_name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_entrypoint_call_header.jinja",
+        minijinja::context! {
+            capture => capture,
+            service_lower => &service_lower,
+            service_snake => &service_snake,
+            ep_name_snake => &ep_name_snake,
+            upper_prefix => &upper_prefix,
+            service_name => service_name,
+        },
     ));
     for ep_param in &ep.params {
-        out.push_str(&format!("\t\tC.CString({}),\n", ep_param.name));
+        let expr = service_c_arg_expr(&ep_param.name, &ep_param.ty, api, &upper_prefix);
+        emit_service_call_arg(out, &expr);
     }
     out.push_str("\t)\n");
 
     match (&opaque_return, has_err) {
         (Some(t), true) => {
-            out.push_str("\tif ret == nil {\n");
-            out.push_str(&format!("\t\treturn nil, errors.New(\"{} failed\")\n", ep_method));
-            out.push_str("\t}\n");
-            out.push_str(&format!("\treturn &{t}{{ptr: unsafe.Pointer(ret)}}, nil\n"));
+            out.push_str(&crate::backends::go::template_env::render(
+                "service_entrypoint_return_opaque_err.jinja",
+                minijinja::context! {
+                    ep_method => ep_method,
+                    return_type => t,
+                },
+            ));
         }
         (Some(t), false) => {
-            out.push_str(&format!("\treturn &{t}{{ptr: unsafe.Pointer(ret)}}\n"));
+            out.push_str(&crate::backends::go::template_env::render(
+                "service_entrypoint_return_opaque.jinja",
+                minijinja::context! {
+                    return_type => t,
+                },
+            ));
         }
         (None, true) => {
-            out.push_str("\tif ret != 0 {\n");
-            out.push_str(&format!(
-                "\t\treturn fmt.Errorf(\"{} failed: error code %d\", ret)\n",
-                ep_method
+            out.push_str(&crate::backends::go::template_env::render(
+                "service_entrypoint_return_err.jinja",
+                minijinja::context! {
+                    ep_method => ep_method,
+                },
             ));
-            out.push_str("\t}\n");
-            out.push_str("\treturn nil\n");
         }
         (None, false) => {}
     }
@@ -798,52 +807,12 @@ pub fn generate(
 /// the server is reachable when the call returns.
 fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_prefix: &str) {
     let service_name = &service.name;
-
-    // ServerHandle wraps the running service and exposes Stop() for graceful shutdown.
-    out.push_str(&format!(
-        "// ServerHandle allows stopping a service started via StartBackground.\n\
-         type ServerHandle struct {{\n\
-         \tservice *{}\n\
-         }}\n\n",
-        service_name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_start_background.jinja",
+        minijinja::context! {
+            service_name => service_name,
+        },
     ));
-
-    out.push_str(
-        "// Stop gracefully shuts down the server.\n\
-         func (h *ServerHandle) Stop() error {\n\
-         \tif h.service == nil {\n\
-         \t\treturn errors.New(\"service already stopped\")\n\
-         \t}\n\
-         \th.service.Close()\n\
-         \th.service = nil\n\
-         \treturn nil\n\
-         }\n\n",
-    );
-
-    // StartBackground spawns the service in a goroutine after binding to the port.
-    out.push_str(&format!(
-        "// StartBackground starts the service in a background goroutine and returns a handle.\n\
-         // It blocks until the TCP socket is bound, so the server is guaranteed to be accepting\n\
-         // connections when this call returns.\n\
-         func (s *{}) StartBackground(host string, port uint16) (*ServerHandle, error) {{\n\
-         \ts.mu.Lock()\n\
-         \tdefer s.mu.Unlock()\n\
-         \tif s.owner == nil {{\n\
-         \t\treturn nil, errors.New(\"service is closed\")\n\
-         \t}}\n\n",
-        service_name
-    ));
-
-    out.push_str(
-        "\t// Spawn Run in a goroutine. The C entrypoint will block there,\n\
-         \t// and we exit this function once the socket is bound.\n\
-         \tgo func() {\n\
-         \t\t_ = s.Run()\n\
-         \t}()\n\n\
-         \t// Return immediately with a handle for shutdown.\n\
-         \treturn &ServerHandle{service: s}, nil\n\
-         }\n\n",
-    );
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
