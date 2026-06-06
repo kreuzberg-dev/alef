@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **scaffold/ruby**: set generated `extconf.rb` `rb_sys` `ext_dir` to the native extension
+  directory itself so `gem install` resolves the sibling `Cargo.toml` instead of `native/native/Cargo.toml`.
+
 - **e2e/java**: import `LauncherSessionListener` from `org.junit.platform.launcher` so generated
   mock-server listener code matches the JUnit Platform launcher API package.
 

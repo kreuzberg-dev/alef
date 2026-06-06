@@ -372,7 +372,10 @@ default_profile = ENV.fetch("CARGO_PROFILE", "release")
 
 create_rust_makefile("{ext_name}") do |config|
   config.profile = default_profile.to_sym
-  config.ext_dir = "native"
+  # extconf.rb and Cargo.toml are siblings under ext/{ext_name}/native/; rb_sys interprets
+  # ext_dir relative to extconf.rb, so "." finds the sibling Cargo.toml. "native" would
+  # resolve to native/native/Cargo.toml and break `gem install` on end-user machines.
+  config.ext_dir = "."
 end
 "#,
         ext_name = ext_name,

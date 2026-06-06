@@ -1264,8 +1264,8 @@ fn test_scaffold_ruby_production_features() {
     assert!(files[3].content.contains("create_rust_makefile"));
     assert!(files[3].content.contains("rb_sys/mkmf"));
     assert!(
-        files[3].content.contains("config.ext_dir = \"native\""),
-        "extconf.rb must set ext_dir = \"native\" so rb_sys finds native/Cargo.toml"
+        files[3].content.contains("config.ext_dir = \".\""),
+        "extconf.rb must set ext_dir = \".\" so rb_sys finds the sibling Cargo.toml"
     );
     // files[4] is Gemfile; files[5] is Steepfile; files[6] is the Cargo.toml from scaffold_ruby_cargo
     assert_eq!(files[4].path, PathBuf::from("packages/ruby/Gemfile"));
