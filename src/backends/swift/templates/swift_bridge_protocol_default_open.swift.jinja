@@ -1,0 +1,8 @@
+{% if default_case %}
+/// Default implementation: every method returns `{{ default_case }}` so conforming
+/// types only need to implement the callbacks they care about.
+{% else %}
+/// Default implementation: conforming types only need to implement
+/// the callbacks they care about.
+{% endif %}
+public extension {{ protocol_name }} {

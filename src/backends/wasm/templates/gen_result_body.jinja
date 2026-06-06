@@ -1,0 +1,9 @@
+{{ let_bindings }}let result = {{ core_call }}{% if is_async %}.await{% endif %}
+{% if map_wasm_error %}
+        .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;
+{% elif map_js_error %}
+        .map_err(|e| JsValue::from_str(&e.to_string()))?;
+{% else %}
+;
+{% endif %}
+    {% if ok_return %}Ok({{ return_expr }}){% else %}{{ return_expr }}{% endif %}

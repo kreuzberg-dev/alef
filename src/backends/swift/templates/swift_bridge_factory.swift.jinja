@@ -1,0 +1,5 @@
+/// Wrap a `{{ protocol_name }}` conformer in an opaque `{{ type_alias }}` handle
+/// that can be passed to `{{ options_fn }}(...)` on the Rust side.
+public func {{ factory_fn }}(_ visitor: any {{ protocol_name }}) -> {{ type_alias }} {
+    return RustBridge.{{ factory_fn }}({{ box_name }}({{ adapter_name }}(visitor)))
+}

@@ -1,0 +1,6 @@
+/// Internal adapter: wraps a `{{ protocol_name }}` conformer as a `{{ delegate_protocol_name }}`.
+/// Converts swift-bridge raw types (RustString, UInt, etc.) to user-friendly Swift
+/// types before dispatching, then serialises configured return values to JSON.
+private final class {{ adapter_name }}: {{ delegate_protocol_name }} {
+    private let inner: any {{ protocol_name }}
+    init(_ inner: any {{ protocol_name }}) { self.inner = inner }

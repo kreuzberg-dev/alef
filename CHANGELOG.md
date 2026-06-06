@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **magnus/Ruby**: fixed async functions with `Vec<Named>` (non-opaque enum/struct) parameters where the inner Rust function takes `&[T]` slice. Async wrappers now correctly emit `{name}_core` let-bindings that convert the wrapper Vec to core types, and pass `&{name}_core` to the async inner call using `gen_call_args_with_let_bindings`. This fixes E0425 (undefined `categories_core`) and E0308 (type mismatch `&Vec<T>` vs `&[T]`) in generated Ruby bindings for async detect/detect_with_custom and similar methods. Regression test: `test_async_function_with_vec_named_params` in `tests/backends_magnus_gen_bindings_test.rs`. (`src/backends/magnus/gen_bindings/functions.rs`)
+
 - **extendr/R**: extended JSON bridging to handle bare enums (RegionKind, PiiCategory, etc.), non-opaque structs (DiffOptions, LlmConfig, etc.), and Vec<Enum> parameters that extendr cannot auto-convert from Robj. Functions with these types now correctly deserialize from JSON strings at the R boundary instead of failing type conversion.
 
 ### Changed

@@ -1,0 +1,2 @@
+let {{ param_name }}_converted: std::collections::BTreeMap<String, String> =
+    serde_wasm_bindgen::from_value({{ param_name }}.clone()).unwrap_or_default();

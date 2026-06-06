@@ -29,6 +29,50 @@ static TEMPLATES: &[(&str, &str)] = &[
         "gen_bridge_function",
         include_str!("templates/gen_bridge_function.jinja"),
     ),
+    (
+        "gen_free_function",
+        include_str!("templates/gen_free_function.jinja"),
+    ),
+    (
+        "gen_instance_method",
+        include_str!("templates/gen_instance_method.jinja"),
+    ),
+    (
+        "gen_static_method",
+        include_str!("templates/gen_static_method.jinja"),
+    ),
+    (
+        "gen_result_body",
+        include_str!("templates/gen_result_body.jinja"),
+    ),
+    (
+        "gen_direct_body",
+        include_str!("templates/gen_direct_body.jinja"),
+    ),
+    (
+        "gen_unit_result_body",
+        include_str!("templates/gen_unit_result_body.jinja"),
+    ),
+    (
+        "serde_vec_named_from_optional",
+        include_str!("templates/serde_vec_named_from_optional.jinja"),
+    ),
+    (
+        "serde_vec_named_from_required",
+        include_str!("templates/serde_vec_named_from_required.jinja"),
+    ),
+    (
+        "lifetime_string_optional",
+        include_str!("templates/lifetime_string_optional.jinja"),
+    ),
+    (
+        "lifetime_string_required",
+        include_str!("templates/lifetime_string_required.jinja"),
+    ),
+    (
+        "lifetime_map_required",
+        include_str!("templates/lifetime_map_required.jinja"),
+    ),
     ("gen_opaque_struct", include_str!("templates/gen_opaque_struct.jinja")),
     ("gen_struct", include_str!("templates/gen_struct.jinja")),
     (

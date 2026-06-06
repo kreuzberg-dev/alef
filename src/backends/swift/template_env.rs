@@ -445,7 +445,15 @@ static TEMPLATES: &[(&str, &str)] = &[
         "swift_json_string_overload.swift.jinja",
         include_str!("templates/swift_json_string_overload.swift.jinja"),
     ),
+    (
+        "swift_json_decode_line.swift.jinja",
+        include_str!("templates/swift_json_decode_line.swift.jinja"),
+    ),
     ("enum_case_unit.jinja", include_str!("templates/enum_case_unit.jinja")),
+    (
+        "enum_case_raw_value.swift.jinja",
+        include_str!("templates/enum_case_raw_value.swift.jinja"),
+    ),
     (
         "enum_case_with_data.jinja",
         include_str!("templates/enum_case_with_data.jinja"),
@@ -759,6 +767,54 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_trait_protocol_method.swift.jinja"),
     ),
     (
+        "swift_bridge_protocol_open.swift.jinja",
+        include_str!("templates/swift_bridge_protocol_open.swift.jinja"),
+    ),
+    (
+        "swift_bridge_protocol_default_open.swift.jinja",
+        include_str!("templates/swift_bridge_protocol_default_open.swift.jinja"),
+    ),
+    (
+        "swift_bridge_protocol_default_method.swift.jinja",
+        include_str!("templates/swift_bridge_protocol_default_method.swift.jinja"),
+    ),
+    (
+        "swift_bridge_adapter_open.swift.jinja",
+        include_str!("templates/swift_bridge_adapter_open.swift.jinja"),
+    ),
+    (
+        "swift_bridge_adapter_method_open.swift.jinja",
+        include_str!("templates/swift_bridge_adapter_method_open.swift.jinja"),
+    ),
+    (
+        "swift_bridge_adapter_void_return.swift.jinja",
+        include_str!("templates/swift_bridge_adapter_void_return.swift.jinja"),
+    ),
+    (
+        "swift_bridge_result_helper_open.swift.jinja",
+        include_str!("templates/swift_bridge_result_helper_open.swift.jinja"),
+    ),
+    (
+        "swift_bridge_result_unit_case.swift.jinja",
+        include_str!("templates/swift_bridge_result_unit_case.swift.jinja"),
+    ),
+    (
+        "swift_bridge_result_newtype_case.swift.jinja",
+        include_str!("templates/swift_bridge_result_newtype_case.swift.jinja"),
+    ),
+    (
+        "swift_bridge_json_escape_helper.swift.jinja",
+        include_str!("templates/swift_bridge_json_escape_helper.swift.jinja"),
+    ),
+    (
+        "swift_bridge_factory.swift.jinja",
+        include_str!("templates/swift_bridge_factory.swift.jinja"),
+    ),
+    (
+        "swift_bridge_options_forwarder.swift.jinja",
+        include_str!("templates/swift_bridge_options_forwarder.swift.jinja"),
+    ),
+    (
         "swift_trait_default_method.swift.jinja",
         include_str!("templates/swift_trait_default_method.swift.jinja"),
     ),
@@ -877,6 +933,18 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_class_footer.swift.jinja",
         include_str!("templates/swift_class_footer.swift.jinja"),
+    ),
+    (
+        "swift_ref_extension_open.swift.jinja",
+        include_str!("templates/swift_ref_extension_open.swift.jinja"),
+    ),
+    (
+        "swift_ref_string_alias_property.swift.jinja",
+        include_str!("templates/swift_ref_string_alias_property.swift.jinja"),
+    ),
+    (
+        "swift_ref_extension_inheritance_comment.swift.jinja",
+        include_str!("templates/swift_ref_extension_inheritance_comment.swift.jinja"),
     ),
 ];
 

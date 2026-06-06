@@ -1,0 +1,1 @@
+let {{ param_name }}_core: Option<Vec<{{ core_path }}>> = {{ param_name }}.map(|values| values.into_iter().map(Into::into).collect());

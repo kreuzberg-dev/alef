@@ -1,0 +1,8 @@
+/// Escape a Swift String for embedding in a JSON string literal.
+private func jsonEscapeStr(_ s: String) -> String {
+    s.replacingOccurrences(of: "\\", with: "\\\\")
+     .replacingOccurrences(of: "\"", with: "\\\"")
+     .replacingOccurrences(of: "\n", with: "\\n")
+     .replacingOccurrences(of: "\r", with: "\\r")
+     .replacingOccurrences(of: "\t", with: "\\t")
+}
