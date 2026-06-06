@@ -1420,6 +1420,7 @@ fn emit_serde_tagged_codable(en: &EnumDef, out: &mut String, mapper: &SwiftMappe
                 has_custom_wire_name => swift_name != rust_name,
             },
         ));
+        coding_key_cases.push('\n');
     }
 
     let mut decode_cases = String::new();
@@ -4118,10 +4119,6 @@ fn emit_async_free_function_forwarder(
         format!(" -> {return_ty}")
     };
 
-    // Note: We used to only wrap String parameters when there was a Vec<Named(DTO)> parameter.
-    // Now we always wrap String parameters to ensure type inference works correctly inside
-    // the Task.detached closure, where generic inference is weaker.
-
     // Signature: collect each param as `name: SwiftType`.
     let mut sig_params: Vec<String> = Vec::with_capacity(func.params.len());
     let mut conversion_lines: Vec<String> = Vec::new();
@@ -4146,13 +4143,11 @@ fn emit_async_free_function_forwarder(
             }
         }
 
-        // When we have a Vec<DTO> parameter, the generic type is constrained to RustString,
-        // so we must wrap all String parameters in RustString() for type compatibility.
-        // Additionally, wrap ANY String parameter to give Swift's type inference a hand
-        // inside the Task.detached closure, where generic inference is weaker.
-        let arg_expr = if matches!(&param.ty, TypeRef::String) && !param.optional {
-            format!("RustString({swift_param_name})")
-        } else if is_enum_param {
+        // Plain String parameters (TypeRef::String) are natively bridged by swift-bridge
+        // and do NOT need RustString wrapping. The bridge function signature declares
+        // `String`, not `RustString`, so swift-bridge auto-converts Swift String ↔ Rust String.
+        // Only JSON-bridged params (enums, complex types) need conversion handling.
+        let arg_expr = if is_enum_param {
             // JSON-encode the enum to a String for the bridge call.
             // The bridge expects a String because swift-bridge cannot directly
             // represent Rust enums in the extern block.
