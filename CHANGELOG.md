@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **zig:** emit `.hash` placeholder when network hash fetch fails so generated `build.zig.zon` parses on Zig 0.16+. When a release hasn't been published yet at alef-generate time, the network hash fetch returns `None`; `build.zig.zon` now emits a static 52-char zero-hash placeholder (`"0000000000000000000000000000000000000000000000"`) in the `.hash` field, allowing `zig build --fetch` to resolve the real hash on first use. Previously, missing `.hash` fields caused parse errors on Zig 0.16+ (which requires all dependencies to have hashes, even when `.lazy = true`). (`src/e2e/codegen/zig.rs`)
+
 - **cli**: post-build `RunCommand` invocations (e.g. `flutter_rust_bridge_codegen generate`) now stream stdout/stderr through alef's own stdio instead of buffering with `Command::output()`. Subprocess progress is visible in real time, and a 10-minute timeout kills runaway children with a clear error. Previously, FRB or other interactive generators that wrote progress lines were invisible until exit, and a hung child would block `alef all` indefinitely. (`src/cli/pipeline/commands.rs`)
 
 

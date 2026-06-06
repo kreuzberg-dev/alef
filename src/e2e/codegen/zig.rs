@@ -617,7 +617,7 @@ fn render_build_zig_zon(
                     }
                     None => {
                         format!(
-                            "        .{dep_name} = .{{\n            .url = \"{url}\",{lazy_line}\n        }},",
+                            "        .{dep_name} = .{{\n            .url = \"{url}\",\n            .hash = \"0000000000000000000000000000000000000000000000\",{lazy_line}\n        }},",
                             dep_name = dep_name,
                             url = url,
                             lazy_line = lazy_line
