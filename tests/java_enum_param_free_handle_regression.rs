@@ -1,15 +1,16 @@
-/// Regression test for Java enum parameter _FREE handle emission
+/// Regression test for Java type parameter _FREE handle emission
 ///
-/// When an enum with serde is used as a function parameter (and marshaled via _from_json),
-/// the NativeLib must emit the matching _FREE handle, even if the enum is also used as
-/// a return type elsewhere. This test ensures that the _FREE handle is declared in NativeLib.java
-/// when it's referenced by the wrapper code.
+/// When a non-opaque type with serde is used as a function parameter (marshaled via _from_json),
+/// the NativeLib must emit the matching _FREE handle. However, if the type is NOT used as
+/// a return type, the builder_handles section won't be created (which skips the _FREE emission).
+/// This test ensures that _FREE handles are emitted for ALL types that have a _FROM_JSON handle,
+/// regardless of where they appear.
 ///
-/// Reproducer: RegionKind enum exported as opaque via FFI, used as parameter in functions.
+/// Reproducer: Type exported via FFI with _from_json and _free, used only as parameter.
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, EnumDef, EnumVariant, FunctionDef, ParamDef, PrimitiveType, TypeRef};
+use alef::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef, CoreWrapper};
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
@@ -36,45 +37,32 @@ package = "{package}"
 }
 
 #[test]
-fn enum_param_emits_free_handle_in_native_lib() {
-    let enum_def = EnumDef {
+fn param_type_with_serde_emits_free_handle_in_native_lib() {
+    // Create a non-opaque type with serde that is NOT marked as a return type.
+    // This simulates RegionKind which is used as a parameter but never returned by functions,
+    // so the return-type path in native_lib.rs (lines 274-323) doesn't emit its _FREE handle.
+    let param_type = TypeDef {
         name: "MyMode".to_string(),
         rust_path: "test_lib::MyMode".to_string(),
         original_rust_path: String::new(),
-        variants: vec![
-            EnumVariant {
-                name: "A".to_string(),
-                fields: vec![],
-                is_default: false,
-                serde_rename: None,
-                is_tuple: false,
-                binding_excluded: false,
-                binding_exclusion_reason: None,
-                doc: String::new(),
-                originally_had_data_fields: false,
-            },
-            EnumVariant {
-                name: "B".to_string(),
-                fields: vec![],
-                is_default: false,
-                serde_rename: None,
-                is_tuple: false,
-                binding_excluded: false,
-                binding_exclusion_reason: None,
-                doc: String::new(),
-                originally_had_data_fields: false,
-            },
-        ],
-        doc: "Synthetic enum for testing".to_string(),
+        fields: vec![],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: true,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false, // KEY: not a return type, so the return-type path won't emit _FREE
         serde_rename_all: None,
         has_serde: true,
-        serde_tag: Default::default(),
-        serde_untagged: false,
+        super_traits: vec![],
+        doc: "Synthetic type for testing".to_string(),
+        cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
-        cfg: None,
-        excluded_variants: Default::default(),
-        is_copy: true,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
     };
 
     let function = FunctionDef {
@@ -96,7 +84,7 @@ fn enum_param_emits_free_handle_in_native_lib() {
             map_key_is_cow: false,
             vec_inner_is_ref: false,
             map_is_btree: false,
-            core_wrapper: alef::core::ir::CoreWrapper::None,
+            core_wrapper: CoreWrapper::None,
         }],
         return_type: TypeRef::Primitive(PrimitiveType::I32),
         is_async: false,
@@ -115,9 +103,9 @@ fn enum_param_emits_free_handle_in_native_lib() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
-        types: vec![],
+        types: vec![param_type],
         functions: vec![function],
-        enums: vec![enum_def],
+        enums: vec![],
         errors: vec![],
         excluded_type_paths: Default::default(),
         excluded_trait_names: Default::default(),
@@ -137,20 +125,20 @@ fn enum_param_emits_free_handle_in_native_lib() {
         .content
         .as_str();
 
-    // The emitted wrapper code will use NativeLib.TEST_MY_MODE_FROM_JSON to marshal the enum param
+    // The emitted wrapper code will use NativeLib.TEST_MY_MODE_FROM_JSON to marshal the param
     assert!(
         native_lib.contains("TEST_MY_MODE_FROM_JSON"),
-        "NativeLib must declare TEST_MY_MODE_FROM_JSON handle for enum param marshaling"
+        "NativeLib must declare TEST_MY_MODE_FROM_JSON handle for serde type param"
     );
 
-    // The matching _FREE handle MUST be declared, even if MY_MODE is not an opaque type,
-    // because the wrapper code will invoke it to clean up the allocated pointer
+    // The matching _FREE handle MUST be declared because the wrapper code invokes it
+    // to clean up the allocated pointer returned by _from_json
     assert!(
         native_lib.contains("TEST_MY_MODE_FREE"),
-        "NativeLib must declare TEST_MY_MODE_FREE handle when TEST_MY_MODE_FROM_JSON is declared\n\n{native_lib}"
+        "NativeLib must declare TEST_MY_MODE_FREE when TEST_MY_MODE_FROM_JSON is declared\n\n{native_lib}"
     );
 
-    // Verify the FFI wrapper actually uses the handle
+    // Verify the FFI wrapper actually uses both handles
     let wrapper = files
         .iter()
         .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("TestLibRs.java"))
@@ -160,11 +148,11 @@ fn enum_param_emits_free_handle_in_native_lib() {
 
     assert!(
         wrapper.contains("NativeLib.TEST_MY_MODE_FROM_JSON"),
-        "Wrapper must use TEST_MY_MODE_FROM_JSON for enum param"
+        "Wrapper must use TEST_MY_MODE_FROM_JSON for param"
     );
 
     assert!(
         wrapper.contains("NativeLib.TEST_MY_MODE_FREE"),
-        "Wrapper must use TEST_MY_MODE_FREE to clean up allocated enum param\n\n{wrapper}"
+        "Wrapper must use TEST_MY_MODE_FREE to clean up param\n\n{wrapper}"
     );
 }

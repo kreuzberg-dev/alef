@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr**: strip leading underscore from Rust parameter names when emitting R wrapper signatures and `.Call()` args. R identifiers cannot start with underscore, so Rust parameters like `_flag: bool` (common for unused params) are now sanitized to `flag` in generated R code. Fixes parse errors like `unexpected input` on `R CMD INSTALL` when the generated `extendr-wrappers.R` contains invalid R identifiers. (`src/backends/extendr/gen_bindings/mod.rs`)
+
 - **swift**: do not wrap plain `String` arguments in `RustString(...)` at call sites inside async function forwarders; swift-bridge auto-converts the type at the FFI boundary, and the extern block declares parameters as plain `String` not `RustString`. Removing the redundant wrapper fix compile errors like "cannot convert value of type 'RustString' to expected argument type 'String'". (`src/backends/swift/gen_bindings/mod.rs`)
 
 ## [0.23.22] - 2026-06-06
