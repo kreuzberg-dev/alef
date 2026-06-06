@@ -9,6 +9,7 @@
 //! pipelines), but they do not share crate-shaped state (sources,
 //! per-language module names, publish settings, e2e fixtures).
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,7 +38,7 @@ use super::trait_bridge::TraitBridgeConfig;
 /// the workspace defaults during resolution; required fields with no
 /// workspace default fall back to Alef's built-in defaults or trigger a
 /// validation error.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RawCrateConfig {
     // -----------------------------------------------------------------
@@ -93,6 +94,7 @@ pub struct RawCrateConfig {
     /// Additional Cargo dependencies merged into every binding crate Cargo.toml
     /// for this crate (per-language extra_dependencies still override these).
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
 
     /// Automatically derive path mappings from source file locations.

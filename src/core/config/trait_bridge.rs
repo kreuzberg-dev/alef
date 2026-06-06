@@ -1,9 +1,10 @@
 use crate::core::ir::{ApiSurface, MethodDef};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Configuration for generating trait bridge code that allows foreign language
 /// objects to implement Rust traits via FFI.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct TraitBridgeConfig {
     /// Name of the Rust trait to bridge (e.g., `"OcrBackend"`).
     pub trait_name: String,
@@ -105,7 +106,7 @@ pub struct TraitBridgeConfig {
 /// How a trait bridge attaches to the public API.
 ///
 /// See [`TraitBridgeConfig::bind_via`] for the user-facing description.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BridgeBinding {
     /// The bridge arrives as a positional function argument. Legacy default.

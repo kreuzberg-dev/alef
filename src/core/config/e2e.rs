@@ -1,13 +1,14 @@
 //! E2E test generation configuration types.
 
 use crate::core::config::manifest_extras::ManifestExtras;
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 /// Controls whether generated e2e test projects reference the package under
 /// test via a local path (for development) or a registry version string
 /// (for standalone `test_apps` that consumers can run without the monorepo).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DependencyMode {
     /// Local path dependency (default) — used during normal e2e development.
@@ -30,7 +31,7 @@ pub enum RouteCallForm {
 }
 
 /// Configuration for registry-mode e2e generation (`alef e2e generate --registry`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RegistryConfig {
     /// Output directory for registry-mode test apps (default: "test_apps").
     #[serde(default = "default_test_apps_dir")]
@@ -75,7 +76,7 @@ fn default_test_apps_dir() -> String {
 }
 
 /// Per-language harness config overrides.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HarnessOverride {
     /// Method to register handlers (overrides HarnessConfig.register_method)
     #[serde(default)]
@@ -106,7 +107,7 @@ pub struct HarnessOverride {
 /// a harness script that starts the SUT app, registers handlers per fixture,
 /// and serves requests. This config provides the language-agnostic knobs that
 /// control harness code generation.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HarnessConfig {
     /// Module/package to import the SUT app from (e.g., "my_app")
     #[serde(default)]
@@ -308,7 +309,7 @@ fn idiomatic_identifier(name: &str, lang: &str) -> String {
 }
 
 /// Root e2e configuration from `[e2e]` section of alef.toml.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct E2eConfig {
     /// Directory containing fixture JSON files (default: "fixtures").
     #[serde(default = "default_fixtures_dir")]
@@ -679,7 +680,7 @@ impl Default for E2eConfig {
 }
 
 /// Configuration for the function call in each test.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct CallConfig {
     /// Per-call override for `result_fields`.
     ///
@@ -873,7 +874,7 @@ impl CallConfig {
 }
 
 /// E2E streaming call recipe.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(untagged)]
 pub enum StreamingConfig {
     /// Legacy boolean form: `streaming = true` / `streaming = false`.
@@ -900,7 +901,7 @@ impl StreamingConfig {
 }
 
 /// Structured streaming recipe options.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct StreamingRecipe {
     /// Optional opt-in/out equivalent to the legacy boolean form.
     #[serde(default)]
@@ -935,7 +936,7 @@ fn default_returns_result() -> bool {
 /// [e2e.calls.batch_crawl_stream]
 /// select_when = { category = "stream", id_prefix = "batch_crawl_stream" }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default, JsonSchema)]
 pub struct SelectWhen {
     /// Match when the fixture's resolved category equals this string.
     #[serde(default)]
@@ -1036,7 +1037,7 @@ fn glob_matches(pattern: &str, text: &str) -> bool {
 }
 
 /// Maps a fixture input field to a function argument.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ArgMapping {
     /// Argument name in the function signature.
     pub name: String,
@@ -1084,7 +1085,7 @@ fn default_arg_type() -> String {
 }
 
 /// Per-language override for function call configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct CallOverride {
     /// Override the module/import path.
     #[serde(default)]
@@ -1555,7 +1556,7 @@ fn default_true() -> bool {
 /// command = "echo '<h1>Hi</h1>' | $CLI_FORMULA"
 /// expect_contains = "# Hi"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HomebrewCliTest {
     /// Short identifier used in `PASS:` / `FAIL:` reporting.
     pub name: String,
@@ -1569,7 +1570,7 @@ pub struct HomebrewCliTest {
 }
 
 /// Per-language package reference configuration.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct PackageRef {
     /// Package/crate/gem/module name.
     #[serde(default)]

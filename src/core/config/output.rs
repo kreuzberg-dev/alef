@@ -1,9 +1,10 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ExcludeConfig {
     #[serde(default)]
     pub types: Vec<String>,
@@ -14,7 +15,7 @@ pub struct ExcludeConfig {
     pub methods: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct IncludeConfig {
     #[serde(default)]
     pub types: Vec<String>,
@@ -22,7 +23,7 @@ pub struct IncludeConfig {
     pub functions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct OutputConfig {
     pub python: Option<PathBuf>,
     pub node: Option<PathBuf>,
@@ -43,7 +44,7 @@ pub struct OutputConfig {
     pub zig: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScaffoldConfig {
     pub description: Option<String>,
     pub license: Option<String>,
@@ -65,7 +66,7 @@ pub struct ScaffoldConfig {
     pub cargo: Option<ScaffoldCargo>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct GeneratedHeaderConfig {
     /// URL shown in generated-file headers for issue reporting and docs.
     #[serde(default)]
@@ -78,7 +79,7 @@ pub struct GeneratedHeaderConfig {
     pub verify_command: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct PrecommitConfig {
     /// Whether to include the shared shell/Docker/docs hooks block.
     #[serde(default)]
@@ -105,7 +106,7 @@ pub struct PrecommitConfig {
 /// All fields default to canonical values that produce the same `.cargo/config.toml`
 /// across polyglot repos. Override individual targets via `targets`, or inject
 /// repo-specific `[env]` entries via `env`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScaffoldCargo {
     /// Per-target cross-compile / rustflags overrides. Defaults emit the canonical
     /// 6-target template (macOS dynamic_lookup, Windows MSVC rust-lld x64+i686,
@@ -133,7 +134,7 @@ impl Default for ScaffoldCargo {
 }
 
 /// Per-target opt-out flags. All default to `true`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ScaffoldCargoTargets {
     #[serde(default = "default_true")]
     pub macos_dynamic_lookup: bool,
@@ -172,7 +173,7 @@ fn default_build_jobs() -> u32 {
 
 /// Value for a `[scaffold.cargo.env]` entry. Either a bare string (renders as
 /// `KEY = "value"`) or a structured form with `value` + optional `relative`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum ScaffoldCargoEnvValue {
     Plain(String),
@@ -183,7 +184,7 @@ pub enum ScaffoldCargoEnvValue {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ReadmeConfig {
     pub template_dir: Option<PathBuf>,
     pub snippets_dir: Option<PathBuf>,
@@ -204,7 +205,7 @@ pub struct ReadmeConfig {
 /// A value that can be either a single string or a list of strings.
 ///
 /// Deserializes from both `"cmd"` and `["cmd1", "cmd2"]` in TOML/JSON.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(untagged)]
 pub enum StringOrVec {
     Single(String),
@@ -221,7 +222,7 @@ impl StringOrVec {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct LintConfig {
     /// Shell command that must exit 0 for lint to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -232,7 +233,7 @@ pub struct LintConfig {
     pub typecheck: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct UpdateConfig {
     /// Shell command that must exit 0 for update to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -244,7 +245,7 @@ pub struct UpdateConfig {
     pub upgrade: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct TestAppRunConfig {
     /// Shell command that must exit 0 for the test-app run to proceed; skip with warning on failure.
     pub precondition: Option<String>,
@@ -255,7 +256,7 @@ pub struct TestAppRunConfig {
     pub run: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, JsonSchema)]
 pub struct TestConfig {
     /// Shell command that must exit 0 for test to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -269,7 +270,7 @@ pub struct TestConfig {
     pub coverage: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct SetupConfig {
     /// Shell command that must exit 0 for setup to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -291,7 +292,7 @@ pub struct SetupConfig {
     pub workdir: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct CleanConfig {
     /// Shell command that must exit 0 for clean to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -301,7 +302,7 @@ pub struct CleanConfig {
     pub clean: Option<StringOrVec>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct BuildCommandConfig {
     /// Shell command that must exit 0 for build to run; skip with warning on failure.
     pub precondition: Option<String>,
@@ -351,7 +352,7 @@ fn default_setup_timeout() -> u64 {
 /// - Multi-crate workspaces resolve to `packages/{lang}/{crate}/`.
 ///
 /// Per-crate explicit paths in [`OutputConfig`] always win over a workspace template.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct OutputTemplate {
     pub python: Option<String>,
     pub node: Option<String>,
@@ -478,7 +479,7 @@ fn validate_output_path(path: &std::path::Path) {
 }
 
 /// A single text replacement rule for version sync.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TextReplacement {
     /// Glob pattern for files to process.
     pub path: String,
@@ -1079,7 +1080,7 @@ go     = "packages/go/{crate}/"
 }
 
 /// Configuration for the `sync-versions` command.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct SyncConfig {
     /// Extra file paths to update version in (glob patterns).
     #[serde(default)]
@@ -1093,7 +1094,7 @@ pub struct SyncConfig {
 /// schema, each entry is either a person (uses `family_names` + `given_names`)
 /// or a legal entity (uses `name`). Validation lives in the renderer rather
 /// than in serde because the choice is mutually exclusive.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CitationAuthor {
     /// Person author: family name(s).
@@ -1123,7 +1124,7 @@ pub struct CitationAuthor {
 /// All field names follow Rust convention; the renderer emits the canonical
 /// CFF kebab-case keys (`cff-version`, `repository-code`, `date-released`,
 /// `family-names`, `given-names`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CitationConfig {
     /// Software title (`title:`). Required.

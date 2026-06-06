@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::extras::{Language, is_known_language};
@@ -55,7 +56,7 @@ pub enum ResolveError {
 /// name = "sample_project"
 /// sources = ["src/lib.rs"]
 /// ```
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct NewAlefConfig {
     /// Workspace-level shared defaults.
@@ -144,9 +145,8 @@ impl NewAlefConfig {
         // Most per-language pipeline maps use per-key wholesale overlay. Build
         // commands are intentionally field-wise so workspace defaults and crate
         // overrides can compose without restating preconditions/release commands.
-        // `path_mappings` and `extra_dependencies` are intentionally NOT merged
-        // here: WorkspaceConfig has no fields for them, so they remain strictly
-        // per-crate (taken verbatim below).
+        // `path_mappings` and `extra_dependencies` are intentionally not merged
+        // here: they remain strictly per-crate and are taken verbatim below.
         let lint = merge_map(&ws.lint, &krate.lint);
         let test = merge_map(&ws.test, &krate.test);
         let setup = merge_map(&ws.setup, &krate.setup);
@@ -241,24 +241,24 @@ impl NewAlefConfig {
             extra_dependencies: krate.extra_dependencies.clone(),
             auto_path_mappings: krate.auto_path_mappings.unwrap_or(true),
             languages,
-            python: krate.python.clone(),
-            node: krate.node.clone(),
-            ruby: krate.ruby.clone(),
-            php: krate.php.clone(),
-            elixir: krate.elixir.clone(),
-            wasm: krate.wasm.clone(),
-            ffi: krate.ffi.clone(),
-            go: krate.go.clone(),
-            java: krate.java.clone(),
-            dart: krate.dart.clone(),
-            kotlin: krate.kotlin.clone(),
-            kotlin_android: krate.kotlin_android.clone(),
-            jni: krate.jni.clone(),
-            swift: krate.swift.clone(),
-            gleam: krate.gleam.clone(),
-            csharp: krate.csharp.clone(),
-            r: krate.r.clone(),
-            zig: krate.zig.clone(),
+            python: krate.python.clone().or_else(|| ws.python.clone()),
+            node: krate.node.clone().or_else(|| ws.node.clone()),
+            ruby: krate.ruby.clone().or_else(|| ws.ruby.clone()),
+            php: krate.php.clone().or_else(|| ws.php.clone()),
+            elixir: krate.elixir.clone().or_else(|| ws.elixir.clone()),
+            wasm: krate.wasm.clone().or_else(|| ws.wasm.clone()),
+            ffi: krate.ffi.clone().or_else(|| ws.ffi.clone()),
+            go: krate.go.clone().or_else(|| ws.go.clone()),
+            java: krate.java.clone().or_else(|| ws.java.clone()),
+            dart: krate.dart.clone().or_else(|| ws.dart.clone()),
+            kotlin: krate.kotlin.clone().or_else(|| ws.kotlin.clone()),
+            kotlin_android: krate.kotlin_android.clone().or_else(|| ws.kotlin_android.clone()),
+            jni: krate.jni.clone().or_else(|| ws.jni.clone()),
+            swift: krate.swift.clone().or_else(|| ws.swift.clone()),
+            gleam: krate.gleam.clone().or_else(|| ws.gleam.clone()),
+            csharp: krate.csharp.clone().or_else(|| ws.csharp.clone()),
+            r: krate.r.clone().or_else(|| ws.r.clone()),
+            zig: krate.zig.clone().or_else(|| ws.zig.clone()),
             exclude: krate.exclude.clone(),
             include: krate.include.clone(),
             output_paths,
@@ -1081,6 +1081,65 @@ languages = ["node"]
         .unwrap();
         let resolved = cfg.resolve().unwrap();
         assert_eq!(resolved[0].languages, vec![Language::Node]);
+    }
+
+    #[test]
+    fn resolve_inherits_workspace_language_config() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[workspace.python]
+module_name = "workspace_module"
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+"#,
+        )
+        .unwrap();
+
+        let resolved = cfg.resolve().unwrap();
+
+        assert_eq!(
+            resolved[0]
+                .python
+                .as_ref()
+                .and_then(|python| python.module_name.as_deref()),
+            Some("workspace_module")
+        );
+    }
+
+    #[test]
+    fn resolve_crate_language_config_overrides_workspace_language_config() {
+        let cfg: NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[workspace.python]
+module_name = "workspace_module"
+
+[[crates]]
+name = "sample"
+sources = ["src/lib.rs"]
+
+[crates.python]
+module_name = "crate_module"
+"#,
+        )
+        .unwrap();
+
+        let resolved = cfg.resolve().unwrap();
+
+        assert_eq!(
+            resolved[0]
+                .python
+                .as_ref()
+                .and_then(|python| python.module_name.as_deref()),
+            Some("crate_module")
+        );
     }
 
     #[test]

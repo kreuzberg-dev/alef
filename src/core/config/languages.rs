@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -11,7 +12,7 @@ use super::extras::Language;
 ///
 /// - String: `Language = "sample_language.Language"` → capsule round-trip via `into_raw()`
 /// - Struct: `Parser = { python_type = "sample_language.Parser", construct_from = "Language" }` → Python-side construction
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(untagged)]
 pub enum CapsuleTypeConfig {
     /// Capsule round-trip: the Rust type exposes `into_raw()` returning a raw pointer.
@@ -55,7 +56,7 @@ impl CapsuleTypeConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PythonConfig {
     pub module_name: Option<String>,
     pub async_runtime: Option<String>,
@@ -91,6 +92,7 @@ pub struct PythonConfig {
     pub exclude_types: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Runtime Python (PyPI) dependencies emitted into `[project] dependencies`
     /// of the scaffold-generated `pyproject.toml`. Entries are PEP 508 strings
@@ -135,7 +137,7 @@ pub struct PythonConfig {
     pub reexported_types: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct StubsConfig {
     pub output: PathBuf,
     /// When true, emit Rust `///` doc comments as stub-level docstrings.
@@ -159,7 +161,7 @@ pub struct StubsConfig {
 /// property_name = "language"
 /// type_tag = { lower = "0x8AF2E5212AD58ABF", upper = "0xD5006CAD83ABBA16" }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct NodeCapsuleTypeConfig {
     /// User-facing class name in the ecosystem library (e.g. `"Language"`).
     /// Emitted as the return-type annotation in the generated `index.d.ts`.
@@ -185,7 +187,7 @@ pub struct NodeCapsuleTypeConfig {
 }
 
 /// An N-API `napi_type_tag` value, expressed as two 64-bit hex strings.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct NapiTypeTagConfig {
     /// Lower 64 bits of the tag, hex (e.g. `"0x8AF2E5212AD58ABF"`).
     pub lower: String,
@@ -201,7 +203,7 @@ fn default_node_capsule_property_name() -> String {
     "__parser".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct NodeConfig {
     pub package_name: Option<String>,
     /// Per-language feature override. When set, these features are used instead of
@@ -238,6 +240,7 @@ pub struct NodeConfig {
     pub exclude_platforms: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
@@ -261,7 +264,7 @@ pub struct NodeConfig {
     pub extra_lint_paths: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RubyConfig {
     pub gem_name: Option<String>,
     pub stubs: Option<StubsConfig>,
@@ -281,6 +284,7 @@ pub struct RubyConfig {
     pub exclude_types: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
@@ -298,7 +302,7 @@ pub struct RubyConfig {
     pub extra_lint_paths: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PhpConfig {
     pub extension_name: Option<String>,
     /// Cargo crate name for the PHP binding (e.g. `"parser-core-core-php"`).
@@ -339,6 +343,7 @@ pub struct PhpConfig {
     pub exclude_types: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
@@ -356,7 +361,7 @@ pub struct PhpConfig {
     pub extra_lint_paths: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ElixirConfig {
     pub app_name: Option<String>,
     #[serde(default)]
@@ -373,6 +378,7 @@ pub struct ElixirConfig {
     pub exclude_types: Vec<String>,
     /// Additional Cargo dependencies for this language's binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
@@ -403,7 +409,7 @@ pub struct ElixirConfig {
     pub nif_targets: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct WasmConfig {
     /// npm package name for the WASM package. Defaults to the Node package
     /// name with a trailing `-node` removed, plus `-wasm`.
@@ -430,6 +436,7 @@ pub struct WasmConfig {
     pub env_shims: Vec<String>,
     /// Additional Cargo dependencies for the WASM binding crate only.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
     /// desired binding field name. Applied after automatic keyword escaping.
@@ -492,7 +499,7 @@ pub struct WasmConfig {
     pub languages: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FfiConfig {
     pub prefix: Option<String>,
     #[serde(default = "default_error_style")]
@@ -561,7 +568,7 @@ pub struct FfiConfig {
 
 /// A per-target replacement for the core-crate feature set emitted into the
 /// generated FFI Cargo.toml. See [`FfiConfig::target_dep_overrides`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FfiTargetDepOverride {
     /// Cargo cfg expression, without the surrounding `cfg(...)`.
     /// Example: `all(target_os = "android", target_arch = "x86_64")`.
@@ -576,7 +583,7 @@ fn default_error_style() -> String {
     "last_error".to_string()
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GoConfig {
     pub module: Option<String>,
     /// Override the Go package name (default: derived from module path)
@@ -613,7 +620,7 @@ pub struct GoConfig {
     pub functional_options: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct JavaConfig {
     pub package: Option<String>,
     /// Override the Maven `<groupId>` emitted by alef-scaffold and alef-e2e. When unset,
@@ -676,7 +683,7 @@ fn default_java_ffi_style() -> String {
 ///   object with JNI declarations and a `DefaultClient` class holding a `Long`
 ///   handle. Compatible with Android Runtime (JDK 11). Consumers must ship a
 ///   `<crate>-jni` Rust crate exporting matching `Java_*` JNI symbols.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum KotlinFfiStyle {
     #[default]
@@ -689,7 +696,7 @@ pub enum KotlinFfiStyle {
 /// - `"jvm"` (default): emits source consuming the Java/Panama FFM facade.
 /// - `"native"`: emits Kotlin/Native source consuming the cbindgen C FFI library.
 /// - `"multiplatform"`: emits Kotlin Multiplatform project scaffolding.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum KotlinTarget {
     #[default]
@@ -699,7 +706,7 @@ pub enum KotlinTarget {
     Multiplatform,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct KotlinConfig {
     pub package: Option<String>,
     #[serde(default)]
@@ -755,7 +762,7 @@ pub struct KotlinConfig {
 /// `build.gradle.kts`, `AndroidManifest.xml`, namespace, Maven publish
 /// coordinates, ABI list, and the bundled Java facade emitted into
 /// `src/main/java/` so the AAR is self-contained.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct KotlinAndroidConfig {
     /// JVM-style package for Kotlin bindings (e.g. `dev.sample_core`).
     /// Defaults to the crate name.
@@ -817,7 +824,7 @@ pub struct KotlinAndroidConfig {
 /// example when `config.name` carries a language-specific suffix (e.g.
 /// `"sample-markdown-rs"`) but you want the JNI crate to live at
 /// `crates/sample-markdown-jni/` to match every other binding crate.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct JniConfig {
     /// Override the JNI crate directory name.
     ///
@@ -830,7 +837,7 @@ pub struct JniConfig {
 }
 
 /// Dart bridging style: FRB (default) or raw `dart:ffi`.
-#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum DartStyle {
     /// flutter_rust_bridge — emits a Rust crate plus Dart wrappers using
@@ -843,7 +850,7 @@ pub enum DartStyle {
     Ffi,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GleamConfig {
     pub app_name: Option<String>,
     /// Erlang atom name for @external(erlang, "<nif>", ...) lookups (e.g., "my_app_nif").
@@ -918,7 +925,7 @@ pub struct GleamConfig {
 /// One per-`element_type` Gleam record-constructor recipe. Keyed by the
 /// fixture-side `element_type` string and consumed by the e2e Gleam codegen
 /// when building `json_object` arg literals.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GleamElementConstructor {
     /// Fixture-side `element_type` value this recipe applies to (e.g.
     /// `"BatchFileItem"`).
@@ -945,7 +952,7 @@ pub struct GleamElementConstructor {
 ///   literal; falls back to `default` (or empty) if missing.
 /// * `"literal"` — emit `value` verbatim (no JSON lookup). Use for
 ///   constant fields like `config: option.None`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GleamElementField {
     /// Gleam record field name (e.g. `"path"`, `"config"`).
     pub gleam_field: String,
@@ -965,7 +972,7 @@ pub struct GleamElementField {
     pub value: Option<String>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DartConfig {
     /// Dart pub.dev package name (e.g. `"my_package"`). Used as the `name` in
     /// `pubspec.yaml`. Defaults to a snake_case derivation of the crate name.
@@ -990,6 +997,7 @@ pub struct DartConfig {
     pub features: Option<Vec<String>>,
     /// Additional Cargo dependencies for the generated Dart Rust bridge crate.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     #[serde(default)]
@@ -1054,7 +1062,7 @@ pub struct DartConfig {
     pub target_dep_overrides: Vec<DartTargetDepOverride>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct DartTargetDepOverride {
     /// Cargo `cfg(...)` predicate (without the `cfg(...)` wrapper). Example:
     /// `all(target_os = "android", target_arch = "x86_64")`.
@@ -1068,7 +1076,7 @@ pub struct DartTargetDepOverride {
     pub default_features: bool,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct SwiftConfig {
     /// Swift module name (e.g. `"MyLibrary"`). Defaults to PascalCase of the crate name.
     #[serde(default)]
@@ -1119,6 +1127,7 @@ pub struct SwiftConfig {
     pub core_crate_override: Option<String>,
     /// Extra Cargo dependencies merged into the generated Swift Rust bridge crate.
     #[serde(default)]
+    #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
     /// Keys to subtract from the merged `extra_dependencies` set for this
     /// language only.
@@ -1140,7 +1149,7 @@ pub struct SwiftConfig {
     pub client_constructor_body: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ZigConfig {
     pub module_name: Option<String>,
     #[serde(default)]
@@ -1176,7 +1185,7 @@ pub struct ZigConfig {
     pub languages: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CSharpConfig {
     pub namespace: Option<String>,
     /// NuGet `<PackageId>` to publish under. When unset, falls back to `namespace`.
@@ -1221,7 +1230,7 @@ pub struct CSharpConfig {
     pub exclude_functions: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RConfig {
     pub package_name: Option<String>,
     #[serde(default)]
@@ -1251,7 +1260,7 @@ pub struct RConfig {
 
 /// Custom modules that alef should declare (mod X;) but not generate.
 /// These are hand-written modules imported by the generated lib.rs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CustomModulesConfig {
     #[serde(default)]
     pub python: Vec<String>,
@@ -1305,7 +1314,7 @@ impl CustomModulesConfig {
 }
 
 /// Custom classes/functions from hand-written modules to register in module init.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CustomRegistration {
     #[serde(default)]
     pub classes: Vec<String>,
@@ -1316,7 +1325,7 @@ pub struct CustomRegistration {
 }
 
 /// Per-language custom registrations.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct CustomRegistrationsConfig {
     #[serde(default)]
     pub python: Option<CustomRegistration>,

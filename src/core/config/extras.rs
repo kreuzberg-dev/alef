@@ -1,6 +1,7 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Language {
     Python,
@@ -58,7 +59,7 @@ impl std::fmt::Display for Language {
 }
 
 /// A parameter in an adapter function.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AdapterParam {
     pub name: String,
     #[serde(rename = "type")]
@@ -68,7 +69,7 @@ pub struct AdapterParam {
 }
 
 /// The kind of adapter pattern.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AdapterPattern {
     SyncFunction,
@@ -78,7 +79,7 @@ pub enum AdapterPattern {
 }
 
 /// Configuration for a single adapter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AdapterConfig {
     pub name: String,
     pub pattern: AdapterPattern,

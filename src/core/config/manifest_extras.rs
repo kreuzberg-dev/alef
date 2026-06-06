@@ -13,6 +13,7 @@
 //! Both deserialize into [`ManifestExtras`], so per-language emitters need only one
 //! injection helper that consumes the same struct.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -21,7 +22,7 @@ use std::collections::BTreeMap;
 /// npm, Composer, Bundler, pubspec, Mix, etc. Languages without that distinction
 /// (Go, Zig, Kotlin `testImplementation`) collapse both buckets into one at the
 /// emitter level.
-#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq, JsonSchema)]
 pub struct ManifestExtras {
     /// Runtime dependencies (e.g. `dependencies` in package.json, `requires` in
     /// pyproject, `dependencies` in composer.json).
@@ -47,12 +48,13 @@ impl ManifestExtras {
 /// Per-language emitters decide which table keys they understand. Unknown keys
 /// are surfaced as warnings but never block emission — the goal is forward
 /// compatibility as the alef.toml surface grows.
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, JsonSchema)]
 #[serde(untagged)]
 pub enum ExtraDepSpec {
     /// Simple `"name" = "version"` form.
     Simple(String),
     /// Detailed `"name" = { … }` form.
+    #[schemars(with = "serde_json::Map<String, serde_json::Value>")]
     Detailed(toml::Table),
 }
 

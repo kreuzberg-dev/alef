@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **config schema**: added a generated, versioned JSON Schema for `alef.toml` at `schemas/alef.schema.json`, a new `alef schema` command with `--check` support, and `task set-version` integration so schema metadata stays in lockstep with Alef release versions.
+
 ### Fixed
+
+- **swift**: result-type enums (trait bridge result types, e.g. `VisitResult`) were included in phantom `Vec<T>` declarations but never declared as opaque `type` entries in the extern "Rust" block, causing swift-bridge-build to emit a parse error: `Type must be declared with 'type Name'`. The fix filters result-type enums (identified via `trait_bridges[].result_type` in `alef.toml`) from the list of enum types passed to phantom Vec accessor generation. Result-type enums are JSON-decoded locally in Swift (first-class Swift enums) and never appear in extern blocks; they cannot be referenced in phantom Vec declarations without triggering this parser error. (`src/backends/swift/gen_rust_crate/mod.rs`)
 
 <!-- N+14-configurator-extract -->
 - **extract pipeline**: configurator methods declared in `[[crates.services]].configurators` are no longer stripped from `service.configurators` when the same `OwnerType.method_name` key also appears in `[crates.exclude].methods`. The exclude list controls only the generic per-type struct-level method emission (preventing non-delegatable stubs); it must not remove a method from the service IR where its presence drives dedicated C/host-language configurator entrypoints. Both intents are independent and both are now honoured. (`src/cli/pipeline/extract.rs`)

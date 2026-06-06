@@ -10,11 +10,17 @@
 //! See `crates/alef-core/src/config/resolved.rs` for how workspace defaults
 //! merge into a per-crate [`crate::core::config::resolved::ResolvedCrateConfig`].
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::dto::DtoConfig;
 use super::extras::Language;
+use super::languages::{
+    CSharpConfig, DartConfig, ElixirConfig, FfiConfig, GleamConfig, GoConfig, JavaConfig, JniConfig,
+    KotlinAndroidConfig, KotlinConfig, NodeConfig, PhpConfig, PythonConfig, RConfig, RubyConfig, SwiftConfig,
+    WasmConfig, ZigConfig,
+};
 use super::output::{
     BuildCommandConfig, CitationConfig, CleanConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
     PrecommitConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
@@ -24,7 +30,7 @@ use super::tools::ToolsConfig;
 use super::{FormatConfig, GenerateConfig};
 
 /// One parameter in a [`ClientConstructorConfig`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ConstructorParam {
     /// Parameter name as it appears in the generated function signature.
     pub name: String,
@@ -39,7 +45,7 @@ pub struct ConstructorParam {
 /// backend that wraps the type in an opaque handle emits a constructor whose
 /// body is the `body` template string with `{type_name}` and `{source_path}`
 /// substituted.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ClientConstructorConfig {
     /// Ordered list of constructor parameters.
     #[serde(default)]
@@ -62,7 +68,7 @@ pub struct ClientConstructorConfig {
 /// 1. Per-crate value on `[[crates]]`.
 /// 2. Workspace default on `[workspace]`.
 /// 3. Built-in default (compiled into Alef).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct WorkspaceConfig {
     /// Pinned alef CLI version (e.g. `"0.13.0"`). Used by the `install-alef`
@@ -78,6 +84,61 @@ pub struct WorkspaceConfig {
     /// own. A per-crate `languages` array overrides this entirely.
     #[serde(default)]
     pub languages: Vec<Language>,
+
+    /// Default Python backend settings.
+    #[serde(default)]
+    pub python: Option<PythonConfig>,
+    /// Default Node/N-API backend settings.
+    #[serde(default)]
+    pub node: Option<NodeConfig>,
+    /// Default Ruby/Magnus backend settings.
+    #[serde(default)]
+    pub ruby: Option<RubyConfig>,
+    /// Default PHP backend settings.
+    #[serde(default)]
+    pub php: Option<PhpConfig>,
+    /// Default Elixir/Rustler backend settings.
+    #[serde(default)]
+    pub elixir: Option<ElixirConfig>,
+    /// Default WASM backend settings.
+    #[serde(default)]
+    pub wasm: Option<WasmConfig>,
+    /// Default C FFI backend settings.
+    #[serde(default)]
+    pub ffi: Option<FfiConfig>,
+    /// Default Go backend settings.
+    #[serde(default)]
+    pub go: Option<GoConfig>,
+    /// Default Java backend settings.
+    #[serde(default)]
+    pub java: Option<JavaConfig>,
+    /// Default Dart backend settings.
+    #[serde(default)]
+    pub dart: Option<DartConfig>,
+    /// Default Kotlin backend settings.
+    #[serde(default)]
+    pub kotlin: Option<KotlinConfig>,
+    /// Default Kotlin Android backend settings.
+    #[serde(default)]
+    pub kotlin_android: Option<KotlinAndroidConfig>,
+    /// Default JNI backend settings.
+    #[serde(default)]
+    pub jni: Option<JniConfig>,
+    /// Default Swift backend settings.
+    #[serde(default)]
+    pub swift: Option<SwiftConfig>,
+    /// Default Gleam backend settings.
+    #[serde(default)]
+    pub gleam: Option<GleamConfig>,
+    /// Default C# backend settings.
+    #[serde(default)]
+    pub csharp: Option<CSharpConfig>,
+    /// Default R/extendr backend settings.
+    #[serde(default)]
+    pub r: Option<RConfig>,
+    /// Default Zig backend settings.
+    #[serde(default)]
+    pub zig: Option<ZigConfig>,
 
     /// Global package-manager and dev-tool preferences. Inherited by every
     /// crate; cannot be overridden per-crate today.

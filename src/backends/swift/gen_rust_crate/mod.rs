@@ -621,7 +621,15 @@ fn emit_lib_rs(
 
     // Emit phantom Vec<T> references for all opaque types so swift-bridge-build
     // generates the __swift_bridge__$Vec_T$* C symbols that Swift needs.
-    let vec_accessors_block = extern_block::emit_extern_block_for_vec_accessors(&visible_types, &visible_enums);
+    // Skip result-type enums — they are never declared in extern blocks, so they
+    // cannot be referenced in phantom Vec declarations without triggering a
+    // "Type must be declared with `type T`" swift-bridge parser error.
+    let vec_accessible_enums: Vec<&EnumDef> = visible_enums
+        .iter()
+        .filter(|en| !result_type_enums.contains(&en.name))
+        .copied()
+        .collect();
+    let vec_accessors_block = extern_block::emit_extern_block_for_vec_accessors(&visible_types, &vec_accessible_enums);
     if !vec_accessors_block.is_empty() {
         out.push_str(&vec_accessors_block);
     }
@@ -630,7 +638,7 @@ fn emit_lib_rs(
 
     // Emit phantom Vec accessor implementations paired with extern declarations inside the bridge module.
     // swift-bridge-build generates Vec ABI symbols when it sees these implementations.
-    let phantom_impl = extern_block::emit_phantom_vec_impl(&visible_types, &visible_enums);
+    let phantom_impl = extern_block::emit_phantom_vec_impl(&visible_types, &vec_accessible_enums);
     if !phantom_impl.is_empty() {
         out.push_str(&phantom_impl);
     }

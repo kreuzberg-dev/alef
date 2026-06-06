@@ -1,12 +1,13 @@
 //! Centralized package metadata for generated binding manifests.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Shared package metadata used by language package manifests.
 ///
 /// Values can be set at `[workspace.package_metadata]` and overridden per
 /// `[[crates]]` entry with `[crates.package_metadata]`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PackageMetadataConfig {
     #[serde(default)]

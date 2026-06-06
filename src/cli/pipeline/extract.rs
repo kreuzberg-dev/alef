@@ -2007,11 +2007,7 @@ mod tests {
 
         // The configurator must still be present: the exclude list controls struct-level
         // method emission, NOT the service IR configurator list.
-        assert_eq!(
-            api.services.len(),
-            1,
-            "service must be present after the exclude pass"
-        );
+        assert_eq!(api.services.len(), 1, "service must be present after the exclude pass");
         assert_eq!(
             api.services[0].configurators.len(),
             1,
@@ -2023,8 +2019,7 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert_eq!(
-            api.services[0].configurators[0].name,
-            "setup",
+            api.services[0].configurators[0].name, "setup",
             "configurator name must be `setup`"
         );
     }

@@ -15,6 +15,7 @@
 //! Both fields use `#[serde(default)]` so consumers that omit them entirely
 //! get unchanged extraction/codegen behaviour.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Per-registration configuration entry inside a `[[crates.services]]` table.
@@ -32,7 +33,7 @@ use serde::{Deserialize, Serialize};
 /// name = "get"
 /// fixed = { method = "GET" }
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RegistrationSpec {
     /// Name of the method on the owner type (e.g. `"add_route"`).
     pub method: String,
@@ -70,7 +71,7 @@ pub struct RegistrationSpec {
 /// fixed = { method = "GET" }
 /// style = "verb_decorator"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct RegistrationVariantSpec {
     /// Shortcut name (e.g. `"get"`). Used as the variant method's name on the
     /// owner, transformed to each language's idiomatic casing by the backend
@@ -110,7 +111,7 @@ pub struct RegistrationVariantSpec {
 /// method = "into_router"
 /// kind = "finalize"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EntrypointSpec {
     /// Name of the method on the owner type (e.g. `"run"`, `"into_router"`).
     pub method: String,
@@ -138,7 +139,7 @@ pub struct EntrypointSpec {
 /// method = "run"
 /// kind = "run"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ServiceConfig {
     /// Name of the owner/builder type in the extracted surface (e.g. `"App"`).
     pub owner_type: String,
@@ -191,7 +192,7 @@ pub struct ServiceConfig {
 /// wire_request_type = "RequestData"
 /// wire_response_type = "ResponseData"
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct HandlerContractConfig {
     /// Name of the Rust trait in the surface (e.g. `"Handler"`).
     pub trait_name: String,

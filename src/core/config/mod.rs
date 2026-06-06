@@ -1,3 +1,4 @@
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 pub mod build_defaults;
@@ -17,6 +18,7 @@ pub mod publish;
 pub mod raw_crate;
 pub mod resolve_helpers;
 pub mod resolved;
+pub mod schema;
 pub mod service;
 pub mod setup_defaults;
 pub mod test_apps_run_defaults;
@@ -55,13 +57,17 @@ pub use publish::{PublishConfig, PublishLanguageConfig, VendorMode};
 pub use raw_crate::RawCrateConfig;
 pub use resolve_helpers::{detect_serde_available, resolve_output_dir};
 pub use resolved::ResolvedCrateConfig;
+pub use schema::{
+    DEFAULT_SCHEMA_PATH, alef_config_schema, check_alef_config_schema, render_alef_config_schema,
+    write_alef_config_schema,
+};
 pub use service::{EntrypointSpec, HandlerContractConfig, RegistrationSpec, ServiceConfig};
 pub use tools::{DEFAULT_RUST_DEV_TOOLS, LangContext, ToolsConfig, require_tool, require_tools};
 pub use trait_bridge::{BridgeBinding, TraitBridgeConfig};
 pub use workspace::WorkspaceConfig;
 
 /// A source crate group for multi-crate extraction.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SourceCrate {
     /// Crate name (hyphens converted to underscores for rust_path).
     pub name: String,
@@ -76,7 +82,7 @@ fn default_true() -> bool {
 /// Controls which generation passes alef runs.
 /// All flags default to `true`; set to `false` to skip a pass.
 /// Can be overridden per-language via `[generate_overrides.<lang>]`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct GenerateConfig {
     /// Generate low-level struct wrappers, From impls, module init (default: true)
     #[serde(default = "default_true")]
@@ -123,7 +129,7 @@ impl Default for GenerateConfig {
 /// Post-generation formatting configuration.
 /// After code generation, alef can automatically run language-native formatters
 /// on the emitted package directories to ensure CI formatter checks pass.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FormatConfig {
     /// Enable post-generation formatting (default: true).
     /// Set to false to skip formatting for all languages, or use per-language

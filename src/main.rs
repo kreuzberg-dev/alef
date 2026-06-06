@@ -230,6 +230,15 @@ enum Commands {
         )]
         format: bool,
     },
+    /// Generate or check the versioned alef.toml JSON Schema.
+    Schema {
+        /// Output JSON Schema file.
+        #[arg(long, short, default_value = alef::core::config::DEFAULT_SCHEMA_PATH)]
+        output: PathBuf,
+        /// Fail if the existing schema file is stale instead of writing it.
+        #[arg(long)]
+        check: bool,
+    },
     /// Migrate legacy alef.toml schema to new [workspace] / [[crates]] layout.
     Migrate {
         /// Path to alef.toml (default: alef.toml from --config flag).
@@ -1751,6 +1760,17 @@ fn main() -> Result<()> {
             pipeline::finalize_hashes(&all_paths, &sources_hash, &alef_toml_bytes)?;
 
             println!("Initialized: {binding_count} binding files, {scaffold_count} scaffold files");
+            Ok(())
+        }
+        Commands::Schema { output, check } => {
+            let version = env!("CARGO_PKG_VERSION");
+            if check {
+                alef::core::config::check_alef_config_schema(&output, version)?;
+                println!("Schema is up to date: {}", output.display());
+            } else {
+                alef::core::config::write_alef_config_schema(&output, version)?;
+                println!("Wrote schema to {}", output.display());
+            }
             Ok(())
         }
         Commands::Migrate { path, write } => {

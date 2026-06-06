@@ -5,6 +5,7 @@
 //! (lint, test, build, setup, update, clean). Each field has a sensible default
 //! so the section is fully optional; users only override what they need.
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// Default Rust dev tools installed by `alef setup rust`.
@@ -25,7 +26,7 @@ const DEFAULT_NODE_PM: &str = "pnpm";
 /// the default per-language pipeline commands target.
 ///
 /// All fields are optional; getters return the documented default when unset.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, JsonSchema)]
 pub struct ToolsConfig {
     /// Python package manager. One of: `"uv"`, `"pip"`, `"poetry"`. Default: `"uv"`.
     #[serde(default)]
