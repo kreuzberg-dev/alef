@@ -447,17 +447,19 @@ pub(super) fn gen_function_with_emitted_dtos(
                     && !opaque_types.contains(name.as_str())
                 {
                     let core_path = format!("{}::{}", core_import, name);
-                    if p.optional {
-                        serde_bindings.push_str(&format!(
-                            "let {name}_core: Option<Vec<{core_path}>> = {name}.map(|values| values.into_iter().map(Into::into).collect());\n    ",
-                            name = p.name
-                        ));
+                    let template_name = if p.optional {
+                        "serde_vec_named_from_optional"
                     } else {
-                        serde_bindings.push_str(&format!(
-                            "let {name}_core: Vec<{core_path}> = {name}.into_iter().map(Into::into).collect();\n    ",
-                            name = p.name
-                        ));
-                    }
+                        "serde_vec_named_from_required"
+                    };
+                    serde_bindings.push_str(&crate::backends::wasm::template_env::render(
+                        template_name,
+                        minijinja::context! {
+                            param_name => &p.name,
+                            core_path => &core_path,
+                        },
+                    ));
+                    serde_bindings.push_str("    ");
                 }
             }
         }
@@ -506,24 +508,29 @@ pub(super) fn gen_function_with_emitted_dtos(
             TypeRef::Unit => "result".to_string(),
             _ => "result".to_string(),
         };
-        let body = if func.error_type.is_some() {
-            format!(
-                "{let_bindings}let result = {core_call}.await\n        \
-                 .map_err(|e| JsValue::from_str(&e.to_string()))?;\n    \
-                 Ok({return_expr})"
-            )
-        } else {
-            format!(
-                "{let_bindings}let result = {core_call}.await;\n    \
-                 {return_expr}"
-            )
-        };
-        let fn_code = format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}({}) -> {} {{\n    \
-             {body}\n}}",
-            func.name,
-            async_params.join(", "),
-            return_annotation
+        let body = crate::backends::wasm::template_env::render(
+            "gen_result_body",
+            minijinja::context! {
+                let_bindings => &let_bindings,
+                core_call => &core_call,
+                return_expr => &return_expr,
+                is_async => true,
+                map_wasm_error => false,
+                map_js_error => func.error_type.is_some(),
+                ok_return => func.error_type.is_some(),
+            },
+        );
+        let fn_code = crate::backends::wasm::template_env::render(
+            "gen_free_function",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => true,
+                function_name => &func.name,
+                params => async_params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         );
         format!("{input_dtos}{fn_code}")
     } else if can_delegate {
@@ -592,29 +599,47 @@ pub(super) fn gen_function_with_emitted_dtos(
                 prefix,
                 mutex_types,
             );
-            format!(
-                "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+            crate::backends::wasm::template_env::render(
+                "gen_result_body",
+                minijinja::context! {
+                    let_bindings => &let_bindings,
+                    core_call => &core_call,
+                    return_expr => &wrap,
+                    is_async => false,
+                    map_wasm_error => false,
+                    map_js_error => true,
+                    ok_return => true,
+                },
             )
         } else {
-            format!(
-                "{let_bindings}{}",
-                wasm_wrap_return_fn(
-                    &core_call,
-                    &func.return_type,
-                    opaque_types,
-                    func.returns_ref,
-                    func.returns_cow,
-                    prefix,
-                    mutex_types
-                )
+            let return_expr = wasm_wrap_return_fn(
+                &core_call,
+                &func.return_type,
+                opaque_types,
+                func.returns_ref,
+                func.returns_cow,
+                prefix,
+                mutex_types,
+            );
+            crate::backends::wasm::template_env::render(
+                "gen_direct_body",
+                minijinja::context! {
+                    let_bindings => &let_bindings,
+                    return_expr => &return_expr,
+                },
             )
         };
-        let fn_code = format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
-             {body}\n}}",
-            func.name,
-            params.join(", "),
-            return_annotation
+        let fn_code = crate::backends::wasm::template_env::render(
+            "gen_free_function",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => false,
+                function_name => &func.name,
+                params => params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         );
         format!("{input_dtos}{fn_code}")
     } else if func.error_type.is_some()
@@ -863,28 +888,53 @@ pub(super) fn gen_function_with_emitted_dtos(
             mutex_types,
         );
         let body = if matches!(func.return_type, TypeRef::Unit) {
-            format!("{serde_bindings}{core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok(())")
+            crate::backends::wasm::template_env::render(
+                "gen_unit_result_body",
+                minijinja::context! {
+                    let_bindings => &serde_bindings,
+                    core_call => &core_call,
+                },
+            )
         } else {
-            format!(
-                "{serde_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+            crate::backends::wasm::template_env::render(
+                "gen_result_body",
+                minijinja::context! {
+                    let_bindings => &serde_bindings,
+                    core_call => &core_call,
+                    return_expr => &wrap,
+                    is_async => false,
+                    map_wasm_error => false,
+                    map_js_error => true,
+                    ok_return => true,
+                },
             )
         };
-        let fn_code = format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
-             {body}\n}}",
-            func.name,
-            serde_params.join(", "),
-            return_annotation
+        let fn_code = crate::backends::wasm::template_env::render(
+            "gen_free_function",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => false,
+                function_name => &func.name,
+                params => serde_params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         );
         format!("{input_dtos}{fn_code}")
     } else {
         let body = gen_wasm_unimplemented_body(&func.return_type, &func.name, func.error_type.is_some());
-        let fn_code = format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
-             {body}\n}}",
-            func.name,
-            params.join(", "),
-            return_annotation
+        let fn_code = crate::backends::wasm::template_env::render(
+            "gen_free_function",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => false,
+                function_name => &func.name,
+                params => params.join(", "),
+                return_annotation => &return_annotation,
+                body => &body,
+            },
         );
         format!("{input_dtos}{fn_code}")
     }

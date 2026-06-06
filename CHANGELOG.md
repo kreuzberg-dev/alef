@@ -25,6 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **rustler**: migrated zero-arity Elixir NIF wrapper headers to Rustler Jinja templates, leaving arity and argument selection in Rust. (`src/backends/rustler/gen_bindings/mod.rs`)
 
+- **wasm**: migrated remaining free-function and method wrapper/body generated Rust snippets to WASM Jinja templates, leaving type, name, argument, and expression assembly in Rust. (`src/backends/wasm`)
+
 - **kotlin**: migrated remaining Kotlin and Kotlin Android generated-code `push_str(&format!(...))` emission in wrapper, JNI client, service, and trait-interface paths to backend Jinja templates, leaving expression/name assembly in Rust. (`src/backends/kotlin`, `src/backends/kotlin_android`)
 
 - **java**: migrated additional service API, stream-method, enum parameter, and primitive-return generated Java emission to backend Jinja templates, leaving expression/name/list assembly in Rust. (`src/backends/java`)
@@ -32,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **swift**: migrated additional Rust-crate and Swift binding helper emission to Jinja templates, including enum string helpers, phantom Vec accessors, streaming handle shims, JSON forwarders, and direct constructor returns. (`src/backends/swift`)
 
 - **swift**: migrated additional Swift binding generated-code blocks to Jinja templates, including nested enum Codable cases, error property extensions, async forwarder bodies, trait bridge adapters, registration forwarders, and plugin box scaffolding. (`src/backends/swift`)
+
+- **swift**: migrated final coherent enum raw-value, JSON overload decode, trait bridge shell, and Ref alias extension emission to Jinja templates, leaving signature and call-expression assembly in Rust. (`src/backends/swift`)
 
 - **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
 

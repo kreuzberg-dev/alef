@@ -150,6 +150,7 @@ pub(super) fn gen_method(
                                     core_path => &core_path,
                                     err_conv => &err_conv,
                                     has_default => has_default,
+                                    is_mut => p.is_mut,
                                 },
                             ));
                             serde_bindings.push_str("    ");
@@ -183,24 +184,30 @@ pub(super) fn gen_method(
             )
         };
         let return_type_tf = to_turbofish_from(&return_type);
-        let body = if method.error_type.is_some() {
-            format!(
-                "{let_bindings}let result = {core_call}.await\n        \
-                 .map_err(|e| wasm_bindgen::JsValue::from_str(&e.to_string()))?;\n    \
-                 Ok({return_type_tf}::from(result))"
-            )
-        } else {
-            format!(
-                "{let_bindings}let result = {core_call}.await;\n    \
-                 Ok({return_type_tf}::from(result))"
-            )
-        };
-        format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub async fn {}(&self, {}) -> {} {{\n    \
-             {body}\n}}",
-            method.name,
-            async_params.join(", "),
-            return_annotation
+        let return_expr = format!("{return_type_tf}::from(result)");
+        let body = crate::backends::wasm::template_env::render(
+            "gen_result_body",
+            minijinja::context! {
+                let_bindings => &let_bindings,
+                core_call => &core_call,
+                return_expr => &return_expr,
+                is_async => true,
+                map_wasm_error => method.error_type.is_some(),
+                map_js_error => false,
+                ok_return => true,
+            },
+        );
+        crate::backends::wasm::template_env::render(
+            "gen_instance_method",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => true,
+                method_name => &method.name,
+                params => async_params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         )
     } else if method.is_static {
         let body = if can_delegate {
@@ -219,26 +226,37 @@ pub(super) fn gen_method(
                 for p in &method.params {
                     match &p.ty {
                         TypeRef::String => {
-                            if p.optional {
-                                bindings
-                                    .push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                            let template_name = if p.optional {
+                                "lifetime_string_optional"
                             } else {
-                                bindings.push_str(&format!(
-                                    "let {}_converted: std::borrow::Cow<'_, str> = {}.into();\n    ",
-                                    p.name, p.name
-                                ));
-                            }
+                                "lifetime_string_required"
+                            };
+                            bindings.push_str(&crate::backends::wasm::template_env::render(
+                                template_name,
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                },
+                            ));
+                            bindings.push_str("    ");
                         }
                         TypeRef::Map(_, _) => {
                             // JsValue → BTreeMap: deserialize via serde_wasm_bindgen
-                            bindings.push_str(&format!(
-                                "let {}_converted: std::collections::BTreeMap<String, String> = \
-                                 serde_wasm_bindgen::from_value({}.clone()).unwrap_or_default();\n    ",
-                                p.name, p.name
+                            bindings.push_str(&crate::backends::wasm::template_env::render(
+                                "lifetime_map_required",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                },
                             ));
+                            bindings.push_str("    ");
                         }
                         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::String) => {
-                            bindings.push_str(&format!("let {}_converted = {}.map(Into::into);\n    ", p.name, p.name));
+                            bindings.push_str(&crate::backends::wasm::template_env::render(
+                                "lifetime_string_optional",
+                                minijinja::context! {
+                                    param_name => &p.name,
+                                },
+                            ));
+                            bindings.push_str("    ");
                         }
                         _ => {}
                     }
@@ -304,23 +322,36 @@ pub(super) fn gen_method(
                     prefix,
                     mutex_types,
                 );
-                format!(
-                    "{combined_let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                crate::backends::wasm::template_env::render(
+                    "gen_result_body",
+                    minijinja::context! {
+                        let_bindings => &combined_let_bindings,
+                        core_call => &core_call,
+                        return_expr => &wrap,
+                        is_async => false,
+                        map_wasm_error => false,
+                        map_js_error => true,
+                        ok_return => true,
+                    },
                 )
             } else {
-                format!(
-                    "{combined_let_bindings}{}",
-                    wasm_wrap_return(
-                        &core_call,
-                        &method.return_type,
-                        type_name,
-                        opaque_types,
-                        false,
-                        method.returns_ref,
-                        method.returns_cow,
-                        prefix,
-                        mutex_types,
-                    )
+                let return_expr = wasm_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    false,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                );
+                crate::backends::wasm::template_env::render(
+                    "gen_direct_body",
+                    minijinja::context! {
+                        let_bindings => &combined_let_bindings,
+                        return_expr => &return_expr,
+                    },
                 )
             }
         } else {
@@ -330,12 +361,16 @@ pub(super) fn gen_method(
                 method.error_type.is_some(),
             )
         };
-        format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}({}) -> {} {{\n    \
-             {body}\n}}",
-            method.name,
-            params.join(", "),
-            return_annotation
+        crate::backends::wasm::template_env::render(
+            "gen_static_method",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                method_name => &method.name,
+                params => params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         )
     } else {
         let body = if can_delegate {
@@ -375,23 +410,36 @@ pub(super) fn gen_method(
                     prefix,
                     mutex_types,
                 );
-                format!(
-                    "{let_bindings}let result = {core_call}.map_err(|e| JsValue::from_str(&e.to_string()))?;\n    Ok({wrap})"
+                crate::backends::wasm::template_env::render(
+                    "gen_result_body",
+                    minijinja::context! {
+                        let_bindings => &let_bindings,
+                        core_call => &core_call,
+                        return_expr => &wrap,
+                        is_async => false,
+                        map_wasm_error => false,
+                        map_js_error => true,
+                        ok_return => true,
+                    },
                 )
             } else {
-                format!(
-                    "{let_bindings}{}",
-                    wasm_wrap_return(
-                        &core_call,
-                        &method.return_type,
-                        type_name,
-                        opaque_types,
-                        false,
-                        method.returns_ref,
-                        method.returns_cow,
-                        prefix,
-                        mutex_types,
-                    )
+                let return_expr = wasm_wrap_return(
+                    &core_call,
+                    &method.return_type,
+                    type_name,
+                    opaque_types,
+                    false,
+                    method.returns_ref,
+                    method.returns_cow,
+                    prefix,
+                    mutex_types,
+                );
+                crate::backends::wasm::template_env::render(
+                    "gen_direct_body",
+                    minijinja::context! {
+                        let_bindings => &let_bindings,
+                        return_expr => &return_expr,
+                    },
                 )
             }
         } else {
@@ -401,12 +449,17 @@ pub(super) fn gen_method(
                 method.error_type.is_some(),
             )
         };
-        format!(
-            "{attrs}#[wasm_bindgen{js_name_attr}]\npub fn {}(&self, {}) -> {} {{\n    \
-             {body}\n}}",
-            method.name,
-            params.join(", "),
-            return_annotation
+        crate::backends::wasm::template_env::render(
+            "gen_instance_method",
+            minijinja::context! {
+                attrs => &attrs,
+                js_name_attr => &js_name_attr,
+                is_async => false,
+                method_name => &method.name,
+                params => params.join(", "),
+                return_annotation => &return_annotation,
+                body => body.trim_end(),
+            },
         )
     }
 }

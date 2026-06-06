@@ -29,26 +29,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         "gen_bridge_function",
         include_str!("templates/gen_bridge_function.jinja"),
     ),
-    (
-        "gen_free_function",
-        include_str!("templates/gen_free_function.jinja"),
-    ),
+    ("gen_free_function", include_str!("templates/gen_free_function.jinja")),
     (
         "gen_instance_method",
         include_str!("templates/gen_instance_method.jinja"),
     ),
-    (
-        "gen_static_method",
-        include_str!("templates/gen_static_method.jinja"),
-    ),
-    (
-        "gen_result_body",
-        include_str!("templates/gen_result_body.jinja"),
-    ),
-    (
-        "gen_direct_body",
-        include_str!("templates/gen_direct_body.jinja"),
-    ),
+    ("gen_static_method", include_str!("templates/gen_static_method.jinja")),
+    ("gen_result_body", include_str!("templates/gen_result_body.jinja")),
+    ("gen_direct_body", include_str!("templates/gen_direct_body.jinja")),
     (
         "gen_unit_result_body",
         include_str!("templates/gen_unit_result_body.jinja"),
