@@ -275,25 +275,26 @@ impl Backend for ExtendrBackend {
         //   • Enum types — ExternalPtr-backed after #[extendr] on enum.
         //   • Opaque types (Arc<T> wrappers) — ExternalPtr-backed.
         let is_extendr_native_incompatible = |ty: &crate::core::ir::TypeRef| -> bool {
-            // A Vec<T> element type is "struct-like" (non-opaque, non-enum, non-arc-incompatible)
+            // A Vec<T> element type is "struct-like" (non-opaque, non-arc-incompatible)
+            // Includes both structs AND enums — extendr can't auto-convert either from R lists
             let is_vec_element_incompatible =
-                |n: &str| !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible_opaque.contains(n);
+                |n: &str| !opaque_types.contains(n) && !arc_incompatible_opaque.contains(n);
             match ty {
-                // Vec<StructType> — cannot convert from R list automatically.
+                // Vec<StructType> or Vec<Enum> — cannot convert from R list automatically.
                 crate::core::ir::TypeRef::Vec(inner) => {
                     match inner.as_ref() {
-                        // Vec<StructType> — incompatible
+                        // Vec<StructType> or Vec<Enum> — incompatible
                         crate::core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n) => true,
                         // Vec<Vec<_>> — nested vectors not supported by extendr
                         crate::core::ir::TypeRef::Vec(_) => true,
                         _ => false,
                     }
                 }
-                // Option<Vec<StructType>> — same.
+                // Option<Vec<StructType>> or Option<Vec<Enum>> — same.
                 crate::core::ir::TypeRef::Optional(inner) => {
                     if let crate::core::ir::TypeRef::Vec(inner2) = inner.as_ref() {
                         match inner2.as_ref() {
-                            // Option<Vec<StructType>> — incompatible
+                            // Option<Vec<StructType>> or Option<Vec<Enum>> — incompatible
                             crate::core::ir::TypeRef::Named(n) if is_vec_element_incompatible(n) => true,
                             // Option<Vec<Vec<_>>> — nested vectors not supported by extendr
                             crate::core::ir::TypeRef::Vec(_) => true,
@@ -2194,32 +2195,6 @@ fn gen_extendr_json_bridged_function(
         }
     }
 
-    // Build the call argument list. For JSON-deserialized params, use the _core variable.
-    let call_args: Vec<String> = func
-        .params
-        .iter()
-        .map(|param| {
-            let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
-            if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-            if needs_json {
-                if param.optional {
-                    format!("{}_core.as_deref().unwrap_or_default()", param.name)
-                } else {
-                    format!("{}_core", param.name)
-                }
-            } else {
-                // Use gen_call_args_cfg for regular params.
-                gen_call_args_cfg(
-                    std::slice::from_ref(param),
-                    opaque_types,
-                    cfg.cast_uints_to_i32,
-                    cfg.cast_large_ints_to_f64,
-                )
-            }
-        })
-        .collect();
-    let call_args_str = call_args.join(", ");
-
     // Determine the core function path.
     let core_fn_path = {
         let path = func.rust_path.replace('-', "_");
@@ -2235,11 +2210,23 @@ fn gen_extendr_json_bridged_function(
     for param in &func.params {
         let needs_json = matches!(&param.ty, TypeRef::Vec(inner)
             if matches!(inner.as_ref(), TypeRef::Named(n) if !opaque_types.contains(n.as_str())));
-        // Skip — bare Named extendr-incompatible structs already emit their `_core` binding
-        // via the JSON preamble in the param loop above.
-        let needs_json_struct = matches!(&param.ty, TypeRef::Named(n)
-            if extendr_incompatible_types.contains(n.as_str()));
-        if !needs_json && !needs_json_struct {
+        // Skip bare Named extendr-incompatible structs, enums, and other non-opaque structs
+        // already emit their `_core` binding via the JSON preamble in the param loop above.
+        let needs_json_enum = matches!(&param.ty, TypeRef::Named(n)
+            if enum_names.contains(n.as_str()))
+            || matches!(&param.ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())));
+        let needs_json_struct = !needs_json_enum
+            && (matches!(&param.ty, TypeRef::Named(n)
+            if extendr_incompatible_types.contains(n.as_str())
+                || (!opaque_types.contains(n.as_str())
+                    && !enum_names.contains(n.as_str())
+                    && !extendr_incompatible_types.contains(n.as_str())))
+                || matches!(&param.ty, TypeRef::Optional(inner)
+                if matches!(inner.as_ref(), TypeRef::Named(n)
+                    if !opaque_types.contains(n.as_str())
+                        && !enum_names.contains(n.as_str()))));
+        if !needs_json && !needs_json_struct && !needs_json_enum {
             if let TypeRef::Named(n) = &param.ty {
                 if !opaque_types.contains(n.as_str()) {
                     if param.optional {
@@ -2302,6 +2289,7 @@ fn gen_extendr_json_bridged_function(
                             && !enum_names.contains(n.as_str())
                             && !extendr_incompatible_types.contains(n.as_str()))));
             if needs_json {
+                // Vec<T> or Option<Vec<T>> JSON deserialized: pass as Vec/slice.
                 if param.optional {
                     format!("{}_core.as_deref().unwrap_or_default()", param.name)
                 } else if param.is_mut {
@@ -2309,10 +2297,19 @@ fn gen_extendr_json_bridged_function(
                 } else {
                     format!("{}_core", param.name)
                 }
-            } else if needs_json_struct
-                || needs_json_enum
-                || matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str()))
-            {
+            } else if needs_json_struct || needs_json_enum {
+                if param.optional && param.is_ref {
+                    format!("{}_core.as_ref()", param.name)
+                } else if param.optional {
+                    format!("{}_core", param.name)
+                } else if param.is_mut {
+                    format!("&mut {}_core", param.name)
+                } else if param.is_ref {
+                    format!("&{}_core", param.name)
+                } else {
+                    format!("{}_core", param.name)
+                }
+            } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
                 if param.optional {
                     format!("{}_core.as_ref()", param.name)
                 } else if param.is_mut {
@@ -2330,7 +2327,6 @@ fn gen_extendr_json_bridged_function(
             }
         })
         .collect();
-    let _ = call_args_str; // replaced by final_call_args
     let final_call_args_str = final_call_args.join(", ");
 
     // When the preamble emits `?` for JSON deserialization, the wrapping function must
@@ -2344,8 +2340,15 @@ fn gen_extendr_json_bridged_function(
             }
             _ => false,
         },
-        TypeRef::Named(n) => extendr_incompatible_types.contains(n.as_str()) || enum_names.contains(n.as_str()),
-        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n) if enum_names.contains(n.as_str())),
+        TypeRef::Named(n) => {
+            enum_names.contains(n.as_str())
+                || extendr_incompatible_types.contains(n.as_str())
+                || !opaque_types.contains(n.as_str())
+        }
+        TypeRef::Optional(inner) => matches!(inner.as_ref(), TypeRef::Named(n)
+            if enum_names.contains(n.as_str())
+                || extendr_incompatible_types.contains(n.as_str())
+                || !opaque_types.contains(n.as_str())),
         _ => false,
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;

@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extendr/R**: JSON-bridged optional named DTO and enum parameters now pass owned `Option<T>` values
+  to owned core parameters instead of `Option<&T>`, while still using references for ref parameters.
+  (`src/backends/extendr/gen_bindings/mod.rs`, `tests/backends_extendr_gen_bindings_test.rs`)
+
 - **magnus/Ruby**: delegatable free functions with `Vec<Named>` parameters now use the generated core
   let-bindings in the call path, matching non-delegated serde recovery and avoiding calls with Ruby wrapper
   values where core DTO values are required. (`src/backends/magnus/gen_bindings/functions.rs`)
