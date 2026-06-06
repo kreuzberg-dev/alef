@@ -1,0 +1,14 @@
+) -> {{ type_alias }} {
+    let __impl = {{ struct_name }} {
+{% if has_plugin_super -%}
+        plugin_name,
+        plugin_version,
+{% endif -%}
+{% for method_name in method_names -%}
+        {{ method_name }}: Box::new({{ method_name }}),
+{% endfor -%}
+    };
+    let __inner: {{ inner_path }} = std::sync::Arc::new(std::sync::Mutex::new(__impl));
+    {{ type_alias }}::from(__inner)
+}
+

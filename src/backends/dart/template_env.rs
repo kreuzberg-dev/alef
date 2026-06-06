@@ -350,6 +350,26 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/rust_trait_factory_method_init.jinja"),
     ),
     (
+        "rust_trait_type_alias_factory_doc.jinja",
+        include_str!("templates/rust_trait_type_alias_factory_doc.jinja"),
+    ),
+    (
+        "rust_trait_type_alias_factory_open.jinja",
+        include_str!("templates/rust_trait_type_alias_factory_open.jinja"),
+    ),
+    (
+        "rust_trait_type_alias_factory_param.jinja",
+        include_str!("templates/rust_trait_type_alias_factory_param.jinja"),
+    ),
+    (
+        "rust_trait_type_alias_factory_body.jinja",
+        include_str!("templates/rust_trait_type_alias_factory_body.jinja"),
+    ),
+    (
+        "rust_trait_options_from_json_with_field.jinja",
+        include_str!("templates/rust_trait_options_from_json_with_field.jinja"),
+    ),
+    (
         "rust_trait_method_param_conversion.jinja",
         include_str!("templates/rust_trait_method_param_conversion.jinja"),
     ),

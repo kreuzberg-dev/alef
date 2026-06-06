@@ -280,21 +280,20 @@ pub(crate) fn emit_trait_bridge(
             _ => format!("{}::{}", source_crate_name.replace('-', "_"), type_alias),
         };
 
-        out.push_str(&format!(
-            "/// Construct a `{type_alias}` from Dart callback closures.\n"
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_type_alias_factory_doc.jinja",
+            minijinja::context! {
+                type_alias => type_alias,
+                has_plugin_super => has_plugin_super,
+            },
         ));
-        out.push_str("/// FRB synthesises a Dart-callable function type for each closure parameter,\n");
-        out.push_str("/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`\n");
-        out.push_str("/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an\n");
-        out.push_str("/// opaque struct (FRB v2 cannot generate callable closure types in that shape).\n");
-        if has_plugin_super {
-            out.push_str("/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.\n");
-        }
-        out.push_str(&format!("pub async fn create_{trait_snake}(\n"));
-        if has_plugin_super {
-            out.push_str("    plugin_name: String,\n");
-            out.push_str("    plugin_version: String,\n");
-        }
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_type_alias_factory_open.jinja",
+            minijinja::context! {
+                trait_snake => &trait_snake,
+                has_plugin_super => has_plugin_super,
+            },
+        ));
         for method in &own_methods {
             let param_name = &method.name;
             let params: Vec<String> = method
@@ -312,27 +311,28 @@ pub(crate) fn emit_trait_bridge(
             // the bare ident — `DartFnFuture` is already brought into scope via the
             // `pub use flutter_rust_bridge::DartFnFuture` at the top of every generated
             // lib.rs (see `gen_rust_crate::mod::generate_lib_rs`).
-            out.push_str(&format!(
-                "    {param_name}: impl Fn({params_str}) -> DartFnFuture<{ret}> + Send + Sync + 'static,\n"
+            out.push_str(&crate::backends::dart::template_env::render(
+                "rust_trait_type_alias_factory_param.jinja",
+                minijinja::context! {
+                    param_name => param_name,
+                    params_str => &params_str,
+                    return_type => &ret,
+                },
             ));
         }
-        out.push_str(&format!(") -> {type_alias} {{\n"));
-        out.push_str(&format!("    let __impl = {struct_name} {{\n"));
-        if has_plugin_super {
-            out.push_str("        plugin_name,\n");
-            out.push_str("        plugin_version,\n");
-        }
-        for method in &own_methods {
-            out.push_str(&format!("        {name}: Box::new({name}),\n", name = method.name));
-        }
-        out.push_str("    };\n");
         // VisitorHandle is `Arc<Mutex<dyn HtmlVisitor + Send>>`. Build the inner alias and
         // wrap it in the local opaque struct via its `From<core_type>` impl.
-        out.push_str(&format!(
-            "    let __inner: {inner_path} = std::sync::Arc::new(std::sync::Mutex::new(__impl));\n"
+        let method_names: Vec<&str> = own_methods.iter().map(|method| method.name.as_str()).collect();
+        out.push_str(&crate::backends::dart::template_env::render(
+            "rust_trait_type_alias_factory_body.jinja",
+            minijinja::context! {
+                type_alias => type_alias,
+                struct_name => &struct_name,
+                has_plugin_super => has_plugin_super,
+                method_names => method_names,
+                inner_path => &inner_path,
+            },
         ));
-        out.push_str(&format!("    {type_alias}::from(__inner)\n"));
-        out.push_str("}\n");
 
         // --- 4b. Options-builder helper (options_field binding only) ---
         //
@@ -358,24 +358,17 @@ pub(crate) fn emit_trait_bridge(
                     _ => format!("{}::{}", source_crate_name.replace('-', "_"), options_type),
                 };
                 out.push('\n');
-                out.push_str(&format!(
-                    "/// Build a `{options_type}` from a JSON blob and attach a Dart-built\n"
+                out.push_str(&crate::backends::dart::template_env::render(
+                    "rust_trait_options_from_json_with_field.jinja",
+                    minijinja::context! {
+                        options_type => options_type,
+                        type_alias => type_alias,
+                        field => &field,
+                        options_snake => &options_snake,
+                        core_options_path => &core_options_path,
+                        inner_path => &inner_path,
+                    },
                 ));
-                out.push_str(&format!(
-                    "/// `{type_alias}` to its `{field}` field. The mirror struct uses `final`\n"
-                ));
-                out.push_str("/// dart fields, so callers cannot patch the visitor in after JSON load —\n");
-                out.push_str("/// this helper does the merge on the Rust side instead.\n");
-                out.push_str("#[frb]\n");
-                out.push_str(&format!(
-                    "pub fn create_{options_snake}_from_json_with_{field}(\n    json: String,\n    {field}: Option<{type_alias}>,\n) -> Result<{options_type}, String> {{\n"
-                ));
-                out.push_str(&format!(
-                    "    let mut __core: {core_options_path} = serde_json::from_str(&json).map_err(|e| e.to_string())?;\n"
-                ));
-                out.push_str(&format!("    __core.{field} = {field}.map(<{inner_path}>::from);\n"));
-                out.push_str(&format!("    Ok({options_type}::from(__core))\n"));
-                out.push_str("}\n");
             }
         }
     } else {

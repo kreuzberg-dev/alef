@@ -1,0 +1,14 @@
+/// Build a `{{ options_type }}` from a JSON blob and attach a Dart-built
+/// `{{ type_alias }}` to its `{{ field }}` field. The mirror struct uses `final`
+/// dart fields, so callers cannot patch the visitor in after JSON load --
+/// this helper does the merge on the Rust side instead.
+#[frb]
+pub fn create_{{ options_snake }}_from_json_with_{{ field }}(
+    json: String,
+    {{ field }}: Option<{{ type_alias }}>,
+) -> Result<{{ options_type }}, String> {
+    let mut __core: {{ core_options_path }} = serde_json::from_str(&json).map_err(|e| e.to_string())?;
+    __core.{{ field }} = {{ field }}.map(<{{ inner_path }}>::from);
+    Ok({{ options_type }}::from(__core))
+}
+

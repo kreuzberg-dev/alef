@@ -1,0 +1,6 @@
+pub async fn create_{{ trait_snake }}(
+{% if has_plugin_super -%}
+    plugin_name: String,
+    plugin_version: String,
+{% endif -%}
+

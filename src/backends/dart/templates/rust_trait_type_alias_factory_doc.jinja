@@ -1,0 +1,9 @@
+/// Construct a `{{ type_alias }}` from Dart callback closures.
+/// FRB synthesises a Dart-callable function type for each closure parameter,
+/// which is the whole point of taking them as `impl Fn(...) -> DartFnFuture<R>`
+/// parameters rather than storing them as `Box<dyn Fn(...)>` fields on an
+/// opaque struct (FRB v2 cannot generate callable closure types in that shape).
+{% if has_plugin_super -%}
+/// `plugin_name` and `plugin_version` are required for the Plugin super-trait.
+{% endif -%}
+
