@@ -203,7 +203,11 @@ pub(super) fn gen_rustler_method_call_args(
                 }
             }
             TypeRef::Vec(_) => {
-                if p.is_ref {
+                if p.is_ref && p.is_mut {
+                    // `&mut Vec<T>` derefs to `&mut [T]`. When the preamble creates a mutable
+                    // binding (e.g., `let mut handles_mut = ...`), pass the mutable reference.
+                    format!("&mut {}_mut", p.name)
+                } else if p.is_ref {
                     // `&Vec<T>` derefs to `&[T]`, which matches sample_core core for `&[String]`.
                     // For `&[&str]` signatures (Vec<String> inner), a refs intermediate is
                     // emitted in the caller body (gen_nif_function deser_lines) instead.
@@ -764,8 +768,10 @@ pub(super) fn gen_nif_async_function(
                                 // The element type is a binding enum/struct that needs conversion.
                                 // Convert each element via .into().
                                 if p.is_ref && p.is_mut {
-                                    // For &mut refs, create a mutable local binding so the closure
-                                    // can yield &mut references via iter_mut().
+                                    // For &mut refs to Vec<Named>, create a mutable local binding.
+                                    // The binding must be fully converted upfront so that the
+                                    // core call can borrow it mutably without lifetime issues
+                                    // from the closure environment.
                                     let mut_name = format!("{}_mut", p.name);
                                     deser_lines.push(format!("let mut {mut_name} = {}.iter().map(|e| e.clone().into()).collect::<Vec<_>>();", p.name));
                                     format!("&mut {mut_name}")
