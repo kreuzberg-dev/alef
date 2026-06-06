@@ -49,15 +49,35 @@ impl E2eCodegen for PhpExtCodegen {
             }]);
         }
 
-        // Resolve package config.
-        let pkg = e2e_config.registry.packages.get(lang);
-        let pkg_name = pkg
+        // Resolve package config. Try php_ext first, fall back to regular PHP package,
+        // then derive from call.module (stripping -rs suffix, as per Packagist naming conventions).
+        let pkg_ext = e2e_config.resolve_package(lang);
+        let pkg_php = e2e_config.resolve_package("php");
+
+        let pkg_name = pkg_ext
+            .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| format!("example/{}-ext", config.name));
-        let version = pkg
+            .or_else(|| pkg_php.as_ref().and_then(|p| p.name.as_ref()).cloned())
+            .unwrap_or_else(|| {
+                let org = config
+                    .try_github_repo()
+                    .ok()
+                    .as_deref()
+                    .and_then(crate::core::config::derive_repo_org)
+                    .unwrap_or_else(|| config.name.clone());
+                let mut pkg_module = e2e_config.call.module.replace('_', "-");
+                // Strip Rust FFI crate suffix for Packagist package naming convention.
+                if pkg_module.ends_with("-rs") {
+                    pkg_module = pkg_module[..pkg_module.len() - 3].to_string();
+                }
+                format!("{org}/{pkg_module}")
+            });
+        let version = pkg_ext
+            .as_ref()
             .and_then(|p| p.version.as_ref())
             .cloned()
+            .or_else(|| pkg_php.as_ref().and_then(|p| p.version.as_ref()).cloned())
             .unwrap_or_else(|| "0.1.0".to_string());
 
         let extension_name = config.php_extension_name();

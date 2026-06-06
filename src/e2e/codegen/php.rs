@@ -77,15 +77,22 @@ impl E2eCodegen for PhpCodegen {
             .and_then(|p| p.name.as_ref())
             .cloned()
             .unwrap_or_else(|| {
-                // Derive `<org>/<module>` from the configured repository URL —
-                // alef is vendor-neutral, so we don't fall back to a fixed org.
+                // Derive `<org>/<package>` for Packagist from the configured repository URL.
+                // The Packagist package name is typically based on call.module (not the Rust
+                // crate name), which may include `-rs` for FFI crates. For PHP (which uses
+                // the pure Packagist name without language suffixes), strip `-rs` if present.
                 let org = config
                     .try_github_repo()
                     .ok()
                     .as_deref()
                     .and_then(crate::core::config::derive_repo_org)
                     .unwrap_or_else(|| config.name.clone());
-                format!("{org}/{}", call.module.replace('_', "-"))
+                let mut pkg_module = call.module.replace('_', "-");
+                // Strip Rust FFI crate suffix for Packagist package naming convention.
+                if pkg_module.ends_with("-rs") {
+                    pkg_module = pkg_module[..pkg_module.len() - 3].to_string();
+                }
+                format!("{org}/{pkg_module}")
             });
         let pkg_path = php_pkg
             .as_ref()

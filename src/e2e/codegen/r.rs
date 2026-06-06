@@ -79,6 +79,17 @@ impl E2eCodegen for RCodegen {
             generated_header: true,
         });
 
+        // Generate install.R (registry mode only) — installs the published R package
+        // from GitHub releases before running tests. The pinned version is baked in at
+        // generate time so callers can run `Rscript install.R` with no args.
+        if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
+            files.push(GeneratedFile {
+                path: output_base.join("install.R"),
+                content: render_install_r(&pkg_name, &pkg_version),
+                generated_header: false,
+            });
+        }
+
         // setup-fixtures.R — testthat sources `setup-*.R` files in the tests
         // directory once before any tests run, with the working directory set
         // to the tests/ folder. We use this hook to chdir into the repo's
@@ -238,6 +249,52 @@ fn render_test_runner(pkg_path: &str, dep_mode: crate::e2e::config::DependencyMo
         ".script_dir <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) getwd())"
     );
     let _ = writeln!(out, "test_dir(file.path(.script_dir, \"tests\"))");
+    out
+}
+
+fn render_install_r(pkg_name: &str, pkg_version: &str) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "# alef-generated installer for registry-mode R test_app.");
+    let _ = writeln!(
+        out,
+        "# Installs the kreuzberg-dev/html-to-markdown R package from GitHub releases."
+    );
+    let _ = writeln!(out, "# Requires `R` on PATH.");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Version override: pass as commandArgs()[6] to test an");
+    let _ = writeln!(out, "# arbitrary tag; defaults to the alef-pinned version from");
+    let _ = writeln!(out, "# [crates.e2e.registry.packages.r].version.");
+    let _ = writeln!(out, "args <- commandArgs(trailingOnly = TRUE)");
+    let _ = writeln!(out, "VERSION <- if (length(args) > 0) args[1] else \"{pkg_version}\"");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Construct the GitHub release tarball URL for the htmltomarkdown R package."
+    );
+    let _ = writeln!(out, "url <- sprintf(");
+    let _ = writeln!(
+        out,
+        "  \"https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v%%s/{pkg_name}_%%s.tar.gz\","
+    );
+    let _ = writeln!(out, "  VERSION,");
+    let _ = writeln!(out, "  VERSION");
+    let _ = writeln!(out, ")");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Install from the release tarball without requiring devtools or remotes."
+    );
+    let _ = writeln!(out, "tryCatch({{",);
+    let _ = writeln!(
+        out,
+        "  install.packages(url, repos = NULL, type = \"source\", quiet = TRUE)"
+    );
+    let _ = writeln!(out, "  message(paste(\"Successfully installed {pkg_name}\", VERSION))");
+    let _ = writeln!(out, "}}, error = function(e) {{");
+    let _ = writeln!(out, "  message(paste(\"Error installing {pkg_name} from\", url))");
+    let _ = writeln!(out, "  message(conditionMessage(e))");
+    let _ = writeln!(out, "  quit(status = 1)");
+    let _ = writeln!(out, "}})");
     out
 }
 
