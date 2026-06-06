@@ -414,6 +414,31 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
+        // From<BindingEnum> for CoreEnum matches on the *binding* type, which never
+        // contains excluded variants — the match is always exhaustive. A wildcard
+        // arm would be unreachable and must not be emitted even when the core enum
+        // has excluded (binding-skipped) variants.
+        let mut enum_def = simple_enum();
+        enum_def.excluded_variants.push(EnumVariant {
+            name: "Tpu".into(),
+            fields: vec![],
+            doc: String::new(),
+            is_default: false,
+            serde_rename: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_tuple: false,
+            originally_had_data_fields: false,
+        });
+        let result = gen_enum_from_binding_to_core(&enum_def, "my_crate");
+        assert!(
+            !result.contains("_ => Default::default()"),
+            "catch-all arm must not be emitted for From<BindingEnum>→core; the binding match is always exhaustive"
+        );
+    }
+
     fn untagged_tuple_enum() -> EnumDef {
         EnumDef {
             name: "UserContent".to_string(),

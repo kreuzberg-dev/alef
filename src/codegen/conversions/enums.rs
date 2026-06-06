@@ -29,15 +29,16 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
         })
         .collect();
 
-    // Emit a wildcard arm when:
-    // 1. The core enum has cfg-gated variants (excluded from the IR's `variants` list), OR
-    // 2. The binding enum is unit-only but the core enum has struct-variants with data
-    //    (e.g., JSON-passthrough wrapper struct binding matching a struct-variant core enum).
-    //    The compiler sees all core variants at compile time, so we must cover unrepresented ones.
-    let has_excluded_variants = !enum_def.excluded_variants.is_empty();
-    let binding_is_unit_only = !config.binding_enums_have_data;
-    let core_has_struct_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty() && !v.is_tuple);
-    let needs_catch_all = has_excluded_variants || (binding_is_unit_only && core_has_struct_variants);
+    // The match is on the *binding* enum, which only contains `enum_def.variants`
+    // (excluded variants are absent from the binding type). Each variant in
+    // `enum_def.variants` gets its own arm, so the match is always exhaustive over
+    // the binding type. A wildcard `_ => Default::default()` arm is NEVER needed
+    // here — emitting one when all variants are covered produces an "unreachable
+    // pattern" error under `-D warnings`.
+    //
+    // Contrast with `gen_enum_from_core_to_binding_cfg` (core → binding), where
+    // the match is on the *core* type and excluded variants require a catch-all.
+    let needs_catch_all = false;
 
     crate::codegen::template_env::render(
         "conversions/enum_from_binding_to_core",

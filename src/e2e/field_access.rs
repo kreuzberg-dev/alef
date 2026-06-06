@@ -138,12 +138,17 @@ impl SwiftFirstClassMap {
     /// Returns true when fields on `type_name` should be accessed as properties
     /// (no parens), false when they should be accessed via method-call.
     ///
-    /// When `type_name` is `None` the renderer defaults to property syntax
-    /// (matching the common case where result types are first-class).
+    /// When `type_name` is `None` the renderer defaults to method-call syntax —
+    /// opaque swift-bridge types (with `.field()` methods) are the common case
+    /// for unknown roots. Defaulting to `true` (property syntax) caused the
+    /// e2e generator to emit `result.content` instead of `result.content()` for
+    /// opaque `ExtractionResult` and similar types whose IR root type was not
+    /// resolved by `swift_call_result_type`, producing a Swift compile error:
+    /// "value of type '@Sendable () -> RustString' has no member 'contains'".
     pub fn is_first_class(&self, type_name: Option<&str>) -> bool {
         match type_name {
             Some(t) => self.first_class_types.contains(t),
-            None => true,
+            None => false,
         }
     }
 
@@ -729,13 +734,18 @@ impl FieldResolver {
             ),
             "csharp" => render_csharp_with_optionals(&segments, result_var, &self.optional_fields),
             "zig" => render_zig_with_optionals(&segments, result_var, &self.optional_fields, &self.method_calls),
-            "swift" if !self.swift_first_class_map.is_empty() => render_swift_with_first_class_map(
+            // Always use `render_swift_with_first_class_map` for Swift. The map
+            // correctly handles both first-class (property syntax) and opaque
+            // (method-call syntax) types. When no type info is available (empty map,
+            // unknown root type), `is_first_class(None)` returns `false` so
+            // method-call syntax is the safe default — opaque swift-bridge types
+            // expose fields as methods, not properties.
+            "swift" => render_swift_with_first_class_map(
                 &segments,
                 result_var,
                 &self.optional_fields,
                 &self.swift_first_class_map,
             ),
-            "swift" => render_swift_with_optionals(&segments, result_var, &self.optional_fields),
             "dart" => render_dart_with_optionals(&segments, result_var, &self.optional_fields),
             "php" if !self.php_getter_map.is_empty() => {
                 render_php_with_getters(&segments, result_var, &self.php_getter_map)
@@ -1079,84 +1089,9 @@ fn render_swift(segments: &[PathSegment], result_var: &str) -> String {
     out
 }
 
-/// Generate a Swift accessor expression with optional chaining.
-///
-/// When an intermediate field is in `optional_fields`, a `?` is inserted after the
-/// `()` call on that segment so the next access uses `?.`. This prevents compile
-/// errors when accessing members through an `Optional<T>` in Swift.
-///
-/// Example: for `metadata.format.excel.sheet_count` where `metadata.format` and
-/// `metadata.format.excel` are optional, the result is:
-/// `result.metadata().format()?.excel()?.sheet_count()`
-fn render_swift_with_optionals(
-    segments: &[PathSegment],
-    result_var: &str,
-    optional_fields: &HashSet<String>,
-) -> String {
-    let mut out = result_var.to_string();
-    let mut path_so_far = String::new();
-    let total = segments.len();
-    for (i, seg) in segments.iter().enumerate() {
-        let is_leaf = i == total - 1;
-        match seg {
-            PathSegment::Field(f) => {
-                if !path_so_far.is_empty() {
-                    path_so_far.push('.');
-                }
-                path_so_far.push_str(f);
-                out.push('.');
-                // Swift bindings always use lowerCamelCase for both first-class
-                // `public let` properties and swift-bridge accessor methods.
-                out.push_str(&f.to_lower_camel_case());
-                // First-class Swift struct fields are properties (no parens).
-                // Insert `?` after the property name for non-leaf optional fields so the
-                // next member access becomes `?.`.
-                if !is_leaf && optional_fields.contains(&path_so_far) {
-                    out.push('?');
-                }
-            }
-            PathSegment::ArrayField { name, index } => {
-                if !path_so_far.is_empty() {
-                    path_so_far.push('.');
-                }
-                path_so_far.push_str(name);
-                let is_optional = optional_fields.contains(&path_so_far);
-                out.push('.');
-                out.push_str(&name.to_lower_camel_case());
-                if is_optional {
-                    // Optional<[T]>: unwrap before indexing.
-                    out.push_str(&format!("?[{index}]"));
-                } else {
-                    out.push_str(&format!("[{index}]"));
-                }
-                path_so_far.push_str("[0]");
-                let _ = is_leaf;
-            }
-            PathSegment::MapAccess { field, key } => {
-                if !path_so_far.is_empty() {
-                    path_so_far.push('.');
-                }
-                path_so_far.push_str(field);
-                out.push('.');
-                out.push_str(&field.to_lower_camel_case());
-                if key.chars().all(|c| c.is_ascii_digit()) {
-                    out.push_str(&format!("[{key}]"));
-                } else {
-                    out.push_str(&format!("[\"{key}\"]"));
-                }
-            }
-            PathSegment::Length => {
-                out.push_str(".count");
-            }
-        }
-    }
-    out
-}
-
-/// Like `render_swift_with_optionals` but dispatches per-segment between
-/// property access (first-class Codable struct) and method-call access
-/// (typealias-to-opaque RustBridge class). Uses the `SwiftFirstClassMap` to
-/// track the current type as the path advances.
+/// Dispatches per-segment between property access (first-class Codable struct)
+/// and method-call access (typealias-to-opaque RustBridge class). Uses the
+/// `SwiftFirstClassMap` to track the current type as the path advances.
 fn render_swift_with_first_class_map(
     segments: &[PathSegment],
     result_var: &str,
