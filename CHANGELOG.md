@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.18] - 2026-06-06
+
 ### Added
 
 - **config schema**: added a generated, versioned JSON Schema for `alef.toml` at `schemas/alef.schema.json`, a new `alef schema` command with `--check` support, and `task set-version` integration so schema metadata stays in lockstep with Alef release versions.
@@ -36,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **swift**: migrated additional Swift binding generated-code blocks to Jinja templates, including nested enum Codable cases, error property extensions, async forwarder bodies, trait bridge adapters, registration forwarders, and plugin box scaffolding. (`src/backends/swift`)
 
 - **swift**: migrated final coherent enum raw-value, JSON overload decode, trait bridge shell, and Ref alias extension emission to Jinja templates, leaving signature and call-expression assembly in Rust. (`src/backends/swift`)
+
+- **swift**: migrated remaining client-method, sync-forwarder, and function-parameter box emitted Swift
+  statement blocks to backend Jinja templates. (`src/backends/swift`)
 
 - **ffi**: migrated additional service API, trait bridge, visitor callback, enum helper, and constructor generated-source blocks to FFI Jinja templates, leaving only expression/name/list assembly in Rust where appropriate. (`src/backends/ffi`)
 
