@@ -939,6 +939,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_function_param_box_method_open.swift.jinja"),
     ),
     (
+        "swift_function_param_box_param_signature.swift.jinja",
+        include_str!("templates/swift_function_param_box_param_signature.swift.jinja"),
+    ),
+    (
         "swift_function_param_box_catching_body.swift.jinja",
         include_str!("templates/swift_function_param_box_catching_body.swift.jinja"),
     ),

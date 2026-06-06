@@ -5087,11 +5087,15 @@ func decodeJson<T: Decodable>(_ json: String, as type: T.Type) throws -> T {
                 let external = param.name.to_snake_case();
                 let internal = swift_ident(&param.name.to_lower_camel_case());
                 let ffi_type = swift_shim_param_ffi_type(&param.ty, param.optional);
-                if external == internal {
-                    param_sig.push_str(&format!("{internal}: {ffi_type}"));
-                } else {
-                    param_sig.push_str(&format!("{external} {internal}: {ffi_type}"));
-                }
+                param_sig.push_str(&crate::backends::swift::template_env::render(
+                    "swift_function_param_box_param_signature.swift.jinja",
+                    minijinja::context! {
+                        external => &external,
+                        internal => &internal,
+                        ffi_type => &ffi_type,
+                        uses_external_label => external != internal,
+                    },
+                ));
             }
 
             let return_ffi_type = swift_shim_return_ffi_type(method);

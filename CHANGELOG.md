@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **swift**: migrated function-parameter Box shim parameter signature fragments to a small Jinja template,
+  leaving list assembly in Rust. (`src/backends/swift/gen_bindings/mod.rs`)
+
 - **backends**: migrated more generated-source emission in C# opaque/record/trait callbacks, Dart FFI/Rust-crate/trait helpers, Extendr/R, FFI, Go service/type/trait helpers, Java, JNI shim marshalling, Kotlin/Kotlin Android wrappers, Magnus/Ruby service/tagged enum helpers, NAPI, PHP service/trait helpers, PyO3/Python, Rustler/Elixir wrapper helpers, Swift struct/Rust-wrapper helpers, WASM service wrappers, and Zig service/trait helpers from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/csharp`, `src/backends/dart`, `src/backends/extendr`, `src/backends/ffi`, `src/backends/go`, `src/backends/java`, `src/backends/jni`, `src/backends/kotlin`, `src/backends/kotlin_android`, `src/backends/magnus`, `src/backends/napi`, `src/backends/php`, `src/backends/pyo3`, `src/backends/rustler`, `src/backends/swift`, `src/backends/wasm`, `src/backends/zig`)
 
 - **rustler**: migrated remaining service API registration dispatch and entrypoint generated Rust blocks to Rustler Jinja templates, leaving type, name, metadata tuple, and argument list assembly in Rust. (`src/backends/rustler/gen_bindings/service_api.rs`)
