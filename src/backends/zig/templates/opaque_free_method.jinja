@@ -1,0 +1,4 @@
+    /// Release the underlying FFI handle. Safe to call once per instance.
+    pub fn free(self: *{{ type_name }}) void {
+        c.{{ prefix }}_{{ type_snake }}_free(@as(*c.{{ upper_prefix }}{{ type_name }}, @ptrCast(self._handle)));
+    }

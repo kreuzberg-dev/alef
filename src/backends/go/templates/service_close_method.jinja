@@ -1,0 +1,10 @@
+// Close frees the {{ service_name }} instance.
+func (s *{{ service_name }}) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.owner != nil {
+		C.{{ service_lower }}_{{ service_snake }}_free((*C.{{ upper_prefix }}{{ service_name }}Opaque)(s.owner))
+		s.owner = nil
+	}
+}
+

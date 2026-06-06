@@ -1,0 +1,13 @@
+  /**
+   * Create a new {{ class_name }} instance.
+   */
+{% if param_sig %}
+  static new({{ param_sig }}): {{ class_name }} {
+    return new {{ class_name }}({{ args }});
+  }
+{% else %}
+  static new(): {{ class_name }} {
+    return new {{ class_name }}();
+  }
+{% endif %}
+

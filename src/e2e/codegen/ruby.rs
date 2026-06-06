@@ -516,10 +516,8 @@ end
         );
         out.push_str(&harness_setup);
     } else if has_mock_server_fixtures {
-        let mock_server_block = crate::e2e::template_env::render(
-            "ruby/spec_helper_mock_server.rb.jinja",
-            minijinja::context! {},
-        );
+        let mock_server_block =
+            crate::e2e::template_env::render("ruby/spec_helper_mock_server.rb.jinja", minijinja::context! {});
         out.push_str(&mock_server_block);
     }
 

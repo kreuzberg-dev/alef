@@ -19,5 +19,6 @@
 
 mod gen_shims;
 pub mod service_api;
+mod template_env;
 
 pub use gen_shims::JniBackend;

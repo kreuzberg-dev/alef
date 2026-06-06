@@ -1,0 +1,58 @@
+impl {{ core_import }}::{{ trait_name }} for {{ bridge_name }} {
+    fn {{ dispatch_name }}(
+        &self{{ extra_param }},
+        {{ wire_name }}: {{ req_path }},
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {{ output_type }}> + Send + '_>> {
+        Box::pin(async move {
+        let outcome: {{ wire_output }} = async move {
+            let req_json = serde_json::to_string(&{{ wire_name }})
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+
+            let result_json = {
+                let env = self.jvm.attach_current_thread()
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("failed to attach JVM thread: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                let req_jni = env.new_string(&req_json)
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("failed to create JNI string: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)?;
+
+                let result: jni::sys::jstring = unsafe {
+                    // SAFETY: method_id was validated when bridge was created.
+                    // self.global_ref is valid for the JVM's lifetime.
+                    env.call_method_unchecked(
+                        self.global_ref.as_obj(),
+                        self.method_id,
+                        jni::sys::JNI_ABORT,
+                        &[jni::objects::JValue::from(&req_jni)],
+                    )?
+                        .l()?
+                        .as_raw()
+                };
+
+                let result_obj = unsafe {
+                    // SAFETY: result is a valid jstring from the JNI call.
+                    jni::objects::JString::from_raw(result)
+                };
+                env.get_string(&result_obj)?
+                    .into_string()
+                    .map_err(|e| Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        format!("response is not valid UTF-8: {}", e)
+                    )) as Box<dyn std::error::Error + Send + Sync>)?
+            };
+
+            let response: {{ resp_path }} = serde_json::from_str(&result_json)
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)?;
+            Ok(response)
+        }.await;
+
+        {{ tail }}
+        })
+    }
+}
+

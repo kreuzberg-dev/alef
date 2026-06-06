@@ -1219,9 +1219,6 @@ pub struct BarConfig {
              a private field named `setup` exists on the owner type; got {:?}",
             svc.configurators.iter().map(|m| m.name.as_str()).collect::<Vec<_>>()
         );
-        assert_eq!(
-            svc.configurators[0].name, "setup",
-            "configurator name must be `setup`"
-        );
+        assert_eq!(svc.configurators[0].name, "setup", "configurator name must be `setup`");
     }
 }

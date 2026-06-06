@@ -1,0 +1,4 @@
+    const _handle = c.{{ prefix }}_{{ type_snake }}_new({{ c_args }});
+    if (_handle == null) return _first_error(anyerror);
+    return .{ ._handle = @as(*c.{{ upper_prefix }}{{ type_name }}, @ptrCast(_handle.?)) };
+}

@@ -2,11 +2,14 @@ use crate::core::config::workspace::ClientConstructorConfig;
 use crate::core::ir::{MethodDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 use heck::AsSnakeCase;
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as FmtWrite;
 
 use super::errors::resolve_zig_error_type;
 use super::functions::{optional_int_sentinel, zig_return_type};
 use super::helpers::emit_cleaned_zig_doc;
+
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::zig::template_env::render(template_name, ctx)
+}
 
 /// Returns true if generating the param-conversion boilerplate for `p` will
 /// emit a `try` expression (heap allocation for string duplication).
@@ -96,8 +99,12 @@ pub(crate) fn emit_opaque_constructor(
     let upper_prefix = prefix.to_uppercase();
     let has_string_param = ctor.params.iter().any(|p| ffi_ty_needs_dupez(&p.ty));
 
-    // Doc comment
-    let _ = writeln!(out, "/// Create a new `{}` handle via the FFI constructor.", ty.name);
+    out.push_str(&render(
+        "opaque_constructor_doc.jinja",
+        minijinja::context! {
+            type_name => &ty.name,
+        },
+    ));
 
     // Signature: allocator is only needed when string params require dupeZ.
     let alloc_param = if has_string_param {
@@ -127,22 +134,27 @@ pub(crate) fn emit_opaque_constructor(
         .map(|(renamed_name, p)| format!("{}: {}", renamed_name, ffi_ty_to_zig(&p.ty)))
         .collect::<Vec<_>>()
         .join(", ");
-    let _ = writeln!(
-        out,
-        "pub fn create_{type_snake}({alloc_param}{params_str}) !{type_name} {{",
-        type_name = ty.name,
-    );
+    out.push_str(&render(
+        "opaque_constructor_signature.jinja",
+        minijinja::context! {
+            type_snake => &type_snake,
+            alloc_param => alloc_param,
+            params => &params_str,
+            type_name => &ty.name,
+        },
+    ));
 
     // Emit allocator-based dupeZ for string params, using renamed names.
     for (renamed_name, p) in renamed_params.iter().zip(ctor.params.iter()) {
         if ffi_ty_needs_dupez(&p.ty) {
             let c_name = format!("{}_z", p.name);
-            let _ = writeln!(
-                out,
-                "    const {c_name} = try allocator.dupeZ(u8, {param_name});",
-                param_name = renamed_name,
-            );
-            let _ = writeln!(out, "    defer allocator.free({c_name});");
+            out.push_str(&render(
+                "opaque_constructor_string_param.jinja",
+                minijinja::context! {
+                    c_name => &c_name,
+                    param_name => renamed_name,
+                },
+            ));
         }
     }
 
@@ -160,14 +172,16 @@ pub(crate) fn emit_opaque_constructor(
         .collect::<Vec<_>>()
         .join(", ");
 
-    let _ = writeln!(out, "    const _handle = c.{prefix}_{type_snake}_new({c_args});",);
-    let _ = writeln!(out, "    if (_handle == null) return _first_error(anyerror);",);
-    let _ = writeln!(
-        out,
-        "    return .{{ ._handle = @as(*c.{upper_prefix}{type_name}, @ptrCast(_handle.?)) }};",
-        type_name = ty.name,
-    );
-    let _ = writeln!(out, "}}");
+    out.push_str(&render(
+        "opaque_constructor_body.jinja",
+        minijinja::context! {
+            prefix => prefix,
+            type_snake => &type_snake,
+            c_args => &c_args,
+            upper_prefix => &upper_prefix,
+            type_name => &ty.name,
+        },
+    ));
 }
 
 /// Emit a Zig struct wrapper for an opaque handle type (one with `is_opaque = true`
@@ -199,7 +213,7 @@ pub(crate) fn emit_opaque_handle(
             let struct_name = format!("{}Stream", item_type);
             if !emitted_stream_structs.contains(&struct_name) {
                 emit_streaming_struct(method, ty, prefix, &type_snake, item_type, declared_errors, out);
-                let _ = writeln!(out);
+                out.push('\n');
                 emitted_stream_structs.insert(struct_name);
             }
         }
@@ -208,13 +222,17 @@ pub(crate) fn emit_opaque_handle(
     // Emit static methods (constructors) at the top level, before the struct definition.
     for method in ty.methods.iter().filter(|m| m.is_static) {
         emit_opaque_static_method(method, ty, prefix, declared_errors, struct_names, enum_names, out);
-        let _ = writeln!(out);
+        out.push('\n');
     }
 
     emit_cleaned_zig_doc(out, &ty.doc, "");
-    let _ = writeln!(out, "pub const {type_name} = struct {{", type_name = ty.name);
-    let _ = writeln!(out, "    _handle: *anyopaque,");
-    let _ = writeln!(out);
+    out.push_str(&render(
+        "opaque_handle_header.jinja",
+        minijinja::context! {
+            type_name => &ty.name,
+        },
+    ));
+    out.push('\n');
 
     for method in ty.methods.iter().filter(|m| !m.is_static) {
         emit_opaque_method(
@@ -228,7 +246,7 @@ pub(crate) fn emit_opaque_handle(
             enum_names,
             out,
         );
-        let _ = writeln!(out);
+        out.push('\n');
     }
 
     // Synthetic destructor: every opaque-handle type owns a heap allocation in
@@ -236,7 +254,7 @@ pub(crate) fn emit_opaque_handle(
     // C symbol. Emit a `free()` method that performs that release.
     emit_opaque_free(ty, prefix, &type_snake, out);
 
-    let _ = writeln!(out, "}};");
+    out.push_str("};\n");
 }
 
 /// Emit a static method (constructor) on an opaque handle type.
@@ -291,11 +309,15 @@ fn emit_opaque_static_method(
         ty.name.clone()
     };
 
-    let _ = writeln!(
-        out,
-        "pub fn {}_{type_snake}({}) {} {{",
-        method_snake, params_str, return_ty,
-    );
+    out.push_str(&render(
+        "opaque_static_signature.jinja",
+        minijinja::context! {
+            method_snake => &method_snake,
+            type_snake => &type_snake,
+            params => &params_str,
+            return_ty => &return_ty,
+        },
+    ));
 
     // Emit param conversions (string dupeZ, enum intFromEnum, struct JSON handles).
     for p in &method.params {
@@ -312,14 +334,14 @@ fn emit_opaque_static_method(
         args = c_args.join(", ")
     );
 
-    let _ = writeln!(out, "    const _handle = {c_call};");
-    let _ = writeln!(out, "    if (_handle == null) return _first_error(anyerror);");
-    let _ = writeln!(
-        out,
-        "    return .{{ ._handle = @as(*c.{upper_prefix}{type_name}, @ptrCast(_handle.?)) }};",
-        type_name = ty.name,
-    );
-    let _ = writeln!(out, "}}");
+    out.push_str(&render(
+        "opaque_static_body.jinja",
+        minijinja::context! {
+            c_call => &c_call,
+            upper_prefix => &upper_prefix,
+            type_name => &ty.name,
+        },
+    ));
 }
 
 /// Zig type for a method parameter, including enum marshalling (for static methods).
@@ -360,15 +382,26 @@ fn emit_static_method_param_conversion(
     // Enums: convert to i32 using @intFromEnum
     if let TypeRef::Named(type_name) = &p.ty {
         if enum_names.contains(type_name) {
-            let _ = writeln!(out, "    const {name}_i32: i32 = @intFromEnum({name});");
+            out.push_str(&render(
+                "opaque_param_enum_i32.jinja",
+                minijinja::context! {
+                    indent => "    ",
+                    name => name,
+                },
+            ));
             return;
         }
     }
 
     // String/Path: dupeZ to NUL-terminated pointer
     if matches!(&p.ty, TypeRef::String | TypeRef::Path) {
-        let _ = writeln!(out, "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});");
-        let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
+        out.push_str(&render(
+            "opaque_param_dupez.jinja",
+            minijinja::context! {
+                indent => "    ",
+                name => name,
+            },
+        ));
         return;
     }
 
@@ -380,11 +413,14 @@ fn emit_static_method_param_conversion(
                 if matches!(inner.as_ref(), TypeRef::String | TypeRef::Path)
         )
     {
-        let _ = writeln!(
-            out,
-            "    const {name}_z: ?[:0]u8 = if ({name}) |s| try std.heap.c_allocator.dupeZ(u8, s) else null;"
-        );
-        let _ = writeln!(out, "    defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        out.push_str(&render(
+            "opaque_param_optional_dupez.jinja",
+            minijinja::context! {
+                indent => "    ",
+                name => name,
+                capture => "s",
+            },
+        ));
         return;
     }
 
@@ -392,14 +428,16 @@ fn emit_static_method_param_conversion(
     if let TypeRef::Named(n) = &p.ty {
         if struct_names.contains(n) {
             let snake = AsSnakeCase(n).to_string();
-            let _ = writeln!(out, "    const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});");
-            let _ = writeln!(out, "    defer std.heap.c_allocator.free({name}_z);");
-            let _ = writeln!(
-                out,
-                "    const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
-            );
-            let _ = writeln!(out, "    if ({name}_handle == null) return error.InvalidJson;");
-            let _ = writeln!(out, "    defer c.{prefix}_{snake}_free({name}_handle);");
+            out.push_str(&render(
+                "opaque_param_named_from_json.jinja",
+                minijinja::context! {
+                    indent => "    ",
+                    name => name,
+                    prefix => prefix,
+                    snake => &snake,
+                    json_error_return => "return error.InvalidJson;",
+                },
+            ));
             return;
         }
     }
@@ -409,20 +447,16 @@ fn emit_static_method_param_conversion(
         if let TypeRef::Named(n) = inner.as_ref() {
             if struct_names.contains(n) {
                 let snake = AsSnakeCase(n).to_string();
-                let _ = writeln!(
-                    out,
-                    "    const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
-                );
-                let _ = writeln!(out, "    defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
-                let _ = writeln!(
-                    out,
-                    "    const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
-                );
-                let _ = writeln!(
-                    out,
-                    "    if ({name}_z != null and {name}_handle == null) return error.InvalidJson;"
-                );
-                let _ = writeln!(out, "    defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
+                out.push_str(&render(
+                    "opaque_param_optional_named_from_json.jinja",
+                    minijinja::context! {
+                        indent => "    ",
+                        name => name,
+                        prefix => prefix,
+                        snake => &snake,
+                        json_error_return => "return error.InvalidJson;",
+                    },
+                ));
             }
         }
     }
@@ -494,17 +528,15 @@ fn static_method_c_arg_names(
 /// by the FFI crate for every opaque handle type.
 fn emit_opaque_free(ty: &TypeDef, prefix: &str, type_snake: &str, out: &mut String) {
     let upper_prefix = prefix.to_uppercase();
-    let _ = writeln!(
-        out,
-        "    /// Release the underlying FFI handle. Safe to call once per instance."
-    );
-    let _ = writeln!(out, "    pub fn free(self: *{}) void {{", ty.name);
-    let _ = writeln!(
-        out,
-        "        c.{prefix}_{type_snake}_free(@as(*c.{upper_prefix}{type_name}, @ptrCast(self._handle)));",
-        type_name = ty.name,
-    );
-    let _ = writeln!(out, "    }}");
+    out.push_str(&render(
+        "opaque_free_method.jinja",
+        minijinja::context! {
+            type_name => &ty.name,
+            prefix => prefix,
+            type_snake => type_snake,
+            upper_prefix => &upper_prefix,
+        },
+    ));
 }
 
 /// Emit a Zig struct type for a streaming iterator.
@@ -534,63 +566,19 @@ fn emit_streaming_struct(
         .map(|e| resolve_zig_error_type(e, declared_errors))
         .unwrap_or_else(|| "anyerror".to_string());
 
-    let _ = writeln!(out, "/// Iterator over `{}` items in a streaming response.", item_type);
-    let _ = writeln!(out, "pub const {struct_name} = struct {{");
-    let _ = writeln!(out, "    _handle: *c.{upper_prefix}{item_type}Stream,");
-    let _ = writeln!(out);
-
-    // Emit next() method: returns `?ItemType` or error
-    let _ = writeln!(
-        out,
-        "    /// Fetch the next item from the stream, or null at end-of-stream."
-    );
-    let _ = writeln!(
-        out,
-        "    /// Returns an error on mid-stream failure; null on clean EOS."
-    );
-    let _ = writeln!(
-        out,
-        "    pub fn next(self: *{struct_name}) ({zig_error_type}||error{{OutOfMemory}})!?{item_type} {{"
-    );
-    let _ = writeln!(
-        out,
-        "        const _chunk = c.{prefix}_{type_snake}_{method_snake}_next(self._handle);"
-    );
-    let _ = writeln!(out, "        if (_chunk == null) {{");
-    let _ = writeln!(out, "            // Check errno: 0 = clean EOS, != 0 = error");
-    let _ = writeln!(
-        out,
-        "            if (c.{prefix}_last_error_code() != 0) return _first_error({zig_error_type});"
-    );
-    let _ = writeln!(out, "            return null;");
-    let _ = writeln!(out, "        }}");
-    let _ = writeln!(out, "        defer c.{prefix}_{item_snake}_free(_chunk);");
-    let _ = writeln!(out, "        const _json = c.{prefix}_{item_snake}_to_json(_chunk);");
-    let _ = writeln!(out, "        defer c.{prefix}_free_string(_json);");
-    let _ = writeln!(out, "        const _json_slice = std.mem.span(_json);");
-    // Parse the chunk JSON into `{item_type}` using std.json. We use
-    // `parseFromSliceLeaky` against the c_allocator so that the parsed value's
-    // string slices can outlive the FFI-owned `_json` buffer (which we free on
-    // the next line via the `defer` above). Callers receive an owned value with
-    // c_allocator-backed slices; releasing them is not strictly required for
-    // process-bounded tools but consumers can call
-    // `std.json.parseFromSliceLeaky`-style cleanup if they manage their own arena.
-    let _ = writeln!(
-        out,
-        "        return try std.json.parseFromSliceLeaky({item_type}, std.heap.c_allocator, _json_slice, .{{ .ignore_unknown_fields = true, .allocate = .alloc_always }});"
-    );
-    let _ = writeln!(out, "    }}");
-    let _ = writeln!(out);
-
-    // Emit deinit() method: releases the stream handle
-    let _ = writeln!(out, "    /// Release the underlying stream handle.");
-    let _ = writeln!(out, "    pub fn deinit(self: *{struct_name}) void {{");
-    let _ = writeln!(
-        out,
-        "        c.{prefix}_{type_snake}_{method_snake}_free(self._handle);"
-    );
-    let _ = writeln!(out, "    }}");
-    let _ = writeln!(out, "}};");
+    out.push_str(&render(
+        "opaque_stream_struct.jinja",
+        minijinja::context! {
+            item_type => item_type,
+            struct_name => &struct_name,
+            upper_prefix => &upper_prefix,
+            zig_error_type => &zig_error_type,
+            prefix => prefix,
+            type_snake => type_snake,
+            method_snake => &method_snake,
+            item_snake => &item_snake,
+        },
+    ));
 }
 
 /// Emit a streaming method on an opaque handle wrapper struct.
@@ -625,19 +613,8 @@ fn emit_opaque_streaming_method(
     // The Zig wrapper signature: self + one JSON request slice → struct
     let req_param = method.params.first().map(|p| p.name.as_str()).unwrap_or("req");
 
-    let _ = writeln!(
-        out,
-        "    pub fn {method_name}(self: *{type_name}, {req_param}: []const u8) ({zig_error_type}||error{{OutOfMemory}})!{struct_name} {{",
-        method_name = method.name,
-        type_name = ty.name,
-    );
-
     // Build the request handle.
     let req_param_lower = req_param.to_lowercase();
-    let _ = writeln!(
-        out,
-        "        const {req_param_lower}_z = try std.heap.c_allocator.dupeZ(u8, {req_param_lower});",
-    );
     // Derive the request type from the first param's type.
     let req_type_snake = if let Some(p) = method.params.first() {
         if let TypeRef::Named(n) = &p.ty {
@@ -648,37 +625,28 @@ fn emit_opaque_streaming_method(
     } else {
         "chat_completion_request".to_string()
     };
-    let _ = writeln!(
-        out,
-        "        const {req_param_lower}_handle = c.{prefix}_{req_type_snake}_from_json({req_param_lower}_z.ptr);",
-    );
-    let _ = writeln!(out, "        std.heap.c_allocator.free({req_param_lower}_z);");
-    let _ = writeln!(
-        out,
-        "        if ({req_param_lower}_handle == null) {{ return _first_error({zig_error_type}); }}",
-    );
-    let _ = writeln!(
-        out,
-        "        defer c.{prefix}_{req_type_snake}_free({req_param_lower}_handle);",
-    );
 
     // Start the stream.
     let c_handle_cast = format!(
         "@as(*c.{upper_prefix}{type_name}, @ptrCast(self._handle))",
         type_name = ty.name
     );
-    let _ = writeln!(
-        out,
-        "        const _stream_handle = c.{prefix}_{type_snake}_{method_snake}_start({c_handle_cast}, {req_param_lower}_handle);",
-    );
-    let _ = writeln!(
-        out,
-        "        if (_stream_handle == null) {{ return _first_error({zig_error_type}); }}",
-    );
-
-    // Return the stream struct without defer-freeing yet — caller owns it via deinit()
-    let _ = writeln!(out, "        return {struct_name}{{ ._handle = _stream_handle }};");
-    let _ = writeln!(out, "    }}");
+    out.push_str(&render(
+        "opaque_stream_method.jinja",
+        minijinja::context! {
+            method_name => &method.name,
+            type_name => &ty.name,
+            req_param => req_param,
+            zig_error_type => &zig_error_type,
+            struct_name => &struct_name,
+            req_param_lower => &req_param_lower,
+            prefix => prefix,
+            req_type_snake => &req_type_snake,
+            type_snake => type_snake,
+            method_snake => &method_snake,
+            c_handle_cast => &c_handle_cast,
+        },
+    ));
 }
 
 /// Emit a single method on an opaque handle wrapper struct.
@@ -775,13 +743,14 @@ fn emit_opaque_method(
         ret_ty_inner
     };
 
-    let _ = writeln!(
-        out,
-        "    pub fn {method_name}({params}) {return_ty} {{",
-        method_name = method.name,
-        params = params_str,
-        return_ty = return_ty,
-    );
+    out.push_str(&render(
+        "opaque_method_signature.jinja",
+        minijinja::context! {
+            method_name => &method.name,
+            params => &params_str,
+            return_ty => &return_ty,
+        },
+    ));
 
     // Emit param conversions (string alloc, struct JSON handle creation, enum conversion).
     let json_error_return = zig_error_type
@@ -799,9 +768,7 @@ fn emit_opaque_method(
     // reads the buffer back after the call.
     let returns_bytes = matches!(method.return_type, TypeRef::Bytes);
     if returns_bytes {
-        let _ = writeln!(out, "        var _out_ptr: [*c]u8 = undefined;");
-        let _ = writeln!(out, "        var _out_len: usize = 0;");
-        let _ = writeln!(out, "        var _out_cap: usize = 0;");
+        out.push_str(&render("opaque_bytes_out_vars.jinja", minijinja::context! {}));
     }
 
     // Build C argument list: handle pointer, then converted params, then
@@ -829,13 +796,27 @@ fn emit_opaque_method(
         if matches!(method.return_type, TypeRef::Unit) || returns_bytes {
             // Discard status / unit return — error state is queried via
             // `{prefix}_last_error_code()`.
-            let _ = writeln!(out, "        _ = {c_call};");
+            out.push_str(&render(
+                "opaque_method_call_discard.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         } else {
-            let _ = writeln!(out, "        const _result = {c_call};");
+            out.push_str(&render(
+                "opaque_method_call_result.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         }
-        let _ = writeln!(out, "        if (c.{prefix}_last_error_code() != 0) {{");
-        let _ = writeln!(out, "            return _first_error({err_ty});");
-        let _ = writeln!(out, "        }}");
+        out.push_str(&render(
+            "opaque_method_error_check.jinja",
+            minijinja::context! {
+                prefix => prefix,
+                error_type => err_ty,
+            },
+        ));
 
         // Free params after error check.
         for p in effective_params {
@@ -845,15 +826,20 @@ fn emit_opaque_method(
         if returns_bytes {
             // Copy the FFI-owned buffer into a Zig-owned heap allocation, then
             // release the FFI buffer via `{prefix}_free_bytes`.
-            let _ = writeln!(
-                out,
-                "        const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);"
-            );
-            let _ = writeln!(out, "        c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);");
-            let _ = writeln!(out, "        return _owned;");
+            out.push_str(&render(
+                "opaque_bytes_return.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
         } else if !matches!(method.return_type, TypeRef::Unit) {
             let ret_expr = method_unwrap_return_expr("_result", &method.return_type, prefix, struct_names);
-            let _ = writeln!(out, "        return {ret_expr};");
+            out.push_str(&render(
+                "opaque_method_return.jinja",
+                minijinja::context! {
+                    ret_expr => &ret_expr,
+                },
+            ));
         }
     } else {
         // Infallible method (or method using only error{OutOfMemory} from alloc).
@@ -861,23 +847,43 @@ fn emit_opaque_method(
             emit_method_param_free(p, prefix, struct_names, out);
         }
         if returns_bytes {
-            let _ = writeln!(out, "        _ = {c_call};");
-            let _ = writeln!(
-                out,
-                "        const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);"
-            );
-            let _ = writeln!(out, "        c.{prefix}_free_bytes(_out_ptr, _out_len, _out_cap);");
-            let _ = writeln!(out, "        return _owned;");
+            out.push_str(&render(
+                "opaque_method_call_discard.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
+            out.push_str(&render(
+                "opaque_bytes_return.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
         } else if matches!(method.return_type, TypeRef::Unit) {
-            let _ = writeln!(out, "        {c_call};");
+            out.push_str(&render(
+                "opaque_method_unit_call.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
         } else {
-            let _ = writeln!(out, "        const _result = {c_call};");
+            out.push_str(&render(
+                "opaque_method_call_result.jinja",
+                minijinja::context! {
+                    c_call => &c_call,
+                },
+            ));
             let ret_expr = method_unwrap_return_expr("_result", &method.return_type, prefix, struct_names);
-            let _ = writeln!(out, "        return {ret_expr};");
+            out.push_str(&render(
+                "opaque_method_return.jinja",
+                minijinja::context! {
+                    ret_expr => &ret_expr,
+                },
+            ));
         }
     }
 
-    let _ = writeln!(out, "    }}");
+    out.push_str("    }\n");
 }
 
 /// Zig type for a method parameter (same rules as function params).
@@ -921,7 +927,13 @@ fn emit_method_param_conversion(
     // Enums: convert to i32 using @intFromEnum
     if let TypeRef::Named(type_name) = &p.ty {
         if enum_names.contains(type_name) {
-            let _ = writeln!(out, "        const {name}_i32: i32 = @intFromEnum({name});");
+            out.push_str(&render(
+                "opaque_param_enum_i32.jinja",
+                minijinja::context! {
+                    indent => "        ",
+                    name => name,
+                },
+            ));
             return;
         }
     }
@@ -943,11 +955,14 @@ fn emit_method_param_conversion(
             TypeRef::String | TypeRef::Path
         )
     {
-        let _ = writeln!(
-            out,
-            "        const {name}_z: ?[:0]u8 = if ({name}) |s| try std.heap.c_allocator.dupeZ(u8, s) else null;"
-        );
-        let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
+        out.push_str(&render(
+            "opaque_param_optional_dupez.jinja",
+            minijinja::context! {
+                indent => "        ",
+                name => name,
+                capture => "s",
+            },
+        ));
         return;
     }
 
@@ -965,59 +980,61 @@ fn emit_method_param_conversion(
     };
     if let Some(n) = optional_named {
         let snake = AsSnakeCase(n).to_string();
-        let _ = writeln!(
-            out,
-            "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
-        );
-        let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
-        let _ = writeln!(
-            out,
-            "        const {name}_handle = if ({name}_z) |z| c.{prefix}_{snake}_from_json(z.ptr) else null;"
-        );
-        let _ = writeln!(
-            out,
-            "        if ({name}_z != null and {name}_handle == null) {json_error_return}"
-        );
-        let _ = writeln!(out, "        defer if ({name}_handle) |h| c.{prefix}_{snake}_free(h);");
+        out.push_str(&render(
+            "opaque_param_optional_named_from_json.jinja",
+            minijinja::context! {
+                indent => "        ",
+                name => name,
+                prefix => prefix,
+                snake => &snake,
+                json_error_return => json_error_return,
+            },
+        ));
         return;
     }
 
     match &p.ty {
         TypeRef::String | TypeRef::Path => {
-            let _ = writeln!(
-                out,
-                "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
-            );
-            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
+            out.push_str(&render(
+                "opaque_param_dupez.jinja",
+                minijinja::context! {
+                    indent => "        ",
+                    name => name,
+                },
+            ));
         }
         TypeRef::Vec(_) | TypeRef::Map(_, _) => {
-            let _ = writeln!(
-                out,
-                "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
-            );
-            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
+            out.push_str(&render(
+                "opaque_param_dupez.jinja",
+                minijinja::context! {
+                    indent => "        ",
+                    name => name,
+                },
+            ));
         }
         TypeRef::Named(n) if struct_names.contains(n) => {
             let snake = AsSnakeCase(n).to_string();
-            let _ = writeln!(
-                out,
-                "        const {name}_z = try std.heap.c_allocator.dupeZ(u8, {name});"
-            );
-            let _ = writeln!(out, "        defer std.heap.c_allocator.free({name}_z);");
-            let _ = writeln!(
-                out,
-                "        const {name}_handle = c.{prefix}_{snake}_from_json({name}_z.ptr);"
-            );
-            let _ = writeln!(out, "        if ({name}_handle == null) {json_error_return}");
-            let _ = writeln!(out, "        defer c.{prefix}_{snake}_free({name}_handle);");
+            out.push_str(&render(
+                "opaque_param_named_from_json.jinja",
+                minijinja::context! {
+                    indent => "        ",
+                    name => name,
+                    prefix => prefix,
+                    snake => &snake,
+                    json_error_return => json_error_return,
+                },
+            ));
         }
         TypeRef::Optional(inner) => {
             if let TypeRef::Vec(_) | TypeRef::Map(_, _) = inner.as_ref() {
-                let _ = writeln!(
-                    out,
-                    "        const {name}_z: ?[:0]u8 = if ({name}) |v| try std.heap.c_allocator.dupeZ(u8, v) else null;"
-                );
-                let _ = writeln!(out, "        defer if ({name}_z) |z| std.heap.c_allocator.free(z);");
+                out.push_str(&render(
+                    "opaque_param_optional_dupez.jinja",
+                    minijinja::context! {
+                        indent => "        ",
+                        name => name,
+                        capture => "v",
+                    },
+                ));
             }
         }
         _ => {}

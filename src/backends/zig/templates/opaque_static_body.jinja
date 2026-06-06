@@ -1,0 +1,4 @@
+    const _handle = {{ c_call }};
+    if (_handle == null) return _first_error(anyerror);
+    return .{ ._handle = @as(*c.{{ upper_prefix }}{{ type_name }}, @ptrCast(_handle.?)) };
+}

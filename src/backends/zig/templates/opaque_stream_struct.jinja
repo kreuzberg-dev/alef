@@ -1,0 +1,25 @@
+/// Iterator over `{{ item_type }}` items in a streaming response.
+pub const {{ struct_name }} = struct {
+    _handle: *c.{{ upper_prefix }}{{ item_type }}Stream,
+
+    /// Fetch the next item from the stream, or null at end-of-stream.
+    /// Returns an error on mid-stream failure; null on clean EOS.
+    pub fn next(self: *{{ struct_name }}) ({{ zig_error_type }}||error{OutOfMemory})!?{{ item_type }} {
+        const _chunk = c.{{ prefix }}_{{ type_snake }}_{{ method_snake }}_next(self._handle);
+        if (_chunk == null) {
+            // Check errno: 0 = clean EOS, != 0 = error
+            if (c.{{ prefix }}_last_error_code() != 0) return _first_error({{ zig_error_type }});
+            return null;
+        }
+        defer c.{{ prefix }}_{{ item_snake }}_free(_chunk);
+        const _json = c.{{ prefix }}_{{ item_snake }}_to_json(_chunk);
+        defer c.{{ prefix }}_free_string(_json);
+        const _json_slice = std.mem.span(_json);
+        return try std.json.parseFromSliceLeaky({{ item_type }}, std.heap.c_allocator, _json_slice, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
+    }
+
+    /// Release the underlying stream handle.
+    pub fn deinit(self: *{{ struct_name }}) void {
+        c.{{ prefix }}_{{ type_snake }}_{{ method_snake }}_free(self._handle);
+    }
+};

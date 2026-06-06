@@ -88,31 +88,13 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     let mut out = String::new();
     let ffi_header = config.ffi_header_name();
 
-    out.push_str(&format!("package {pkg_name}\n\n"));
-
-    // cgo preamble with C headers
-    out.push_str("/*\n");
-    out.push_str("#include <string.h>\n");
-    out.push_str(&format!("#include \"{ffi_header}\"\n"));
-    // Forward declaration of the exported Go callback function
-    out.push_str("extern char* service_handler_callback(void* ctx, char* req);\n");
-    // Define a function pointer typedef for the callback signature
-    out.push_str("typedef char* (*ServiceHandlerCallbackPtr)(void*, const char*);\n");
-    // Static inline helper to avoid duplicate symbols when preamble is included multiple times
-    out.push_str("static inline ServiceHandlerCallbackPtr get_service_handler_callback(void) {\n");
-    out.push_str("  return (ServiceHandlerCallbackPtr)service_handler_callback;\n");
-    out.push_str("}\n");
-    out.push_str("*/\n");
-    out.push_str("import \"C\"\n\n");
-
-    // Standard Go imports (separate from cgo import "C")
-    out.push_str("import (\n");
-    out.push_str("\t\"encoding/json\"\n");
-    out.push_str("\t\"errors\"\n");
-    out.push_str("\t\"fmt\"\n");
-    out.push_str("\t\"sync\"\n");
-    out.push_str("\t\"unsafe\"\n");
-    out.push_str(")\n\n");
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_file_preamble.jinja",
+        minijinja::context! {
+            pkg_name => pkg_name,
+            ffi_header => ffi_header,
+        },
+    ));
 
     // Generate C function references (now more of a comment section, not real FFI decls)
     out.push_str("// ──────────────────────────────────────────── Service Definitions ──\n\n");
@@ -222,65 +204,10 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
 
 /// Generate the handler registry and cgo trampoline.
 fn gen_handler_registry(out: &mut String) {
-    out.push_str("// HandlerFunc is the signature for Go handler functions.\n");
-    out.push_str("// They receive JSON-serialized request and return JSON response.\n");
-    out.push_str("type HandlerFunc func([]byte) ([]byte, error)\n\n");
-
-    out.push_str("// handlerRegistry maps opaque context indices to Go handlers.\n");
-    out.push_str("var (\n");
-    out.push_str("\thandlerRegistryMu sync.Mutex\n");
-    out.push_str("\thandlerRegistry   = make(map[uintptr]HandlerFunc)\n");
-    out.push_str("\thandlerNextID     uintptr = 1\n");
-    out.push_str(")\n\n");
-
-    out.push_str("// registerHandler stores a Go handler in the registry and returns its opaque context ID.\n");
-    out.push_str("func registerHandler(fn HandlerFunc) uintptr {\n");
-    out.push_str("\thandlerRegistryMu.Lock()\n");
-    out.push_str("\tdefer handlerRegistryMu.Unlock()\n");
-    out.push_str("\tid := handlerNextID\n");
-    out.push_str("\thandlerNextID++\n");
-    out.push_str("\thandlerRegistry[id] = fn\n");
-    out.push_str("\treturn id\n");
-    out.push_str("}\n\n");
-
-    out.push_str("// unregisterHandler removes a handler from the registry.\n");
-    out.push_str("func unregisterHandler(id uintptr) {\n");
-    out.push_str("\thandlerRegistryMu.Lock()\n");
-    out.push_str("\tdefer handlerRegistryMu.Unlock()\n");
-    out.push_str("\tdelete(handlerRegistry, id)\n");
-    out.push_str("}\n\n");
-
-    out.push_str("// invokeHandler looks up a handler by ID and invokes it with the request JSON.\n");
-    out.push_str("// Returns the response JSON or an error.\n");
-    out.push_str("func invokeHandler(ctx uintptr, reqJSON []byte) ([]byte, error) {\n");
-    out.push_str("\thandlerRegistryMu.Lock()\n");
-    out.push_str("\thandler, ok := handlerRegistry[ctx]\n");
-    out.push_str("\thandlerRegistryMu.Unlock()\n");
-    out.push_str("\tif !ok {\n");
-    out.push_str("\t\treturn nil, errors.New(\"handler not found\")\n");
-    out.push_str("\t}\n");
-    out.push_str("\treturn handler(reqJSON)\n");
-    out.push_str("}\n\n");
-
-    out.push_str("// cgo trampoline matching the C callback typedef:\n");
-    out.push_str("// char* (*)(void* context, const char* request_json)\n");
-    out.push_str("//\n");
-    out.push_str("// This function is exported with //export so cgo can call it from C.\n");
-    out.push_str("// It looks up the handler in the registry and invokes it.\n");
-    out.push_str("//\n");
-    out.push_str("//export service_handler_callback\n");
-    out.push_str("func service_handler_callback(ctx unsafe.Pointer, reqCStr *C.char) *C.char {\n");
-    out.push_str("\tctxID := uintptr(ctx)\n");
-    out.push_str("\treqJSON := C.GoBytes(unsafe.Pointer(reqCStr), C.int(C.strlen(reqCStr)))\n\n");
-    out.push_str("\trespJSON, err := invokeHandler(ctxID, reqJSON)\n");
-    out.push_str("\tif err != nil {\n");
-    out.push_str("\t\terrJSON, _ := json.Marshal(map[string]string{\"error\": err.Error()})\n");
-    out.push_str("\t\trespJSON = errJSON\n");
-    out.push_str("\t}\n\n");
-    out.push_str("\t// Allocate C string from Go heap (caller responsible for freeing).\n");
-    out.push_str("\tcResp := C.CString(string(respJSON))\n");
-    out.push_str("\treturn cResp\n");
-    out.push_str("}\n\n");
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_handler_registry.jinja",
+        minijinja::context! {},
+    ));
 }
 
 /// Render a (possibly multi-line) doc string as a Go doc comment block.
@@ -313,47 +240,35 @@ fn gen_service_struct(
     let service_lower = ffi_prefix.to_lowercase();
     let upper_prefix = ffi_prefix.to_uppercase();
 
-    // Service struct
-    out.push_str(&format!(
-        "// {} is a wrapper around the native service.\n",
-        service_name
+    let doc_block = if service.doc.is_empty() {
+        String::new()
+    } else {
+        go_doc_block(&service.doc)
+    };
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_struct.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            upper_prefix => upper_prefix,
+            doc_block => doc_block,
+        },
     ));
-    if !service.doc.is_empty() {
-        out.push_str(&go_doc_block(&service.doc));
-    }
-    out.push_str(&format!(
-        "type {} struct {{\n\
-         \towner unsafe.Pointer // *{}{}Opaque from C\n\
-         \tmu    sync.Mutex\n\
-         }}\n\n",
-        service_name, upper_prefix, service_name
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_constructor.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            service_lower => service_lower,
+            service_snake => service_snake,
+        },
     ));
-
-    // Constructor
-    out.push_str(&format!(
-        "// New{service_name} creates a new {service_name} instance.\n"
-    ));
-    out.push_str(&format!(
-        "func New{service_name}() (*{service_name}, error) {{\n\
-         \towner := unsafe.Pointer(C.{service_lower}_{service_snake}_new())\n\
-         \tif owner == nil {{\n\
-         \t\treturn nil, errors.New(\"failed to create {service_name}\")\n\
-         \t}}\n\
-         \treturn &{service_name}{{owner: owner}}, nil\n\
-         }}\n\n"
-    ));
-
-    // Destructor
-    out.push_str(&format!("// Close frees the {service_name} instance.\n"));
-    out.push_str(&format!(
-        "func (s *{service_name}) Close() {{\n\
-         \ts.mu.Lock()\n\
-         \tdefer s.mu.Unlock()\n\
-         \tif s.owner != nil {{\n\
-         \t\tC.{service_lower}_{service_snake}_free((*C.{upper_prefix}{service_name}Opaque)(s.owner))\n\
-         \t\ts.owner = nil\n\
-         \t}}\n\
-         }}\n\n"
+    out.push_str(&crate::backends::go::template_env::render(
+        "service_close_method.jinja",
+        minijinja::context! {
+            service_name => service_name,
+            service_lower => service_lower,
+            service_snake => service_snake,
+            upper_prefix => upper_prefix,
+        },
     ));
 
     // Registration methods

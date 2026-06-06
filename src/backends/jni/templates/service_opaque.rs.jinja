@@ -1,0 +1,39 @@
+/// Opaque handle to a {{ service_name }} service instance.
+/// Allocated by constructor_{{ service_snake }}(), freed by free_{{ service_snake }}().
+/// Thread safety: this handle wraps the Rust owner, which may not be Send/Sync.
+/// The JNI binding layer is responsible for thread synchronization via JVM thread attachment.
+#[repr(C)]
+pub struct {{ opaque_name }} {
+    pub inner: {{ owner_path }},
+}
+
+/// Allocate a new {{ service_name }} instance.
+///
+/// Returns the address as a jlong pointer. This pointer must be freed via free_{{ service_snake }}().
+/// Never dereference this pointer after freeing it.
+#[no_mangle]
+pub extern "system" fn {{ ctor_symbol }}() -> jlong {
+    let owner = {{ owner_path }}::{{ constructor_name }}();
+    let opaque = Box::new({{ opaque_name }} {
+        inner: owner,
+    });
+    Box::into_raw(opaque) as jlong
+}
+
+/// Free a {{ service_name }} instance allocated by constructor_{{ service_snake }}().
+///
+/// # Safety
+/// - handle must have been allocated by constructor_{{ service_snake }}().
+/// - After this call, handle is invalid and must not be dereferenced.
+/// - Calling this twice on the same handle causes undefined behavior.
+#[no_mangle]
+pub extern "system" fn {{ dtor_symbol }}(_env: EnvUnowned, _class: JClass, handle: jlong) {
+    if handle != 0 {
+        // SAFETY: handle was allocated by into_raw above; we are the sole owner
+        // and this is the final drop.
+        unsafe {
+            let _ = Box::from_raw(handle as *mut {{ opaque_name }});
+        }
+    }
+}
+

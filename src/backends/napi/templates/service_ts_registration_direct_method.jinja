@@ -1,0 +1,8 @@
+  /**
+   * Register a {{ method_name }} callback directly.
+   */
+  {{ direct_name }}({{ full_sig }}): this {
+    this._registrations.push(["{{ method_name }}", {{ meta_array }}, handler]);
+    return this;
+  }
+

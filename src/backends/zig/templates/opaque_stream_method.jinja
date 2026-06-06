@@ -1,0 +1,10 @@
+    pub fn {{ method_name }}(self: *{{ type_name }}, {{ req_param }}: []const u8) ({{ zig_error_type }}||error{OutOfMemory})!{{ struct_name }} {
+        const {{ req_param_lower }}_z = try std.heap.c_allocator.dupeZ(u8, {{ req_param_lower }});
+        const {{ req_param_lower }}_handle = c.{{ prefix }}_{{ req_type_snake }}_from_json({{ req_param_lower }}_z.ptr);
+        std.heap.c_allocator.free({{ req_param_lower }}_z);
+        if ({{ req_param_lower }}_handle == null) { return _first_error({{ zig_error_type }}); }
+        defer c.{{ prefix }}_{{ req_type_snake }}_free({{ req_param_lower }}_handle);
+        const _stream_handle = c.{{ prefix }}_{{ type_snake }}_{{ method_snake }}_start({{ c_handle_cast }}, {{ req_param_lower }}_handle);
+        if (_stream_handle == null) { return _first_error({{ zig_error_type }}); }
+        return {{ struct_name }}{ ._handle = _stream_handle };
+    }

@@ -1,0 +1,7 @@
+/// Call the `{{ ep_method }}` entrypoint on the inner service.
+{% if doc %}
+///
+{{ doc }}
+{% endif %}
+#[napi(js_name = "{{ js_name }}")]
+pub {{ async_kw }}fn {{ ep_method }}({{ param_sig }}) -> napi::Result<{{ return_ty }}> {

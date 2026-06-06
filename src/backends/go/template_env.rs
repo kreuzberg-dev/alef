@@ -34,6 +34,23 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/package_doc_and_declaration.jinja"),
     ),
     (
+        "service_file_preamble.jinja",
+        include_str!("templates/service_file_preamble.jinja"),
+    ),
+    (
+        "service_handler_registry.jinja",
+        include_str!("templates/service_handler_registry.jinja"),
+    ),
+    ("service_struct.jinja", include_str!("templates/service_struct.jinja")),
+    (
+        "service_constructor.jinja",
+        include_str!("templates/service_constructor.jinja"),
+    ),
+    (
+        "service_close_method.jinja",
+        include_str!("templates/service_close_method.jinja"),
+    ),
+    (
         "cgo_preamble_binding.jinja",
         include_str!("templates/cgo_preamble_binding.jinja"),
     ),

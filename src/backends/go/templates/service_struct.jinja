@@ -1,0 +1,6 @@
+// {{ service_name }} is a wrapper around the native service.
+{{ doc_block }}type {{ service_name }} struct {
+	owner unsafe.Pointer // *{{ upper_prefix }}{{ service_name }}Opaque from C
+	mu    sync.Mutex
+}
+

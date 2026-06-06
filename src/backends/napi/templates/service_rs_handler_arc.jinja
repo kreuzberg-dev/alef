@@ -1,0 +1,2 @@
+    let bridge = {{ bridge_name }}::new(handler);
+    let handler_arc: std::sync::Arc<dyn {{ core_import }}::{{ contract_name }}> = std::sync::Arc::new(bridge);

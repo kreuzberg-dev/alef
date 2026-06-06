@@ -1,0 +1,19 @@
+/// Generated JNI bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a global JVM reference to a Java handler object so it can be used
+/// as `Arc<dyn {{ trait_name }}>` from Rust async code.
+pub struct {{ bridge_name }} {
+    /// Global JVM reference to the Java handler object.
+    global_ref: jni::objects::GlobalRef,
+    /// The JavaVM pointer for thread attachment.
+    jvm: jni::JavaVM,
+    /// Method ID for the dispatch method (cached for performance).
+    method_id: jni::sys::jmethodID,
+}
+
+// SAFETY: GlobalRef is Send+Sync once obtained in JVM context.
+// JavaVM is Send+Sync per jni crate semantics (one global VM per process).
+// jmethodID is stable for the method lifetime.
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+

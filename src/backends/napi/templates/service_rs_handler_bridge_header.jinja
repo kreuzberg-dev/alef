@@ -1,0 +1,20 @@
+/// Generated NAPI bridge for the `{{ trait_name }}` contract.
+///
+/// Wraps a JavaScript callable (async) via ThreadsafeFunction
+/// so it can be used as `Arc<dyn {{ trait_name }}>` from Rust async code.
+pub struct {{ bridge_name }} {
+    handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>,
+}
+
+impl {{ bridge_name }} {
+    /// Create a bridge from a JavaScript callable.
+    pub fn new(handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>) -> Self {
+        Self { handler_fn }
+    }
+}
+
+// SAFETY: ThreadsafeFunction is Send+Sync. We call it only from async contexts
+// where the NAPI env is valid (within the async task spawned by call_async).
+unsafe impl Send for {{ bridge_name }} {}
+unsafe impl Sync for {{ bridge_name }} {}
+

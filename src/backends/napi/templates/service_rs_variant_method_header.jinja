@@ -1,0 +1,7 @@
+/// Register a handler via the `{{ variant_name }}` variant shortcut.
+{% if doc %}
+///
+/// {{ doc }}
+{% endif %}
+#[napi]
+pub fn {{ variant_name }}({{ param_sig }}) -> napi::Result<()> {

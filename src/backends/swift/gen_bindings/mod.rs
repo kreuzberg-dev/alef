@@ -3980,6 +3980,10 @@ fn emit_async_free_function_forwarder(
                 ),
             )
         }
+        TypeRef::String => (
+            format!("try RustBridge.{swift_name}({args})"),
+            "        return result.toString()".to_string(),
+        ),
         _ => (
             format!("try RustBridge.{swift_name}({args})"),
             "        return result".to_string(),

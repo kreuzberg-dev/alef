@@ -1,0 +1,21 @@
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn {{ symbol }}(
+    mut env: EnvUnowned,
+    _class: JClass,
+{{ param_sigs }}) -> jlong {
+    // SAFETY: env is a valid EnvUnowned passed by the JVM for this native call frame.
+    let mut __jni_attach_guard = unsafe { jni::AttachGuard::from_unowned(env.as_raw()) };
+    let env = __jni_attach_guard.borrow_env_mut();
+{{ unmarshal }}
+    let Some(result) = run_or_throw(env, std::panic::AssertUnwindSafe(|| {{ call_expr }})) else {
+        return 0;
+    };
+    match result {
+        Err(e) => {
+            throw_jni_error(env, &format!("{e}"));
+            0
+        }
+        Ok(v) => Box::into_raw(Box::new(v)) as jlong,
+    }
+}
+

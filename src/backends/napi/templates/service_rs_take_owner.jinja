@@ -1,0 +1,4 @@
+    let owner = {
+        let mut guard = {{ inner_accessor }};
+        std::mem::take(&mut *guard)
+    };

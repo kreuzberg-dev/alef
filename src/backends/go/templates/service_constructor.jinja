@@ -1,0 +1,9 @@
+// New{{ service_name }} creates a new {{ service_name }} instance.
+func New{{ service_name }}() (*{{ service_name }}, error) {
+	owner := unsafe.Pointer(C.{{ service_lower }}_{{ service_snake }}_new())
+	if owner == nil {
+		return nil, errors.New("failed to create {{ service_name }}")
+	}
+	return &{{ service_name }}{owner: owner}, nil
+}
+

@@ -1,0 +1,8 @@
+{% if class_doc %}
+/**
+ * {{ class_doc }}
+ */
+{% endif %}
+export class {{ class_name }} {
+  private _registrations: Array<[string, any[], (...args: any[]) => any]> = [];
+

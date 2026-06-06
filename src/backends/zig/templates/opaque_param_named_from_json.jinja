@@ -1,0 +1,5 @@
+{{ indent }}const {{ name }}_z = try std.heap.c_allocator.dupeZ(u8, {{ name }});
+{{ indent }}defer std.heap.c_allocator.free({{ name }}_z);
+{{ indent }}const {{ name }}_handle = c.{{ prefix }}_{{ snake }}_from_json({{ name }}_z.ptr);
+{{ indent }}if ({{ name }}_handle == null) {{ json_error_return }}
+{{ indent }}defer c.{{ prefix }}_{{ snake }}_free({{ name }}_handle);

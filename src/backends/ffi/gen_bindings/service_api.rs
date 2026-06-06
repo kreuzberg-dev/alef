@@ -983,11 +983,15 @@ fn gen_configurator_function(
         .collect::<Vec<_>>()
         .join(", ");
 
-    out.push_str("    owner.inner = owner.inner.");
+    // Configurator methods on the owner type take `self` (consuming) and return `Self`.
+    // `owner.inner` is `Box<OwnerType>`, so calling a consuming method through auto-deref
+    // yields `OwnerType` (unboxed). The result must be re-boxed before assigning back.
+    out.push_str("    let inner = *owner.inner;\n");
+    out.push_str("    owner.inner = Box::new(inner.");
     out.push_str(&cfg.name);
     out.push('(');
     out.push_str(&call_args);
-    out.push_str(");\n");
+    out.push_str("));\n");
     out.push_str("    Box::into_raw(owner)\n");
     out.push_str("}\n\n");
 }
@@ -1651,6 +1655,97 @@ mod tests {
         assert!(
             !rs.contains("fn my_crate_app_plain("),
             "plain variant without wrapper_call must not emit a C symbol"
+        );
+    }
+
+    /// Configurator functions must unbox the owner's inner field before calling the
+    /// consuming method and re-box the result. The opaque handle stores the owner as
+    /// `Box<OwnerType>`, so calling a `self`-consuming method through auto-deref would
+    /// yield `OwnerType` (not `Box<OwnerType>`), causing a type mismatch. The generator
+    /// must emit `let inner = *owner.inner;` followed by
+    /// `owner.inner = Box::new(inner.method(args));`.
+    #[test]
+    fn configurator_function_unboxes_and_reboxes_inner() {
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, ServiceDef, TypeRef};
+
+        let configurator = MethodDef {
+            name: "setup".to_owned(),
+            params: vec![ParamDef {
+                name: "opts".to_owned(),
+                ty: TypeRef::Named("Options".to_owned()),
+                optional: false,
+                default: None,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::Named("Worker".to_owned()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(ReceiverKind::Owned),
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let constructor = MethodDef {
+            name: "new".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Named("Worker".to_owned()),
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let api = ApiSurface {
+            crate_name: "worker_crate".to_owned(),
+            version: "1.0.0".to_owned(),
+            services: vec![ServiceDef {
+                name: "Worker".to_owned(),
+                rust_path: "worker_crate::Worker".to_owned(),
+                constructor,
+                configurators: vec![configurator],
+                registrations: vec![],
+                entrypoints: vec![],
+                doc: String::new(),
+                cfg: None,
+            }],
+            handler_contracts: vec![],
+            ..ApiSurface::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "worker_crate".to_owned(),
+            ..ResolvedCrateConfig::default()
+        };
+        let rs = gen_service_rs(&api, &config);
+
+        // The generated configurator function must appear with the correct symbol name.
+        assert!(
+            rs.contains("fn worker_crate_worker_setup("),
+            "configurator fn must be emitted; got:\n{rs}"
+        );
+        // Must unbox the inner App before calling the consuming method.
+        assert!(
+            rs.contains("let inner = *owner.inner;"),
+            "configurator must unbox owner.inner before calling the consuming method; got:\n{rs}"
+        );
+        // Must re-box the returned value and assign it back.
+        assert!(
+            rs.contains("owner.inner = Box::new(inner.setup("),
+            "configurator must re-box the result and assign to owner.inner; got:\n{rs}"
         );
     }
 }

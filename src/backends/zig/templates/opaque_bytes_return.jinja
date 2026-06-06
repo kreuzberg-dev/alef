@@ -1,0 +1,3 @@
+        const _owned = try std.heap.c_allocator.dupe(u8, _out_ptr[0.._out_len]);
+        c.{{ prefix }}_free_bytes(_out_ptr, _out_len, _out_cap);
+        return _owned;

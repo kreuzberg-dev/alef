@@ -404,7 +404,8 @@ end
 ExUnit.start()
 
 "#;
-        let mock_server = crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
+        let mock_server =
+            crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
         format!("{}{}", finch_setup, mock_server)
     } else {
         "ExUnit.start()\n".to_string()

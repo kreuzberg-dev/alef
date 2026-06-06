@@ -1,0 +1,62 @@
+// HandlerFunc is the signature for Go handler functions.
+// They receive JSON-serialized request and return JSON response.
+type HandlerFunc func([]byte) ([]byte, error)
+
+// handlerRegistry maps opaque context indices to Go handlers.
+var (
+	handlerRegistryMu sync.Mutex
+	handlerRegistry   = make(map[uintptr]HandlerFunc)
+	handlerNextID     uintptr = 1
+)
+
+// registerHandler stores a Go handler in the registry and returns its opaque context ID.
+func registerHandler(fn HandlerFunc) uintptr {
+	handlerRegistryMu.Lock()
+	defer handlerRegistryMu.Unlock()
+	id := handlerNextID
+	handlerNextID++
+	handlerRegistry[id] = fn
+	return id
+}
+
+// unregisterHandler removes a handler from the registry.
+func unregisterHandler(id uintptr) {
+	handlerRegistryMu.Lock()
+	defer handlerRegistryMu.Unlock()
+	delete(handlerRegistry, id)
+}
+
+// invokeHandler looks up a handler by ID and invokes it with the request JSON.
+// Returns the response JSON or an error.
+func invokeHandler(ctx uintptr, reqJSON []byte) ([]byte, error) {
+	handlerRegistryMu.Lock()
+	handler, ok := handlerRegistry[ctx]
+	handlerRegistryMu.Unlock()
+	if !ok {
+		return nil, errors.New("handler not found")
+	}
+	return handler(reqJSON)
+}
+
+// cgo trampoline matching the C callback typedef:
+// char* (*)(void* context, const char* request_json)
+//
+// This function is exported with //export so cgo can call it from C.
+// It looks up the handler in the registry and invokes it.
+//
+//export service_handler_callback
+func service_handler_callback(ctx unsafe.Pointer, reqCStr *C.char) *C.char {
+	ctxID := uintptr(ctx)
+	reqJSON := C.GoBytes(unsafe.Pointer(reqCStr), C.int(C.strlen(reqCStr)))
+
+	respJSON, err := invokeHandler(ctxID, reqJSON)
+	if err != nil {
+		errJSON, _ := json.Marshal(map[string]string{"error": err.Error()})
+		respJSON = errJSON
+	}
+
+	// Allocate C string from Go heap (caller responsible for freeing).
+	cResp := C.CString(string(respJSON))
+	return cResp
+}
+

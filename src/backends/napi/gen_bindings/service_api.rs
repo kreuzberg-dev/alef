@@ -20,7 +20,10 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
+use minijinja::context;
 use std::path::PathBuf;
+
+use crate::backends::napi::template_env::render;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
@@ -133,8 +136,7 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str, config: &Res
     imports.sort();
     imports.dedup();
 
-    out.push_str(&imports.join(", "));
-    out.push_str(" } from \"../index\";\n");
+    let type_imports = imports.join(", ");
 
     // Only import the native function if the entrypoint method is not excluded.
     // Check if any entrypoint (typically `run`) is excluded for this service.
@@ -145,12 +147,22 @@ pub(super) fn gen_service_ts(api: &ApiSurface, native_module: &str, config: &Res
     });
 
     if has_non_excluded_entrypoint {
-        out.push_str(&format!(
-            "import {{ {}_run }} from \"../index\";\n\n",
-            service_name.to_snake_case()
+        let native_import = format!("{}_run", service_name.to_snake_case());
+        out.push_str(&render(
+            "service_ts_preamble.jinja",
+            context! {
+                type_imports,
+                native_import,
+            },
         ));
     } else {
-        out.push('\n');
+        out.push_str(&render(
+            "service_ts_preamble.jinja",
+            context! {
+                type_imports,
+                native_import => "",
+            },
+        ));
     }
 
     for service in &api.services {
@@ -170,12 +182,18 @@ fn gen_service_class_ts(
     let class_name = &service.name;
 
     // Class docstring
-    if !service.doc.is_empty() {
-        out.push_str(&format!("/**\n * {}\n */\n", service.doc.trim().replace('\n', "\n * ")));
-    }
-
-    out.push_str(&format!("export class {class_name} {{\n"));
-    out.push_str("  private _registrations: Array<[string, any[], (...args: any[]) => any]> = [];\n\n");
+    let class_doc = if service.doc.is_empty() {
+        String::new()
+    } else {
+        service.doc.trim().replace('\n', "\n * ")
+    };
+    out.push_str(&render(
+        "service_ts_class_header.jinja",
+        context! {
+            class_doc,
+            class_name,
+        },
+    ));
 
     // Static factory method for Node.js binding compatibility
     {
@@ -191,21 +209,20 @@ fn gen_service_class_ts(
         }
 
         let param_sig = params.join(", ");
-        out.push_str("  /**\n");
-        out.push_str(&format!("   * Create a new {class_name} instance.\n"));
-        out.push_str("   */\n");
-        if param_sig.is_empty() {
-            out.push_str(&format!("  static new(): {class_name} {{\n"));
-            out.push_str(&format!("    return new {class_name}();\n"));
-        } else {
-            out.push_str(&format!("  static new({param_sig}): {class_name} {{\n"));
-            let params_for_ctor: Vec<&str> = ctor.params.iter().map(|p| p.name.as_str()).collect();
-            out.push_str(&format!(
-                "    return new {class_name}({});\n",
-                params_for_ctor.join(", ")
-            ));
-        }
-        out.push_str("  }\n\n");
+        let args = ctor
+            .params
+            .iter()
+            .map(|p| p.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        out.push_str(&render(
+            "service_ts_static_new.jinja",
+            context! {
+                class_name,
+                param_sig,
+                args,
+            },
+        ));
     }
 
     // Constructor
@@ -221,16 +238,15 @@ fn gen_service_class_ts(
             }
         }
 
-        out.push_str("  /**\n");
-        if !ctor.doc.is_empty() {
-            out.push_str(&format!("   * {}\n", ctor.doc.trim().replace('\n', "\n   * ")));
-        }
-        out.push_str("   */\n");
-
         let param_sig = params.join(", ");
-        out.push_str(&format!("  constructor({param_sig}) {{\n"));
-        out.push_str("    // Constructor initialization (parameters stored for future use)\n");
-        out.push_str("  }\n\n");
+        let doc = ctor.doc.trim().replace('\n', "\n   * ");
+        out.push_str(&render(
+            "service_ts_constructor.jinja",
+            context! {
+                doc,
+                param_sig,
+            },
+        ));
     }
 
     // Configurator methods
@@ -245,17 +261,17 @@ fn gen_service_class_ts(
             }
         }
 
-        out.push_str("  /**\n");
-        if !method.doc.is_empty() {
-            out.push_str(&format!("   * {}\n", method.doc.trim().replace('\n', "\n   * ")));
-        }
-        out.push_str("   */\n");
-
         let param_sig = params.join(", ");
         let method_name = &method.name;
-        out.push_str(&format!("  {method_name}({param_sig}): this {{\n"));
-        out.push_str("    return this;\n");
-        out.push_str("  }\n\n");
+        let doc = method.doc.trim().replace('\n', "\n   * ");
+        out.push_str(&render(
+            "service_ts_configurator.jinja",
+            context! {
+                doc,
+                method_name,
+                param_sig,
+            },
+        ));
     }
 
     // Registration methods: support both decorator and direct patterns
@@ -286,35 +302,36 @@ fn gen_service_class_ts(
         let param_sig = params.join(", ");
         let ep_name = &ep.method;
 
-        out.push_str("  /**\n");
-        if !ep.doc.is_empty() {
-            out.push_str(&format!("   * {}\n", ep.doc.trim().replace('\n', "\n   * ")));
-        }
-        out.push_str("   */\n");
+        let doc = ep.doc.trim().replace('\n', "\n   * ");
+        let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name);
+        let native_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
 
         match ep.kind {
             EntrypointKind::Run => {
-                out.push_str(&format!("  async {ep_name}({param_sig}): Promise<void> {{\n"));
-                // Call native run function
-                let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name);
-                out.push_str(&format!("    return await {}(this._registrations", native_fn));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(");\n");
-                out.push_str("  }\n\n");
+                out.push_str(&render(
+                    "service_ts_entrypoint_run.jinja",
+                    context! {
+                        doc,
+                        ep_name,
+                        param_sig,
+                        native_fn,
+                        native_args,
+                    },
+                ));
             }
             EntrypointKind::Finalize => {
                 let return_ty = typescript_type_annotation(&ep.return_type);
-                out.push_str(&format!("  {ep_name}({param_sig}): {return_ty} {{\n"));
-                // Call native finalize function
-                let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name);
-                out.push_str(&format!("    return {}(this._registrations", native_fn));
-                for p in &ep.params {
-                    out.push_str(&format!(", {}", p.name));
-                }
-                out.push_str(");\n");
-                out.push_str("  }\n\n");
+                out.push_str(&render(
+                    "service_ts_entrypoint_finalize.jinja",
+                    context! {
+                        doc,
+                        ep_name,
+                        param_sig,
+                        return_ty,
+                        native_fn,
+                        native_args,
+                    },
+                ));
             }
         }
     }
@@ -346,16 +363,6 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
     // Decorator-factory form: supports @app.register(meta1, meta2) decorator syntax
     let meta_sig = meta_params.join(", ");
 
-    out.push_str("  /**\n");
-    if !reg.doc.is_empty() {
-        out.push_str(&format!("   * {}\n", reg.doc.trim().replace('\n', "\n   * ")));
-    }
-    out.push_str("   */\n");
-
-    out.push_str(&format!(
-        "  {method_name}({meta_sig}): (fn: (...args: any[]) => any) => (...args: any[]) => any {{\n"
-    ));
-
     // Closure that collects metadata and the callback
     let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
     let meta_array = if meta_names.is_empty() {
@@ -364,29 +371,31 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         format!("[{}]", meta_names.join(", "))
     };
 
-    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
-    out.push_str(&format!(
-        "      this._registrations.push([\"{method_name}\", {meta_array}, fn]);\n"
+    let doc = reg.doc.trim().replace('\n', "\n   * ");
+    out.push_str(&render(
+        "service_ts_registration_method.jinja",
+        context! {
+            doc,
+            method_name,
+            meta_sig,
+            meta_array,
+        },
     ));
-    out.push_str("      return fn;\n");
-    out.push_str("    };\n");
-    out.push_str("  }\n\n");
 
     // Also expose a direct (non-decorator) register variant
     let direct_name = format!("register_{method_name}");
     if direct_name != *method_name {
-        out.push_str("  /**\n");
-        out.push_str(&format!("   * Register a {method_name} callback directly.\n"));
-        out.push_str("   */\n");
-
         meta_params.push("handler: (...args: any[]) => any".to_string());
         let full_sig = meta_params.join(", ");
-        out.push_str(&format!("  {direct_name}({full_sig}): this {{\n"));
-        out.push_str(&format!(
-            "    this._registrations.push([\"{method_name}\", {meta_array}, handler]);\n"
+        out.push_str(&render(
+            "service_ts_registration_direct_method.jinja",
+            context! {
+                method_name,
+                direct_name,
+                full_sig,
+                meta_array,
+            },
         ));
-        out.push_str("    return this;\n");
-        out.push_str("  }\n\n");
     }
 
     // Emit registration variants (shortcut methods)
@@ -536,21 +545,22 @@ fn emit_variant_direct_method(
     full_params.push("handler: (...args: any[]) => any".to_string());
     let full_sig = full_params.join(", ");
 
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
-    } else {
-        out.push_str(&format!("   * Register a {} callback directly.\n", variant_name));
-    }
-    out.push_str("   */\n");
-
-    out.push_str(&format!("  {variant_name}({full_sig}): this {{\n"));
-    out.push_str(wrapper_code);
-    out.push_str(&format!(
-        "    this._registrations.push([\"{base_method}\", {metadata_array}, handler]);\n"
+    let doc = variant
+        .doc
+        .as_deref()
+        .map(|doc| doc.trim().replace('\n', "\n   * "))
+        .unwrap_or_else(|| format!("Register a {variant_name} callback directly."));
+    out.push_str(&render(
+        "service_ts_variant_direct.jinja",
+        context! {
+            doc,
+            variant_name,
+            full_sig,
+            wrapper_code,
+            base_method,
+            metadata_array,
+        },
     ));
-    out.push_str("    return this;\n");
-    out.push_str("  }\n\n");
 }
 
 /// Emit the decorator-factory form for a registration variant: `app.get(path): (handler) => any`.
@@ -565,28 +575,22 @@ fn emit_variant_decorator_factory(
 ) {
     let sig = variant_params.join(", ");
 
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
-    } else {
-        out.push_str(&format!(
-            "   * Register a {} callback via decorator factory.\n",
-            variant_name
-        ));
-    }
-    out.push_str("   */\n");
-
-    out.push_str(&format!(
-        "  {variant_name}({sig}): (fn: (...args: any[]) => any) => (...args: any[]) => any {{\n"
+    let doc = variant
+        .doc
+        .as_deref()
+        .map(|doc| doc.trim().replace('\n', "\n   * "))
+        .unwrap_or_else(|| format!("Register a {variant_name} callback via decorator factory."));
+    out.push_str(&render(
+        "service_ts_variant_decorator.jinja",
+        context! {
+            doc,
+            variant_name,
+            sig,
+            wrapper_code,
+            base_method,
+            metadata_array,
+        },
     ));
-    out.push_str(wrapper_code);
-    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
-    out.push_str(&format!(
-        "      this._registrations.push([\"{base_method}\", {metadata_array}, fn]);\n"
-    ));
-    out.push_str("      return fn;\n");
-    out.push_str("    };\n");
-    out.push_str("  }\n\n");
 }
 
 /// Emit BOTH hybrid forms as TypeScript method overloads — two signature
@@ -613,42 +617,28 @@ fn emit_variant_hybrid_overloaded(
         p.join(", ")
     };
 
-    // Combined JSDoc — describe both forms.
-    out.push_str("  /**\n");
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("   * {}\n", doc.trim().replace('\n', "\n   * ")));
-    } else {
-        out.push_str(&format!(
-            "   * Register a {} callback. Call with `handler` for direct registration; omit\n",
-            variant_name
-        ));
-        out.push_str("   * `handler` to receive a decorator factory that accepts it lazily.\n");
-    }
-    out.push_str("   */\n");
-
-    // Two TypeScript overload signature declarations.
-    out.push_str(&format!("  {variant_name}({direct_params}): this;\n"));
-    out.push_str(&format!(
-        "  {variant_name}({factory_params}): (fn: (...args: any[]) => any) => (...args: any[]) => any;\n"
+    let doc = variant
+        .doc
+        .as_deref()
+        .map(|doc| doc.trim().replace('\n', "\n   * "))
+        .unwrap_or_else(|| {
+            format!(
+                "Register a {variant_name} callback. Call with `handler` for direct registration; omit\n   * `handler` to receive a decorator factory that accepts it lazily."
+            )
+        });
+    out.push_str(&render(
+        "service_ts_variant_hybrid.jinja",
+        context! {
+            doc,
+            variant_name,
+            direct_params,
+            factory_params,
+            impl_params,
+            wrapper_code,
+            base_method,
+            metadata_array,
+        },
     ));
-    // One unified implementation that handles both shapes at runtime.
-    out.push_str(&format!(
-        "  {variant_name}({impl_params}): this | ((fn: (...args: any[]) => any) => (...args: any[]) => any) {{\n"
-    ));
-    out.push_str(wrapper_code);
-    out.push_str("    if (handler !== undefined) {\n");
-    out.push_str(&format!(
-        "      this._registrations.push([\"{base_method}\", {metadata_array}, handler]);\n"
-    ));
-    out.push_str("      return this;\n");
-    out.push_str("    }\n");
-    out.push_str("    return (fn: (...args: any[]) => any) => {\n");
-    out.push_str(&format!(
-        "      this._registrations.push([\"{base_method}\", {metadata_array}, fn]);\n"
-    ));
-    out.push_str("      return fn;\n");
-    out.push_str("    };\n");
-    out.push_str("  }\n\n");
 }
 
 // ──────────────────────────────────────────────────────────────── Rust glue ──
@@ -666,12 +656,7 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
     let core_import = config.core_import_name();
     let mut out = String::new();
 
-    // File-level allow attributes to keep clippy happy in generated code
-    out.push_str("#![allow(clippy::too_many_arguments, clippy::unused_async)]\n\n");
-    out.push_str("use napi::bindgen_prelude::*;\n");
-    out.push_str("use napi::threadsafe_function::ThreadsafeFunction;\n");
-    out.push_str("use napi_derive::napi;\n");
-    out.push_str("use std::sync::Arc;\n\n");
+    out.push_str(&render("service_rs_preamble.jinja", context! {}));
 
     // Emit one handler bridge per unique handler contract referenced by any registration
     let referenced_contracts: Vec<&HandlerContractDef> = {
@@ -754,16 +739,18 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             .join("\n");
 
         if !indented.is_empty() {
-            out.push_str(&format!("use crate::{app_type_name};\n\n"));
-            // napi-rs requires `#[napi]` on the impl block for any method-level `#[napi]`
-            // attributes to register with the runtime — without it the `napi` macro
-            // rejects `&self` receivers with "arguments cannot be `self`".
-            out.push_str(&format!("#[napi]\nimpl {app_type_name} {{\n"));
-            out.push_str(&indented);
-            if !indented.ends_with('\n') {
-                out.push('\n');
-            }
-            out.push_str("}\n");
+            let impl_methods = if indented.ends_with('\n') {
+                indented
+            } else {
+                format!("{indented}\n")
+            };
+            out.push_str(&render(
+                "service_rs_impl_block.jinja",
+                context! {
+                    app_type_name,
+                    impl_methods,
+                },
+            ));
         }
     }
 
@@ -789,32 +776,12 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // The ThreadsafeFunction uses serde_json::Value for both input and output, which
     // napi 3.x supports natively. The JS side receives and returns JSON-serializable
     // values that are transparently converted by napi's serde bridge.
-    out.push_str(&format!(
-        "/// Generated NAPI bridge for the `{trait_name}` contract.\n\
-         ///\n\
-         /// Wraps a JavaScript callable (async) via ThreadsafeFunction\n\
-         /// so it can be used as `Arc<dyn {trait_name}>` from Rust async code.\n\
-         pub struct {bridge_name} {{\n    \
-             handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>,\n\
-         }}\n\n"
-    ));
-
-    out.push_str(&format!(
-        "impl {bridge_name} {{\n    \
-             /// Create a bridge from a JavaScript callable.\n    \
-             pub fn new(handler_fn: ThreadsafeFunction<serde_json::Value, serde_json::Value>) -> Self {{\n        \
-                 Self {{ handler_fn }}\n    \
-             }}\n\
-         }}\n\n"
-    ));
-
-    // SAFETY comment for Send/Sync: ThreadsafeFunction is Send+Sync once we never call
-    // it without a valid NAPI env handle (which we do within async Tokio spawns).
-    out.push_str(&format!(
-        "// SAFETY: ThreadsafeFunction is Send+Sync. We call it only from async contexts\n\
-         // where the NAPI env is valid (within the async task spawned by call_async).\n\
-         unsafe impl Send for {bridge_name} {{}}\n\
-         unsafe impl Sync for {bridge_name} {{}}\n\n"
+    out.push_str(&render(
+        "service_rs_handler_bridge_header.jinja",
+        context! {
+            trait_name,
+            bridge_name,
+        },
     ));
 
     // Leading dispatch parameters the bridge ignores (e.g. a foreign framework type the
@@ -876,29 +843,21 @@ fn gen_handler_bridge(out: &mut String, contract: &HandlerContractDef, core_impo
     // CRITICAL: Explicitly type the `resp_json` result to avoid type inference
     // from propagating the outer Box<dyn Error + Send + Sync> error type back into
     // the napi::Error generic type, which would fail the `S: AsRef<str>` bound.
-    out.push_str(&format!(
-        "impl {core_import}::{trait_name} for {bridge_name} {{\n    \
-             fn {dispatch_name}(\n        \
-                 &self{extra_param},\n        \
-                 {wire_name}: {req_path},\n    \
-             ) -> std::pin::Pin<Box<dyn std::future::Future<Output = {output_type}> + Send + '_>> {{\n        \
-                 Box::pin(async move {{\n            \
-                     // Serialize request to JSON and call the ThreadsafeFunction\n            \
-                     let outcome: {wire_output} = async move {{\n                \
-                         let req_json = serde_json::to_value(&{wire_name})\n                            \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         let resp_json = self.handler_fn\n                    \
-                             .call_async(Ok(req_json))\n                    \
-                             .await\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})?;\n                \
-                         serde_json::from_value(resp_json)\n                    \
-                             .map_err(|e| Box::new(e) as {box_err})\n            \
-                     }}\n            \
-                     .await;\n\n            \
-                     {tail}\n        \
-                 }})\n    \
-             }}\n\
-         }}\n\n"
+    out.push_str(&render(
+        "service_rs_handler_bridge_impl.jinja",
+        context! {
+            core_import,
+            trait_name,
+            bridge_name,
+            dispatch_name,
+            extra_param,
+            wire_name,
+            req_path,
+            output_type,
+            wire_output,
+            box_err,
+            tail,
+        },
     ));
 }
 
@@ -941,18 +900,25 @@ fn gen_run_napi_function(
         }
     };
 
-    out.push_str(&format!(
-        "/// Drive `{owner_path}::{ep_method}` from JavaScript.\n\
-         ///\n\
-         /// Each entry in `registrations` is a `[method_name, metadata, callback]` triple\n\
-         /// produced by the TypeScript service class.\n\
-         #[napi]\n\
-         pub async fn {fn_name}({param_sig}) -> napi::Result<{return_ty}> {{\n"
+    out.push_str(&render(
+        "service_rs_run_function_header.jinja",
+        context! {
+            owner_path,
+            ep_method,
+            fn_name,
+            param_sig,
+            return_ty,
+        },
     ));
 
     // Build the owner instance via its constructor
     let ctor_call = build_ctor_call_napi(service, owner_path);
-    out.push_str(&format!("    let mut owner = {ctor_call};\n\n"));
+    out.push_str(&render(
+        "service_rs_owner_ctor.jinja",
+        context! {
+            ctor_call,
+        },
+    ));
 
     // Iterate registrations and dispatch
     out.push_str("    for (method_name, _metadata, handler_fn) in registrations {\n");
@@ -987,12 +953,14 @@ fn gen_run_napi_function(
 
             let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
 
-            out.push_str(&format!("            \"{reg_method}\" => {{\n"));
-            out.push_str(&format!(
-                "                let bridge = {bridge_name}::new(handler_fn);\n"
-            ));
-            out.push_str(&format!(
-                "                let handler: Arc<dyn {core_import}::{contract_name}> = Arc::new(bridge);\n"
+            out.push_str(&render(
+                "service_rs_registration_arm_header.jinja",
+                context! {
+                    reg_method,
+                    bridge_name,
+                    core_import,
+                    contract_name,
+                },
             ));
 
             // Extract and convert metadata params from serde_json::Value entries
@@ -1000,23 +968,36 @@ fn gen_run_napi_function(
                 for (idx, param) in reg.metadata_params.iter().enumerate() {
                     let param_name = &param.name;
                     let rust_ty = typeref_to_rust_type(&param.ty, core_import);
-                    out.push_str(&format!("                let {param_name}: {rust_ty} = {{\n"));
-                    out.push_str(&format!(
-                        "                    let val = _metadata.get({idx}).ok_or_else(|| napi::Error::new(napi::Status::InvalidArg, \"missing metadata parameter at index {idx}\"))?;\n"
+                    let extraction = gen_metadata_extraction(&param.ty, core_import, api);
+                    out.push_str(&render(
+                        "service_rs_metadata_binding.jinja",
+                        context! {
+                            param_name,
+                            rust_ty,
+                            idx,
+                            extraction,
+                        },
                     ));
-                    out.push_str(&format!(
-                        "                    {}\n",
-                        gen_metadata_extraction(&param.ty, core_import, api)
-                    ));
-                    out.push_str("                };\n");
                 }
                 let meta_names: Vec<&str> = reg.metadata_params.iter().map(|p| p.name.as_str()).collect();
-                out.push_str(&format!(
-                    "                owner.{reg_method}({}, handler)\n",
-                    meta_names.join(", ")
+                let meta_args = meta_names.join(", ");
+                out.push_str(&render(
+                    "service_rs_registration_call.jinja",
+                    context! {
+                        reg_method,
+                        meta_args,
+                        has_meta => true,
+                    },
                 ));
             } else {
-                out.push_str(&format!("                owner.{reg_method}(handler)\n"));
+                out.push_str(&render(
+                    "service_rs_registration_call.jinja",
+                    context! {
+                        reg_method,
+                        meta_args => "",
+                        has_meta => false,
+                    },
+                ));
             }
 
             // Handle error if the registration is fallible
@@ -1121,14 +1102,14 @@ fn gen_variant_napi_method(
     rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
     let param_sig = rust_params.join(", ");
 
-    out.push_str(&format!(
-        "/// Register a handler via the `{variant_name}` variant shortcut.\n"
-    ));
-    if let Some(doc) = &variant.doc {
-        out.push_str(&format!("///\n/// {}\n", doc.trim()));
-    }
-    out.push_str(&format!(
-        "#[napi]\npub fn {variant_name}({param_sig}) -> napi::Result<()> {{\n"
+    let doc = variant.doc.as_deref().unwrap_or("").trim();
+    out.push_str(&render(
+        "service_rs_variant_method_header.jinja",
+        context! {
+            variant_name,
+            doc,
+            param_sig,
+        },
     ));
 
     // If there's a wrapper constructor call, build the wrapper first
@@ -1153,9 +1134,15 @@ fn gen_variant_napi_method(
         }
         let ctor_arg_str = ctor_args.join(", ");
 
-        out.push_str(&format!(
-            "    let {} = {}::{}({});\n",
-            wrapper_call.metadata_param, wrapper_path, constructor, ctor_arg_str
+        let metadata_param = &wrapper_call.metadata_param;
+        out.push_str(&render(
+            "service_rs_wrapper_ctor.jinja",
+            context! {
+                metadata_param,
+                wrapper_path,
+                constructor,
+                ctor_arg_str,
+            },
         ));
     }
 
@@ -1176,9 +1163,13 @@ fn gen_variant_napi_method(
     // Create the handler bridge and call base registration
     if let Some(contract) = find_contract(api, contract_name) {
         let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
-        out.push_str(&format!("    let bridge = {bridge_name}::new(handler);\n"));
-        out.push_str(&format!(
-            "    let handler_arc: std::sync::Arc<dyn {core_import}::{contract_name}> = std::sync::Arc::new(bridge);\n"
+        out.push_str(&render(
+            "service_rs_handler_arc.jinja",
+            context! {
+                bridge_name,
+                core_import,
+                contract_name,
+            },
         ));
     }
 
@@ -1186,17 +1177,54 @@ fn gen_variant_napi_method(
     let meta_args = metadata_names.join(", ");
     if inner_accessor == "self" {
         if !metadata_names.is_empty() {
-            out.push_str(&format!("    self.{base_method}({meta_args}, handler_arc)\n"));
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "self",
+                    base_method,
+                    meta_args,
+                    has_meta => true,
+                },
+            ));
         } else {
-            out.push_str(&format!("    self.{base_method}(handler_arc)\n"));
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "self",
+                    base_method,
+                    meta_args => "",
+                    has_meta => false,
+                },
+            ));
         }
     } else {
         // Accessor may return &mut or MutexGuard — bind to a named variable
-        out.push_str(&format!("    let mut inner = {inner_accessor};\n"));
+        out.push_str(&render(
+            "service_rs_inner_accessor.jinja",
+            context! {
+                inner_accessor,
+            },
+        ));
         if !metadata_names.is_empty() {
-            out.push_str(&format!("    inner.{base_method}({meta_args}, handler_arc)\n"));
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "inner",
+                    base_method,
+                    meta_args,
+                    has_meta => true,
+                },
+            ));
         } else {
-            out.push_str(&format!("    inner.{base_method}(handler_arc)\n"));
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "inner",
+                    base_method,
+                    meta_args => "",
+                    has_meta => false,
+                },
+            ));
         }
     }
 
@@ -1207,8 +1235,7 @@ fn gen_variant_napi_method(
         out.push_str("        ;\n");
     }
 
-    out.push_str("    Ok(())\n");
-    out.push_str("}\n\n");
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
 }
 
 /// Emit one `#[napi]` method for a service entrypoint (run or finalize) on the App class.
@@ -1252,30 +1279,31 @@ fn gen_entrypoint_napi_method(
         EntrypointKind::Run | EntrypointKind::Finalize => "()".to_owned(),
     };
 
-    out.push_str(&format!(
-        "/// Call the `{ep_method}` entrypoint on the inner service.\n"
-    ));
-    if !ep.doc.is_empty() {
-        out.push_str("///\n");
-        for line in ep.doc.trim().lines() {
+    let doc = ep
+        .doc
+        .trim()
+        .lines()
+        .map(|line| {
             if line.is_empty() {
-                out.push_str("///\n");
+                "///".to_owned()
             } else {
-                out.push_str(&format!("/// {line}\n"));
+                format!("/// {line}")
             }
-        }
-    }
-
-    // Emit as async method when the entrypoint is async
-    if ep.is_async {
-        out.push_str(&format!(
-            "#[napi(js_name = \"{js_name}\")]\npub async fn {ep_method}({param_sig}) -> napi::Result<{return_ty}> {{\n"
-        ));
-    } else {
-        out.push_str(&format!(
-            "#[napi(js_name = \"{js_name}\")]\npub fn {ep_method}({param_sig}) -> napi::Result<{return_ty}> {{\n"
-        ));
-    }
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let async_kw = if ep.is_async { "async " } else { "" };
+    out.push_str(&render(
+        "service_rs_entrypoint_method_header.jinja",
+        context! {
+            ep_method,
+            doc,
+            js_name,
+            async_kw,
+            param_sig,
+            return_ty,
+        },
+    ));
 
     // Build parameter list for the inner call
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
@@ -1286,16 +1314,53 @@ fn gen_entrypoint_napi_method(
     // implement `Default`) and drop the guard before any `.await`.
     if inner_accessor == "self" {
         if ep.is_async {
-            out.push_str(&format!("    self.{ep_method}({args_str})\n        .await\n"));
+            out.push_str(&render(
+                "service_rs_entrypoint_call.jinja",
+                context! {
+                    receiver => "self",
+                    ep_method,
+                    args_str,
+                    is_async => true,
+                },
+            ));
         } else {
-            out.push_str(&format!("    self.{ep_method}({args_str})\n"));
+            out.push_str(&render(
+                "service_rs_entrypoint_call.jinja",
+                context! {
+                    receiver => "self",
+                    ep_method,
+                    args_str,
+                    is_async => false,
+                },
+            ));
         }
     } else {
-        out.push_str(&format!("    let owner = {{\n        let mut guard = {inner_accessor};\n        std::mem::take(&mut *guard)\n    }};\n"));
+        out.push_str(&render(
+            "service_rs_take_owner.jinja",
+            context! {
+                inner_accessor,
+            },
+        ));
         if ep.is_async {
-            out.push_str(&format!("    owner.{ep_method}({args_str})\n        .await\n"));
+            out.push_str(&render(
+                "service_rs_entrypoint_call.jinja",
+                context! {
+                    receiver => "owner",
+                    ep_method,
+                    args_str,
+                    is_async => true,
+                },
+            ));
         } else {
-            out.push_str(&format!("    owner.{ep_method}({args_str})\n"));
+            out.push_str(&render(
+                "service_rs_entrypoint_call.jinja",
+                context! {
+                    receiver => "owner",
+                    ep_method,
+                    args_str,
+                    is_async => false,
+                },
+            ));
         }
     }
 
@@ -1306,8 +1371,7 @@ fn gen_entrypoint_napi_method(
         out.push_str("        ;\n");
     }
 
-    out.push_str("    Ok(())\n");
-    out.push_str("}\n\n");
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
 }
 
 /// Generate code to extract and convert a metadata parameter from a `serde_json::Value`.

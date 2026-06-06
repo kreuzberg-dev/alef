@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **config schema**: added a generated, versioned JSON Schema for `alef.toml` at `schemas/alef.schema.json`, a new `alef schema` command with `--check` support, and `task set-version` integration so schema metadata stays in lockstep with Alef release versions.
 
+### Changed
+
+- **backends**: migrated more generated-source emission in Go, JNI, NAPI, and Zig backends from Rust string assembly to backend Jinja templates. This keeps host-language code blocks in templates while leaving identifier, type, argument, and expression construction in Rust. (`src/backends/go`, `src/backends/jni`, `src/backends/napi`, `src/backends/zig`)
+
 ### Fixed
 
 - **release tooling**: `task set-version` now avoids waiting on the shared Cargo build lock when regenerating `schemas/alef.schema.json`, using an existing Alef binary when possible and an isolated Cargo target directory otherwise.

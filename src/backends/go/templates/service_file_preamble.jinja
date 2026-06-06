@@ -1,0 +1,21 @@
+package {{ pkg_name }}
+
+/*
+#include <string.h>
+#include "{{ ffi_header }}"
+extern char* service_handler_callback(void* ctx, char* req);
+typedef char* (*ServiceHandlerCallbackPtr)(void*, const char*);
+static inline ServiceHandlerCallbackPtr get_service_handler_callback(void) {
+  return (ServiceHandlerCallbackPtr)service_handler_callback;
+}
+*/
+import "C"
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"sync"
+	"unsafe"
+)
+

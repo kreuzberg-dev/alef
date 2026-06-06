@@ -1,0 +1,5 @@
+{% if has_meta %}
+    {{ receiver }}.{{ base_method }}({{ meta_args }}, handler_arc)
+{% else %}
+    {{ receiver }}.{{ base_method }}(handler_arc)
+{% endif %}

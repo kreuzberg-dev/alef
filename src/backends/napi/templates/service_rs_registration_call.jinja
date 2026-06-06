@@ -1,0 +1,5 @@
+{% if has_meta %}
+                owner.{{ reg_method }}({{ meta_args }}, handler)
+{% else %}
+                owner.{{ reg_method }}(handler)
+{% endif %}

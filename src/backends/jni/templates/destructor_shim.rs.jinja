@@ -1,0 +1,12 @@
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn {{ symbol }}(
+    _env: EnvUnowned,
+    _class: JClass,
+    handle: jlong,
+) {
+    if handle == 0 { return; }
+    // SAFETY: `handle` was allocated by the matching constructor shim and
+    // ownership is transferred back here for drop via Box::from_raw.
+    unsafe { let _ = Box::from_raw(handle as *mut core_crate::{{ type_name }}); }
+}
+
