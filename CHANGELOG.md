@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **dart / cli**: `[crates.dart] skip_frb = true` config field and `--skip-frb` flag for `alef all` / `alef generate`. When set, the `flutter_rust_bridge_codegen generate` `RunCommand` is omitted from the Dart post-build steps; file post-processors (sealed-variant rewriting, loader injection, handler-executor fixes) are still executed. Consumers who have not installed the Flutter SDK or `flutter_rust_bridge_codegen` can regen binding scaffolding without the command hanging. Equivalent runtime escape-hatch: `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`. (`src/core/config/languages.rs`, `src/backends/dart/gen_bindings/mod.rs`, `src/main.rs`)
+
 ### Fixed
 
 - **go**: fix cgo type mismatch in trait bridge vtable registration. The vtable was being built as `C.{{ c_vtable_struct }}{}` (typedef form) but the C function signature expected `*struct KREUZBERGKreuzbergDocumentExtractorVTable` (struct pointer). cgo creates two separate types for `typedef struct X { ... } X;`: the struct form and the typedef form, which are not automatically coerced. Changed the vtable initialization to `&C.struct_{{ c_vtable_struct }}{}` to create and take the address of the struct form, matching the C function's expected parameter type. This fixes `cannot use _cgo1 (variable of struct type _Ctype_...) as *_Ctype_struct_... value` errors in go build. (`src/backends/go/templates/vtable_struct_init.jinja`)

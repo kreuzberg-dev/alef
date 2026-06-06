@@ -352,14 +352,24 @@ impl DartBackend {
                     .map(|c| c.exclude_functions.clone())
                     .unwrap_or_default();
 
-                let mut post_build_steps = vec![PostBuildStep::RunCommand {
-                    cmd: "flutter_rust_bridge_codegen",
-                    args: vec![
-                        "generate",
-                        "--config-file",
-                        "packages/dart/rust/flutter_rust_bridge.yaml",
-                    ],
-                }];
+                let skip_frb = config.dart.as_ref().map(|c| c.skip_frb).unwrap_or(false);
+
+                // RunCommand invokes flutter_rust_bridge_codegen to generate the
+                // Dart bridge from the Rust binding crate.  Skip when the caller
+                // has opted out via `[crates.dart] skip_frb = true` or the
+                // `--skip-frb` CLI flag (which sets ALEF_SKIP_COMMANDS).
+                let mut post_build_steps: Vec<PostBuildStep> = if skip_frb {
+                    vec![]
+                } else {
+                    vec![PostBuildStep::RunCommand {
+                        cmd: "flutter_rust_bridge_codegen",
+                        args: vec![
+                            "generate",
+                            "--config-file",
+                            "packages/dart/rust/flutter_rust_bridge.yaml",
+                        ],
+                    }]
+                };
 
                 // Use the dedicated post-processor to filter excluded functions from lib.dart.
                 post_build_steps.push(PostBuildStep::PostProcessFile {

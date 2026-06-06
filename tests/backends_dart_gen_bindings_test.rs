@@ -1879,3 +1879,64 @@ fn build_config_with_config_includes_post_build_steps() {
         "build_config_with_config must not include FrbDartOptionalFieldsWithDefaults processor"
     );
 }
+
+#[test]
+fn build_config_for_frb_skip_frb_omits_run_command() {
+    use alef::core::backend::PostBuildStep;
+    use alef::core::config::languages::DartConfig;
+
+    let toml = r#"
+[workspace]
+languages = ["dart"]
+
+[[crates]]
+name = "demo-crate"
+sources = ["src/lib.rs"]
+
+[crates.dart]
+skip_frb = true
+"#;
+    let cfg: alef::core::config::new_config::NewAlefConfig = toml::from_str(toml).expect("test config must parse");
+    let config = cfg.resolve().expect("test config must resolve").remove(0);
+
+    let bc = DartBackend
+        .build_config_for(&config)
+        .expect("FRB style with skip_frb must still yield a BuildConfig");
+
+    let has_run_command = bc
+        .post_build
+        .iter()
+        .any(|s| matches!(s, PostBuildStep::RunCommand { .. }));
+    assert!(
+        !has_run_command,
+        "skip_frb = true must suppress the flutter_rust_bridge_codegen RunCommand; \
+         got steps: {:?}",
+        bc.post_build
+            .iter()
+            .map(|s| match s {
+                PostBuildStep::RunCommand { cmd, .. } => format!("RunCommand({cmd})"),
+                PostBuildStep::PostProcessFile { .. } => "PostProcessFile".to_string(),
+                PostBuildStep::PatchFile { .. } => "PatchFile".to_string(),
+            })
+            .collect::<Vec<_>>()
+    );
+
+    // Post-processors should still be scheduled so they can run on already-generated
+    // FRB output (e.g. from a prior run) — only the upstream codegen invocation is skipped.
+    let post_process_count = bc
+        .post_build
+        .iter()
+        .filter(|s| matches!(s, PostBuildStep::PostProcessFile { .. }))
+        .count();
+    assert!(
+        post_process_count > 0,
+        "skip_frb = true must retain PostProcessFile steps for already-generated FRB output"
+    );
+
+    // Verify the DartConfig field itself deserialises correctly.
+    let dart_cfg: DartConfig = toml::from_str("skip_frb = true").expect("must parse");
+    assert!(dart_cfg.skip_frb, "DartConfig.skip_frb must deserialise from TOML");
+
+    let dart_default = DartConfig::default();
+    assert!(!dart_default.skip_frb, "DartConfig.skip_frb must default to false");
+}

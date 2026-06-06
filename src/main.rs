@@ -68,6 +68,14 @@ enum Commands {
             action = clap::ArgAction::Set,
         )]
         format: bool,
+        /// Skip the flutter_rust_bridge_codegen post-build step.
+        ///
+        /// Useful when `flutter_rust_bridge` is not installed on the host (e.g.
+        /// CI environments or developer machines without the Flutter SDK).
+        /// Equivalent to setting `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`
+        /// or `[crates.dart] skip_frb = true` in alef.toml.
+        #[arg(long)]
+        skip_frb: bool,
     },
     /// Generate type stubs (.pyi, .rbs).
     Stubs {
@@ -214,6 +222,14 @@ enum Commands {
             action = clap::ArgAction::Set,
         )]
         format: bool,
+        /// Skip the flutter_rust_bridge_codegen post-build step.
+        ///
+        /// Useful when `flutter_rust_bridge` is not installed on the host (e.g.
+        /// CI environments or developer machines without the Flutter SDK).
+        /// Equivalent to setting `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`
+        /// or `[crates.dart] skip_frb = true` in alef.toml.
+        #[arg(long)]
+        skip_frb: bool,
     },
     /// Initialize a new alef.toml config.
     Init {
@@ -559,7 +575,25 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::Generate { lang, clean, format } => {
+        Commands::Generate {
+            lang,
+            clean,
+            format,
+            skip_frb,
+        } => {
+            if skip_frb {
+                // Propagate via the existing escape-hatch env var so run_run_command
+                // sees it without threading a new parameter through the call stack.
+                let existing = std::env::var("ALEF_SKIP_COMMANDS").unwrap_or_default();
+                let updated = if existing.is_empty() {
+                    "flutter_rust_bridge_codegen".to_string()
+                } else {
+                    format!("{existing},flutter_rust_bridge_codegen")
+                };
+                // SAFETY: single-threaded CLI dispatch; no concurrent env access here.
+                unsafe { std::env::set_var("ALEF_SKIP_COMMANDS", updated) };
+            }
+            let _ = skip_frb; // consumed above
             let (workspace, resolved) = load_config(config_path)?;
             version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;
@@ -1304,7 +1338,24 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Commands::All { clean, format } => {
+        Commands::All {
+            clean,
+            format,
+            skip_frb,
+        } => {
+            if skip_frb {
+                // Propagate via the existing escape-hatch env var so run_run_command
+                // sees it without threading a new parameter through the call stack.
+                let existing = std::env::var("ALEF_SKIP_COMMANDS").unwrap_or_default();
+                let updated = if existing.is_empty() {
+                    "flutter_rust_bridge_codegen".to_string()
+                } else {
+                    format!("{existing},flutter_rust_bridge_codegen")
+                };
+                // SAFETY: single-threaded CLI dispatch; no concurrent env access here.
+                unsafe { std::env::set_var("ALEF_SKIP_COMMANDS", updated) };
+            }
+            let _ = skip_frb; // consumed above
             let (workspace, resolved) = load_config(config_path)?;
             version_pin::check_alef_toml_version(&workspace)?;
             let crates_to_process = dispatch::select_crates(&resolved, &cli.crate_filter)?;

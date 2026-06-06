@@ -1060,6 +1060,23 @@ pub struct DartConfig {
     /// ```
     #[serde(default)]
     pub target_dep_overrides: Vec<DartTargetDepOverride>,
+    /// Skip the `flutter_rust_bridge_codegen generate` post-build step.
+    ///
+    /// When `true`, alef omits the `RunCommand` that invokes
+    /// `flutter_rust_bridge_codegen` during `alef all` / `alef generate`.
+    /// File post-processors (sealed-variant rewriting, loader injection, etc.)
+    /// are still executed; only the upstream codegen invocation is suppressed.
+    ///
+    /// Use this when `flutter_rust_bridge` is not installed on the host —
+    /// e.g. in CI environments that regen binding scaffolding only, or on
+    /// developer machines that have not installed the Flutter SDK.
+    ///
+    /// Equivalent CLI override: pass `--skip-frb` to `alef all` or
+    /// `alef generate`, or set `ALEF_SKIP_COMMANDS=flutter_rust_bridge_codegen`.
+    ///
+    /// Default: `false` (FRB codegen runs as usual).
+    #[serde(default)]
+    pub skip_frb: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
