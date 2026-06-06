@@ -284,8 +284,16 @@ pub(crate) fn emit_cargo_toml(
                 .join(", ");
             format!("any({any})")
         };
-        let mut blocks = format!(
-            "[target.'cfg(not({neg_cfg}))'.dependencies]\n{core_dep_key} = {{ path = \"{core_path}\"{package_rename_block}{features_block} }}\n\n"
+        let mut blocks = template_env::render(
+            "rust_cargo_target_dependency.rs.jinja",
+            minijinja::context! {
+                cfg => format!("not({neg_cfg})"),
+                core_dep_key => core_dep_key.as_str(),
+                core_path => core_path.as_str(),
+                package_rename_block => package_rename_block.as_str(),
+                default_block => "",
+                features_block => features_block.as_str(),
+            },
         );
         for override_entry in target_overrides {
             let feat_list = override_entry
