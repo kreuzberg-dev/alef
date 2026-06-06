@@ -171,12 +171,12 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             .unwrap_or_default();
 
         // PIE (PHP Installation Extension) uses extra.pie.binary.url-template to locate
-        // pre-packaged extension archives. The URL template must include all filename
-        // components including the -nodebug- token. When no repository is configured,
-        // emit a placeholder; the URL is typically overridden by the package maintainer.
+        // pre-packaged extension archives. Template tokens: {Version}, {PhpVersion}, {Arch},
+        // {OS}, {Libc}, {TSMode} (zts or nts). When no repository is configured, emit a
+        // placeholder; the URL is typically overridden by the package maintainer.
         let pie_binary_block = if let Some(repo_url) = meta.configured_repository.as_deref() {
             format!(
-                ",\n  \"extra\": {{\n    \"pie\": {{\n      \"binary\": {{\n        \"url-template\": \"{repo_url}/releases/download/v{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OS}}-{{Libc}}-nodebug-{{TSMode}}.tgz\"\n      }}\n    }}\n  }}"
+                ",\n  \"extra\": {{\n    \"pie\": {{\n      \"binary\": {{\n        \"url-template\": \"{repo_url}/releases/download/v{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OS}}-{{Libc}}-{{TSMode}}.tgz\"\n      }}\n    }}\n  }}"
             )
         } else {
             String::new()
