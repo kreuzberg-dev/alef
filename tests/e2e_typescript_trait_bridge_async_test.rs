@@ -62,19 +62,17 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         }),
         mock_response: None,
         visitor: None,
-        args: vec![
-            ArgMapping {
-                name: "backend".to_string(),
-                field: "input.backend".to_string(),
-                arg_type: "test_backend".to_string(),
-                optional: false,
-                owned: false,
-                element_type: None,
-                go_type: None,
-                vec_inner_is_ref: false,
-                trait_name: Some("MyBackend".to_string()),
-            },
-        ],
+        args: vec![ArgMapping {
+            name: "backend".to_string(),
+            field: "input.backend".to_string(),
+            arg_type: "test_backend".to_string(),
+            optional: false,
+            owned: false,
+            element_type: None,
+            go_type: None,
+            vec_inner_is_ref: false,
+            trait_name: Some("MyBackend".to_string()),
+        }],
         assertion_recipes: vec![],
         http: None,
         assertions: vec![Assertion {
@@ -97,13 +95,7 @@ fn trait_bridge_tests_are_async_and_await_calls() {
 
     let codegen = TypeScriptCodegen;
     let generated = codegen
-        .generate(
-            &fixtures,
-            &e2e_config,
-            &resolved_config,
-            &[],
-            &[],
-        )
+        .generate(&fixtures, &e2e_config, &resolved_config, &[], &[])
         .expect("generates without error");
 
     // Find the test file among generated files

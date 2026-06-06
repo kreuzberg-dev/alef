@@ -219,7 +219,7 @@ fn trait_bridge_vtable_builder_coverage() {
     // This test uses the public backend API to generate bindings for a synthetic
     // trait and verifies both are present.
 
-    use alef::core::config::{TraitBridgeConfig, BridgeBinding};
+    use alef::core::config::{BridgeBinding, TraitBridgeConfig};
 
     let mut api = make_basic_api();
     let method = alef::core::ir::MethodDef {
@@ -253,7 +253,7 @@ fn trait_bridge_vtable_builder_coverage() {
         is_copy: false,
         doc: "A test plugin trait".to_string(),
         cfg: None,
-        is_trait: true,  // CRITICAL: mark as trait
+        is_trait: true, // CRITICAL: mark as trait
         has_default: false,
         has_stripped_cfg_fields: false,
         is_return_type: false,

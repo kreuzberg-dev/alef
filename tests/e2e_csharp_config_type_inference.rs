@@ -32,18 +32,16 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
         visitor: None,
         args: Vec::new(),
         assertion_recipes: Vec::new(),
-        assertions: vec![
-            Assertion {
-                assertion_type: "not_empty".to_string(),
-                field: Some("result".to_string()),
-                value: None,
-                values: None,
-                method: None,
-                check: None,
-                args: None,
-                return_type: None,
-            },
-        ],
+        assertions: vec![Assertion {
+            assertion_type: "not_empty".to_string(),
+            field: Some("result".to_string()),
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        }],
         source: "test_fixture.json".to_string(),
         http: None,
     }
@@ -118,8 +116,5 @@ fn csharp_config_type_inference_direct_match() {
     // Key assertion: the test should be syntactically valid C# without null for required config.
     // We verify this by checking that the generated code is not empty and
     // can be parsed/compiled later.
-    assert!(
-        !test_code.is_empty(),
-        "Generated C# test code should not be empty"
-    );
+    assert!(!test_code.is_empty(), "Generated C# test code should not be empty");
 }

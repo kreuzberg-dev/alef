@@ -3907,7 +3907,7 @@ fn test_php_required_str_param_not_nullable_with_optional_tail() {
                     name: "content_type".to_string(),
                     ty: TypeRef::String,
                     optional: false,
-                    is_ref: true,  // Rust signature: &str
+                    is_ref: true, // Rust signature: &str
                     ..ParamDef::default()
                 },
                 // Optional &str parameter (maps to TypeRef::Optional(String) with is_ref=true)

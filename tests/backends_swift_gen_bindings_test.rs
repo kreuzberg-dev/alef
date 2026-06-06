@@ -2747,7 +2747,7 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
     let content = &files[0].content;
 
     assert!(
-        content.contains("public func run(opts: Options?) throws"),
+        content.contains("public func run(opts: Options? = nil) throws"),
         "throws clause must widen to cover the throwing intoRust() param conversion:\n{content}"
     );
     assert!(
@@ -2885,19 +2885,21 @@ fn legacy_extraction_type_names_do_not_emit_e2e_wrappers() {
 
 #[test]
 fn swift_string_param_not_wrapped() {
+    // Plain String parameter in async function should NOT be wrapped in RustString()
+    // because swift-bridge auto-handles the conversion at the FFI boundary.
     let api = ApiSurface {
         crate_name: "syn".into(),
         version: "0.1.0".into(),
         types: vec![],
         functions: vec![FunctionDef {
-            name: "do_it".to_string(),
-            rust_path: "syn::do_it".to_string(),
+            name: "do_thing".to_string(),
+            rust_path: "syn::do_thing".to_string(),
             original_rust_path: String::new(),
-            params: vec![make_param("s", TypeRef::String)],
+            params: vec![make_param("mime_type", TypeRef::String)],
             return_type: TypeRef::String,
             doc: "".to_string(),
             error_type: Some("String".to_string()),
-            is_async: false,
+            is_async: true,
             cfg: None,
             sanitized: false,
             return_sanitized: false,
@@ -2918,5 +2920,7 @@ fn swift_string_param_not_wrapped() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     let content = &files[0].content;
-    assert!(!content.contains("RustString(s)"), "plain String param must not wrap");
+    assert!(!content.contains("RustString(mimeType)"), "plain String param must not wrap in async call");
+    // Async function calls bridge with bare parameter name, not wrapped
+    assert!(content.contains("RustBridge.doThing(mimeType"), "async call should pass String directly to bridge");
 }

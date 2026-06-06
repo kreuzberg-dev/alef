@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **swift**: do not wrap plain `String` arguments in `RustString(...)` at call sites inside async function forwarders; swift-bridge auto-converts the type at the FFI boundary, and the extern block declares parameters as plain `String` not `RustString`. Removing the redundant wrapper fix compile errors like "cannot convert value of type 'RustString' to expected argument type 'String'". (`src/backends/swift/gen_bindings/mod.rs`)
+
 ## [0.23.22] - 2026-06-06
 
 ### Fixed
@@ -36,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/scaffold/languages/precommit.rs`, `src/core/template_versions.rs`)
 
 ### Fixed
+
 - **extendr/R**: flat data enums with struct variants (e.g. `VlmFallbackPolicy::OnLowQuality { quality_threshold: f64 }`) now correctly generate `From<core::Enum>` impl. Previously, the code checked `!can_flat_data_enum_round_trip(e) && e.serde_tag.is_some()` and skipped enum conversion generation, assuming a JSON passthrough wrapper would be created; however, `is_json_passthrough_data_enum` returns false for flat data enums, so neither the wrapper nor the conversion was generated. This left types like `VlmFallbackPolicy` and `FormatMetadata` without `From` impls, causing compilation errors in parent struct conversions (e.g., `ExtractionResult`). The fix always generates `From<core>` for flat data enums, with struct variants pattern-matched as `{ .. }` to discard their data (acceptable for output-only types in R bindings). Regression test: `tests/backends_extendr_enum_conversions_test.rs::extendr_flat_data_enum_with_struct_variant_generates_from_core_impl`. (`src/backends/extendr/gen_bindings/mod.rs`, `src/backends/extendr/templates/flat_enum_from_core_variant_struct.jinja`)
 - **php**: PHPDoc `@param` lines no longer emit double-nullable `??string` for optional parameters. When a function has both required and optional string parameters, the nullable flag was being applied twice: once from `TypeRef::Optional` handling in `php_phpdoc_type()` and again from redundant `nullable_prefix` in the template context. The fix removes the duplicate prefix (the type structure already encodes optionality). Required `&str` parameters remain non-nullable in signatures and PHPDoc even when followed by optional parameters. Regression test: `tests/backends_php_gen_bindings_test.rs::test_php_required_str_param_not_nullable_with_optional_tail`. (`src/backends/php/gen_bindings/mod.rs`)
 

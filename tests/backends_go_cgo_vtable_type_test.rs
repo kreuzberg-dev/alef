@@ -22,16 +22,14 @@ fn cbindgen_toml_template_includes_export_style_type() {
     // Verify style = "type" is in the [export] section
     let export_start = template_content.find("[export]").unwrap();
     let after_export = &template_content[export_start..];
-    let next_bracket = after_export[1..]
-        .find('[')
-        .map(|i| i + 1)
-        .unwrap_or(after_export.len());
+    let next_bracket = after_export[1..].find('[').map(|i| i + 1).unwrap_or(after_export.len());
     let export_block = &after_export[..next_bracket];
 
     assert!(
         export_block.contains("style = \"type\""),
         "cbindgen_toml.jinja [export] section missing style = \"type\". \
          This is required for Go cgo to use typedef names instead of struct tags \
-         in function parameters, avoiding vtable type mismatch. Export block:\n{}", export_block
+         in function parameters, avoiding vtable type mismatch. Export block:\n{}",
+        export_block
     );
 }

@@ -1819,3 +1819,110 @@ fn extendr_param_non_mut_emits_let_immut() {
         "Non-mutable parameters should emit 'let' without 'mut'\n{preamble}"
     );
 }
+
+#[test]
+fn extendr_underscore_prefix_stripped_from_r_params() {
+    // Regression test: R identifiers cannot start with underscore.
+    // Rust parameters like `_flag: bool` are common for unused params,
+    // but R requires the leading underscore be stripped in generated wrappers.
+    //
+    // Expected: `compute <- function(value, flag = NULL) .Call("wrap__compute", value, flag, PACKAGE = "...")`
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        enums: vec![],
+        functions: vec![FunctionDef {
+            name: "compute".to_string(),
+            rust_path: "test_lib::compute".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "value".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::I32),
+                    optional: false,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+                ParamDef {
+                    name: "_flag".to_string(),
+                    ty: TypeRef::Primitive(PrimitiveType::Bool),
+                    optional: true,
+                    default: None,
+                    sanitized: false,
+                    typed_default: None,
+                    is_ref: false,
+                    is_mut: false,
+                    newtype_wrapper: None,
+                    original_type: None,
+                    map_is_ahash: false,
+                    map_key_is_cow: false,
+                    vec_inner_is_ref: false,
+                    map_is_btree: false,
+                    core_wrapper: alef::core::ir::CoreWrapper::None,
+                },
+            ],
+            return_type: TypeRef::Primitive(PrimitiveType::I32),
+            doc: "Test function with underscore param".to_string(),
+            is_async: false,
+            error_type: None,
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = ExtendrBackend.generate_public_api(&api, &config).unwrap();
+
+    let r_wrapper_file = files
+        .iter()
+        .find(|f| f.path.ends_with("extendr-wrappers.R"))
+        .expect("Should generate extendr-wrappers.R");
+
+    // Verify: param name in signature should be `flag` not `_flag`
+    assert!(
+        r_wrapper_file.content.contains("compute <- function(value, flag = NULL)"),
+        "R wrapper should have sanitized param name in signature (no leading underscore)\nContent:\n{}",
+        r_wrapper_file.content
+    );
+
+    // Verify: param name in .Call() args should also be `flag` not `_flag`
+    assert!(
+        r_wrapper_file.content.contains(r#".Call("wrap__compute", value, flag, PACKAGE = "testlib")"#),
+        "R wrapper should have sanitized param name in .Call() args (no leading underscore)\nContent:\n{}",
+        r_wrapper_file.content
+    );
+
+    // Verify: should NOT contain the invalid `_flag` identifier
+    assert!(
+        !r_wrapper_file.content.contains("function(value, _flag"),
+        "R wrapper should not emit leading underscore in function signature"
+    );
+    assert!(
+        !r_wrapper_file.content.contains(r#".Call("wrap__compute", value, _flag"#),
+        "R wrapper should not emit leading underscore in .Call() args"
+    );
+}

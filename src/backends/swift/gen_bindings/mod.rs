@@ -4145,17 +4145,12 @@ fn emit_async_free_function_forwarder(
             }
         }
 
-        // Wrap String parameters in RustString() so they match the bridge's RustString
-        // signature inside Task.detached, where Swift's generic inference is weaker and
-        // refuses the swift-bridge String<->RustString implicit conversion that works at
-        // top level. Optional String / Vec<String> parameters go through forwarder_param_signature
-        // setup_line and don't need re-wrapping here.
-        let arg_expr = if matches!(&param.ty, TypeRef::String) && !param.optional {
-            format!("RustString({swift_param_name})")
-        } else if is_enum_param {
-            // JSON-encode the enum to a String for the bridge call.
-            // The bridge expects a String because swift-bridge cannot directly
-            // represent Rust enums in the extern block.
+        // For enum params, JSON-encode to a String for the bridge call.
+        // The bridge expects a String because swift-bridge cannot directly
+        // represent Rust enums in the extern block.
+        // For plain String params, pass them directly — swift-bridge auto-converts at FFI.
+        // Vec<String> and other types go through forwarder_param_signature setup_line.
+        let arg_expr = if is_enum_param {
             let local = format!("_rb_{swift_param_name}");
             conversion_lines.push(format!(
                 "let {local} = try String(data: JSONEncoder().encode({swift_param_name}), encoding: .utf8) ?? \"null\""

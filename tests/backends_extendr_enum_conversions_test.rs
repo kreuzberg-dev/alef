@@ -254,10 +254,7 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
     );
     enum_def.serde_tag = Some("mode".to_string());
 
-    let api = make_api(
-        vec![enum_def],
-        vec![make_enum_param_function("FallbackPolicy")],
-    );
+    let api = make_api(vec![enum_def], vec![make_enum_param_function("FallbackPolicy")]);
 
     let files = ExtendrBackend
         .generate_bindings(&api, &make_config())

@@ -3076,11 +3076,11 @@ fn gen_extendr_wrappers_r(
         if r_exclude_functions.contains(&func.name) {
             continue;
         }
-        let params: Vec<&str> = func.params.iter().map(|p| p.name.as_str()).collect();
+        let params: Vec<String> = func.params.iter().map(|p| sanitize_r_param_name(&p.name)).collect();
         let params_sig = r_wrapper_params_signature(&func.params, api);
         let mut call_args = vec![format!("\"wrap__{}\"", func.name)];
         for p in &params {
-            call_args.push((*p).to_string());
+            call_args.push(p.clone());
         }
         call_args.push(format!("PACKAGE = \"{package_name}\""));
         let call_args_str = call_args.join(", ");
@@ -3181,7 +3181,7 @@ fn gen_extendr_wrappers_r(
             if method_is_excluded_from_impl(method, api, bridges) {
                 continue;
             }
-            let params: Vec<&str> = method.params.iter().map(|p| p.name.as_str()).collect();
+            let params: Vec<String> = method.params.iter().map(|p| sanitize_r_param_name(&p.name)).collect();
             let params_sig = if method.is_static {
                 params.join(", ")
             } else if params.is_empty() {
@@ -3198,7 +3198,7 @@ fn gen_extendr_wrappers_r(
                 call_args.push("self".to_string());
             }
             for p in &params {
-                call_args.push((*p).to_string());
+                call_args.push(p.clone());
             }
             call_args.push(format!("PACKAGE = \"{package_name}\""));
             let call_args_str = call_args.join(", ");
@@ -3363,6 +3363,12 @@ fn gen_extendr_wrappers_r(
     out
 }
 
+/// Sanitize a Rust parameter name for use in R code.
+/// R identifiers cannot start with underscore, so we strip any leading underscore.
+fn sanitize_r_param_name(name: &str) -> String {
+    name.trim_start_matches('_').to_string()
+}
+
 fn r_wrapper_params_signature(params: &[ParamDef], api: &ApiSurface) -> String {
     let default_types: ahash::AHashSet<&str> = api
         .types
@@ -3373,14 +3379,15 @@ fn r_wrapper_params_signature(params: &[ParamDef], api: &ApiSurface) -> String {
     params
         .iter()
         .map(|p| {
+            let sanitized_name = sanitize_r_param_name(&p.name);
             if let TypeRef::Named(name) = &p.ty
                 && default_types.contains(name.as_str())
             {
-                format!("{} = {}$default()", p.name, name)
+                format!("{} = {}$default()", sanitized_name, name)
             } else if p.optional || matches!(p.ty, TypeRef::Optional(_)) {
-                format!("{} = NULL", p.name)
+                format!("{} = NULL", sanitized_name)
             } else {
-                p.name.clone()
+                sanitized_name
             }
         })
         .collect::<Vec<_>>()
