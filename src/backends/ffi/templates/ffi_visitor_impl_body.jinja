@@ -1,0 +1,10 @@
+        let Some(cb) = self.callbacks.{{ name }} else {
+            return {{ default_result }};
+        };
+        let user_data = self.callbacks.user_data;
+{{ bindings }}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.
+        unsafe {
+            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {
+                cb(c_ctx, user_data, {{ args_str }})
+            })
+        }

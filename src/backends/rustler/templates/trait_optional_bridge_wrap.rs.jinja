@@ -1,0 +1,7 @@
+let {{ param_name }}: Option<{{ handle_path }}> = match {{ param_name }} {
+        Some(term) if term.atom_to_string().ok().as_deref() != Some("nil") => {
+            let bridge = {{ struct_name }}::new(env, env.pid(), term);
+            Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }})
+        },
+        _ => None,
+    };

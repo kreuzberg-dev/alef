@@ -1,5 +1,7 @@
 use minijinja::Environment;
 
+mod streaming_templates;
+
 static TEMPLATES: &[(&str, &str)] = &[
     ("doc_comment.jinja", include_str!("templates/doc_comment.jinja")),
     ("enum_header.jinja", include_str!("templates/enum_header.jinja")),
@@ -412,14 +414,6 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "swift_client_method_unit_body.swift.jinja",
         include_str!("templates/swift_client_method_unit_body.swift.jinja"),
-    ),
-    (
-        "swift_streaming_client_method.swift.jinja",
-        include_str!("templates/swift_streaming_client_method.swift.jinja"),
-    ),
-    (
-        "swift_streaming_free_function.swift.jinja",
-        include_str!("templates/swift_streaming_free_function.swift.jinja"),
     ),
     (
         "swift_async_forwarder.swift.jinja",
@@ -1022,6 +1016,9 @@ pub(crate) fn make_env() -> Environment<'static> {
     env.set_lstrip_blocks(true);
     env.set_keep_trailing_newline(true);
     for (name, src) in TEMPLATES {
+        env.add_template(name, src).expect("built-in template is valid");
+    }
+    for (name, src) in streaming_templates::TEMPLATES {
         env.add_template(name, src).expect("built-in template is valid");
     }
     env

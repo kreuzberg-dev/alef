@@ -10,6 +10,51 @@ use ahash::AHashSet;
 
 use super::enums::{class_name_to_docstring, sanitize_python_doc};
 
+fn render_relative_import(module_name: &str, imports: &[String]) -> String {
+    crate::backends::pyo3::template_env::render(
+        "import_from_module.jinja",
+        minijinja::context! {
+            module_name => module_name,
+            imports => imports.join(", "),
+        },
+    )
+}
+
+fn render_absolute_import(module_name: &str, imports: &[String]) -> String {
+    crate::backends::pyo3::template_env::render(
+        "import_from_absolute_module.jinja",
+        minijinja::context! {
+            module_name => module_name,
+            imports => imports.join(", "),
+        },
+    )
+}
+
+fn is_long_import(import_statement: &str) -> bool {
+    import_statement.trim_end_matches('\n').len() > 88
+}
+
+fn exception_property_stub(method_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
+    match method_name {
+        "status_code" => Some((
+            "status_code",
+            "int",
+            "HTTP status code for this error (0 means no associated status).",
+        )),
+        "is_transient" => Some((
+            "is_transient",
+            "bool",
+            "Returns True if the error is transient and a retry may succeed.",
+        )),
+        "error_type" => Some((
+            "error_type",
+            "str",
+            "Machine-readable error category string for matching and logging.",
+        )),
+        _ => None,
+    }
+}
+
 /// Generate exceptions.py — exception hierarchy from IR error definitions.
 /// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
 /// Prefixes names that would shadow Python builtins (A004 compliance).
@@ -48,26 +93,15 @@ pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
         // docstring, leaving an empty-body `@property` that mypy rejects with
         // `empty-body [empty-body]`.
         for method in &error.methods {
-            match method.name.as_str() {
-                "status_code" => {
-                    out.push_str(
-                        "    @property\n    def status_code(self) -> int:\n        \
-                         \"\"\"HTTP status code for this error (0 means no associated status).\"\"\"\n        raise NotImplementedError\n",
-                    );
-                }
-                "is_transient" => {
-                    out.push_str(
-                        "    @property\n    def is_transient(self) -> bool:\n        \
-                         \"\"\"Returns True if the error is transient and a retry may succeed.\"\"\"\n        raise NotImplementedError\n",
-                    );
-                }
-                "error_type" => {
-                    out.push_str(
-                        "    @property\n    def error_type(self) -> str:\n        \
-                         \"\"\"Machine-readable error category string for matching and logging.\"\"\"\n        raise NotImplementedError\n",
-                    );
-                }
-                _ => {}
+            if let Some((name, return_type, doc)) = exception_property_stub(&method.name) {
+                out.push_str(&crate::backends::pyo3::template_env::render(
+                    "exception_property_stub.jinja",
+                    minijinja::context! {
+                        name => name,
+                        return_type => return_type,
+                        doc => doc,
+                    },
+                ));
             }
         }
 
@@ -300,8 +334,8 @@ pub(super) fn gen_init_py(
 
     // Data enums are Rust-backed structs; re-export from the native module first (isort: _ < a).
     if !imports_from_native.is_empty() {
-        let import_line = format!("from .{module_name} import {}", imports_from_native.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_relative_import(module_name, &imports_from_native);
+        if is_long_import(&import_statement) {
             // Use push_str directly to avoid the double-newline produced by routing through
             // single_line.jinja when the text already ends with `\n` (the template itself
             // appends another newline, yielding `(\n\n` which ruff then flags as E303).
@@ -317,15 +351,12 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
     }
     if !imports_from_api.is_empty() {
-        let import_line = format!("from .api import {}", imports_from_api.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_relative_import("api", &imports_from_api);
+        if is_long_import(&import_statement) {
             out.push_str("from .api import (\n");
             for name in &imports_from_api {
                 out.push_str(&crate::backends::pyo3::template_env::render(
@@ -335,15 +366,12 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
     }
     if !imports_from_exceptions.is_empty() {
-        let import_line = format!("from .exceptions import {}", imports_from_exceptions.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_relative_import("exceptions", &imports_from_exceptions);
+        if is_long_import(&import_statement) {
             out.push_str("from .exceptions import (\n");
             for name in &imports_from_exceptions {
                 out.push_str(&crate::backends::pyo3::template_env::render(
@@ -353,15 +381,12 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
     }
     if !imports_from_options.is_empty() {
-        let import_line = format!("from .options import {}", imports_from_options.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_relative_import("options", &imports_from_options);
+        if is_long_import(&import_statement) {
             out.push_str("from .options import (\n");
             for name in &imports_from_options {
                 out.push_str(&crate::backends::pyo3::template_env::render(
@@ -371,10 +396,7 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
     }
 
@@ -384,8 +406,8 @@ pub(super) fn gen_init_py(
     service_owners.sort();
     service_owners.dedup();
     if !service_owners.is_empty() {
-        let import_line = format!("from .service import {}", service_owners.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_relative_import("service", &service_owners);
+        if is_long_import(&import_statement) {
             out.push_str("from .service import (\n");
             for name in &service_owners {
                 out.push_str(&crate::backends::pyo3::template_env::render(
@@ -395,10 +417,7 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
     }
 
@@ -409,8 +428,8 @@ pub(super) fn gen_init_py(
         if symbols.is_empty() {
             continue;
         }
-        let import_line = format!("from {module} import {}", symbols.join(", "));
-        if import_line.len() > 88 {
+        let import_statement = render_absolute_import(module, symbols);
+        if is_long_import(&import_statement) {
             out.push_str(&crate::backends::pyo3::template_env::render(
                 "import_from_module_header.jinja",
                 minijinja::context! { module_name => module },
@@ -423,10 +442,7 @@ pub(super) fn gen_init_py(
             }
             out.push_str(")\n");
         } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "trait_bridge/single_line.jinja",
-                minijinja::context! { text => format!("{}\n", import_line) },
-            ));
+            out.push_str(&import_statement);
         }
         extra_all_items.extend(symbols.iter().cloned());
     }

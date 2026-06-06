@@ -12,6 +12,12 @@
 use crate::codegen::naming::{PublicIdentifierKind, public_host_identifier};
 use crate::core::config::{AdapterConfig, AdapterPattern, Language};
 
+fn render(template_name: &str, ctx: minijinja::Value) -> String {
+    crate::backends::magnus::template_env::render(template_name, ctx)
+        .trim_end_matches('\n')
+        .to_string()
+}
+
 /// Adapter info needed to generate one streaming iterator + method pair.
 pub(super) struct StreamingAdapter<'a> {
     pub name: &'a str,
@@ -194,11 +200,33 @@ pub(super) fn gen_streaming_method_body(adapter: &StreamingAdapter<'_>) -> Strin
 pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<String> {
     let iter_name = &adapter.iterator_struct_name;
     vec![
-        format!(r#"    let class = module.define_class("{iter_name}", ruby.class_object())?;"#),
-        format!(r#"    class.define_method("next_chunk", method!({iter_name}::next_chunk, 0))?;"#),
-        format!(r#"    class.define_method("each", method!({iter_name}::each, 0))?;"#),
+        render(
+            "module_class_define.rs.jinja",
+            minijinja::context! {
+                binding => "class",
+                class_name => iter_name,
+            },
+        ),
+        render(
+            "module_class_method_register.rs.jinja",
+            minijinja::context! {
+                ruby_name => "next_chunk",
+                type_name => iter_name,
+                function_name => "next_chunk",
+                arity => 0,
+            },
+        ),
+        render(
+            "module_class_method_register.rs.jinja",
+            minijinja::context! {
+                ruby_name => "each",
+                type_name => iter_name,
+                function_name => "each",
+                arity => 0,
+            },
+        ),
         // Mix in Enumerable so .to_a, .map, etc. work.
-        format!(r#"    class.include_module(ruby.module_enumerable())?;"#),
+        render("module_class_include_enumerable.rs.jinja", minijinja::context! {}),
     ]
 }
 
@@ -207,7 +235,15 @@ pub(super) fn gen_iterator_registration(adapter: &StreamingAdapter<'_>) -> Vec<S
 pub(super) fn gen_streaming_method_registration(adapter: &StreamingAdapter<'_>) -> String {
     let name = adapter.name;
     let owner = adapter.owner_type;
-    format!(r#"    class.define_method("{name}", method!({owner}::{name}, 1))?;"#)
+    render(
+        "module_class_method_register.rs.jinja",
+        minijinja::context! {
+            ruby_name => name,
+            type_name => owner,
+            function_name => name,
+            arity => 1,
+        },
+    )
 }
 
 /// Generate a module-level wrapper function for streaming adapters with an owner type.
@@ -267,6 +303,33 @@ mod tests {
         assert!(
             !code.contains("sample_llm::"),
             "iterator struct must not contain hardcoded sample_llm:: — got:\n{code}"
+        );
+    }
+
+    #[test]
+    fn test_iterator_registration_preserves_method_lines() {
+        let config = make_streaming_adapter("my_crate");
+        let adapter = StreamingAdapter::from_config(&config, "MyModule", "my_crate").unwrap();
+
+        assert_eq!(
+            gen_iterator_registration(&adapter),
+            vec![
+                r#"    let class = module.define_class("ChatStreamIterator", ruby.class_object())?;"#,
+                r#"    class.define_method("next_chunk", method!(ChatStreamIterator::next_chunk, 0))?;"#,
+                r#"    class.define_method("each", method!(ChatStreamIterator::each, 0))?;"#,
+                r#"    class.include_module(ruby.module_enumerable())?;"#,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_streaming_method_registration_preserves_owner_method_line() {
+        let config = make_streaming_adapter("my_crate");
+        let adapter = StreamingAdapter::from_config(&config, "MyModule", "my_crate").unwrap();
+
+        assert_eq!(
+            gen_streaming_method_registration(&adapter),
+            r#"    class.define_method("chat_stream", method!(Client::chat_stream, 1))?;"#
         );
     }
 }

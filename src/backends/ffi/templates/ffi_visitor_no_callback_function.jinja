@@ -1,0 +1,33 @@
+/// Run conversion.
+///
+/// Returns a heap-allocated result on success, or null on failure.
+/// Check `{{ prefix }}_last_error_code` / `{{ prefix }}_last_error_context` for error details.
+/// The returned pointer must be freed with the matching result free function.
+///
+/// # Arguments
+///
+/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
+/// - `options`: optional function options; pass null for defaults.
+///
+/// # Safety
+///
+/// `html` must be a valid, non-null, null-terminated UTF-8 string.
+/// `options` must be a valid pointer or null.
+/// Returned pointer must be freed with the matching result free function.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn {{ fn_name }}(
+{% for param in params %}
+    {{ param }}{% if not loop.last %},{% endif %}
+{% endfor %}
+) -> *mut {{ return_type }} {
+    clear_last_error();
+
+{{ param_conversions }}
+{{ call }}
+        Ok(result) => Box::into_raw(Box::new(result)),
+        Err(e) => {
+            set_last_error(2, &e.to_string());
+            std::ptr::null_mut()
+        }
+    }
+}

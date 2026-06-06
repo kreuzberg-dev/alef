@@ -521,14 +521,12 @@ fn build_napi_args(method: &MethodDef, bridge_cfg: &TraitBridgeConfig) -> Vec<St
         .map(|p| {
             if let TypeRef::Named(n) = &p.ty {
                 if Some(n.as_str()) == bridge_cfg.context_type.as_deref() {
-                    return format!(
-                        "match nodecontext_to_js_object(&self.env(), {}{}) {{ Ok(o) => o.to_unknown(), Err(_) => unsafe {{ \
-                         let r = napi::bindgen_prelude::ToNapiValue::to_napi_value(self.env().raw(), napi::bindgen_prelude::Null).unwrap_or(std::ptr::null_mut()); \
-                         napi::bindgen_prelude::Unknown::from_raw_unchecked(self.env().raw(), r) }} \
-                        }}",
-                        if p.is_ref { "" } else { "&" },
-                        p.name
-                    );
+                    return crate::backends::napi::template_env::render(
+                        "visitor_context_arg_expr.jinja",
+                        minijinja::context! { ref_prefix => if p.is_ref { "" } else { "&" }, name => p.name.as_str() },
+                    )
+                    .trim_end()
+                    .to_string();
                 }
             }
             // Option<&str>
@@ -932,37 +930,6 @@ pub fn gen_options_field_bridge_function(
 
     // Generate bridge wrapping (wrap the extra host parameter into the configured handle).
     // This mirrors PyO3's approach: take visitor as a separate parameter and wrap it.
-    let visitor_wrap = format!(
-        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.and_then(|v| {{\n    \
-         {struct_name}::new(v).ok().map(|bridge| {{\n    \
-         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
-         }})\n\
-         }});"
-    );
-
-    // Generate options conversion with visitor injection.
-    // The From<JsConversionOptions> impl post-processes the visitor field to forward
-    // the configured field through the generated bridge, so we let the From impl handle it.
-    // The separate bridge kwarg, when provided, overrides the configured options field.
-    let options_convert = format!(
-        "let {options_name}_core: Option<{options_path}> = {options_name}.map(|o| {{\n    \
-         let mut result: {options_path} = o.into();\n    \
-         if {visitor_kwarg}_handle.is_some() {{\n    \
-         result.{field_name} = {visitor_kwarg}_handle.clone();\n    \
-         }}\n    \
-         result\n    \
-         }}).or_else(|| {{\n    \
-         if {visitor_kwarg}_handle.is_some() {{\n    \
-         Some({options_path} {{\n    \
-         {field_name}: {visitor_kwarg}_handle.clone(),\n    \
-         ..Default::default()\n    \
-         }})\n    \
-         }} else {{\n    \
-         None\n    \
-         }}\n    \
-         }});"
-    );
-
     // Build call args, replacing options param with the _core version
     let call_args: String = func
         .params
@@ -1026,15 +993,22 @@ pub fn gen_options_field_bridge_function(
     };
 
     // Build function body with visitor wrapping and options conversion.
-    let body = if func.error_type.is_some() {
-        if return_wrap == "val" {
-            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}{err_conv}")
-        } else {
-            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
-        }
-    } else {
-        format!("{visitor_wrap}\n    {options_convert}\n    {core_call}")
-    };
+    let body = crate::backends::napi::template_env::render(
+        "options_field_bridge_body.jinja",
+        minijinja::context! {
+            has_error => func.error_type.is_some(),
+            maps_return => return_wrap != "val",
+            visitor_kwarg => visitor_kwarg,
+            handle_path => handle_path,
+            struct_name => struct_name,
+            options_name => options_name,
+            options_path => options_path,
+            field_name => field_name,
+            core_call => core_call,
+            err_conv => err_conv,
+            return_wrap => return_wrap,
+        },
+    );
 
     let mut out = String::with_capacity(1024);
     if func.error_type.is_some() {

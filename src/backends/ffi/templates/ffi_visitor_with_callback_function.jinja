@@ -13,7 +13,9 @@
 /// Returned pointer must be freed with the matching result free function.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {{ with_visitor_fn_name }}(
-    {{ params }}
+{% for param in params %}
+    {{ param }},
+{% endfor %}
     visitor: *mut {{ pascal_prefix }}Visitor,
 ) -> *mut {{ return_type }} {
     clear_last_error();

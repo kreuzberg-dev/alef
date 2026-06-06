@@ -1,0 +1,15 @@
+
+{% for line in doc_lines %}
+{% if line %}
+    /// {{ line }}
+{% else %}
+    ///
+{% endif %}
+{% endfor %}
+    pub {{ name }}: Option<
+        unsafe extern "C" fn(
+{% for param in params %}
+            {{ param.name }}: {{ param.c_type }}{% if not loop.last %},{% endif %}
+{% endfor %}
+        ) -> i32,
+    >,

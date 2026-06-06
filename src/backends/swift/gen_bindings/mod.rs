@@ -17,7 +17,10 @@ use crate::backends::swift::type_map::SwiftMapper;
 
 pub mod plugin_marshal;
 pub mod service_api;
+mod streaming;
 pub mod trait_bridge;
+
+use self::streaming::render_streaming_chunk_decode;
 
 pub struct SwiftBackend;
 
@@ -2401,15 +2404,12 @@ fn emit_streaming_client_method(
         format!(", {}", call_args.join(", "))
     };
 
-    let chunk_decode = if first_class_types.contains(item_type) {
-        // First-class struct: decode with JSONDecoder directly — no RustBridge shim.
-        format!(
-            "                        let chunkData = json.data(using: .utf8) ?? Data()\n\
-                                     let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
-        )
-    } else {
-        format!("                        let chunk = try RustBridge.{item_type_from_json}(json)\n")
-    };
+    let chunk_decode = render_streaming_chunk_decode(
+        item_type,
+        &item_type_from_json,
+        first_class_types.contains(item_type),
+        "                        ",
+    );
     out.push_str(&crate::backends::swift::template_env::render(
         "swift_streaming_client_method.swift.jinja",
         minijinja::context! {
@@ -2571,14 +2571,12 @@ fn emit_streaming_free_functions(
             format!(", {}", call_args.join(", "))
         };
 
-        let chunk_decode = if first_class_types.contains(item_type) {
-            format!(
-                "                    let chunkData = json.data(using: .utf8) ?? Data()\n\
-                                 let chunk = try JSONDecoder().decode({item_type}.self, from: chunkData)\n"
-            )
-        } else {
-            format!("                    let chunk = try RustBridge.{item_type_from_json}(json)\n")
-        };
+        let chunk_decode = render_streaming_chunk_decode(
+            item_type,
+            &item_type_from_json,
+            first_class_types.contains(item_type),
+            "                    ",
+        );
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_streaming_free_function.swift.jinja",
             minijinja::context! {

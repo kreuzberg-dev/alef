@@ -2506,6 +2506,32 @@ visitor_callbacks = true
     }
 
     #[test]
+    fn test_visitor_callbacks_generate_param_setup_blocks() {
+        let api = visitor_api();
+        let config = visitor_config_htm();
+        let backend = FfiBackend;
+
+        let files = backend.generate_bindings(&api, &config).unwrap();
+        let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+        assert!(lib.content.contains("let text_cs = match std::ffi::CString::new(text)"));
+        assert!(
+            lib.content
+                .contains("let (title_ptr, _title_cs) = opt_str_to_c(title);")
+        );
+        assert!(lib.content.contains("let ordered_i = i32::from(ordered);"));
+        assert!(
+            lib.content
+                .contains("let cells_cstrings: Vec<std::ffi::CString> = cells")
+        );
+        assert!(lib.content.contains("let cell_count = cells_ptrs.len();"));
+        assert!(
+            lib.content
+                .contains("cb(c_ctx, user_data, cells_ptrs.as_ptr(), cell_count, is_header_i")
+        );
+    }
+
+    #[test]
     fn test_visitor_callbacks_custom_prefix() {
         let api = visitor_api();
         let config = visitor_config_ml();

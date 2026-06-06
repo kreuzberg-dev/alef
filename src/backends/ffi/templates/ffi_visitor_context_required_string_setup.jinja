@@ -1,0 +1,1 @@
+    let {{ name }}_cstring = std::ffi::CString::new(ctx.{{ name }}.as_ref()).unwrap_or_default();

@@ -1,0 +1,4 @@
+    let {{ name }}_cstring: Option<std::ffi::CString> = ctx
+        .{{ name }}
+        .as_deref()
+        .and_then(|s| std::ffi::CString::new(s).ok());

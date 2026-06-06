@@ -146,6 +146,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/module_class_method_register.rs.jinja"),
     ),
     (
+        "module_class_include_enumerable.rs.jinja",
+        include_str!("templates/module_class_include_enumerable.rs.jinja"),
+    ),
+    (
         "service_rb_header.rb.jinja",
         include_str!("templates/service_rb_header.rb.jinja"),
     ),

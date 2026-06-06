@@ -146,6 +146,30 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/flat_enum_from_binding_variant_tuple.jinja"),
     ),
     (
+        "enum_from_core_to_binding_impl.jinja",
+        include_str!("templates/enum_from_core_to_binding_impl.jinja"),
+    ),
+    (
+        "enum_from_core_to_binding_arm.jinja",
+        include_str!("templates/enum_from_core_to_binding_arm.jinja"),
+    ),
+    (
+        "enum_from_core_to_binding_catch_all.jinja",
+        include_str!("templates/enum_from_core_to_binding_catch_all.jinja"),
+    ),
+    (
+        "enum_from_binding_to_core_impl.jinja",
+        include_str!("templates/enum_from_binding_to_core_impl.jinja"),
+    ),
+    (
+        "enum_from_binding_to_core_arm.jinja",
+        include_str!("templates/enum_from_binding_to_core_arm.jinja"),
+    ),
+    (
+        "enum_from_binding_to_core_catch_all.jinja",
+        include_str!("templates/enum_from_binding_to_core_catch_all.jinja"),
+    ),
+    (
         "json_vec_optional_preamble.jinja",
         include_str!("templates/json_vec_optional_preamble.jinja"),
     ),

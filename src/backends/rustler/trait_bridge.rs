@@ -617,24 +617,21 @@ pub fn gen_bridge_function(
     let err_conv = ".map_err(|e| e.to_string())";
 
     // Bridge wrapping code
-    let bridge_wrap = if is_optional {
-        format!(
-            "let {param_name}: Option<{handle_path}> = match {param_name} {{\n        \
-             Some(term) if term.atom_to_string().ok().as_deref() != Some(\"nil\") => {{\n            \
-             let bridge = {struct_name}::new(env, env.pid(), term);\n            \
-             Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path})\n        \
-             }},\n        \
-             _ => None,\n    \
-             }};"
-        )
+    let bridge_wrap_template = if is_optional {
+        "trait_optional_bridge_wrap.rs.jinja"
     } else {
-        format!(
-            "let {param_name} = {{\n        \
-             let bridge = {struct_name}::new(env, env.pid(), {param_name});\n        \
-             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n    \
-             }};"
-        )
+        "trait_required_bridge_wrap.rs.jinja"
     };
+    let bridge_wrap = crate::backends::rustler::template_env::render(
+        bridge_wrap_template,
+        minijinja::context! {
+            param_name => param_name,
+            handle_path => handle_path,
+            struct_name => struct_name,
+        },
+    )
+    .trim_end()
+    .to_string();
 
     // Let bindings for non-bridge params that need deserialization
     let deser_bindings: String = func
@@ -1049,11 +1046,15 @@ pub fn gen_bridge_field_function(
         .collect();
 
     // Deser stmts: parse options JSON and set visitor field.
-    let deser_stmts = format!(
-        "let mut {options_param}_core: {core_options_type} = \
-         {options_param}.map(|s| serde_json::from_str::<{core_options_type}>(&s).unwrap_or_default()).unwrap_or_default();\n    \
-         let bridge = {struct_name}::new(env, pid, visitor_term);\n    \
-         {options_param}_core.{field_name} = Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path});"
+    let deser_stmts = crate::backends::rustler::template_env::render(
+        "visitor_field_options_setup.rs.jinja",
+        minijinja::context! {
+            options_param => options_param,
+            core_options_type => core_options_type,
+            struct_name => struct_name,
+            field_name => field_name,
+            handle_path => handle_path,
+        },
     );
 
     // Build call args for the visitor variant.
@@ -1099,6 +1100,9 @@ pub fn gen_bridge_field_function(
 
 #[cfg(test)]
 mod tests {
+    use crate::core::config::{BridgeBinding, TraitBridgeConfig};
+    use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, TypeRef};
+
     #[test]
     fn visitor_bridge_uses_configured_context_and_result_metadata() {
         let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();
@@ -1114,5 +1118,105 @@ mod tests {
 
         crate::codegen::visitor_context::test_support::assert_neutral_visitor_output(&output.code);
         assert!(output.code.contains("\"display_name\""));
+    }
+
+    #[test]
+    fn options_field_bridge_renders_visitor_setup_template() {
+        let api = ApiSurface {
+            crate_name: "sample".to_string(),
+            version: "1.0.0".to_string(),
+            types: vec![],
+            functions: vec![],
+            enums: vec![],
+            errors: vec![],
+            excluded_type_paths: std::collections::HashMap::new(),
+            excluded_trait_names: std::collections::HashSet::new(),
+            services: vec![],
+            handler_contracts: vec![],
+            unsupported_public_items: vec![],
+        };
+        let func = FunctionDef {
+            name: "render".to_string(),
+            rust_path: "sample::render".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "html".to_string(),
+                    ty: TypeRef::String,
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "options".to_string(),
+                    ty: TypeRef::Named("RenderOptions".to_string()),
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("RenderError".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        };
+        let field = FieldDef {
+            name: "renderer".to_string(),
+            ty: TypeRef::Named("RenderVisitorHandle".to_string()),
+            ..FieldDef::default()
+        };
+        let bridge = TraitBridgeConfig {
+            trait_name: "RenderVisitor".to_string(),
+            super_trait: None,
+            registry_getter: None,
+            register_fn: None,
+            unregister_fn: None,
+            clear_fn: None,
+            type_alias: Some("RenderVisitorHandle".to_string()),
+            param_name: None,
+            register_extra_args: None,
+            exclude_languages: vec![],
+            ffi_skip_methods: vec![],
+            bind_via: BridgeBinding::OptionsField,
+            options_type: Some("RenderOptions".to_string()),
+            options_field: Some("renderer".to_string()),
+            context_type: None,
+            result_type: None,
+        };
+        let bridge_match = crate::codegen::generators::trait_bridge::BridgeFieldMatch {
+            param_index: 1,
+            param_name: "options".to_string(),
+            options_type: "RenderOptions".to_string(),
+            param_is_optional: false,
+            field_name: "renderer".to_string(),
+            field: &field,
+            bridge: &bridge,
+        };
+        let code = super::gen_bridge_field_function(
+            &api,
+            &func,
+            &bridge_match,
+            &bridge,
+            &crate::backends::rustler::type_map::RustlerMapper,
+            &ahash::AHashSet::new(),
+            &ahash::AHashSet::new(),
+            "sample",
+        );
+
+        let expected_options_setup = concat!(
+            "let mut options_core: sample::options::RenderOptions = options.map(|s| ",
+            "serde_json::from_str::<sample::options::RenderOptions>(&s).unwrap_or_default())",
+            ".unwrap_or_default();"
+        );
+        assert!(code.contains(expected_options_setup));
+        assert!(code.contains("let bridge = ElixirRenderVisitorBridge::new(env, pid, visitor_term);"));
+        assert!(code.contains(
+            "options_core.renderer = Some(std::sync::Arc::new(std::sync::Mutex::new(bridge)) as sample::RenderVisitorHandle);"
+        ));
     }
 }

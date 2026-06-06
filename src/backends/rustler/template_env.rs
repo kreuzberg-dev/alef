@@ -696,6 +696,18 @@ pub fn visitor_reply(ref_id: u64, result: Option<String>) {
         include_str!("templates/default_deser_without_error.rs.jinja"),
     ),
     (
+        "visitor_field_options_setup.rs.jinja",
+        include_str!("templates/visitor_field_options_setup.rs.jinja"),
+    ),
+    (
+        "trait_optional_bridge_wrap.rs.jinja",
+        include_str!("templates/trait_optional_bridge_wrap.rs.jinja"),
+    ),
+    (
+        "trait_required_bridge_wrap.rs.jinja",
+        include_str!("templates/trait_required_bridge_wrap.rs.jinja"),
+    ),
+    (
         "named_param_to_json.rs.jinja",
         include_str!("templates/named_param_to_json.rs.jinja"),
     ),

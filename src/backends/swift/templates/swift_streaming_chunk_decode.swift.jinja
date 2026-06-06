@@ -1,0 +1,6 @@
+{% if is_first_class %}
+{{ indent }}let chunkData = json.data(using: .utf8) ?? Data()
+{{ indent }}let chunk = try JSONDecoder().decode({{ item_type }}.self, from: chunkData)
+{% else %}
+{{ indent }}let chunk = try RustBridge.{{ item_type_from_json }}(json)
+{% endif %}

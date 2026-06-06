@@ -1,0 +1,4 @@
+        let {{ name }}_cs = match std::ffi::CString::new({{ name }}) {
+            Ok(s) => s,
+            Err(_) => return {{ default_result }},
+        };

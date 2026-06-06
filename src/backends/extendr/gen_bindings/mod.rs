@@ -1,3 +1,4 @@
+mod enum_conversions;
 pub mod service_api;
 
 use crate::codegen::builder::RustFileBuilder;
@@ -653,16 +654,10 @@ impl Backend for ExtendrBackend {
                 // `.into()`.  Data is discarded across the boundary; the binding enum keeps
                 // only the variant tag.
                 if input_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
-                    builder.add_item(&crate::codegen::conversions::gen_enum_from_binding_to_core(
-                        e,
-                        &core_import,
-                    ));
+                    builder.add_item(&enum_conversions::gen_from_binding_to_core(e, &core_import));
                 }
                 if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                    builder.add_item(&crate::codegen::conversions::gen_enum_from_core_to_binding(
-                        e,
-                        &core_import,
-                    ));
+                    builder.add_item(&enum_conversions::gen_from_core_to_binding(e, &core_import));
                 }
             }
         }

@@ -1,0 +1,7 @@
+        let {{ name }}_cstrings: Vec<std::ffi::CString> = {{ name }}
+            .iter()
+            .filter_map(|s| std::ffi::CString::new(s.as_str()).ok())
+            .collect();
+        let {{ name }}_ptrs: Vec<*const std::ffi::c_char> =
+            {{ name }}_cstrings.iter().map(|cs| cs.as_ptr()).collect();
+        let cell_count = {{ name }}_ptrs.len();

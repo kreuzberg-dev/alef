@@ -29,6 +29,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "gen_bridge_function",
         include_str!("templates/gen_bridge_function.jinja"),
     ),
+    (
+        "gen_options_field_bridge_body",
+        include_str!("templates/gen_options_field_bridge_body.jinja"),
+    ),
     ("gen_free_function", include_str!("templates/gen_free_function.jinja")),
     (
         "gen_instance_method",

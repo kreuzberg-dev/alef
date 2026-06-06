@@ -111,6 +111,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/exception_variant_class.jinja"),
     ),
     (
+        "exception_property_stub.jinja",
+        include_str!("templates/exception_property_stub.jinja"),
+    ),
+    (
         "import_single_line.jinja",
         include_str!("templates/import_single_line.jinja"),
     ),

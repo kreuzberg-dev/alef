@@ -478,6 +478,70 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/ffi_visitor_with_callback_function.jinja"),
     ),
     (
+        "ffi_visitor_no_callback_function.jinja",
+        include_str!("templates/ffi_visitor_no_callback_function.jinja"),
+    ),
+    (
+        "ffi_visitor_callback_field.jinja",
+        include_str!("templates/ffi_visitor_callback_field.jinja"),
+    ),
+    (
+        "ffi_visitor_context_field.jinja",
+        include_str!("templates/ffi_visitor_context_field.jinja"),
+    ),
+    (
+        "ffi_visitor_context_required_string_setup.jinja",
+        include_str!("templates/ffi_visitor_context_required_string_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_context_optional_string_setup.jinja",
+        include_str!("templates/ffi_visitor_context_optional_string_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_context_required_string_init.jinja",
+        include_str!("templates/ffi_visitor_context_required_string_init.jinja"),
+    ),
+    (
+        "ffi_visitor_context_optional_string_init.jinja",
+        include_str!("templates/ffi_visitor_context_optional_string_init.jinja"),
+    ),
+    (
+        "ffi_visitor_context_bool_init.jinja",
+        include_str!("templates/ffi_visitor_context_bool_init.jinja"),
+    ),
+    (
+        "ffi_visitor_context_passthrough_init.jinja",
+        include_str!("templates/ffi_visitor_context_passthrough_init.jinja"),
+    ),
+    (
+        "ffi_visitor_result_constant.jinja",
+        include_str!("templates/ffi_visitor_result_constant.jinja"),
+    ),
+    (
+        "ffi_visitor_cstring_param_setup.jinja",
+        include_str!("templates/ffi_visitor_cstring_param_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_optional_string_param_setup.jinja",
+        include_str!("templates/ffi_visitor_optional_string_param_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_bool_param_setup.jinja",
+        include_str!("templates/ffi_visitor_bool_param_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_string_list_param_setup.jinja",
+        include_str!("templates/ffi_visitor_string_list_param_setup.jinja"),
+    ),
+    (
+        "ffi_visitor_impl_body.jinja",
+        include_str!("templates/ffi_visitor_impl_body.jinja"),
+    ),
+    (
+        "ffi_visitor_impl_method.jinja",
+        include_str!("templates/ffi_visitor_impl_method.jinja"),
+    ),
+    (
         "service_api_rs_header.rs.jinja",
         include_str!("templates/service_api_rs_header.rs.jinja"),
     ),

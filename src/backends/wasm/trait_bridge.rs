@@ -843,32 +843,6 @@ pub fn gen_options_field_bridge_function(
 
     let err_conv = ".map_err(|e| wasm_bindgen::JsError::new(&e.to_string()).into())";
 
-    // Generate bridge wrapping (wrap the extra host parameter into the configured handle).
-    let visitor_wrap = format!(
-        "let {visitor_kwarg}_handle: Option<{handle_path}> = {visitor_kwarg}.map(|v| {{\n    \
-         let bridge = {struct_name}::new(v);\n    \
-         std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {handle_path}\n\
-         }});"
-    );
-
-    // Generate options conversion with visitor injection.
-    let options_convert = format!(
-        "let {options_name}_core: Option<{options_path}> = {options_name}.map(|mut o| {{\n    \
-         o.{field_name} = None;\n    \
-         let mut result: {options_path} = o.into();\n    \
-         result.{field_name} = {visitor_kwarg}_handle.clone();\n    \
-         result\n    \
-         }}).or_else(|| {{\n    \
-         if {visitor_kwarg}_handle.is_some() {{\n    \
-         let mut opts = {options_path}::default();\n    \
-         opts.{field_name} = {visitor_kwarg}_handle.clone();\n    \
-         Some(opts)\n    \
-         }} else {{\n    \
-         None\n    \
-         }}\n    \
-         }});"
-    );
-
     // Build call args, replacing options param with the _core version
     let call_args: String = func
         .params
@@ -931,16 +905,21 @@ pub fn gen_options_field_bridge_function(
         _ => "val".to_string(),
     };
 
-    // Build function body with visitor wrapping and options conversion.
-    let body = if func.error_type.is_some() {
-        if return_wrap == "val" {
-            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}{err_conv}")
-        } else {
-            format!("{visitor_wrap}\n    {options_convert}\n    {core_call}.map(|val| {return_wrap}){err_conv}")
-        }
-    } else {
-        format!("{visitor_wrap}\n    {options_convert}\n    {core_call}")
-    };
+    let body = crate::backends::wasm::template_env::render(
+        "gen_options_field_bridge_body",
+        minijinja::context! {
+            visitor_kwarg => visitor_kwarg,
+            handle_path => handle_path,
+            struct_name => struct_name,
+            options_name => options_name,
+            options_path => options_path,
+            field_name => field_name,
+            core_call => core_call,
+            err_conv => err_conv,
+            return_wrap => return_wrap,
+            has_error => func.error_type.is_some(),
+        },
+    );
 
     let func_name = &func.name;
     let has_error = func.error_type.is_some();

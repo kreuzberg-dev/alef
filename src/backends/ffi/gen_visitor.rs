@@ -15,6 +15,7 @@
 /// expected layout).
 use heck::{ToPascalCase, ToShoutySnakeCase, ToSnakeCase};
 
+use crate::backends::ffi::template_env::render;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
@@ -80,9 +81,39 @@ impl VisitorProtocol {
 struct ContextFieldSpec {
     name: String,
     c_type: &'static str,
-    c_init: String,
-    setup: String,
+    c_init: ContextFieldInit,
+    setup: Option<ContextFieldSetup>,
     doc: String,
+}
+
+#[derive(serde::Serialize)]
+struct CallbackArgField {
+    name: String,
+    c_type: String,
+}
+
+#[derive(Clone, Copy)]
+enum ContextFieldSetupKind {
+    RequiredString,
+    OptionalString,
+}
+
+struct ContextFieldSetup {
+    name: String,
+    kind: ContextFieldSetupKind,
+}
+
+#[derive(Clone, Copy)]
+enum ContextFieldInitKind {
+    RequiredString,
+    OptionalString,
+    Bool,
+    Passthrough,
+}
+
+struct ContextFieldInit {
+    name: String,
+    kind: ContextFieldInitKind,
 }
 
 // ---------------------------------------------------------------------------
@@ -222,56 +253,85 @@ pub(crate) fn callback_specs_from_trait(
 // ---------------------------------------------------------------------------
 
 /// Build the C `extern "C" fn(...)` signature parameters for one callback.
-fn c_param_list(spec: &CallbackSpec, pascal_prefix: &str) -> String {
-    let mut parts = vec![
-        format!("ctx: *const {pascal_prefix}Context"),
-        "user_data: *mut std::ffi::c_void".to_string(),
+fn callback_arg_fields(spec: &CallbackSpec, pascal_prefix: &str) -> Vec<CallbackArgField> {
+    let mut fields = vec![
+        CallbackArgField {
+            name: "ctx".to_string(),
+            c_type: format!("*const {pascal_prefix}Context"),
+        },
+        CallbackArgField {
+            name: "user_data".to_string(),
+            c_type: "*mut std::ffi::c_void".to_string(),
+        },
     ];
     for p in &spec.params {
         match p {
             ParamKind::Str(n) | ParamKind::OptStr(n) => {
-                parts.push(format!("{n}: *const std::ffi::c_char"));
+                fields.push(CallbackArgField {
+                    name: n.clone(),
+                    c_type: "*const std::ffi::c_char".to_string(),
+                });
             }
-            ParamKind::Bool(n) => parts.push(format!("{n}: i32")),
-            ParamKind::U32(n) => parts.push(format!("{n}: u32")),
-            ParamKind::Usize(n) => parts.push(format!("{n}: usize")),
+            ParamKind::Bool(n) => fields.push(CallbackArgField {
+                name: n.clone(),
+                c_type: "i32".to_string(),
+            }),
+            ParamKind::U32(n) => fields.push(CallbackArgField {
+                name: n.clone(),
+                c_type: "u32".to_string(),
+            }),
+            ParamKind::Usize(n) => fields.push(CallbackArgField {
+                name: n.clone(),
+                c_type: "usize".to_string(),
+            }),
             ParamKind::CellSlice(n) => {
-                parts.push(format!("{n}: *const *const std::ffi::c_char"));
-                parts.push("cell_count: usize".to_string());
+                fields.push(CallbackArgField {
+                    name: n.clone(),
+                    c_type: "*const *const std::ffi::c_char".to_string(),
+                });
+                fields.push(CallbackArgField {
+                    name: "cell_count".to_string(),
+                    c_type: "usize".to_string(),
+                });
             }
         }
     }
-    parts.push("out_custom: *mut *mut std::ffi::c_char".to_string());
-    parts.push("out_len: *mut usize".to_string());
-    parts.join(",\n            ")
+    fields.push(CallbackArgField {
+        name: "out_custom".to_string(),
+        c_type: "*mut *mut std::ffi::c_char".to_string(),
+    });
+    fields.push(CallbackArgField {
+        name: "out_len".to_string(),
+        c_type: "*mut usize".to_string(),
+    });
+    fields
 }
 
-/// Format a doc string so every line carries the `    ///` prefix.
-///
-/// Splits on `\n`, prepends `    /// ` to each line (trimming any existing
-/// leading `///` a caller may have embedded), and rejoins with `\n`.
-fn format_doc_comment(doc: &str) -> String {
+/// Build sanitized doc lines for a callback field template.
+fn callback_doc_lines(doc: &str) -> Vec<String> {
     doc.lines()
         .map(|line| {
-            // Strip any leading `///` the caller may have pre-pended so we
-            // don't double-prefix embedded continuation lines.
-            let stripped = line.trim_start_matches("///").trim_start();
-            if stripped.is_empty() {
-                "    ///".to_string()
-            } else {
-                format!("    /// {stripped}")
-            }
+            // Strip any leading `///` the caller may have pre-pended so embedded
+            // continuation lines do not get double-prefixed by the template.
+            line.trim_start_matches("///").trim_start().to_string()
         })
-        .collect::<Vec<_>>()
-        .join("\n")
+        .collect()
 }
 
 /// Generate all `Option<unsafe extern "C" fn(...)>` struct fields.
 fn gen_struct_fields(specs: &[CallbackSpec], pascal_prefix: &str) -> String {
     let mut out = String::new();
     for spec in specs {
-        let doc_lines = format_doc_comment(&spec.doc);
-        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n{doc_lines}\n    pub {name}: Option<\n        unsafe extern \"C\" fn(\n            {params}\n        ) -> i32,\n    >,\n", doc_lines = doc_lines, name = spec.name, params = c_param_list(spec, pascal_prefix)) }));
+        let doc_lines = callback_doc_lines(&spec.doc);
+        let params = callback_arg_fields(spec, pascal_prefix);
+        out.push_str(&render(
+            "ffi_visitor_callback_field.jinja",
+            minijinja::context! {
+                doc_lines,
+                name => spec.name.as_str(),
+                params,
+            },
+        ));
     }
     out
 }
@@ -304,20 +364,26 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
     for p in &spec.params {
         match p {
             ParamKind::Str(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cs = match std::ffi::CString::new({n}) {{\n            Ok(s) => s,\n            Err(_) => return {default_result},\n        }};\n") }));
+                bindings.push_str(&render(
+                    "ffi_visitor_cstring_param_setup.jinja",
+                    minijinja::context! {
+                        name => n.as_str(),
+                        default_result,
+                    },
+                ));
                 cb_args.push(format!("{n}_cs.as_ptr()"));
             }
             ParamKind::OptStr(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render(
-                    "formatted_line.jinja",
-                    minijinja::context! { content => format!("        let ({n}_ptr, _{n}_cs) = opt_str_to_c({n});\n") },
+                bindings.push_str(&render(
+                    "ffi_visitor_optional_string_param_setup.jinja",
+                    minijinja::context! { name => n.as_str() },
                 ));
                 cb_args.push(format!("{n}_ptr"));
             }
             ParamKind::Bool(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render(
-                    "formatted_line.jinja",
-                    minijinja::context! { content => format!("        let {n}_i = i32::from({n});\n") },
+                bindings.push_str(&render(
+                    "ffi_visitor_bool_param_setup.jinja",
+                    minijinja::context! { name => n.as_str() },
                 ));
                 cb_args.push(format!("{n}_i"));
             }
@@ -325,7 +391,10 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
                 cb_args.push(n.clone());
             }
             ParamKind::CellSlice(n) => {
-                bindings.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("        let {n}_cstrings: Vec<std::ffi::CString> = {n}\n            .iter()\n            .filter_map(|s| std::ffi::CString::new(s.as_str()).ok())\n            .collect();\n        let {n}_ptrs: Vec<*const std::ffi::c_char> =\n            {n}_cstrings.iter().map(|cs| cs.as_ptr()).collect();\n        let cell_count = {n}_ptrs.len();\n") }));
+                bindings.push_str(&render(
+                    "ffi_visitor_string_list_param_setup.jinja",
+                    minijinja::context! { name => n.as_str() },
+                ));
                 cb_args.push(format!("{n}_ptrs.as_ptr()"));
                 cb_args.push("cell_count".to_string());
             }
@@ -338,9 +407,14 @@ fn gen_impl_body(spec: &CallbackSpec, _core_import: &str, protocol: &VisitorProt
         format!("{}, out_custom, out_len", cb_args.join(", "))
     };
 
-    format!(
-        "        let Some(cb) = self.callbacks.{name} else {{\n            return {default_result};\n        }};\n        let user_data = self.callbacks.user_data;\n{bindings}        // SAFETY: cb is a valid function pointer; all temporaries live for this call.\n        unsafe {{\n            call_with_ctx(ctx, |c_ctx, out_custom, out_len| {{\n                cb(c_ctx, user_data, {args_str})\n            }})\n        }}",
-        name = spec.name,
+    render(
+        "ffi_visitor_impl_body.jinja",
+        minijinja::context! {
+            name => spec.name.as_str(),
+            default_result,
+            bindings,
+            args_str,
+        },
     )
 }
 
@@ -355,7 +429,15 @@ fn gen_impl_methods(
     let mut out = String::new();
     let result_path = protocol.result_path.clone();
     for spec in specs {
-        out.push_str(&crate::backends::ffi::template_env::render("formatted_line.jinja", minijinja::context! { content => format!("\n    fn {name}(\n        {params}\n    ) -> {result_path} {{\n{body}\n    }}\n", name = spec.name, params = rust_param_list(spec, protocol), body = gen_impl_body(spec, core_import, protocol, default_result)) }));
+        out.push_str(&render(
+            "ffi_visitor_impl_method.jinja",
+            minijinja::context! {
+                name => spec.name.as_str(),
+                params => rust_param_list(spec, protocol),
+                result_path => result_path.as_str(),
+                body => gen_impl_body(spec, core_import, protocol, default_result),
+            },
+        ));
     }
     // Close the impl block — caller opens it.
     let _ = pascal_prefix; // used by caller
@@ -385,7 +467,7 @@ fn gen_visitor_ref_methods(specs: &[CallbackSpec], _core_import: &str, protocol:
     for spec in specs {
         let params = rust_param_list(spec, protocol);
         let args = visitor_ref_args(spec);
-        out.push_str(&crate::backends::ffi::template_env::render(
+        out.push_str(&render(
             "vtable_delegation_method.jinja",
             minijinja::context! {
                 method_name => spec.name.as_str(),
@@ -406,7 +488,7 @@ fn gen_result_decode_arms(
     let mut arms = String::new();
     for variant in &result_metadata.unit_variants {
         if seen_codes.insert(variant.code) {
-            arms.push_str(&crate::backends::ffi::template_env::render(
+            arms.push_str(&render(
                 "ffi_visitor_result_unit_arm.jinja",
                 minijinja::context! {
                     code => variant.code,
@@ -417,7 +499,7 @@ fn gen_result_decode_arms(
     }
     for variant in &result_metadata.string_payload_variants {
         if seen_codes.insert(variant.code) {
-            arms.push_str(&crate::backends::ffi::template_env::render(
+            arms.push_str(&render(
                 "ffi_visitor_result_string_arm.jinja",
                 minijinja::context! {
                     code => variant.code,
@@ -426,7 +508,7 @@ fn gen_result_decode_arms(
             ));
         }
     }
-    arms.push_str(&crate::backends::ffi::template_env::render(
+    arms.push_str(&render(
         "ffi_visitor_result_default_arm.jinja",
         minijinja::context! { default_result => default_result.to_owned() },
     ));
@@ -472,26 +554,33 @@ fn context_field_specs(context_def: &TypeDef) -> Vec<ContextFieldSpec> {
                 .unwrap_or("Context field.")
                 .to_string();
             let setup = match (&field.ty, field.optional) {
-                (TypeRef::String, false) => format!(
-                    "    let {name}_cstring = std::ffi::CString::new(ctx.{name}.as_ref()).unwrap_or_default();\n",
-                    name = field.name
-                ),
-                (TypeRef::String, true) => format!(
-                    "    let {name}_cstring: Option<std::ffi::CString> = ctx\n        .{name}\n        .as_deref()\n        .and_then(|s| std::ffi::CString::new(s).ok());\n",
-                    name = field.name
-                ),
-                _ => String::new(),
+                (TypeRef::String, false) => Some(ContextFieldSetup {
+                    name: field.name.clone(),
+                    kind: ContextFieldSetupKind::RequiredString,
+                }),
+                (TypeRef::String, true) => Some(ContextFieldSetup {
+                    name: field.name.clone(),
+                    kind: ContextFieldSetupKind::OptionalString,
+                }),
+                _ => None,
             };
             let c_init = match (&field.ty, field.optional) {
-                (TypeRef::String, false) => format!("{name}: {name}_cstring.as_ptr()", name = field.name),
-                (TypeRef::String, true) => format!(
-                    "{name}: {name}_cstring.as_ref().map_or(std::ptr::null(), |c| c.as_ptr())",
-                    name = field.name
-                ),
-                (TypeRef::Primitive(PrimitiveType::Bool), false) => {
-                    format!("{}: i32::from(ctx.{})", field.name, field.name)
-                }
-                _ => format!("{}: ctx.{}", field.name, field.name),
+                (TypeRef::String, false) => ContextFieldInit {
+                    name: field.name.clone(),
+                    kind: ContextFieldInitKind::RequiredString,
+                },
+                (TypeRef::String, true) => ContextFieldInit {
+                    name: field.name.clone(),
+                    kind: ContextFieldInitKind::OptionalString,
+                },
+                (TypeRef::Primitive(PrimitiveType::Bool), false) => ContextFieldInit {
+                    name: field.name.clone(),
+                    kind: ContextFieldInitKind::Bool,
+                },
+                _ => ContextFieldInit {
+                    name: field.name.clone(),
+                    kind: ContextFieldInitKind::Passthrough,
+                },
             };
             Some(ContextFieldSpec {
                 name: field.name.clone(),
@@ -507,18 +596,51 @@ fn context_field_specs(context_def: &TypeDef) -> Vec<ContextFieldSpec> {
 fn gen_context_struct_fields(fields: &[ContextFieldSpec]) -> String {
     fields
         .iter()
-        .map(|field| format!("    /// {}\n    pub {}: {},\n", field.doc, field.name, field.c_type))
+        .map(|field| {
+            render(
+                "ffi_visitor_context_field.jinja",
+                minijinja::context! {
+                    doc => field.doc.as_str(),
+                    name => field.name.as_str(),
+                    c_type => field.c_type,
+                },
+            )
+        })
         .collect()
 }
 
 fn gen_context_setup(fields: &[ContextFieldSpec]) -> String {
-    fields.iter().map(|field| field.setup.as_str()).collect()
+    fields
+        .iter()
+        .filter_map(|field| field.setup.as_ref())
+        .map(|setup| match setup.kind {
+            ContextFieldSetupKind::RequiredString => render(
+                "ffi_visitor_context_required_string_setup.jinja",
+                minijinja::context! { name => setup.name.as_str() },
+            ),
+            ContextFieldSetupKind::OptionalString => render(
+                "ffi_visitor_context_optional_string_setup.jinja",
+                minijinja::context! { name => setup.name.as_str() },
+            ),
+        })
+        .collect()
 }
 
 fn gen_context_inits(fields: &[ContextFieldSpec]) -> String {
     fields
         .iter()
-        .map(|field| format!("        {},\n", field.c_init))
+        .map(|field| {
+            let template = match field.c_init.kind {
+                ContextFieldInitKind::RequiredString => "ffi_visitor_context_required_string_init.jinja",
+                ContextFieldInitKind::OptionalString => "ffi_visitor_context_optional_string_init.jinja",
+                ContextFieldInitKind::Bool => "ffi_visitor_context_bool_init.jinja",
+                ContextFieldInitKind::Passthrough => "ffi_visitor_context_passthrough_init.jinja",
+            };
+            render(
+                template,
+                minijinja::context! { name => field.c_init.name.as_str() },
+            )
+        })
         .collect()
 }
 
@@ -532,12 +654,14 @@ fn gen_result_constants(
         .iter()
         .chain(result_metadata.string_payload_variants.iter())
         .map(|variant| {
-            format!(
-                "/// Visit-result code for `{}`.\npub const {}_VISIT_{}: i32 = {};\n",
-                variant.name,
-                visit_prefix,
-                variant.name.to_shouty_snake_case(),
-                variant.code
+            let constant_name = format!("{}_VISIT_{}", visit_prefix, variant.name.to_shouty_snake_case());
+            render(
+                "ffi_visitor_result_constant.jinja",
+                minijinja::context! {
+                    variant_name => variant.name.as_str(),
+                    constant_name,
+                    code => variant.code,
+                },
             )
         })
         .collect()
@@ -891,7 +1015,7 @@ pub unsafe extern "C" fn {prefix}_visitor_free(visitor: *mut {pascal_prefix}Visi
     );
 
     if let Some(visitor_function) = visitor_function {
-        out.push_str(&crate::backends::ffi::template_env::render(
+        out.push_str(&render(
             "ffi_visitor_with_callback_function.jinja",
             minijinja::context! {
                 prefix,
@@ -984,50 +1108,22 @@ pub fn gen_convert_no_visitor(
         return String::new();
     };
     let visitor_function = no_visitor_function_spec(prefix, function, core_import, bridge_cfg);
-    format!(
-        r#"/// Run conversion.
-///
-/// Returns a heap-allocated result on success, or null on failure.
-/// Check `{prefix}_last_error_code` / `{prefix}_last_error_context` for error details.
-/// The returned pointer must be freed with the matching result free function.
-///
-/// # Arguments
-///
-/// - `html`: null-terminated, UTF-8 HTML input. Must not be null.
-/// - `options`: optional function options; pass null for defaults.
-///
-/// # Safety
-///
-/// `html` must be a valid, non-null, null-terminated UTF-8 string.
-/// `options` must be a valid pointer or null.
-/// Returned pointer must be freed with the matching result free function.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn {fn_name}(
-    {params}
-) -> *mut {return_type} {{
-    clear_last_error();
-
-{param_conversions}
-{call}
-        Ok(result) => Box::into_raw(Box::new(result)),
-        Err(e) => {{
-            set_last_error(2, &e.to_string());
-            std::ptr::null_mut()
-        }}
-    }}
-}}"#,
-        prefix = prefix,
-        fn_name = visitor_function.fn_name,
-        params = visitor_function.ffi_params,
-        return_type = visitor_function.return_type,
-        param_conversions = visitor_function.param_conversions,
-        call = visitor_function.call,
+    render(
+        "ffi_visitor_no_callback_function.jinja",
+        minijinja::context! {
+            prefix,
+            fn_name => visitor_function.fn_name,
+            params => visitor_function.ffi_params,
+            return_type => visitor_function.return_type,
+            param_conversions => visitor_function.param_conversions,
+            call => visitor_function.call,
+        },
     )
 }
 
 struct LegacyVisitorFunctionSpec {
     fn_name: String,
-    ffi_params: String,
+    ffi_params: Vec<String>,
     param_conversions: String,
     return_type: String,
     call: String,
@@ -1035,7 +1131,7 @@ struct LegacyVisitorFunctionSpec {
 
 struct LegacyNoVisitorFunctionSpec {
     fn_name: String,
-    ffi_params: String,
+    ffi_params: Vec<String>,
     param_conversions: String,
     return_type: String,
     call: String,
@@ -1108,11 +1204,7 @@ fn visitor_function_spec(
 
     Some(LegacyVisitorFunctionSpec {
         fn_name: format!("{}_{}_with_visitor", prefix, func.name.to_snake_case()),
-        ffi_params: if ffi_params.is_empty() {
-            String::new()
-        } else {
-            format!("{},\n   ", ffi_params.join(",\n    "))
-        },
+        ffi_params,
         param_conversions,
         return_type: return_type_path(&func.return_type, core_import),
         call,
@@ -1141,7 +1233,7 @@ fn no_visitor_function_spec(
 
     LegacyNoVisitorFunctionSpec {
         fn_name: format!("{}_{}", prefix, func.name.to_snake_case()),
-        ffi_params: ffi_params.join(",\n    "),
+        ffi_params,
         param_conversions,
         return_type: return_type_path(&func.return_type, core_import),
         call: format!(
@@ -1276,19 +1368,9 @@ mod tests {
             name: name.to_string(),
             params,
             return_type,
-            is_async: false,
-            is_static: false,
-            error_type: None,
             doc: "Callback method.".to_string(),
             receiver: Some(ReceiverKind::RefMut),
-            sanitized: false,
-            trait_source: None,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
+            ..MethodDef::default()
         }
     }
 
@@ -1296,25 +1378,9 @@ mod tests {
         TypeDef {
             name: name.to_string(),
             rust_path: format!("my_lib::visitor::{name}"),
-            original_rust_path: String::new(),
-            fields: vec![],
             methods,
-            is_opaque: false,
-            is_clone: false,
-            is_copy: false,
-            doc: String::new(),
-            cfg: None,
             is_trait: true,
-            has_default: false,
-            has_stripped_cfg_fields: false,
-            is_return_type: false,
-            serde_rename_all: None,
-            has_serde: false,
-            super_traits: vec![],
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-            is_variant_wrapper: false,
-            has_lifetime_params: false,
+            ..TypeDef::default()
         }
     }
 
@@ -1538,22 +1604,7 @@ mod tests {
                         fields: vec![FieldDef {
                             name: "value".to_string(),
                             ty: TypeRef::String,
-                            optional: false,
-                            default: None,
-                            doc: String::new(),
-                            sanitized: false,
-                            is_boxed: false,
-                            type_rust_path: None,
-                            cfg: None,
-                            typed_default: None,
-                            core_wrapper: crate::core::ir::CoreWrapper::None,
-                            vec_inner_core_wrapper: crate::core::ir::CoreWrapper::None,
-                            newtype_wrapper: None,
-                            serde_rename: None,
-                            serde_flatten: false,
-                            binding_excluded: false,
-                            binding_exclusion_reason: None,
-                            original_type: None,
+                            ..FieldDef::default()
                         }],
                         is_tuple: true,
                         ..EnumVariant::default()

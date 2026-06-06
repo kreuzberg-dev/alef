@@ -39,6 +39,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("visitor_bridge.jinja", include_str!("templates/visitor_bridge.jinja")),
     ("visitor_method.jinja", include_str!("templates/visitor_method.jinja")),
     (
+        "visitor_context_arg_expr.jinja",
+        include_str!("templates/visitor_context_arg_expr.jinja"),
+    ),
+    (
         "clone_impl_header.jinja",
         include_str!("templates/clone_impl_header.jinja"),
     ),
@@ -97,6 +101,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     (
         "options_visitor_extract_required.jinja",
         include_str!("templates/options_visitor_extract_required.jinja"),
+    ),
+    (
+        "options_field_bridge_body.jinja",
+        include_str!("templates/options_field_bridge_body.jinja"),
     ),
     (
         "service_ts_preamble.jinja",

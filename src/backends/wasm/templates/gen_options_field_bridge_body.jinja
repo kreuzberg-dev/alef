@@ -1,0 +1,27 @@
+let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ visitor_kwarg }}.map(|v| {
+        let bridge = {{ struct_name }}::new(v);
+        std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
+    });
+    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|mut o| {
+        o.{{ field_name }} = None;
+        let mut result: {{ options_path }} = o.into();
+        result.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();
+        result
+    }).or_else(|| {
+        if {{ visitor_kwarg }}_handle.is_some() {
+            let mut opts = {{ options_path }}::default();
+            opts.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();
+            Some(opts)
+        } else {
+            None
+        }
+    });
+{% if has_error %}
+{% if return_wrap == "val" %}
+    {{ core_call }}{{ err_conv }}
+{% else %}
+    {{ core_call }}.map(|val| {{ return_wrap }}){{ err_conv }}
+{% endif %}
+{% else %}
+    {{ core_call }}
+{% endif %}
