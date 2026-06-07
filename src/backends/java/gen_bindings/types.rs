@@ -1225,16 +1225,19 @@ fn gen_instance_method(
         }
     }
 
-    // Check if any parameters require Arena allocation (String, Path, etc.)
-    let needs_arena = method.params.iter().any(|p| {
-        match &p.ty {
-            TypeRef::String | TypeRef::Char | TypeRef::Path => true,
-            TypeRef::Optional(inner) if matches!(
+    // Check if any parameters require Arena allocation (String, Path, Named types, etc.)
+    let needs_arena = method.params.iter().any(|p| match &p.ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => true,
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner)
+            if matches!(
                 inner.as_ref(),
-                TypeRef::String | TypeRef::Char | TypeRef::Path
-            ) => true,
-            _ => false,
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Named(_)
+            ) =>
+        {
+            true
         }
+        _ => false,
     });
 
     out.push_str("        try {\n");
@@ -1626,6 +1629,25 @@ fn gen_static_factory_method(
 
     out.push_str("        try {\n");
 
+    // Check if any parameters require Arena allocation (String, Path, Named types, etc.)
+    let needs_arena = method.params.iter().any(|p| match &p.ty {
+        TypeRef::String | TypeRef::Char | TypeRef::Path => true,
+        TypeRef::Named(_) => true,
+        TypeRef::Optional(inner)
+            if matches!(
+                inner.as_ref(),
+                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Named(_)
+            ) =>
+        {
+            true
+        }
+        _ => false,
+    });
+
+    if needs_arena {
+        out.push_str("            Arena arena = Arena.ofShared();\n");
+    }
+
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
     let mut call_args: Vec<String> = Vec::new();
 
@@ -1855,6 +1877,7 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
     let exception_class = format!("{main_class}Exception");
     let needs_read_bytes_result = out.contains("readBytesResult(");
     let free_bytes = format!("NativeLib.{prefix_upper}_FREE_BYTES");
+    let needs_stream_mapper = out.contains("STREAM_MAPPER");
 
     out.push_str(&crate::backends::java::template_env::render(
         "streaming_helpers.jinja",
@@ -1863,6 +1886,7 @@ fn gen_streaming_helpers(out: &mut String, prefix: &str, main_class: &str) {
             prefix_upper => prefix_upper,
             needs_read_bytes_result => needs_read_bytes_result,
             free_bytes => free_bytes,
+            needs_stream_mapper => needs_stream_mapper,
         },
     ));
 }
