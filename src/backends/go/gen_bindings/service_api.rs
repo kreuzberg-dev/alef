@@ -207,6 +207,9 @@ fn typeref_to_c_type(ty: &TypeRef) -> String {
     }
 }
 
+/// Generate a C argument expression for a parameter.
+/// For opaque types and primitives, returns just the expression.
+/// For DTOs in configurators, use service_c_arg_expr_with_marshal instead.
 fn service_c_arg_expr(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_prefix: &str) -> String {
     match ty {
         TypeRef::String => format!("C.CString({param_name})"),
@@ -216,6 +219,55 @@ fn service_c_arg_expr(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_pr
         _ => {
             let c_type = typeref_to_c_type(ty);
             format!("{c_type}({param_name})")
+        }
+    }
+}
+
+/// Generate a C argument expression for a parameter with preprocessing support for DTOs.
+///
+/// Returns a tuple of (preprocessing_code, argument_expr) where preprocessing_code
+/// is any setup needed before the call (e.g., JSON marshaling), and argument_expr
+/// is the expression to pass to the C function.
+fn service_c_arg_expr_with_marshal(param_name: &str, ty: &TypeRef, api: &ApiSurface, upper_prefix: &str, ffi_prefix: &str) -> (String, String) {
+    match ty {
+        TypeRef::String => (String::new(), format!("C.CString({param_name})")),
+        TypeRef::Named(type_name) => {
+            if let Some(typedef) = api.types.iter().find(|t| t.name == *type_name) {
+                if typedef.is_opaque {
+                    // Opaque type: access the .ptr field directly
+                    (String::new(), format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"))
+                } else {
+                    // DTO: marshal to JSON, call _from_json, store in intermediate var
+                    let var_name = format!("c_{param_name}");
+                    let type_name_snake = type_name.to_snake_case();
+                    let mut preprocessing = format!(
+                        "\t{var_name}JSON, err := json.Marshal({param_name})\n\
+                        \tif err != nil {{\n\
+                        \t\treturn err\n\
+                        \t}}\n\
+                        \t{var_name} := C.{ffi_prefix}_{type_name_snake}_from_json(C.CString(string({var_name}JSON)))\n\
+                        \tif {var_name} == nil {{\n\
+                        \t\treturn errors.New(\"{type_name} config failed\")\n\
+                        \t}}\n\
+                        \tdefer C.{ffi_prefix}_{type_name_snake}_free({var_name})\n"
+                    );
+                    preprocessing = preprocessing
+                        .replace("{var_name}", &var_name)
+                        .replace("{param_name}", param_name)
+                        .replace("{ffi_prefix}", ffi_prefix)
+                        .replace("{type_name_snake}", &type_name_snake)
+                        .replace("{type_name}", type_name);
+                    let arg_expr = format!("{var_name}");
+                    (preprocessing, arg_expr)
+                }
+            } else {
+                // Unknown named type - try to pass as is
+                (String::new(), format!("(*C.{upper_prefix}{type_name})(unsafe.Pointer({param_name}.ptr))"))
+            }
+        }
+        _ => {
+            let c_type = typeref_to_c_type(ty);
+            (String::new(), format!("{c_type}({param_name})"))
         }
     }
 }
@@ -606,18 +658,24 @@ fn gen_configurator_method(
     // Build configurator call with all arguments (owner + config params) as a Jinja array
     // to ensure commas are on the same line as their arguments, not orphaned.
     let mut cfg_args = Vec::new();
+    let mut preprocessing = String::new();
 
     // First argument: owner (always present)
     cfg_args.push(minijinja::context! {
         expr => format!("(*C.{upper_prefix}{service_name}Opaque)(s.owner)"),
     });
 
-    // Config parameters
+    // Config parameters: collect preprocessing code and argument expressions
     for cfg_param in &cfg.params {
-        let expr = service_c_arg_expr(&cfg_param.name, &cfg_param.ty, api, &upper_prefix);
+        let (pre, expr) = service_c_arg_expr_with_marshal(&cfg_param.name, &cfg_param.ty, api, &upper_prefix, ffi_prefix);
+        preprocessing.push_str(&pre);
         cfg_args.push(minijinja::context! {
             expr => expr,
         });
+    }
+
+    if !preprocessing.is_empty() {
+        out.push_str(&preprocessing);
     }
 
     out.push_str(&crate::backends::go::template_env::render(
