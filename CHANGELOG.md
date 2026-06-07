@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java (panama)**: revert opaque-handle close-method catch back to `catch (Throwable e)` and add `@SuppressWarnings("PMD.AvoidCatchingGenericException")` to the method. `MethodHandle.invoke()` is declared `throws Throwable`, so the prior `catch (RuntimeException | Error e)` left the checked Throwable unreported and broke `javac` (`unreported exception java.lang.Throwable; must be caught or declared to be thrown`). The PMD suppression silences the original generic-catch lint without losing javac correctness. (`src/backends/java/templates/opaque_handle_close.jinja`)
+
 - **r (extendr)**: skip methods that cannot be auto-delegated AND have no adapter override, rather than emitting `compile_error!` bodies. extendr's `#[extendr]` macro fails to expand impl blocks containing `compile_error!` macros, taking down the entire binding crate over a single un-bridgeable method. Introduces a `skip_methods_when_not_delegatable: bool` field on `RustBindingConfig` (default `false`, set `true` for the extendr backend) and threads the skip into `gen_impl_block` / `gen_opaque_impl_block` for both instance and static methods. (`src/codegen/generators/mod.rs`, `src/codegen/generators/methods.rs`, `src/backends/extendr/gen_bindings/mod.rs`)
 
 - **ffi (C FFI)**: suppress `missing_docs` lint in generated FFI crate by emitting `#![allow(missing_docs)]` at the crate root. The FFI crate is entirely generated glue; rustdoc coverage on `extern "C"` shims is not meaningful and the lint fired with `-D missing-docs`. (`src/backends/ffi/gen_bindings/mod.rs`)
