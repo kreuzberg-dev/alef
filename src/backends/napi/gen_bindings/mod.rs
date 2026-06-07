@@ -1,21 +1,27 @@
 //! NAPI-RS (Node.js) backend: orchestration and `Backend` trait implementation.
 
 pub mod capsule;
+mod constructors;
 pub mod enums;
 pub mod errors;
 pub mod functions;
 pub mod methods;
+mod public_api;
 pub mod service_api;
+mod support;
 pub mod types;
+
+#[cfg(test)]
+mod tests;
 
 use crate::backends::napi::type_map::NapiMapper;
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators::{self, AsyncPattern, RustBindingConfig};
-use crate::codegen::naming::to_node_name;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile, PostBuildStep};
 use crate::core::config::{Language, NodeCapsuleTypeConfig, ResolvedCrateConfig, resolve_output_dir};
 use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
+use constructors::{napi_default_constructor, napi_variant_wrapper_constructor};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -239,123 +245,10 @@ impl Backend for NapiBackend {
             })
             .collect();
 
-        // JsBytes: a newtype wrapper for Vec<u8> with custom FromNapiValue that accepts
-        // Buffer.from(...) from JavaScript. Fixes NAPI v3 macro-derived deserialization
-        // of Vec<u8> fields in #[napi(object)] structs, which normally expect Array[number].
-        let js_bytes_def = r#"
-/// Wrapper for byte arrays that implements custom FromNapiValue to accept Buffer.from(...).
-///
-/// NAPI v3's default FromNapiValue for Vec<u8> expects Array[number], not Buffer.
-/// This wrapper provides custom deserialization that accepts Buffer, Uint8Array, or Array,
-/// converting them to Vec<u8>. Implements Clone and serde traits for use in struct fields.
-#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub struct JsBytes(pub Vec<u8>);
+        builder.add_item(support::js_bytes_def());
 
-impl From<Vec<u8>> for JsBytes {
-    fn from(v: Vec<u8>) -> Self {
-        JsBytes(v)
-    }
-}
-
-impl From<JsBytes> for Vec<u8> {
-    fn from(js_bytes: JsBytes) -> Self {
-        js_bytes.0
-    }
-}
-
-impl AsRef<[u8]> for JsBytes {
-    fn as_ref(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl std::ops::Deref for JsBytes {
-    type Target = Vec<u8>;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl std::ops::DerefMut for JsBytes {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
-
-impl napi::bindgen_prelude::FromNapiValue for JsBytes {
-    unsafe fn from_napi_value(env: napi::sys::napi_env, napi_val: napi::sys::napi_value) -> napi::Result<Self> {
-        use napi::bindgen_prelude::FromNapiValue;
-
-        // Try Buffer first (most common for binary data in JS)
-        if let Ok(buffer) = unsafe { napi::bindgen_prelude::Buffer::from_napi_value(env, napi_val) } {
-            return Ok(JsBytes(buffer.as_ref().to_vec()));
-        }
-
-        // Try Uint8Array
-        if let Ok(ua) = unsafe { napi::bindgen_prelude::Uint8Array::from_napi_value(env, napi_val) } {
-            return Ok(JsBytes(ua.to_vec()));
-        }
-
-        // Fall back to Array[number]
-        if let Ok(vec) = unsafe { Vec::<u8>::from_napi_value(env, napi_val) } {
-            return Ok(JsBytes(vec));
-        }
-
-        Err(napi::Error::new(
-            napi::Status::InvalidArg,
-            "Expected Buffer, Uint8Array, or Array<number> for bytes field",
-        ))
-    }
-}
-
-impl napi::bindgen_prelude::ToNapiValue for JsBytes {
-    unsafe fn to_napi_value(env: napi::sys::napi_env, val: Self) -> napi::Result<napi::sys::napi_value> {
-        // Delegate to Vec<u8>'s implementation (which returns an Uint8Array/Buffer).
-        unsafe { <Vec<u8> as napi::bindgen_prelude::ToNapiValue>::to_napi_value(env, val.0) }
-    }
-}
-"#;
-        builder.add_item(js_bytes_def);
-
-        // JsVisitorRef: a thin wrapper around napi::Object that implements Clone.
-        // This newtype makes Object<'static> work with napi(object) field derivations,
-        // which require Clone. Uses std::sync::Arc to make the handle cheaply cloneable.
         if has_traits {
-            let js_visitor_ref_def = r#"
-/// Wrapper for trait visitor types (napi::Object<'static>) that implements Clone.
-///
-/// Object is not Clone. This wrapper uses Arc<Object<'static>> internally for cheap cloning.
-/// The .inner field is public for compatibility with generated code that needs to access
-/// the underlying Object for trait dispatch.
-pub struct JsVisitorRef {
-    pub inner: std::sync::Arc<napi::bindgen_prelude::Object<'static>>,
-}
-
-impl Clone for JsVisitorRef {
-    fn clone(&self) -> Self {
-        JsVisitorRef {
-            inner: std::sync::Arc::clone(&self.inner),
-        }
-    }
-}
-
-#[allow(clippy::arc_with_non_send_sync)]
-impl From<napi::bindgen_prelude::Object<'static>> for JsVisitorRef {
-    fn from(visitor: napi::bindgen_prelude::Object<'static>) -> Self {
-        JsVisitorRef {
-            inner: std::sync::Arc::new(visitor),
-        }
-    }
-}
-
-impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
-    fn from(visitor_ref: JsVisitorRef) -> Self {
-        // Object<'static> is Copy (it just holds an env+handle pair), so deref directly.
-        *visitor_ref.inner
-    }
-}
-"#;
-            builder.add_item(js_visitor_ref_def);
+            builder.add_item(support::js_visitor_ref_def());
         }
 
         // Emit adapter-generated standalone items (streaming iterators, callback bridges).
@@ -1060,117 +953,7 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        // Collect all exported names from the native module.
-        // These are used to construct named re-exports that work with both CJS and ESM.
-        let mut value_names = std::collections::BTreeSet::new();
-        let mut type_names = std::collections::BTreeSet::new();
-
-        // Collect struct and class types (skip traits and capsule types)
-        let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
-            .node
-            .as_ref()
-            .map(|c| c.capsule_types.clone())
-            .unwrap_or_default();
-        for typ in api.types.iter() {
-            // The napi binding filters out Builder/Update DTOs (see the
-            // filters at lines 382/643/735/776) — exclude them here too so
-            // the typescript wrapper does not re-export names that the
-            // native module never emits.
-            if !typ.is_trait
-                && !capsule_types.contains_key(&typ.name)
-                && !typ.name.ends_with("Builder")
-                && !typ.name.ends_with("Update")
-            {
-                if typ.is_opaque {
-                    value_names.insert(typ.name.clone());
-                } else {
-                    type_names.insert(typ.name.clone());
-                }
-            }
-        }
-
-        // Collect enums
-        for enum_def in &api.enums {
-            if enum_def.variants.iter().any(|v| !v.fields.is_empty()) {
-                type_names.insert(enum_def.name.clone());
-            } else {
-                value_names.insert(enum_def.name.clone());
-            }
-        }
-
-        // Runtime classes/enums can also be used as types. Keep type-only
-        // exports disjoint from value exports so the wrapper barrel never emits
-        // the same name in both export groups.
-        for name in &value_names {
-            type_names.remove(name);
-        }
-
-        // Collect functions (with snake_case → camelCase conversion for JS naming)
-        let exclude_functions: ahash::AHashSet<String> = config
-            .node
-            .as_ref()
-            .map(|c| c.exclude_functions.iter().cloned().collect())
-            .unwrap_or_default();
-        for func in &api.functions {
-            if !exclude_functions.contains(&func.name) {
-                value_names.insert(to_node_name(&func.name));
-            }
-        }
-
-        // Include trait-bridge register/unregister/clear functions
-        for bridge in &config.trait_bridges {
-            if let Some(name) = bridge.register_fn.as_deref() {
-                value_names.insert(to_node_name(name));
-            }
-            if let Some(name) = bridge.unregister_fn.as_deref() {
-                value_names.insert(to_node_name(name));
-            }
-            if let Some(name) = bridge.clear_fn.as_deref() {
-                value_names.insert(to_node_name(name));
-            }
-        }
-
-        // Generate TypeScript re-export file using explicit named re-exports.
-        // This works with both CJS and ESM because we use `export { name } from "module"`
-        // which TypeScript understands regardless of the underlying CJS/ESM implementation.
-        let package_name = config.node_package_name();
-        let mut lines = vec![];
-
-        // Export runtime values (functions, classes, enums) as regular exports.
-        if !value_names.is_empty() {
-            lines.push("export {".to_string());
-            for name in &value_names {
-                lines.push(format!("  {name},"));
-            }
-            lines.push(format!("}} from \"{}\";", package_name));
-            lines.push("".to_string());
-        }
-
-        // Export types as type-only exports (TypeScript 4.5+)
-        if !type_names.is_empty() {
-            lines.push("export type {".to_string());
-            for name in &type_names {
-                lines.push(format!("  {name},"));
-            }
-            lines.push(format!("}} from \"{}\";", package_name));
-            lines.push("".to_string());
-        }
-
-        // Note: custom_modules (if any) are not included in this wrapper because:
-        // 1. packages/typescript/src/ is the wrapper package, which only re-exports from the native binding
-        // 2. custom modules (e.g., helpers) are shipped in dist/ by the build system, not generated by alef
-        // 3. including them here would require them to exist in src/, which they don't
-
-        let content = lines.join("\n");
-
-        // Output path: packages/typescript/src/index.ts
-        let output_path = PathBuf::from("packages/typescript/src/index.ts");
-
-        Ok(vec![GeneratedFile {
-            path: output_path,
-            content,
-            generated_header: true,
-        }])
+        public_api::generate(api, config)
     }
 
     fn generate_service_api(
@@ -1199,140 +982,5 @@ impl From<JsVisitorRef> for napi::bindgen_prelude::Object<'static> {
                 },
             ],
         })
-    }
-}
-
-/// For a variant-wrapper opaque type (one whose `is_variant_wrapper` flag is set),
-/// emit a `#[napi(constructor)] pub fn new_constructor(...)` on the prefixed binding
-/// struct so that `new WrapperType(args)` JS constructor-syntax resolves at runtime.
-///
-/// napi-rs allows multiple `#[napi] impl` blocks. The static `new` is already
-/// emitted by `gen_opaque_struct_methods` as a `#[napi]` static method; this
-/// companion uses a distinct Rust fn name (`new_constructor`) to avoid the
-/// duplicate-`fn new` conflict while mapping to the same JS `new Class()` path
-/// via `#[napi(constructor)]`.
-///
-/// Returns `None` when the wrapper has no `new` method in the IR (or its receiver
-/// is not `None`), silently skipping rather than panicking.
-fn napi_variant_wrapper_constructor(
-    typ: &crate::core::ir::TypeDef,
-    mapper: &crate::backends::napi::type_map::NapiMapper,
-    core_import: &str,
-    prefix: &str,
-) -> Option<String> {
-    use crate::codegen::type_mapper::TypeMapper as _;
-    let ctor = typ.methods.iter().find(|m| m.name == "new" && m.receiver.is_none())?;
-    let map_fn = |t: &crate::core::ir::TypeRef| mapper.map_type(t);
-    let sig_params = crate::codegen::shared::function_params(&ctor.params, &map_fn);
-
-    // Build call_args with type conversions where needed.
-    // If the mapped type (NAPI) differs from the core type name, apply .into().
-    // This handles cases like JsMethod -> Method where a From<JsMethod> impl exists.
-    let call_args = ctor
-        .params
-        .iter()
-        .map(|p| {
-            let mapped_type = map_fn(&p.ty);
-
-            // Get the core type name. For TypeRef::Named, it's just the name.
-            // For other types, the mapped type should match the core type.
-            let core_type_name = match &p.ty {
-                crate::core::ir::TypeRef::Named(name) => name.as_str(),
-                _ => "",
-            };
-
-            // If NAPI added a prefix (e.g., "JsMethod" != "Method"), we need to convert.
-            // This happens when a custom type is mapped with the prefix.
-            let needs_conversion =
-                !core_type_name.is_empty() && mapped_type.starts_with(&mapper.prefix) && !mapped_type.contains("::");
-
-            if needs_conversion {
-                format!("{}.into()", p.name)
-            } else {
-                p.name.to_string()
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let struct_name = format!("{prefix}{}", typ.name);
-    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
-    let body = if call_args.is_empty() {
-        format!("Self {{ inner: std::sync::Arc::new({core_path}::new()) }}")
-    } else {
-        format!("Self {{ inner: std::sync::Arc::new({core_path}::new({call_args})) }}")
-    };
-    let fn_sig = if sig_params.is_empty() {
-        "pub fn new_constructor() -> Self".to_string()
-    } else {
-        format!("pub fn new_constructor({sig_params}) -> Self")
-    };
-    Some(format!(
-        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    {fn_sig} {{\n        {body}\n    }}\n}}\n",
-    ))
-}
-
-/// For an explicitly-opaque type with `has_default` that is treated as opaque in NAPI,
-/// emit a `#[napi(constructor)] pub fn new() -> Self` to enable JS `new ClassName()` syntax.
-/// This is a simple wrapper around the Rust `new()` method that returns a default instance.
-fn napi_default_constructor(
-    typ: &crate::core::ir::TypeDef,
-    _mapper: &crate::backends::napi::type_map::NapiMapper,
-    core_import: &str,
-    prefix: &str,
-) -> Option<String> {
-    // Only emit constructor if type has a parameterless `new()` method.
-    typ.methods
-        .iter()
-        .find(|m| m.name == "new" && m.receiver.is_none() && m.params.is_empty())?;
-
-    let struct_name = format!("{prefix}{}", typ.name);
-    let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
-
-    let constructor = format!(
-        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n"
-    );
-
-    Some(constructor)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::NapiBackend;
-    use crate::core::backend::Backend;
-    use crate::core::config::Language;
-
-    /// NapiBackend::name returns "napi".
-    #[test]
-    fn napi_backend_name_is_napi() {
-        let b = NapiBackend;
-        assert_eq!(b.name(), "napi");
-    }
-
-    /// NapiBackend::language returns Language::Node.
-    #[test]
-    fn napi_backend_language_is_node() {
-        let b = NapiBackend;
-        assert_eq!(b.language(), Language::Node);
-    }
-
-    /// Test that cfg-gated fields in never_skip_cfg_field_names pass the options-field-bridge filter.
-    #[test]
-    fn cfg_gated_field_accepted_when_in_never_skip_list() {
-        // Test the predicate logic: a cfg-gated field "visitor" should be accepted
-        // when it appears in never_skip_cfg_field_names.
-        let never_skip_cfg_field_names = ["visitor".to_string()];
-        let field_is_target = "visitor";
-
-        // Simulate a field with cfg = Some(...)
-        let field_has_cfg = Some("feature = \"visitor\"");
-
-        // Predicate: f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name)
-        let accepted = field_has_cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_is_target);
-
-        assert!(
-            accepted,
-            "cfg-gated field 'visitor' should pass filter when in never_skip_cfg_field_names"
-        );
     }
 }
