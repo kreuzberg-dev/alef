@@ -242,6 +242,12 @@ pub struct NodeConfig {
     #[serde(default)]
     #[schemars(with = "HashMap<String, serde_json::Value>")]
     pub extra_dependencies: HashMap<String, toml::Value>,
+    /// Features for the auto-emitted `tokio-util` dependency that backs napi trait-bridge
+    /// cancellation tokens. Defaults to `["rt"]` because `tokio_util::sync::CancellationToken`
+    /// is gated behind the `rt` feature in tokio-util 0.7+. Override when a consumer needs
+    /// additional tokio-util features (e.g. `["rt", "codec"]`).
+    #[serde(default)]
+    pub tokio_util_features: Option<Vec<String>>,
     /// Override the scaffold output directory for this language's Cargo.toml and package files.
     #[serde(default)]
     pub scaffold_output: Option<PathBuf>,

@@ -159,7 +159,18 @@ pub(crate) fn scaffold_node_cargo(
         if !all_deps.is_empty() {
             all_deps.push('\n');
         }
-        all_deps.push_str("tokio-util = { version = \"0.7\", features = [\"sync\"] }");
+        let tokio_util_feats = config
+            .node
+            .as_ref()
+            .and_then(|n| n.tokio_util_features.as_ref())
+            .cloned()
+            .unwrap_or_else(|| vec!["rt".to_string()]);
+        let feats_list = tokio_util_feats
+            .iter()
+            .map(|f| format!("\"{f}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        all_deps.push_str(&format!("tokio-util = {{ version = \"0.7\", features = [{feats_list}] }}"));
     }
     if has_streaming && !all_deps.contains("futures-util = ") && !all_deps.contains("futures-util =\"") {
         if !all_deps.is_empty() {
