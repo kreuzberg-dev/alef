@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.25] - 2026-06-07
+
 ### Fixed
 
 - **node (napi-rs scaffold)**: switch trait-bridge-emitted `tokio-util` dependency from the non-existent `sync` feature to `rt` (`rt = [tokio/rt, tokio/sync, futures-util]`), which is what actually gates the `tokio_util::sync::CancellationToken` re-export. `features = ["sync"]` failed cargo resolution with `package 'tokio-util' does not have that feature`. (`src/scaffold/languages/node.rs`)
