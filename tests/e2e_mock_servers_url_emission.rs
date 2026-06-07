@@ -353,9 +353,7 @@ fn ruby_spec_helper_skips_spawn_when_mock_server_url_preset() {
         .expect("spec_helper.rb not found");
     assert!(
         spec_helper.content.contains("existing_url = ENV['MOCK_SERVER_URL']")
-            && spec_helper
-                .content
-                .contains("if existing_url && !existing_url.empty?"),
+            && spec_helper.content.contains("if existing_url && !existing_url.empty?"),
         "spec_helper.rb must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         spec_helper.content
     );
@@ -499,10 +497,7 @@ fn typescript_global_setup_skips_spawn_when_mock_server_url_preset() {
         "globalSetup.ts must honor a pre-set MOCK_SERVER_URL and skip self-spawn:\n{}",
         global_setup.content
     );
-    let guard = global_setup
-        .content
-        .find("if (presetUrl)")
-        .expect("guard present");
+    let guard = global_setup.content.find("if (presetUrl)").expect("guard present");
     let spawn = global_setup.content.find("spawn(").expect("spawn present");
     assert!(
         guard < spawn,

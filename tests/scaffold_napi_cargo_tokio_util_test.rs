@@ -44,17 +44,18 @@ fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_pr
         unsupported_public_items: vec![],
     };
 
-    let mut config = ResolvedCrateConfig::default();
-    config.name = "demo".to_string();
-    config.languages = vec![Language::Node];
-    config.workspace_root = Some(std::path::PathBuf::from("/workspace"));
-
-    // Add a trait bridge to enable tokio-util dependency generation
-    config.trait_bridges = vec![TraitBridgeConfig {
-        register_fn: Some("register_my_trait".to_string()),
-        trait_name: "MyTrait".to_string(),
-        ..TraitBridgeConfig::default()
-    }];
+    let config = ResolvedCrateConfig {
+        name: "demo".to_string(),
+        languages: vec![Language::Node],
+        workspace_root: Some(std::path::PathBuf::from("/workspace")),
+        // Add a trait bridge to enable tokio-util dependency generation.
+        trait_bridges: vec![TraitBridgeConfig {
+            register_fn: Some("register_my_trait".to_string()),
+            trait_name: "MyTrait".to_string(),
+            ..TraitBridgeConfig::default()
+        }],
+        ..ResolvedCrateConfig::default()
+    };
 
     let result = scaffold(&api, &config, &[Language::Node]).expect("scaffold failed");
     let cargo_file = result
@@ -104,11 +105,13 @@ fn scaffold_napi_cargo_excludes_tokio_util_when_no_trait_bridges() {
         unsupported_public_items: vec![],
     };
 
-    let mut config = ResolvedCrateConfig::default();
-    config.name = "demo".to_string();
-    config.languages = vec![Language::Node];
-    config.workspace_root = Some(std::path::PathBuf::from("/workspace"));
-    config.trait_bridges = vec![]; // No trait bridges
+    let config = ResolvedCrateConfig {
+        name: "demo".to_string(),
+        languages: vec![Language::Node],
+        workspace_root: Some(std::path::PathBuf::from("/workspace")),
+        trait_bridges: vec![],
+        ..ResolvedCrateConfig::default()
+    };
 
     let result = scaffold(&api, &config, &[Language::Node]).expect("scaffold failed");
     let cargo_file = result

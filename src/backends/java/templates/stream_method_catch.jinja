@@ -1,6 +1,6 @@
         } catch ({{ exception_class }} ex) {
             throw ex;
-        } catch (RuntimeException e) {
+        } catch (Throwable e) {
             throw new {{ exception_class }}("{{ method_name }}: failed", e);
         }
     }

@@ -1,4 +1,2 @@
   defstruct [
-    :registrations,
-{% for field in fields %}    :{{ field }},
-{% endfor %}  ]
+{{ formatted_fields }}  ]

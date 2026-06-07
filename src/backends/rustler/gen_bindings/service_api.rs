@@ -155,15 +155,22 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         },
     ));
 
-    let mut fields = Vec::new();
-    fields.extend(service.constructor.params.iter().map(|p| p.name.as_str()));
+    let mut all_fields = vec!["registrations".to_owned()];
+    all_fields.extend(service.constructor.params.iter().map(|p| p.name.clone()));
     for method in &service.configurators {
-        fields.extend(method.params.iter().map(|p| p.name.as_str()));
+        all_fields.extend(method.params.iter().map(|p| p.name.clone()));
     }
+    // Format fields with proper commas for mix format
+    let formatted_fields = all_fields.iter().enumerate()
+        .map(|(i, field)| {
+            let comma = if i < all_fields.len() - 1 { "," } else { "" };
+            format!("    :{}{}\n", field, comma)
+        })
+        .collect::<String>();
     out.push_str(&render(
         "service_api_struct.ex.jinja",
         context! {
-            fields => fields,
+            formatted_fields => formatted_fields,
         },
     ));
 
@@ -182,11 +189,18 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
         }
 
         push_elixir_doc(out, &ctor.doc, "doc");
+        // Format field inits with proper commas for mix format
+        let formatted_inits = field_inits.iter().enumerate()
+            .map(|(i, init)| {
+                let comma = if i < field_inits.len() - 1 { "," } else { "" };
+                format!("      {}{}\n", init, comma)
+            })
+            .collect::<String>();
         out.push_str(&render(
             "service_api_constructor.ex.jinja",
             context! {
                 params => params.join(", "),
-                field_inits => field_inits,
+                formatted_inits => formatted_inits,
             },
         ));
     }

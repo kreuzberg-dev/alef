@@ -9,7 +9,7 @@
             throw new {{ exception_class }}(code, msg);
         } catch ({{ exception_class }} e) {
             throw e;
-        } catch (RuntimeException | Error e) {
+        } catch (Throwable e) {
             throw new {{ exception_class }}("failed to read last error", e);
         }
     }
