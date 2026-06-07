@@ -13,10 +13,10 @@ repos:
         args: ["--write"]
         stages: [commit-msg]
 
-  # Shared kreuzberg-dev hooks bundle — file safety, Rust (cargo-*, rustdoc,
+  # Shared hooks bundle — file safety, Rust (cargo-*, rustdoc,
   # rust-max-lines), Markdown (rumdl), typos, and pyproject-fmt all live here.
   - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
-    rev: {{ kreuzberg_pre_commit_hooks }}
+    rev: {{ shared_pre_commit_hooks }}
     hooks:
       # File safety
       - id: trailing-whitespace

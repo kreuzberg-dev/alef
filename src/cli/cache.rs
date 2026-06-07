@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 const CACHE_DIR: &str = ".alef";
 const PER_FILE_CACHE_NAME: &str = "sources_hash.cache";
 
-/// Read the raw bytes of the alef config file for use in [`compute_inputs_hash`].
+/// Read the raw bytes of the alef config file for use in [`crate::core::hash::compute_inputs_hash`].
 ///
 /// Returns an empty `Vec` when the file is absent or unreadable — callers
 /// treat missing bytes as "empty config", which still produces a stable hash

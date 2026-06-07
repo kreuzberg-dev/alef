@@ -8,7 +8,7 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::{escape_r, r_template_to_paste0, sanitize_filename, sanitize_ident};
 use crate::e2e::field_access::FieldResolver;
 use crate::e2e::fixture::{Assertion, CallbackAction, Fixture, FixtureGroup, TemplateReturnForm};
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use std::fmt::Write as FmtWrite;
 use std::path::PathBuf;
 
@@ -85,7 +85,15 @@ impl E2eCodegen for RCodegen {
         if e2e_config.dep_mode == crate::e2e::config::DependencyMode::Registry {
             files.push(GeneratedFile {
                 path: output_base.join("install.R"),
-                content: render_install_r(&pkg_name, &pkg_version),
+                content: render_install_r(
+                    &pkg_name,
+                    &pkg_version,
+                    e2e_config
+                        .registry
+                        .github_repo
+                        .as_deref()
+                        .context("R registry mode requires `[crates.e2e.registry] github_repo`")?,
+                ),
                 generated_header: false,
             });
         }
@@ -252,13 +260,11 @@ fn render_test_runner(pkg_path: &str, dep_mode: crate::e2e::config::DependencyMo
     out
 }
 
-fn render_install_r(pkg_name: &str, pkg_version: &str) -> String {
+fn render_install_r(pkg_name: &str, pkg_version: &str, github_repo: &str) -> String {
+    let github_repo = github_repo.trim_end_matches('/');
     let mut out = String::new();
     let _ = writeln!(out, "# alef-generated installer for registry-mode R test_app.");
-    let _ = writeln!(
-        out,
-        "# Installs the kreuzberg-dev/html-to-markdown R package from GitHub releases."
-    );
+    let _ = writeln!(out, "# Installs the configured R package from GitHub releases.");
     let _ = writeln!(out, "# Requires `R` on PATH.");
     let _ = writeln!(out);
     let _ = writeln!(out, "# Version override: pass as commandArgs()[6] to test an");
@@ -267,15 +273,9 @@ fn render_install_r(pkg_name: &str, pkg_version: &str) -> String {
     let _ = writeln!(out, "args <- commandArgs(trailingOnly = TRUE)");
     let _ = writeln!(out, "VERSION <- if (length(args) > 0) args[1] else \"{pkg_version}\"");
     let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "# Construct the GitHub release tarball URL for the htmltomarkdown R package."
-    );
+    let _ = writeln!(out, "# Construct the GitHub release tarball URL.");
     let _ = writeln!(out, "url <- sprintf(");
-    let _ = writeln!(
-        out,
-        "  \"https://github.com/kreuzberg-dev/html-to-markdown/releases/download/v%s/{pkg_name}_%s.tar.gz\","
-    );
+    let _ = writeln!(out, "  \"{github_repo}/releases/download/v%s/{pkg_name}_%s.tar.gz\",");
     let _ = writeln!(out, "  VERSION,");
     let _ = writeln!(out, "  VERSION");
     let _ = writeln!(out, ")");

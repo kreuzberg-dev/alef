@@ -1,6 +1,6 @@
 //! Extra dependencies for language-native manifests (Phase 1: Node/Wasm `package.json`).
 //!
-//! Distinct from [`crate::core::config::resolved::ResolvedConfig::extra_dependencies`], which
+//! Distinct from `ResolvedCrateConfig::extra_dependencies`, which
 //! targets the binding crate's `Cargo.toml` only. This module's [`ManifestExtras`] targets
 //! the host-language manifest emitted alongside each language binding — `package.json`,
 //! `pyproject.toml`, `Gemfile`, `composer.json`, `pom.xml`, `*.csproj`, `pubspec.yaml`,

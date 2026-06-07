@@ -1417,12 +1417,12 @@ fn test_pre_commit_config_all_languages() {
 }
 
 #[test]
-fn test_pre_commit_config_uses_kreuzberg_dev_shared_repo() {
+fn test_pre_commit_config_uses_default_shared_repo() {
     let config = test_config();
     let files = generate_pre_commit_config(&config, &[Language::Python]);
     let content = &files[0].content;
     // All cargo/rumdl/typos/pyproject-fmt/file-safety hooks live under the
-    // single shared repo as of kreuzberg-dev/pre-commit-hooks v2.0.0.
+    // single shared repo as of the configured hooks bundle v2.0.0.
     assert!(content.contains("https://github.com/kreuzberg-dev/pre-commit-hooks"));
     // The dropped upstream sources must NOT reappear in the scaffold output.
     assert!(!content.contains("https://github.com/pre-commit/pre-commit-hooks"));
@@ -1450,7 +1450,7 @@ fn test_pre_commit_config_includes_new_file_safety_hooks() {
     let config = test_config();
     let files = generate_pre_commit_config(&config, &[Language::Ffi]);
     let content = &files[0].content;
-    // Added in kreuzberg-dev/pre-commit-hooks v2.0.0.
+    // Added in the shared hooks bundle v2.0.0.
     assert!(content.contains("check-executables-have-shebangs"));
     assert!(content.contains("check-shebang-scripts-are-executable"));
     assert!(content.contains("mixed-line-ending"));

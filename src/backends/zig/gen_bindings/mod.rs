@@ -374,8 +374,11 @@ impl Backend for ZigBackend {
 
         // Read FFI header from the workspace crate and emit it to packages/zig/include/.
         let header_name = config.ffi_header_name();
-        let ffi_crate_header_path =
-            PathBuf::from("crates/html-to-markdown-ffi/include").join(format!("{}.h", header_name));
+        let ffi_crate_path = config.ffi_crate_path();
+        let ffi_crate_root = ffi_crate_path.strip_prefix("../../").unwrap_or(&ffi_crate_path);
+        let ffi_crate_header_path = PathBuf::from(ffi_crate_root)
+            .join("include")
+            .join(format!("{}.h", header_name));
         let ffi_header_content = std::fs::read_to_string(&ffi_crate_header_path).map_err(|e| {
             anyhow::anyhow!(
                 "Failed to read FFI header from {}: {}",

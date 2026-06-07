@@ -1,4 +1,4 @@
-//! Migrate legacy single-crate alef.toml to new multi-crate [workspace] / [[crates]] schema.
+//! Migrate legacy single-crate alef.toml to new multi-crate `[workspace]` / `[[crates]]` schema.
 //!
 //! This module converts old-style configs (with a single `[crate]` table and flat top-level
 //! language sections) to the new 0.13 schema where crate-specific settings live under

@@ -44,6 +44,7 @@ repos:
       - id: check-case-conflict
       - id: check-executables-have-shebangs
       - id: check-shebang-scripts-are-executable
+        exclude: \.(jinja|rs)$
       - id: mixed-line-ending
       - id: typos
         args:
@@ -70,7 +71,9 @@ repos:
       # Markdown
       - id: rumdl-fmt
       - id: markdownlint-rumdl-strict
+        exclude: ^(\.ai-rulez/|CHANGELOG\.md|README\.md|docs/design/|skills/alef/)
       - id: textlint
+        exclude: ^docs/design/
 
       # Rust (canonical block; cargo-check dropped — cargo-clippy with -D warnings supersedes it)
       - id: cargo-fmt

@@ -9,9 +9,9 @@ use crate::core::ir::{PrimitiveType, TypeRef};
 /// Maps Rust types to idiomatic Go types:
 /// - Integers use Go's explicit-width types (uint8, int32, etc.)
 /// - usize/isize map to uint/int (platform-native width)
-/// - Optional<T> becomes *T (nullable pointer)
-/// - Vec<T> becomes []T
-/// - Map<K,V> becomes map[K]V
+/// - `Optional<T>` becomes `*T` (nullable pointer)
+/// - `Vec<T>` becomes `[]T`
+/// - `Map<K,V>` becomes `map[K]V`
 /// - JSON becomes json.RawMessage
 /// - Unit becomes "" (void in Go — no type in return position)
 /// - Duration becomes uint64 (milliseconds)

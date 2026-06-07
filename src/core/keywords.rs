@@ -24,7 +24,7 @@ pub const PYTHON_KEYWORDS: &[&str] = &[
 /// Python `str` instance methods that an enum member name can shadow.
 ///
 /// `StrEnum` inherits from `str`, so variant names that match `str` instance methods
-/// (e.g., `Title` → `title`) shadow the inherited method and trigger mypy [assignment]
+/// (e.g., `Title` → `title`) shadow the inherited method and trigger mypy `assignment`
 /// errors at the class body. This constant lists all such methods that must be escaped
 /// with a trailing underscore when used as enum member names (e.g., `title_`).
 pub const PYTHON_STR_METHODS: &[&str] = &[
@@ -762,7 +762,7 @@ pub fn python_ident(name: &str) -> String {
 /// Returns `Some(escaped_name)` if `name` is either a Python reserved keyword
 /// OR a `str` instance method name that would shadow in a `StrEnum` context.
 ///
-/// Use this for `StrEnum` variant names to prevent mypy [assignment] errors.
+/// Use this for `StrEnum` variant names to prevent mypy `assignment` errors.
 /// Escaping appends a trailing underscore (e.g., `title` → `title_`).
 pub fn python_str_enum_safe_name(name: &str) -> Option<String> {
     if PYTHON_KEYWORDS.contains(&name) || PYTHON_STR_METHODS.contains(&name) {

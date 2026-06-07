@@ -52,7 +52,7 @@ pub(crate) fn generate_pre_commit_config(config: &ResolvedCrateConfig, languages
             has_python => has(Language::Python),
             clippy_excludes => clippy_excludes,
             gitfluff => tv::precommit::GITFLUFF_REV,
-            kreuzberg_pre_commit_hooks => tv::precommit::KREUZBERG_PRE_COMMIT_HOOKS_REV,
+            shared_pre_commit_hooks => tv::precommit::SHARED_PRE_COMMIT_HOOKS_REV,
             include_shared_hooks => include_shared_hooks,
             shared_hooks_repo => precommit.and_then(|p| p.shared_hooks_repo.as_deref()).unwrap_or(""),
             shared_hooks_rev => precommit.and_then(|p| p.shared_hooks_rev.as_deref()).unwrap_or(""),

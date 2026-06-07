@@ -244,7 +244,7 @@ pub struct RawCrateConfig {
     pub custom_registrations: CustomRegistrationsConfig,
     /// Validation diagnostic codes that are downgraded from errors to warnings
     /// for this crate, allowing generation to proceed despite pre-existing surface
-    /// issues. Each entry is the string form of a [`ValidationCode`] (e.g.
+    /// issues. Each entry is the string form of a [`crate::core::validation::ValidationCode`] (e.g.
     /// `"lossy_sanitized_surface"`, `"unknown_named_type"`).
     ///
     /// Use this to opt out of specific validation gates while you work toward full

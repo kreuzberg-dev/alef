@@ -354,7 +354,7 @@ pub struct E2eConfig {
     pub format: HashMap<String, String>,
     /// Field path aliases: maps fixture field paths to actual API struct paths.
     /// E.g., "metadata.title" -> "metadata.document.title"
-    /// Supports struct access (foo.bar), map access (foo[key]), direct fields.
+    /// Supports struct access (`foo.bar`), map access (`foo[key]`), direct fields.
     #[serde(default)]
     pub fields: HashMap<String, String>,
     /// Fields that are Optional/nullable in the return type.
@@ -461,7 +461,7 @@ impl E2eConfig {
     /// Resolve the call config for a fixture, applying `select_when` auto-routing.
     ///
     /// When the fixture has an explicit `call` name, that named config is returned
-    /// (same as [`resolve_call`]).  When the fixture has no explicit call, the method
+    /// (same as [`Self::resolve_call`]).  When the fixture has no explicit call, the method
     /// scans named calls for a [`SelectWhen`] condition that matches the fixture's
     /// shape (id, category, tags, input) and returns the first match.  If no condition
     /// matches, it falls back to the default `[e2e.call]`.

@@ -74,6 +74,7 @@ ALEF_INFRASTRUCTURE_ALLOWLIST = (
     "kreuzberg-dev/ai-rulez",
     "kreuzberg-dev/homebrew-tap",
     "github.com/kreuzberg-dev/pre-commit-hooks",
+    "packageName=kreuzberg-dev/pre-commit-hooks",
     "owner: kreuzberg-dev",
     "kreuzberg-bot",
     "bot@kreuzberg.dev",

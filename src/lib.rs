@@ -5,6 +5,8 @@
 //! (alef-core, alef-codegen, ...). See README and CHANGELOG (v0.18.0)
 //! for the consolidation rationale.
 
+#![allow(missing_docs)]
+
 pub mod adapters;
 pub mod backends;
 pub mod cli;

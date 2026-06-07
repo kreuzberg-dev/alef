@@ -61,7 +61,7 @@ pub struct RegistrationSpec {
 /// metadata params and forwards them, along with the handler, to the base
 /// registration with the pinned values substituted in. For library-supplied
 /// enum overrides, the pinned value is the variant *name* (e.g. `"GET"`); the
-/// extractor resolves it against the param type's [`EnumDef`] variants. For
+/// extractor resolves it against the param type's [`crate::core::ir::EnumDef`] variants. For
 /// non-enum types, the pinned value is a verbatim expression in the host
 /// language's Rust bridge.
 ///

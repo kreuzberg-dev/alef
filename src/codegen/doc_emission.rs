@@ -717,7 +717,7 @@ pub struct RustdocSections {
 ///
 /// The input is expected to already have rustdoc-hidden lines stripped
 /// and intra-doc-link syntax rewritten by
-/// [`crate::extractor::helpers::normalize_rustdoc`].
+/// `crate::extract::extractor::helpers::normalize_rustdoc`.
 pub fn parse_rustdoc_sections(doc: &str) -> RustdocSections {
     if doc.trim().is_empty() {
         return RustdocSections::default();
