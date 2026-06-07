@@ -203,11 +203,17 @@ pub(crate) fn emit_function(
     };
 
     if let Some(error_type) = &zig_error_type {
-        // Fallible function: call C, then check last_error_code(). Zig requires `_`
+        // Fallible function: call C, then check failure. Zig requires `_`
         // (single underscore) to discard a value; named locals must be used.
-        if matches!(f.return_type, TypeRef::Unit) || returns_bytes {
-            // Bytes returns yield `int32_t` status — discard it; error state is
-            // queried via `{prefix}_last_error_code()` like all other methods.
+        //
+        // For Unit/Bytes returns there is no `_result` pointer to inspect, so we
+        // consult `{prefix}_last_error_code()`. For pointer-returning calls we
+        // gate on `_result == null` — `last_error_code` is thread-local and may
+        // hold a stale non-zero value from an earlier failed call that the host
+        // never cleared, so checking it on a successful (non-null) result would
+        // produce spurious errors (regression observed in scrape/crawl/map paths).
+        let result_is_pointer = !(matches!(f.return_type, TypeRef::Unit) || returns_bytes);
+        if !result_is_pointer {
             out.push_str(&crate::backends::zig::template_env::render(
                 "function_call_unit.jinja",
                 minijinja::context! {
@@ -222,12 +228,16 @@ pub(crate) fn emit_function(
                 },
             ));
         }
-        out.push_str(&crate::backends::zig::template_env::render(
-            "function_error_check.jinja",
-            minijinja::context! {
-                prefix => prefix,
-            },
-        ));
+        if result_is_pointer {
+            out.push_str("    if (_result == null) {\n");
+        } else {
+            out.push_str(&crate::backends::zig::template_env::render(
+                "function_error_check.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                },
+            ));
+        }
         out.push_str(&crate::backends::zig::template_env::render(
             "function_error_return.jinja",
             minijinja::context! {

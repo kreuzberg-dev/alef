@@ -793,7 +793,13 @@ fn emit_opaque_method(
     );
 
     if let Some(ref err_ty) = zig_error_type {
-        if matches!(method.return_type, TypeRef::Unit) || returns_bytes {
+        // For Unit/Bytes returns there is no `_result` pointer to inspect, so we
+        // consult `{prefix}_last_error_code()`. For pointer-returning methods we
+        // gate on `_result == null`; the thread-local `last_error_code` may be
+        // stale from an earlier failed call that the host never cleared, so
+        // checking it on a successful (non-null) result trips false positives.
+        let result_is_pointer = !(matches!(method.return_type, TypeRef::Unit) || returns_bytes);
+        if !result_is_pointer {
             // Discard status / unit return — error state is queried via
             // `{prefix}_last_error_code()`.
             out.push_str(&render(
@@ -810,13 +816,19 @@ fn emit_opaque_method(
                 },
             ));
         }
-        out.push_str(&render(
-            "opaque_method_error_check.jinja",
-            minijinja::context! {
-                prefix => prefix,
-                error_type => err_ty,
-            },
-        ));
+        if result_is_pointer {
+            out.push_str("        if (_result == null) {\n");
+            out.push_str(&format!("            return _first_error({err_ty});\n"));
+            out.push_str("        }\n");
+        } else {
+            out.push_str(&render(
+                "opaque_method_error_check.jinja",
+                minijinja::context! {
+                    prefix => prefix,
+                    error_type => err_ty,
+                },
+            ));
+        }
 
         // Free params after error check.
         for p in effective_params {
