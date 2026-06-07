@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **r (extendr)**: emit `_ => Self::default()` catch-all in `From<core::T>` for flat data enums (e.g. `FormatMetadata`) when the enum has `#[alef(skip)]` variants. The flat-data-enum emission path (`gen_extendr_flat_data_enum_from_core`) iterates only `enum_def.variants` (which excludes skipped variants), so the binding match was never exhaustive when the core enum had cfg-gated or skipped variants present at runtime. Adds a new `flat_enum_from_core_impl_catch_all.jinja` template, gated on `!excluded_variants.is_empty()`. (`src/backends/extendr/gen_bindings/mod.rs`, `src/backends/extendr/templates/flat_enum_from_core_impl_catch_all.jinja`)
+
 - **r (extendr)**: emit `_ => Default::default()` catch-all in `From<core::T>` for binding enums whose core counterpart contains any data-carrying variant (tuple or struct), not just struct-variants. The previous `catch_all()` predicate (`excluded_variants || core_has_struct_variants`) missed enums composed entirely of tuple variants — those produced `error[E0004]: non-exhaustive patterns: '_' not covered` whenever the core enum was `#[non_exhaustive]` or grew a new tuple variant after binding generation. (`src/backends/extendr/gen_bindings/enum_conversions.rs`)
 
 - **ruby (magnus)**: emit `##` YARD documentation comment for the generated `VERSION` constant in `version.rb` so that `yard-coverage` correctly identifies all public constants and reaches 100% documented. (`src/backends/magnus/templates/version_rb_wrapper.rb.jinja`)

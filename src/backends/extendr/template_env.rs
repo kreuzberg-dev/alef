@@ -130,6 +130,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/flat_enum_from_core_impl_footer.jinja"),
     ),
     (
+        "flat_enum_from_core_impl_catch_all.jinja",
+        include_str!("templates/flat_enum_from_core_impl_catch_all.jinja"),
+    ),
+    (
         "flat_enum_from_binding_impl.jinja",
         include_str!("templates/flat_enum_from_binding_impl.jinja"),
     ),

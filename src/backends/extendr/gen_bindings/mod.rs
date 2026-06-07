@@ -1952,6 +1952,16 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &crate::core::ir::EnumDef, cor
         }
     }
 
+    // Emit a `_ => Self::default()` catch-all when the binding match cannot be exhaustive
+    // over the core enum. This happens when alef skips variants (`#[alef(skip)]`) or when
+    // cfg-gated variants in core may exist at runtime but are absent from the binding.
+    if !enum_def.excluded_variants.is_empty() {
+        out.push_str(&crate::backends::extendr::template_env::render(
+            "flat_enum_from_core_impl_catch_all.jinja",
+            minijinja::context! {},
+        ));
+    }
+
     out.push_str(&crate::backends::extendr::template_env::render(
         "flat_enum_from_core_impl_footer.jinja",
         minijinja::context! {},
