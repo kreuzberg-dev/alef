@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ruby (CROSS_PLATFORMS YARD doc)**: add a YARD-visible doc comment above the
+  `CROSS_PLATFORMS` constant in the alef-emitted Ruby `Rakefile` so
+  `yard-coverage` stops flagging the alef-generated cross-compile constant as
+  undocumented. (`src/scaffold/languages/ruby.rs`)
+
 ## [0.23.28] - 2026-06-07
 
 ### Changed
