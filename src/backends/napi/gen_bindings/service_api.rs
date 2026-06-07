@@ -1036,23 +1036,28 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
     let ep_method = &ep.method;
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
+    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
+    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
+    let bind = if matches!(ep.return_type, TypeRef::Unit) {
+        ""
+    } else {
+        "let _ = "
+    };
 
     if ep.is_async {
         // Drive the async entrypoint directly (this function is already async)
         format!(
-            "    owner.{ep_method}({args_str})\n        \
+            "    {bind}owner.{ep_method}({args_str})\n        \
              .await\n        \
              .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n"
         )
+    } else if ep.error_type.is_some() {
+        format!(
+            "    {bind}owner.{ep_method}({args_str})\n        \
+             .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n"
+        )
     } else {
-        if ep.error_type.is_some() {
-            format!(
-                "    owner.{ep_method}({args_str})\n        \
-                 .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n"
-            )
-        } else {
-            format!("    owner.{ep_method}({args_str});\n")
-        }
+        format!("    {bind}owner.{ep_method}({args_str});\n")
     }
 }
 
@@ -1305,6 +1310,13 @@ fn gen_entrypoint_napi_method(
     // Build parameter list for the inner call
     let ep_args: Vec<String> = ep.params.iter().map(|p| p.name.clone()).collect();
     let args_str = ep_args.join(", ");
+    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
+    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
+    let bind = if matches!(ep.return_type, TypeRef::Unit) {
+        ""
+    } else {
+        "let _ = "
+    };
 
     // Run/Finalize entrypoints conventionally consume `self` by value, so we move
     // the owner out of the lock with `std::mem::take` (requires the owner type to
@@ -1314,6 +1326,7 @@ fn gen_entrypoint_napi_method(
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
                 context! {
+                    bind,
                     receiver => "self",
                     ep_method,
                     args_str,
@@ -1324,6 +1337,7 @@ fn gen_entrypoint_napi_method(
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
                 context! {
+                    bind,
                     receiver => "self",
                     ep_method,
                     args_str,
@@ -1342,6 +1356,7 @@ fn gen_entrypoint_napi_method(
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
                 context! {
+                    bind,
                     receiver => "owner",
                     ep_method,
                     args_str,
@@ -1352,6 +1367,7 @@ fn gen_entrypoint_napi_method(
             out.push_str(&render(
                 "service_rs_entrypoint_call.jinja",
                 context! {
+                    bind,
                     receiver => "owner",
                     ep_method,
                     args_str,

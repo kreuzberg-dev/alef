@@ -852,6 +852,13 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
     let args_str = ep_args.join(", ");
     let owner_path = &service.rust_path;
     let fn_name = format!("{}_run", service.name.to_snake_case());
+    // Bind non-Unit returns to `_` so the unwrapped value (after `?`-propagation) doesn't
+    // trigger `unused_must_use` for `Result`-returning entrypoints like `into_router`.
+    let bind = if matches!(ep.return_type, TypeRef::Unit) {
+        ""
+    } else {
+        "let _ = "
+    };
 
     if ep.is_async {
         // Release the GVL and run a current-thread Tokio runtime for the async entrypoint.
@@ -867,15 +874,13 @@ fn build_ep_call(ep: &crate::core::ir::EntrypointDef, service: &ServiceDef, _cor
                 args_str => args_str,
             },
         )
+    } else if ep.error_type.is_some() {
+        format!(
+            "    {bind}owner.{ep_method}({args_str})\n        \
+             .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n"
+        )
     } else {
-        if ep.error_type.is_some() {
-            format!(
-                "    owner.{ep_method}({args_str})\n        \
-                 .map_err(|e| magnus::Error::new(ruby.exception_runtime_error(), e.to_string()))?;\n"
-            )
-        } else {
-            format!("    owner.{ep_method}({args_str});\n")
-        }
+        format!("    {bind}owner.{ep_method}({args_str});\n")
     }
 }
 
