@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **r (extendr)**: emit `_ => Default::default()` catch-all in `From<core::T>` for binding enums whose core counterpart contains any data-carrying variant (tuple or struct), not just struct-variants. The previous `catch_all()` predicate (`excluded_variants || core_has_struct_variants`) missed enums composed entirely of tuple variants — those produced `error[E0004]: non-exhaustive patterns: '_' not covered` whenever the core enum was `#[non_exhaustive]` or grew a new tuple variant after binding generation. (`src/backends/extendr/gen_bindings/enum_conversions.rs`)
+
 - **ruby (magnus)**: emit `##` YARD documentation comment for the generated `VERSION` constant in `version.rb` so that `yard-coverage` correctly identifies all public constants and reaches 100% documented. (`src/backends/magnus/templates/version_rb_wrapper.rb.jinja`)
 
 ## [0.23.25] - 2026-06-07
