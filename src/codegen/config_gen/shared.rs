@@ -26,8 +26,6 @@ pub(super) fn constructor_fields(typ: &TypeDef) -> impl Iterator<Item = &FieldDe
     typ.fields.iter().filter(|field| !field.binding_excluded)
 }
 
-/// Get a language-appropriate default value string for a field.
-/// Uses `typed_default` if available, falls back to `default` string, or type-based zero value.
 pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
     // First try typed_default if it exists
     if let Some(typed_default) = &field.typed_default {

@@ -1,9 +1,6 @@
-use crate::e2e::escape::{escape_js, expand_fixture_templates, sanitize_ident};
-use crate::e2e::fixture::Fixture;
+use super::*;
 
-use super::super::json::{json_to_js, json_to_js_multiline};
-
-pub(super) fn render_http_test_case(out: &mut String, fixture: &Fixture) {
+pub(in crate::e2e::codegen::typescript::test_file) fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     let Some(http) = &fixture.http else {
         return;
     };
@@ -244,6 +241,9 @@ pub(super) fn render_http_test_case(out: &mut String, fixture: &Fixture) {
     out.push_str(&rendered);
 }
 
+/// Synthesize a minimal multipart/form-data body from a JSON schema.
+/// RFC 2388 requires boundaries to be prefixed with CRLF and the final boundary
+/// to end with CRLF followed by `--` (i.e., `\r\n--boundary--\r\n`).
 fn synthesize_multipart_body_from_schema(schema: &Option<serde_json::Value>) -> serde_json::Value {
     let Some(schema_val) = schema else {
         return serde_json::Value::String(String::new());

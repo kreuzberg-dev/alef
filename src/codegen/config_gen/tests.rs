@@ -1,3 +1,4 @@
+use super::*;
 use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 fn make_test_type() -> TypeDef {
@@ -126,5 +127,6 @@ fn simple_type_mapper(tr: &TypeRef) -> String {
     }
 }
 
+mod constructors;
 mod defaults;
-mod generators;
+mod extendr;

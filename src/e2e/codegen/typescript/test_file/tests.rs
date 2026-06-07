@@ -1,13 +1,6 @@
-use super::builders::ts_builder_expression_inner;
-use super::helpers::{
-    canonical_ts_type_name, resolve_node_function_name, strip_setup_metadata, ts_method_helper_import,
-};
-use super::render::render_test_file;
-use super::visitor_cache::{
-    WasmVisitorBinding, apply_wasm_visitor_arg, emit_cache_isolation_setup, wasm_visitor_binding,
-};
-use super::wasm::{collect_transitive_nested_types_for_wasm, derive_nested_types_for_wasm, wasm_class_name};
-use crate::core::ir::{FieldDef, PrimitiveType, TypeDef, TypeRef};
+use super::visitor::WasmVisitorBinding;
+use super::*;
+use crate::core::ir::{FieldDef, PrimitiveType};
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::FixtureGroup;
 
@@ -214,12 +207,12 @@ fn ts_builder_uses_default_factory_for_all_wasm_classes_not_just_config() {
     assert!(
         result.contains("const _u0 = WasmChatCompletionTool.default();"),
         "wasm builder must instantiate via `.default()` for non-Config classes;\n\
-         actual:\n{result}",
+             actual:\n{result}",
     );
     assert!(
         !result.contains("new WasmChatCompletionTool()"),
         "wasm builder must NOT use no-arg `new` for non-Config classes;\n\
-         actual:\n{result}",
+             actual:\n{result}",
     );
 }
 
@@ -245,7 +238,7 @@ fn ts_builder_uses_new_for_non_wasm_targets() {
     assert!(
         !result.contains(".default()"),
         "non-wasm target must not use the wasm-only default factory pattern;\n\
-         actual:\n{result}",
+             actual:\n{result}",
     );
 }
 
@@ -474,6 +467,6 @@ fn http_only_test_file_with_json_body_emits_decompress_helper() {
     assert!(
         output.contains("_alefE2eDecompressAndParseJson"),
         "HTTP-only test file with JSON body must emit _alefE2eDecompressAndParseJson helper;\n\
-         actual output:\n{output}"
+             actual output:\n{output}"
     );
 }

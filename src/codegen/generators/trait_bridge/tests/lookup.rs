@@ -1,30 +1,4 @@
-use super::helpers::*;
-use crate::codegen::generators::trait_bridge::*;
-use crate::core::config::BridgeBinding;
-use crate::core::ir::{ApiSurface, PrimitiveType, TypeDef, TypeRef};
-
-#[test]
-fn bridge_wrapper_name_uses_configured_trait_name() {
-    let bridge = make_alias_bridge("XmlWalker", "WalkerHandle");
-    assert_eq!(bridge_wrapper_name("Js", &bridge), "JsXmlWalkerBridge");
-}
-
-#[test]
-fn is_bridge_handle_type_ref_matches_configured_alias_only() {
-    let bridges = vec![make_alias_bridge("XmlWalker", "WalkerHandle")];
-    assert!(is_bridge_handle_type_ref(
-        &TypeRef::Optional(Box::new(TypeRef::Named("WalkerHandle".to_string()))),
-        &bridges
-    ));
-    assert!(!is_bridge_handle_type_ref(
-        &TypeRef::Optional(Box::new(TypeRef::Named("VisitorHandle".to_string()))),
-        &bridges
-    ));
-    assert!(!is_bridge_handle_type_ref(
-        &TypeRef::Named("RenderOptions".to_string()),
-        &bridges
-    ));
-}
+use super::*;
 
 #[test]
 fn bridge_handle_path_uses_alias_typedef_rust_path() {
@@ -71,6 +45,39 @@ fn bridge_handle_path_uses_excluded_alias_path() {
         bridge_handle_path(&api, &bridge, "mylib"),
         "mylib::callbacks::RendererHandle"
     );
+}
+
+// ---------------------------------------------------------------------------
+// find_bridge_param / find_bridge_field
+// ---------------------------------------------------------------------------
+
+fn make_bridge(
+    type_alias: Option<&str>,
+    param_name: Option<&str>,
+    bind_via: BridgeBinding,
+    options_type: Option<&str>,
+    options_field: Option<&str>,
+    context_type: Option<&str>,
+    result_type: Option<&str>,
+) -> TraitBridgeConfig {
+    TraitBridgeConfig {
+        trait_name: "HtmlVisitor".to_string(),
+        super_trait: None,
+        registry_getter: None,
+        register_fn: None,
+        unregister_fn: None,
+        clear_fn: None,
+        type_alias: type_alias.map(str::to_string),
+        param_name: param_name.map(str::to_string),
+        register_extra_args: None,
+        exclude_languages: vec![],
+        ffi_skip_methods: Vec::new(),
+        bind_via,
+        options_type: options_type.map(str::to_string),
+        options_field: options_field.map(str::to_string),
+        context_type: context_type.map(str::to_string),
+        result_type: result_type.map(str::to_string),
+    }
 }
 
 #[test]

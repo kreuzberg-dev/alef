@@ -1,19 +1,5 @@
 use crate::core::ir::{TypeDef, TypeRef};
 
-/// Generate an extendr (R) kwargs constructor for a type with `has_default`.
-///
-/// Rust does not support function-parameter defaults, and extendr 0.9 only allows
-/// defaults via the per-parameter `#[extendr(default = "...")]` attribute (not via
-/// `param: T = expr` syntax).  Rather than encode every default in attribute form,
-/// we accept each field as `Option<T>` and unwrap it via `T::default()` (or via the
-/// type's own `Default::default()` for the whole struct as the base) inside the body.
-/// The R-side wrapper generated in `generate_public_api` already supplies named
-/// arguments with `NULL` defaults, so callers see ergonomic kwargs at the R level.
-///
-/// `enum_names` is the set of type names that are enums in this API surface.  For
-/// fields whose type resolves to a Named enum, the parameter is widened to
-/// `Option<String>` (extendr has no `TryFrom<&Robj>` for binding enums) and the body
-/// deserialises the string back to the enum via `serde_json::from_str`.
 pub fn gen_extendr_kwargs_constructor(
     typ: &TypeDef,
     type_mapper: &dyn Fn(&TypeRef) -> String,

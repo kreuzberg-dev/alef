@@ -1,8 +1,8 @@
-use super::shared::{constructor_fields, default_value_for_field, is_tuple_field};
 use crate::core::ir::{TypeDef, TypeRef};
 use heck::ToPascalCase;
 
-/// Generate C# record with init properties for a type with `has_default`.
+use super::shared::{constructor_fields, default_value_for_field, is_tuple_field};
+
 pub fn gen_csharp_record(typ: &TypeDef, namespace: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let fields: Vec<_> = constructor_fields(typ)
         .filter(|field| !is_tuple_field(field))

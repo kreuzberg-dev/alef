@@ -1,16 +1,7 @@
-use crate::core::ir::{EnumDef, TypeDef};
-use crate::e2e::config::ArgMapping;
-use crate::e2e::escape::{escape_js, sanitize_ident};
-use heck::ToUpperCamelCase;
+use super::*;
 
-use super::super::json::{json_to_js, json_to_js_camel, snake_to_camel};
-use super::builders::{rename_napi_serde_tags_to_kind, ts_builder_expression, ts_builder_expression_inner};
-use super::cases::has_later_arg_value;
-use super::helpers::strip_setup_metadata;
-use super::wasm::derive_nested_types_for_wasm;
-use crate::e2e::codegen::resolve_urls_field;
-
-pub(super) fn build_args_and_setup(
+#[allow(clippy::too_many_arguments)]
+pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
     input: &serde_json::Value,
     args: &[ArgMapping],
     options_type: Option<&str>,
@@ -88,7 +79,7 @@ pub(super) fn build_args_and_setup(
             let val = if let Some(v) = input.get(field).filter(|v| !v.is_null()) {
                 v.clone()
             } else {
-                resolve_urls_field(input, &arg.field).clone()
+                crate::e2e::codegen::resolve_urls_field(input, &arg.field).clone()
             };
             let paths: Vec<String> = if let Some(arr) = val.as_array() {
                 arr.iter()

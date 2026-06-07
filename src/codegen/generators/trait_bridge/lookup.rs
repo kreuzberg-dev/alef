@@ -1,11 +1,6 @@
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, TypeDef, TypeRef};
 
-/// Resolve the fully-qualified Rust path for a trait bridge handle alias.
-///
-/// The alias type's IR [`TypeDef::rust_path`] is authoritative. When the alias was
-/// intentionally excluded from binding output, use the extracted excluded-type path.
-/// If extraction did not record either path, fall back to `{core_import}::{type_alias}`.
 pub fn bridge_handle_path(api: &ApiSurface, bridge: &TraitBridgeConfig, core_import: &str) -> String {
     let alias = bridge.type_alias.as_deref().unwrap_or(&bridge.trait_name);
     api.types
@@ -29,14 +24,8 @@ pub fn is_bridge_handle_type_ref(ty: &TypeRef, bridges: &[TraitBridgeConfig]) ->
         .any(|alias| field_type_matches_alias(ty, alias))
 }
 
-/// True if `func_name` is owned by any trait bridge's `clear_fn` (or, in the future,
-/// any other bridge-managed wrapper). Backends should skip emitting a regular function
-/// wrapper for such names because the trait-bridge codegen path emits its own wrapper.
-///
-/// Only `clear_fn` is matched today: `register_fn` and `unregister_fn` always have a
-/// `dyn Trait` parameter and are caught by [`find_bridge_param`] before regular emission.
-/// `clear_fn` takes no parameters, so without this guard backends emit two wrappers
-/// for the same name (regular + trait-bridge), producing duplicate-definition errors.
+/// Result of trait bridge generation: imports (to be added via `builder.add_import`)
+
 pub fn is_trait_bridge_managed_fn(func_name: &str, bridges: &[TraitBridgeConfig]) -> bool {
     bridges.iter().any(|b| b.clear_fn.as_deref() == Some(func_name))
 }

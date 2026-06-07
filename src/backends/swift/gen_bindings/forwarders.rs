@@ -750,57 +750,36 @@ mod tests {
 
     #[test]
     fn test_swift_type_name_bool_returns_bool() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::Bool)),
-            "Bool"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::Bool)), "Bool");
     }
 
     #[test]
     fn test_swift_type_name_usize_returns_uint() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::Usize)),
-            "UInt"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::Usize)), "UInt");
     }
 
     #[test]
     fn test_swift_type_name_u8_returns_uint8() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::U8)),
-            "UInt8"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U8)), "UInt8");
     }
 
     #[test]
     fn test_swift_type_name_u32_returns_uint32() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::U32)),
-            "UInt32"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U32)), "UInt32");
     }
 
     #[test]
     fn test_swift_type_name_u64_returns_uint64() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::U64)),
-            "UInt64"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::U64)), "UInt64");
     }
 
     #[test]
     fn test_swift_type_name_i32_returns_int32() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::I32)),
-            "Int32"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::I32)), "Int32");
     }
 
     #[test]
     fn test_swift_type_name_f32_returns_float() {
-        assert_eq!(
-            swift_type_name(&TypeRef::Primitive(PrimitiveType::F32)),
-            "Float"
-        );
+        assert_eq!(swift_type_name(&TypeRef::Primitive(PrimitiveType::F32)), "Float");
     }
 }

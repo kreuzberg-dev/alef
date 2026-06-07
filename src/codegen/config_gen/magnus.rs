@@ -1,5 +1,6 @@
-use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
 use crate::core::ir::{DefaultValue, FieldDef, TypeDef, TypeRef};
+
+use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
 
 const MAGNUS_MAX_ARITY: usize = 15;
 

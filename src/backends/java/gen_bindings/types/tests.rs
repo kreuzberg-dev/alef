@@ -1,6 +1,8 @@
-use super::gen_record_type;
+#[cfg(test)]
+use super::*;
 use crate::core::config::JavaBuilderMode;
-use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::TypeDef;
+use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeRef};
 use ahash::AHashSet;
 use std::collections::HashSet;
 

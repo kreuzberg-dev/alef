@@ -1,9 +1,8 @@
-use super::shared::{constructor_fields, default_value_for_field, is_tuple_field};
 use crate::core::ir::{TypeDef, TypeRef};
 use heck::ToPascalCase;
 
-/// Generate Go functional options pattern for a type with `has_default`.
-/// Returns: type definition + Option type + WithField functions + NewConfig constructor
+use super::shared::{constructor_fields, default_value_for_field, is_tuple_field};
+
 pub fn gen_go_functional_options(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let fields: Vec<_> = constructor_fields(typ)
         .filter(|field| !is_tuple_field(field))

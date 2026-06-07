@@ -1,6 +1,3 @@
-use crate::backends::java::gen_bindings::helpers::{
-    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name, safe_java_method_name,
-};
 use crate::backends::java::type_map::{java_boxed_type, java_type};
 use crate::codegen::shared::binding_fields;
 use crate::core::config::{JavaBuilderMode, TraitBridgeConfig};
@@ -10,7 +7,11 @@ use ahash::AHashSet;
 
 use super::builders::{gen_builder_nested_class, should_emit_builder};
 use super::shared::{options_field_bridge_trait_name, resolve_field_type};
+use crate::backends::java::gen_bindings::helpers::{
+    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name, safe_java_method_name,
+};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_record_type(
     package: &str,
     typ: &TypeDef,

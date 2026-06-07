@@ -1,9 +1,8 @@
-use super::shared::default_value_for_field;
 use crate::core::ir::{TypeDef, TypeRef};
 use heck::ToPascalCase;
 
-/// Generate Java builder pattern for a type with `has_default`.
-/// Returns: Builder inner class with withField methods + build() method
+use super::shared::default_value_for_field;
+
 pub fn gen_java_builder(typ: &TypeDef, package: &str, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let fields: Vec<_> = typ
         .fields

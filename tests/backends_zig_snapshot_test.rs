@@ -490,3 +490,105 @@ fn trait_bridge_vcoverage_assertion_catches_missing_trait_definitions() {
     // Missing traits are silently skipped. Future work: add a validation pass that detects
     // this mismatch and reports it to the user.
 }
+
+#[test]
+fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
+    // Regression test: B20 — verify that generated registration functions pass
+    // the vtable as a typed pointer (`&_c_vtable`) not as a value (`_c_vtable`).
+    //
+    // The C FFI layer expects `kreuzberg_register_ocr_backend(..., vtable: [*c]const struct_*, ...)`.
+    // The Zig wrapper creates a local `_c_vtable` value via `@bitCast`, then must pass
+    // its address `&_c_vtable` to the C function. Passing the value directly causes a type error.
+
+    use alef::core::config::{BridgeBinding, TraitBridgeConfig};
+
+    let mut api = make_basic_api();
+    let method = alef::core::ir::MethodDef {
+        name: "process".to_string(),
+        params: vec![make_param("input", TypeRef::String)],
+        return_type: TypeRef::Unit,
+        is_async: false,
+        is_static: false,
+        error_type: None,
+        doc: String::new(),
+        receiver: Some(alef::core::ir::ReceiverKind::Ref),
+        trait_source: None,
+        sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        has_default_impl: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+    };
+
+    let trait_def = TypeDef {
+        name: "OcrBackend".to_string(),
+        rust_path: "demo::OcrBackend".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![],
+        methods: vec![method],
+        is_opaque: false,
+        is_clone: false,
+        is_copy: false,
+        doc: "OCR backend trait".to_string(),
+        cfg: None,
+        is_trait: true,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: false,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+    api.types.push(trait_def);
+
+    let mut config = make_basic_config();
+    config.trait_bridges.push(TraitBridgeConfig {
+        trait_name: "OcrBackend".to_string(),
+        super_trait: Some("demo::Plugin".to_string()),
+        registry_getter: Some("demo::registry::get_ocr_registry".to_string()),
+        register_fn: Some("register_ocr_backend".to_string()),
+        unregister_fn: Some("unregister_ocr_backend".to_string()),
+        clear_fn: None,
+        bind_via: BridgeBinding::FunctionParam,
+        ffi_skip_methods: vec![],
+        type_alias: None,
+        param_name: None,
+        register_extra_args: None,
+        exclude_languages: vec![],
+        options_type: None,
+        options_field: None,
+        context_type: None,
+        result_type: None,
+    });
+
+    let files = ZigBackend.generate_bindings(&api, &config).unwrap();
+    let content = files
+        .iter()
+        .find(|f| f.content.contains("pub fn register_ocr_backend"))
+        .or_else(|| files.first())
+        .expect("zig binding file must be generated")
+        .content
+        .clone();
+
+    // CRITICAL: The register function must pass `&_c_vtable` (typed pointer),
+    // NOT `_c_vtable` (value).
+    // Pattern: `const _rc = c.kreuzberg_register_ocr_backend(name, &_c_vtable, ...)`
+    assert!(
+        content.contains("c.kreuzberg_register_ocr_backend(name, &_c_vtable,"),
+        "BUG: register_ocr_backend should pass `&_c_vtable` (pointer), not `_c_vtable` (value). Content:\n{}",
+        &content
+    );
+
+    // Negative check: should NOT pass the value directly
+    assert!(
+        !content.contains("c.kreuzberg_register_ocr_backend(name, _c_vtable,")
+            || content.contains("c.kreuzberg_register_ocr_backend(name, &_c_vtable,"),
+        "BUG: register_ocr_backend passing value instead of pointer"
+    );
+}

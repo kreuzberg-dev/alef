@@ -1,11 +1,5 @@
 use super::{TraitBridgeGenerator, TraitBridgeSpec};
 
-/// Generate the `register_xxx()` function that wraps a foreign object and
-/// inserts it into the plugin registry.
-///
-/// Returns `None` when `bridge_config.register_fn` is absent (per-call bridge pattern).
-/// The generator owns the full function (attributes, signature, body) because each
-/// backend needs different signatures.
 pub fn gen_bridge_registration_fn(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> Option<String> {
     spec.bridge_config.register_fn.as_deref()?;
     Some(generator.gen_registration_fn(spec))

@@ -1,10 +1,10 @@
-use super::lookup::bridge_wrapper_name;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToSnakeCase;
 use std::collections::{HashMap, HashSet};
 
-/// Everything needed to generate a trait bridge for one trait.
+use super::bridge_wrapper_name;
+
 pub struct TraitBridgeSpec<'a> {
     /// The trait definition from the IR.
     pub trait_def: &'a TypeDef,

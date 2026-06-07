@@ -1,17 +1,20 @@
-use crate::core::hash::{self, CommentStyle};
-use crate::core::ir::{EnumDef, TypeDef};
-use crate::e2e::config::{ArgMapping, E2eConfig};
-use crate::e2e::fixture::Fixture;
-use heck::ToUpperCamelCase;
+use super::*;
 
-use super::cases::render_test_case;
-use super::helpers::{
-    canonical_ts_type_name, is_typescript_primitive_element_type, resolve_node_function_name, ts_method_helper_import,
-};
-use super::http::render_http_test_case;
-use super::visitor_cache::{detect_cache_isolation_needs, emit_cache_isolation_setup, wasm_visitor_binding};
-use super::wasm::collect_transitive_nested_types_for_wasm;
-
+/// Render a complete test file for the given category.
+///
+/// `lang` is the language key used for per-fixture call override resolution
+/// (e.g. `"node"` for TypeScript, `"wasm"` for WASM tests).
+///
+/// `type_defs` is the IR type registry from the source crate. For the WASM
+/// language path it is used to auto-derive `nested_types` (class-typed field
+/// mappings) so plain object literals are not passed where wasm-bindgen expects
+/// class instances. Pass an empty slice when not available; the generator
+/// falls back to explicit call-override mappings.
+///
+/// `enums` is the IR enum registry from the source crate. For WASM, it is used
+/// to identify tagged-data enums so they are emitted as plain JS object literals
+/// instead of wrapper factories. Pass an empty slice when not available.
+#[allow(clippy::too_many_arguments)]
 pub fn render_test_file(
     lang: &str,
     category: &str,

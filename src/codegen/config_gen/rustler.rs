@@ -1,13 +1,13 @@
-use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
+use std::collections::HashSet;
+
 use crate::core::ir::{TypeDef, TypeRef};
 
-/// Generate a Rustler (Elixir) kwargs constructor for a type with `has_default`.
-/// Accepts keyword list or map, applies defaults for missing fields.
-/// Fields in `exclude_fields` are skipped (used for bridge fields that cannot implement Encoder/Decoder).
+use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
+
 pub fn gen_rustler_kwargs_constructor_with_exclude(
     typ: &TypeDef,
     _type_mapper: &dyn Fn(&TypeRef) -> String,
-    exclude_fields: &std::collections::HashSet<String>,
+    exclude_fields: &HashSet<String>,
 ) -> String {
     // Pre-compute field assignments (same logic as gen_rustler_kwargs_constructor but with exclusion)
     let fields: Vec<_> = constructor_fields(typ)

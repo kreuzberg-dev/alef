@@ -1,10 +1,5 @@
 use super::{TraitBridgeGenerator, TraitBridgeSpec, format_param_type_with_lifetimes, format_return_type};
 
-/// Generate `impl Trait for Wrapper` dispatching each method through the generator.
-///
-/// Methods with `has_default_impl = true` are NOT emitted — the trait's own default
-/// implementation is used instead.  Only required (non-defaulted) own methods get a
-/// generated vtable-forwarding body.
 pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let trait_path = spec.trait_path();
@@ -96,9 +91,11 @@ pub fn gen_bridge_trait_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridge
         // there is nothing to leak — return it directly.
         let raw_body_trimmed = raw_body.trim();
         let body_is_static_slice = raw_body_trimmed.starts_with("self.") && raw_body_trimmed.ends_with("_strs");
-        let body = if method.returns_ref
-            && matches!(&method.return_type, crate::core::ir::TypeRef::Vec(inner) if matches!(inner.as_ref(), crate::core::ir::TypeRef::String))
-        {
+        let returns_ref_string_vec = matches!(
+            &method.return_type,
+            crate::core::ir::TypeRef::Vec(inner) if matches!(inner.as_ref(), crate::core::ir::TypeRef::String)
+        );
+        let body = if method.returns_ref && returns_ref_string_vec {
             if body_is_static_slice {
                 raw_body
             } else {

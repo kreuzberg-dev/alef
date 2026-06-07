@@ -7,12 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- **dart (BaseHandler typedef)**: inject a typedef for `BaseHandler` as a function type in FRB-generated code. FRB emits handler parameters as opaque classes when the Rust side defines `DartFnFuture<String>` parameters, but generated service methods invoke handlers directly: `await handler(task)`. The typedef makes `BaseHandler` callable and eliminates "isn't a function or method and can't be invoked" compilation errors. (`src/backends/dart/frb_rewrite.rs`)
-- **php (unit-variant enum classes)**: emit unit-variant enums (e.g., `Method` with `GET`, `POST` variants) as `#[php_class]` structs with class constants instead of bare Rust constants. Consumers can now reference enum values as `ClassName::VARIANT_NAME` at runtime. Namespace-aware per config. (`src/backends/php/gen_bindings/types.rs`, `src/backends/php/gen_bindings/rust_bindings.rs`)
-- **swift e2e (harness port mismatch)**: fix Swift e2e tests to use port 8000 (default harness port) instead of hardcoded 8009 fallback. Mismatch caused URLSession requests to fail silently with nil response. (`src/e2e/codegen/swift/http.rs`)
-- **typescript e2e (auth middleware dispatch)**: fix TypeScript app_harness to dispatch all middleware types via a generic dispatch table, matching Python harness design. Previously hardcoded only `cors` and `compression`, ignoring `api_key_auth`, `jwt_auth`, and `bearer_auth` specified in fixtures, causing auth tests to return 404 instead of 401/200. (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
+### Fixed
+
+- **zig trait bridge registration**: Pass vtable as typed pointer (`&_c_vtable`)
+  instead of value (`_c_vtable`) to C FFI register functions. The C ABI layer
+  expects `[*c]const struct_*VTable`, but the Zig emitter was passing a value
+  type, causing "expected type '[*c]const T', found 'T'" compilation errors.
+  Regression test added to verify pointer passing for all trait-bridge
+  registration functions.
 
 ## [0.23.29] - 2026-06-07
+
+### Changed
+
+- **java codegen organization**: split Java type generation into concern-based modules for
+  records, enums/unions, opaque handles, builders, serializers, and tests while preserving the
+  existing Java backend entrypoints. (`src/backends/java/gen_bindings/types.rs`,
+  `src/backends/java/gen_bindings/types/`)
+
+- **typescript e2e organization**: split TypeScript e2e test-file generation into focused
+  modules for rendering, HTTP cases, arguments, builders, WASM visitor handling, cache helpers,
+  and tests. (`src/e2e/codegen/typescript/test_file.rs`,
+  `src/e2e/codegen/typescript/test_file/`)
+
+- **codegen organization**: split shared config constructor generation and trait-bridge
+  generation into concern-based modules while keeping the existing public module APIs available.
+  (`src/codegen/config_gen.rs`, `src/codegen/config_gen/`,
+  `src/codegen/generators/trait_bridge.rs`, `src/codegen/generators/trait_bridge/`)
 
 ### Fixed
 
@@ -35,11 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`src/e2e/templates/elixir/test_helper_server.exs.jinja`,
   `src/e2e/templates/elixir/app_harness.exs.jinja`)
 
-- **swift (type-mapping bug in wrapper return types)**: fix incorrect mapping of Rust `bool` → Swift `Int` 
-  and Rust `usize` → Swift `Int` in the public function wrapper layer. The `swift_type_name()` function 
-  in `gen_bindings/forwarders.rs` now correctly maps `PrimitiveType::Bool` → `"Bool"` and 
-  `PrimitiveType::Usize` → `"UInt"`. Affected functions: `hasLanguage()`, `languageCount()`, 
-  `download()`, `downloadAll()`, `downloadGroup()` which previously declared impossible return types 
+- **swift (type-mapping bug in wrapper return types)**: fix incorrect mapping of Rust `bool` → Swift `Int`
+  and Rust `usize` → Swift `Int` in the public function wrapper layer. The `swift_type_name()` function
+  in `gen_bindings/forwarders.rs` now correctly maps `PrimitiveType::Bool` → `"Bool"` and
+  `PrimitiveType::Usize` → `"UInt"`. Affected functions: `hasLanguage()`, `languageCount()`,
+  `download()`, `downloadAll()`, `downloadGroup()` which previously declared impossible return types
   (`Int` where the body returns `Bool`/`UInt`). (`src/backends/swift/gen_bindings/forwarders.rs`)
 
 - **ruby (CROSS_PLATFORMS YARD doc)**: add a YARD-visible doc comment above the

@@ -1,7 +1,4 @@
-use super::helpers::*;
-use crate::codegen::generators::trait_bridge::*;
-use crate::core::ir::{PrimitiveType, TypeRef};
-use std::collections::HashMap;
+use super::*;
 
 #[test]
 fn test_gen_bridge_wrapper_struct_contains_struct_name() {

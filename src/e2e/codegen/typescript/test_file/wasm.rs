@@ -1,22 +1,4 @@
-use crate::core::ir::{EnumDef, TypeDef, TypeRef};
-
-/// True when `type_name` (possibly with a `Wasm` binding-prefix) names an
-/// IR enum that uses serde's internally-tagged representation
-/// (`#[serde(tag = "...")]`) and has at least one variant carrying data.
-///
-/// WASM bindings expose such enums via field setters of type
-/// `JsValue`/`Option<JsValue>`, which `serde_wasm_bindgen::from_value` then
-/// deserializes from a plain JS object. Wrapping the value with the
-/// per-variant `default()` factory + setters produces an opaque
-/// wasm-bindgen wrapper class whose own-property table is empty — serde
-/// then fails to read the discriminator. The e2e builder must emit a plain
-/// JS object literal for these instead.
-pub(super) fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef], wasm_type_prefix: &str) -> bool {
-    let stripped = type_name.strip_prefix(wasm_type_prefix).unwrap_or(type_name);
-    enums
-        .iter()
-        .any(|e| e.name == stripped && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
-}
+use super::*;
 
 /// Return the WASM binding class name for an IR type name.
 ///
@@ -24,7 +6,7 @@ pub(super) fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef], wasm_type_
 /// `<prefix><TypeName>`.  For example, with prefix "Wasm", the IR type
 /// `ChatMessage` is exposed as `WasmChatMessage`.  This mirrors the
 /// `wasm_class_name` helper used elsewhere in the wasm-bindgen backend.
-pub(super) fn wasm_class_name(ir_type_name: &str, prefix: &str) -> String {
+pub(in crate::e2e::codegen::typescript::test_file) fn wasm_class_name(ir_type_name: &str, prefix: &str) -> String {
     format!("{prefix}{ir_type_name}")
 }
 
@@ -57,7 +39,7 @@ pub(super) fn wasm_class_name(ir_type_name: &str, prefix: &str) -> String {
 /// `ReferenceError: WasmFunctionDefinition is not defined` at runtime.
 ///
 /// Termination is guaranteed by a `seen` set on wasm class names.
-pub(super) fn collect_transitive_nested_types_for_wasm(
+pub(in crate::e2e::codegen::typescript::test_file) fn collect_transitive_nested_types_for_wasm(
     seed_wasm_types: &std::collections::BTreeSet<String>,
     type_defs: &[TypeDef],
     wasm_type_prefix: &str,
@@ -77,7 +59,7 @@ pub(super) fn collect_transitive_nested_types_for_wasm(
     result
 }
 
-pub(super) fn derive_nested_types_for_wasm(
+pub(in crate::e2e::codegen::typescript::test_file) fn derive_nested_types_for_wasm(
     wasm_type_name: &str,
     type_defs: &[TypeDef],
     wasm_type_prefix: &str,

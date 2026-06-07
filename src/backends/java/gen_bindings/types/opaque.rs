@@ -1,5 +1,3 @@
-use crate::backends::java::gen_bindings::helpers::{emit_javadoc, safe_java_method_name};
-use crate::backends::java::gen_bindings::marshal::{is_ffi_string_return, java_ffi_return_cast, java_ffi_return_expr};
 use crate::backends::java::type_map::{java_boxed_type, java_return_type, java_type};
 use crate::codegen::naming::to_class_name;
 use crate::core::config::{AdapterConfig, AdapterPattern};
@@ -8,6 +6,10 @@ use crate::core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::{ToLowerCamelCase, ToSnakeCase};
 
+use crate::backends::java::gen_bindings::helpers::{emit_javadoc, safe_java_method_name};
+use crate::backends::java::gen_bindings::marshal::{is_ffi_string_return, java_ffi_return_cast, java_ffi_return_expr};
+
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn gen_opaque_handle_class(
     package: &str,
     typ: &TypeDef,

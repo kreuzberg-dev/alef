@@ -1,15 +1,7 @@
-use super::{TraitBridgeGenerator, TraitBridgeSpec};
 use crate::core::ir::MethodDef;
 
-/// Generate the wrapper struct holding the foreign object and cached fields.
-///
-/// Produces a struct like:
-/// ```ignore
-/// pub struct PythonOcrBackendBridge {
-///     inner: Py<PyAny>,
-///     cached_name: String,
-/// }
-/// ```
+use super::{TraitBridgeGenerator, TraitBridgeSpec};
+
 pub fn gen_bridge_wrapper_struct(spec: &TraitBridgeSpec, generator: &dyn TraitBridgeGenerator) -> String {
     let wrapper = spec.wrapper_name();
     let foreign_type = generator.foreign_object_type();

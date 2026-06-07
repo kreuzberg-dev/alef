@@ -1,6 +1,4 @@
-use super::make_field;
-use crate::codegen::config_gen::default_value_for_field;
-use crate::core::ir::{CoreWrapper, DefaultValue, FieldDef, PrimitiveType, TypeRef};
+use super::*;
 
 #[test]
 fn test_default_value_bool_true_python() {
@@ -156,6 +154,7 @@ fn test_default_value_fallback_string() {
     };
     assert_eq!(default_value_for_field(&field, "python"), "\"custom\"");
 }
+
 #[test]
 fn test_default_value_float_literal() {
     let field = FieldDef {
@@ -208,11 +207,6 @@ fn test_default_value_no_typed_no_default() {
     assert_eq!(default_value_for_field(&field, "python"), "0");
     assert_eq!(default_value_for_field(&field, "go"), "0");
 }
-
-// -------------------------------------------------------------------------
-// default_value_for_field — untested branches
-// -------------------------------------------------------------------------
-
 #[test]
 fn test_default_value_bool_literal_ruby() {
     let field = FieldDef {

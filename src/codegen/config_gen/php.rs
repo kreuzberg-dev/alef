@@ -1,9 +1,7 @@
-use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
 use crate::core::ir::{TypeDef, TypeRef};
 
-/// Generate a PHP kwargs constructor for a type with `has_default`.
-/// All fields become `Option<T>` parameters so PHP users can omit any field.
-/// Assignments wrap non-Optional fields in `Some()` and apply defaults.
+use super::shared::{constructor_fields, default_value_for_field, use_unwrap_or_default};
+
 pub fn gen_php_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let fields: Vec<_> = constructor_fields(typ)
         .map(|field| {

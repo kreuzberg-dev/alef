@@ -1,4 +1,3 @@
-use crate::backends::java::gen_bindings::helpers::{format_optional_value, safe_java_field_name};
 use crate::backends::java::type_map::{java_boxed_type, java_type};
 use crate::codegen::naming::to_class_name;
 use crate::codegen::shared::binding_fields;
@@ -7,8 +6,9 @@ use crate::core::ir::{DefaultValue, PrimitiveType, TypeDef, TypeRef};
 use ahash::AHashSet;
 
 use super::shared::{is_options_field_bridge, options_field_bridge_trait_name, resolve_field_type};
+use crate::backends::java::gen_bindings::helpers::{format_optional_value, safe_java_field_name};
 
-const BUILDER_AUTO_THRESHOLD: usize = 8;
+pub(super) const BUILDER_AUTO_THRESHOLD: usize = 8;
 
 /// Check if a field type is complex (nested object, collection of complex types, etc.).
 fn is_complex_field_type(ty: &TypeRef) -> bool {

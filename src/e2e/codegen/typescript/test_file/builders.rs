@@ -1,9 +1,59 @@
-use crate::core::ir::{EnumDef, TypeDef};
-use heck::ToUpperCamelCase;
+use super::*;
 
-use super::super::json::{json_to_js, json_to_js_camel, snake_to_camel};
-use super::wasm::{derive_nested_types_for_wasm, is_tagged_data_enum};
-use crate::e2e::escape::escape_js;
+/// Build a TypeScript expression to construct an options object.
+///
+/// Node: configured options types can be TypeScript interfaces — return a plain object literal
+/// with a type assertion (`{ key: val } as TypeName`). No Update class or fromUpdate().
+///
+/// WASM: alef-backend-wasm does not emit `*Update` builder classes, so we
+/// instantiate the main type directly. Every wasm-bindgen-emitted struct
+/// exposes an all-optional positional constructor (`new T()`) plus per-field
+/// setters, so we build the value with `new T()` followed by setter
+/// assignments wrapped in an IIFE so the expression can be inlined as a
+/// function argument. Nested object values follow the same pattern.
+#[allow(clippy::too_many_arguments)]
+pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression(
+    obj: &serde_json::Map<String, serde_json::Value>,
+    type_name: &str,
+    nested_types: &std::collections::HashMap<String, String>,
+    lang: &str,
+    enum_fields: &std::collections::HashMap<String, String>,
+    bigint_fields: &std::collections::BTreeSet<String>,
+    type_defs: &[TypeDef],
+    enums: &[EnumDef],
+    wasm_type_prefix: &str,
+) -> String {
+    ts_builder_expression_inner(
+        obj,
+        type_name,
+        nested_types,
+        lang,
+        enum_fields,
+        bigint_fields,
+        type_defs,
+        enums,
+        wasm_type_prefix,
+        0,
+    )
+}
+
+/// True when `type_name` (possibly with a `Wasm` binding-prefix) names an
+/// IR enum that uses serde's internally-tagged representation
+/// (`#[serde(tag = "...")]`) and has at least one variant carrying data.
+///
+/// WASM bindings expose such enums via field setters of type
+/// `JsValue`/`Option<JsValue>`, which `serde_wasm_bindgen::from_value` then
+/// deserializes from a plain JS object. Wrapping the value with the
+/// per-variant `default()` factory + setters produces an opaque
+/// wasm-bindgen wrapper class whose own-property table is empty — serde
+/// then fails to read the discriminator. The e2e builder must emit a plain
+/// JS object literal for these instead.
+fn is_tagged_data_enum(type_name: &str, enums: &[EnumDef], wasm_type_prefix: &str) -> bool {
+    let stripped = type_name.strip_prefix(wasm_type_prefix).unwrap_or(type_name);
+    enums
+        .iter()
+        .any(|e| e.name == stripped && e.serde_tag.is_some() && e.variants.iter().any(|v| !v.fields.is_empty()))
+}
 
 /// Pre-process a JSON value so that napi-rs (node) binding can deserialize it.
 ///
@@ -21,7 +71,10 @@ use crate::e2e::escape::escape_js;
 /// same key name as a serde_tag (e.g. `type: "function"` on
 /// `ChatCompletionTool` where "function" is not a `ContentPart` variant)
 /// are left unchanged.
-pub(super) fn rename_napi_serde_tags_to_kind(value: &serde_json::Value, enums: &[EnumDef]) -> serde_json::Value {
+pub(in crate::e2e::codegen::typescript::test_file) fn rename_napi_serde_tags_to_kind(
+    value: &serde_json::Value,
+    enums: &[EnumDef],
+) -> serde_json::Value {
     // Build map: serde_tag_key → (set of variant serde-names, actual_tag_name).
     // Only include tagged-data enums (serde_tag present AND at least one
     // variant with fields so the binding is a flattened struct, not a plain
@@ -93,33 +146,8 @@ fn to_bigint_literal(value_expr: &str) -> String {
     format!("BigInt({trimmed})")
 }
 
-pub(super) fn ts_builder_expression(
-    obj: &serde_json::Map<String, serde_json::Value>,
-    type_name: &str,
-    nested_types: &std::collections::HashMap<String, String>,
-    lang: &str,
-    enum_fields: &std::collections::HashMap<String, String>,
-    bigint_fields: &std::collections::BTreeSet<String>,
-    type_defs: &[TypeDef],
-    enums: &[EnumDef],
-    wasm_type_prefix: &str,
-) -> String {
-    ts_builder_expression_inner(
-        obj,
-        type_name,
-        nested_types,
-        lang,
-        enum_fields,
-        bigint_fields,
-        type_defs,
-        enums,
-        wasm_type_prefix,
-        0,
-    )
-}
-
 #[allow(clippy::too_many_arguments)]
-pub(super) fn ts_builder_expression_inner(
+pub(in crate::e2e::codegen::typescript::test_file) fn ts_builder_expression_inner(
     obj: &serde_json::Map<String, serde_json::Value>,
     type_name: &str,
     nested_types: &std::collections::HashMap<String, String>,

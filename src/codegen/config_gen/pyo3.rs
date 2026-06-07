@@ -1,8 +1,7 @@
-use super::shared::{constructor_fields, default_value_for_field};
 use crate::core::ir::{TypeDef, TypeRef};
 
-/// Generate a PyO3 `#[new]` constructor with kwargs for a type with `has_default`.
-/// All fields become keyword args with their defaults in `#[pyo3(signature = (...))]`.
+use super::shared::{constructor_fields, default_value_for_field};
+
 pub fn gen_pyo3_kwargs_constructor(typ: &TypeDef, type_mapper: &dyn Fn(&TypeRef) -> String) -> String {
     let signature_defaults = constructor_fields(typ)
         .map(|field| format!("{}={}", field.name, default_value_for_field(field, "python")))

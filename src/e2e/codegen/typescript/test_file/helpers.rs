@@ -1,6 +1,6 @@
-use super::super::json::snake_to_camel;
+use super::*;
 
-pub(super) fn is_typescript_primitive_element_type(element_type: &str) -> bool {
+pub(in crate::e2e::codegen::typescript::test_file) fn is_typescript_primitive_element_type(element_type: &str) -> bool {
     matches!(
         element_type,
         "string"
@@ -31,6 +31,7 @@ pub(super) fn is_typescript_primitive_element_type(element_type: &str) -> bool {
     )
 }
 
+/// Resolve the function name for a call config, applying node-specific overrides.
 pub(in crate::e2e::codegen::typescript) fn resolve_node_function_name(
     call_config: &crate::e2e::config::CallConfig,
 ) -> String {
@@ -55,7 +56,76 @@ pub(super) fn ts_method_helper_import(method_name: &str) -> Option<String> {
     }
 }
 
-pub(super) fn strip_setup_metadata(input: &serde_json::Value) -> serde_json::Value {
+/// Extract bridge variable names from setup lines and generate cleanup code.
+/// Looks for patterns like `const _bridge_* = ...` and generates `await bridge.dispose()` calls.
+pub(in crate::e2e::codegen::typescript::test_file) fn extract_bridge_cleanup(setup_lines: &[String]) -> String {
+    let mut cleanup_lines = Vec::new();
+    for line in setup_lines {
+        if let Some(var_name) = extract_bridge_var_name(line) {
+            cleanup_lines.push(format!("await {}.dispose();", var_name));
+        }
+    }
+    cleanup_lines.join("\n\t\t")
+}
+
+/// Extract bridge variable name from a setup line like `const _bridge_foo = new _TestStub_...`
+fn extract_bridge_var_name(line: &str) -> Option<String> {
+    if let Some(start) = line.find("const ") {
+        let after_const = &line[start + 6..];
+        if let Some(end) = after_const.find(" =") {
+            let var_name = after_const[..end].trim();
+            if var_name.starts_with("_bridge_") {
+                return Some(var_name.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Check whether any arg at index `idx` or later has a non-null value in `input`.
+pub(in crate::e2e::codegen::typescript::test_file) fn has_later_arg_value(
+    args: &[ArgMapping],
+    from_idx: usize,
+    input: &serde_json::Value,
+) -> bool {
+    args[from_idx..].iter().any(|arg| {
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = if field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
+        !matches!(val, None | Some(serde_json::Value::Null))
+    })
+}
+
+/// Check if any arg with bytes type has a string path value that needs file reading.
+pub(in crate::e2e::codegen::typescript::test_file) fn has_bytes_file_reads(
+    input: &serde_json::Value,
+    args: &[ArgMapping],
+) -> bool {
+    args.iter().any(|arg| {
+        if arg.arg_type != "bytes" {
+            return false;
+        }
+        let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+        let val = if field == "input" {
+            Some(input)
+        } else {
+            input.get(field)
+        };
+        matches!(val, Some(serde_json::Value::String(_)))
+    })
+}
+
+/// Check if any arg is a test_backend (trait bridge), requiring async test function.
+pub(in crate::e2e::codegen::typescript::test_file) fn has_trait_bridge_args(args: &[ArgMapping]) -> bool {
+    args.iter().any(|arg| arg.arg_type == "test_backend")
+}
+
+pub(in crate::e2e::codegen::typescript::test_file) fn strip_setup_metadata(
+    input: &serde_json::Value,
+) -> serde_json::Value {
     match input {
         serde_json::Value::Object(map) => {
             let mut cleaned = map.clone();
@@ -66,7 +136,7 @@ pub(super) fn strip_setup_metadata(input: &serde_json::Value) -> serde_json::Val
     }
 }
 
-pub(super) fn canonical_ts_type_name(
+pub(in crate::e2e::codegen::typescript::test_file) fn canonical_ts_type_name(
     lang: &str,
     type_name: &str,
     config: &crate::core::config::ResolvedCrateConfig,

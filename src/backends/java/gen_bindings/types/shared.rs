@@ -1,6 +1,10 @@
 use crate::core::config::{BridgeBinding, TraitBridgeConfig};
 use crate::core::ir::TypeRef;
 
+/// Resolve a TypeRef to its Java type, replacing unknown/excluded Named types with JsonNode.
+///
+/// When a field references a type that was excluded from code generation (e.g. `#[alef(skip)]`),
+/// we use `JsonNode` to preserve the object structure without requiring a Java type definition.
 pub(super) fn resolve_field_type(ty: &TypeRef, visible_types: &std::collections::HashSet<&str>) -> TypeRef {
     match ty {
         TypeRef::Named(name) if !visible_types.contains(name.as_str()) => {
