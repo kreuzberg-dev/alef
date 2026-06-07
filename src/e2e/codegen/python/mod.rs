@@ -130,10 +130,9 @@ impl super::E2eCodegen for PythonE2eCodegen {
             let smoke_path = output_base.join("tests").join("test_smoke.py");
             let has_smoke_emitted = files.iter().any(|f| f.path == smoke_path);
             if !has_smoke_emitted {
-                let import_name = e2e_config.call.module.replace('-', "_");
                 files.push(GeneratedFile {
                     path: smoke_path,
-                    content: render_python_smoke_test(&import_name),
+                    content: render_python_smoke_test(pkg_name),
                     generated_header: true,
                 });
             }
@@ -152,18 +151,17 @@ impl super::E2eCodegen for PythonE2eCodegen {
 /// The test asserts the module imports cleanly — a regression here points
 /// at a packaging fault (missing wheel for platform, broken native
 /// extension, import-time exception) rather than a binding-API issue.
-fn render_python_smoke_test(import_name: &str) -> String {
-    format!(
-        r#""""Smoke test: import the published package."""
+fn render_python_smoke_test(pip_name: &str) -> String {
+    use crate::core::hash::{self, CommentStyle};
 
-import importlib
+    let header = hash::header(CommentStyle::Hash);
 
+    let ctx = minijinja::context! {
+        header => header,
+        pip_name => pip_name,
+    };
 
-def test_imports_published_package():
-    module = importlib.import_module("{import_name}")
-    assert module is not None
-"#
-    )
+    crate::e2e::template_env::render("python/test_smoke.py.jinja", ctx)
 }
 
 fn is_python_fixture_runnable(fixture: &Fixture) -> bool {

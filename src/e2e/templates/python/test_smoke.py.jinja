@@ -1,0 +1,14 @@
+{#- Python smoke test template
+
+   Context variables:
+   - header: file header comment
+   - pip_name: pip package name to import (e.g., "spikard")
+#}
+{{ header }}"""Smoke test: import the published package."""
+
+import importlib
+
+
+def test_imports_published_package():
+    module = importlib.import_module("{{ pip_name }}")
+    assert module is not None
