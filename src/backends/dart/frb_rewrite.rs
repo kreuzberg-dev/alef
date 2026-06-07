@@ -405,16 +405,24 @@ fn variant_regex() -> &'static Regex {
 /// is generated with an invalid `async` keyword in the class declaration. FRB generates this
 /// incorrectly when the base class or mixin has async methods. The `async` keyword is only
 /// valid on function declarations, not class declarations.
+///
+/// Also injects a typedef for `BaseHandler` as a function type, allowing handler parameters
+/// to be invoked directly as functions in FRB-generated code.
 pub fn fix_handler_executor_calls(source: &str) -> String {
     // Strip the erroneous `.executeSync()` and `.executeNormal()` method calls
     // on callback function parameters. Replace them with direct invocation.
     // IMPORTANT: Only rewrite handler.execute* calls where `handler` is a parameter,
     // not where it's a class field (inherited from super.handler).
 
+    // Inject a typedef for `BaseHandler` to make it a callable function type.
+    // FRB may emit BaseHandler as an opaque class, but service methods expect
+    // to invoke it directly: `await handler(task)`. Define it as a function typedef.
+    let mut result = inject_base_handler_typedef(source);
+
     // Pattern 4: Fix FRB 2.x bug where class declarations have invalid `async` keyword.
     // `class RustLibApiImpl implements RustLibApi async {` → `class RustLibApiImpl implements RustLibApi {`
     // The `async` keyword is only valid on functions, not class declarations.
-    let mut result = source.replace(" implements RustLibApi async {", " implements RustLibApi {");
+    result = result.replace(" implements RustLibApi async {", " implements RustLibApi {");
 
     // Rewrite handler.execute* calls only in functions/methods where `handler` is a parameter.
     result = rewrite_handler_calls_in_parameterized_functions(&result);
@@ -424,6 +432,58 @@ pub fn fix_handler_executor_calls(source: &str) -> String {
     // This handles synchronous closure signatures that were not originally async.
     result = ensure_handler_closures_are_async(&result);
 
+    result
+}
+
+/// Inject a typedef for `BaseHandler` as a function type if not already present.
+///
+/// FRB may emit `BaseHandler` as an opaque Dart class when the Rust side defines
+/// a `DartFnFuture<String>` parameter. However, the generated service methods expect
+/// to invoke it directly as a function: `await handler(task)`. This function adds
+/// the typedef so `BaseHandler` is a callable function type.
+///
+/// The typedef is inserted after existing `import` statements to ensure it's available
+/// for the RustLib.init() method signature and service API classes.
+///
+/// Only injects if the source appears to be a full file (contains import statements).
+/// This avoids modifying test code snippets or already-modified sources.
+fn inject_base_handler_typedef(source: &str) -> String {
+    // Check if BaseHandler is already defined (either as a typedef or class).
+    // If so, no-op (idempotent).
+    if source.contains("typedef BaseHandler") || (source.contains("class BaseHandler") && source.contains("call(")) {
+        return source.to_string();
+    }
+
+    // Only inject if the source contains import statements (i.e., it's a full file).
+    // This avoids modifying code snippets used in tests.
+    if !source.contains("\nimport ") && !source.starts_with("import ") {
+        return source.to_string();
+    }
+
+    // Find the position after the import block to insert the typedef.
+    let lines: Vec<&str> = source.lines().collect();
+    let mut insert_pos = 0;
+
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim().starts_with("import ") {
+            insert_pos = i + 1;
+        }
+    }
+
+    if insert_pos == 0 {
+        // No imports found; don't inject
+        return source.to_string();
+    }
+
+    // Build the typedef line. BaseHandler should accept a generic request/task object
+    // and return a Future<dynamic> since it receives serialized task objects.
+    let typedef_line = "\n/// Handler callback type for service methods.\ntypedef BaseHandler = FutureOr<dynamic> Function(dynamic);\n";
+
+    // Insert the typedef after the imports
+    let mut result = lines[..insert_pos].join("\n");
+    result.push('\n');
+    result.push_str(typedef_line);
+    result.push_str(&lines[insert_pos..].join("\n"));
     result
 }
 
