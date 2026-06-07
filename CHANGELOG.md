@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **java (panama)**: fix FFM call-site argument emission to place comma separators on the same line as the previous argument instead of orphaned on the next line. The registration method's `FunctionDescriptor.of()` and `.invokeExact()` calls (and entrypoint descriptor calls) were emitting malformed Java with commas appearing on their own lines after comments (e.g., `ValueLayout.ADDRESS    // callback\n,`), causing javac parse errors. Refactored Rust emitters to separate argument expressions from comments and pass arrays of tuples to Jinja templates, allowing the templates to correctly interleave arguments, commas, and comments on single lines. (`src/backends/java/gen_bindings/service_api.rs`, `src/backends/java/templates/service_registration_method.jinja`, `src/backends/java/templates/service_entrypoint_method.jinja`) <!-- N+15-java-ffm-args -->
 
+- **php (ext-php-rs)**: collapse empty-parameter-list method signatures to single line. When a static method has no parameters, emit `public static function name(): ReturnType {` on a single line instead of breaking `()` and `): ReturnType {` across separate lines, which caused `php-cs-fixer` to fail. Added conditional logic in the method signature emission to detect empty params and format compactly. (`src/backends/php/gen_bindings/mod.rs`) <!-- N+15-php-format -->
+
 ## [0.23.25] - 2026-06-07
 
 ### Fixed
