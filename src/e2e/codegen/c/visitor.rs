@@ -604,7 +604,7 @@ mod visitor_tests {
         let content = render_visitor_test_file(&fixtures, "krz.h", "krz", &e2e_config_with_c_call(), &config);
 
         assert!(content.contains("KRZKrzVisitorCallbacks _callbacks"));
-        assert!(content.contains("const KRZRenderContext* _ctx"));
+        assert!(content.contains("const KRZKrzContext* _ctx"));
         assert!(content.contains("KRZRenderConfig* _options = krz_render_config_from_json"));
         assert!(content.contains("KRZRenderOutput* _result = krz_render_document"));
         assert!(content.contains("char* _json = krz_render_output_to_json(_result);"));

@@ -167,8 +167,7 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
 fi
 
 # Verify the extension loads via explicit `-d` flag (same mechanism run_tests.php uses).
-# Note: The extension internally registers as "ts-pack-core-php" despite the filename.
-if ! php -d extension={extension_name} -m | grep -qi "ts-pack-core-php"; then
+if ! php -d extension={extension_name} -m | grep -qi "{extension_name}"; then
   echo "::error::{extension_name} extension failed to load after PIE install" >&2
   exit 1
 fi

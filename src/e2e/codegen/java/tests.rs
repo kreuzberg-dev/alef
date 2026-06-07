@@ -142,6 +142,6 @@ fn java_visitor_arg_uses_trait_bridge_options_metadata() {
     assert_eq!(binding.result_type, "RenderDecision");
 
     let args = apply_java_visitor_arg(&mut Vec::new(), "html, null", &[], "visitor", &binding);
-    assert_eq!(args, "html, new RenderOptions().withCallback(visitor)");
+    assert_eq!(args, "html, RenderOptions.builder().withCallback(visitor).build()");
     assert!(!args.contains("DefaultOptions"));
 }

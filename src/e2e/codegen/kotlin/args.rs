@@ -216,8 +216,7 @@ pub(super) fn build_args_and_setup(
                 // Typed arrays carry `element_type` and are materialised as a
                 // plain `listOf(...)` of the JSON literals.
                 if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
-                    // Special handling for BatchBytesItem: wrap each string path in BatchBytesItem(...)
-                    if kotlin_android_style && arg.element_type.as_deref() == Some("BatchBytesItem") {
+                    if let Some(element_type) = arg.element_type.as_deref().filter(|_| kotlin_android_style) {
                         let items: Vec<String> = v
                             .as_array()
                             .map(|arr| {
@@ -225,7 +224,7 @@ pub(super) fn build_args_and_setup(
                                     .filter_map(|item| {
                                         item.as_str().map(|path| {
                                             format!(
-                                                "BatchBytesItem(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
+                                                "{element_type}(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
                                                 escape_kotlin(path)
                                             )
                                         })

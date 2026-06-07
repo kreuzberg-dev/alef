@@ -714,8 +714,8 @@ fn kotlin_android_bytes_arg_emits_files_read_all_bytes() {
     );
 }
 
-/// Regression: kotlin_android batch_bytes args must wrap each path string in
-/// BatchBytesItem(...) with file contents as ByteArray.
+/// Regression: kotlin_android batch bytes args must wrap each path string in
+/// the configured item type with file contents as ByteArray.
 #[test]
 fn kotlin_android_batch_bytes_item_wraps_paths() {
     let args = vec![ArgMapping {
@@ -724,7 +724,7 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
         arg_type: "json_object".to_string(),
         optional: false,
         owned: false,
-        element_type: Some("BatchBytesItem".to_string()),
+        element_type: Some("FileBytesItem".to_string()),
         go_type: None,
         vec_inner_is_ref: false,
         trait_name: None,
@@ -761,8 +761,8 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
         },
     );
     assert!(
-        args_android.contains("BatchBytesItem"),
-        "kotlin_android batch must wrap items in BatchBytesItem, got: {args_android}"
+        args_android.contains("FileBytesItem"),
+        "kotlin_android batch must wrap items in the configured item type, got: {args_android}"
     );
     assert!(
         args_android.contains("java.nio.file.Files.readAllBytes"),

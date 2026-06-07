@@ -292,7 +292,7 @@ mod zig_visitor_tests {
         );
 
         assert!(content.contains("sample.c.abc_render_options_from_json"));
-        assert!(content.contains("sample.c.abc_options_set_visitor_handle"));
+        assert!(content.contains("sample.c.abc_options_set_visitor"));
         assert!(content.contains("sample.c.abc_render_document(_html_z.ptr, _options)"));
         assert!(content.contains("sample.c.abc_render_result_to_json"));
         assert!(content.contains("sample.c.abc_render_result_free"));
