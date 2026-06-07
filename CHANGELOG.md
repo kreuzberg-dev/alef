@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **dart cargo.toml dependency sort**: Emit the generated Rust `[dependencies]`
+  block in alphabetical order so cargo-sort no longer rewrites the generated
+  `packages/dart/rust/Cargo.toml`. Collects core dep, `flutter_rust_bridge`,
+  conditional deps (ahash/serde/serde_json/futures-util/tokio/async-trait),
+  and workspace extras into a single Vec, then sorts by package name before
+  rendering. Keeps codegen idempotent under the cargo-sort pre-commit hook.
+
 - **java pmd suppressions**: Add class-level `@SuppressWarnings("PMD")` annotations
   to all alef-generated Java classes to suppress design/codestyle/errorprone rules
   that legitimately cannot critique generated code (AvoidCatchingGenericException,
