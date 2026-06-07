@@ -398,6 +398,7 @@ mod tests {
             serializable_opaque_type_names: &[],
             never_skip_cfg_field_names: &[],
             emit_delegating_default_impl: false,
+            skip_methods_when_not_delegatable: false,
         };
         let generated = gen_enum(&enum_def("StructureKind", vec![variant("Function", Vec::new())]), &cfg);
 

@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java (panama)**: fix PMD violations in generated streaming helpers (`checkLastFfiError`, `readBytesResult`, `STREAM_MAPPER`). The `readBytesResult` method now declares `throws {{ exception_class }}` instead of `throws Throwable` (fixing `AvoidCatchingGenericException`). The `STREAM_MAPPER` field is replaced with a static factory method `createStreamMapper()` to eliminate `UnusedPrivateField` violations when streaming methods exist but don't use the mapper. (`src/backends/java/templates/streaming_helpers.jinja`)
+
 - **node (napi-rs scaffold)**: make the auto-emitted `tokio-util` dependency's feature list config-driven via a new `[languages.node] tokio_util_features` field. The hardcoded `["sync"]` did not resolve (`tokio-util` has no `sync` feature); the hardcoded `["rt"]` works for kreuzberg but other consumers (e.g. html-to-markdown) need different feature combinations. Default is `["rt"]` which gates `tokio_util::sync::CancellationToken`. (`src/core/config/languages.rs`, `src/scaffold/languages/node.rs`)
 
 - **java (panama)**: revert opaque-handle close-method catch back to `catch (Throwable e)` and add `@SuppressWarnings("PMD.AvoidCatchingGenericException")` to the method. `MethodHandle.invoke()` is declared `throws Throwable`, so the prior `catch (RuntimeException | Error e)` left the checked Throwable unreported and broke `javac` (`unreported exception java.lang.Throwable; must be caught or declared to be thrown`). The PMD suppression silences the original generic-catch lint without losing javac correctness. (`src/backends/java/templates/opaque_handle_close.jinja`)

@@ -29,7 +29,7 @@ fn make_type(name: &str, is_trait: bool) -> TypeDef {
 }
 
 #[test]
-fn scaffold_napi_cargo_includes_tokio_util_with_sync_feature_when_trait_bridges_present() {
+fn scaffold_napi_cargo_includes_tokio_util_with_rt_feature_when_trait_bridges_present() {
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -64,15 +64,15 @@ fn scaffold_napi_cargo_includes_tokio_util_with_sync_feature_when_trait_bridges_
 
     let content = &cargo_file.content;
 
-    // Verify tokio-util with sync feature is present in dependencies
+    // Verify tokio-util with rt feature is present in dependencies
     assert!(
         content.contains("tokio-util"),
         "Cargo.toml must include tokio-util when trait bridges are present"
     );
     assert!(
-        content.contains(r#"features = ["sync"]"#)
-            || content.contains("tokio-util = { version = \"0.7\", features = [\"sync\"] }"),
-        "tokio-util must include the 'sync' feature"
+        content.contains(r#"features = ["rt"]"#)
+            || content.contains("tokio-util = { version = \"0.7\", features = [\"rt\"] }"),
+        "tokio-util must include the 'rt' feature"
     );
 
     // Verify tokio-util is in the cargo-machete ignored list

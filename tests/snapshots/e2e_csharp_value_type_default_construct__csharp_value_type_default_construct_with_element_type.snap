@@ -30,7 +30,7 @@ namespace TestCrate
         {
             // Batch test with omitted config parameter
             var result = await TestCrateLib.ProcessItemsAsync(new List<string>() { "sample text" }, new BatchConfig());
-    
+
         }
 
 
