@@ -234,12 +234,10 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                     setup_lines.push(format!(
                         "final {config_var} = await createCrawlConfigFromJson(json: r'{json_str}');"
                     ));
-                    // Facade exposes `createEngine` with a positional-optional `[ConfigType? config]`
-                    // parameter (see dart `gen_bindings/functions.rs::format_param` for handles),
-                    // so the call site uses positional-arg syntax — `createEngine(cfg)`, not
-                    // `createEngine(config: cfg)` (the latter raises "No named parameter 'config'").
+                    // Dart wrapper exposes config parameter as a named optional `{ConfigType? config}`
+                    // (more idiomatic Dart than positional optional). Emit named-argument syntax.
                     setup_lines.push(format!(
-                        "final {name} = await {bridge_class}.{create_fn}({config_var});"
+                        "final {name} = await {bridge_class}.{create_fn}(config: {config_var});"
                     ));
                 }
                 args.push(name);

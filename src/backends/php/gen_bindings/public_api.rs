@@ -117,10 +117,15 @@ pub(super) fn generate_public_api(
         ));
         for p in &visible_params {
             let ptype = php_phpdoc_type(&p.ty);
-            // php_phpdoc_type() already handles TypeRef::Optional by returning a string
-            // starting with '?', so we should not add another nullable prefix here.
-            // The p.optional flag is redundant with the type structure.
-            let nullable_prefix = "";
+            // Check if the parameter is optional via the IR flag (indicating Option<T>).
+            // php_phpdoc_type() handles TypeRef::Optional by returning a string starting with '?',
+            // but parameters can also have p.optional = true without the type being Optional.
+            // In that case, we need to prepend '?' to the PHPDoc type.
+            let nullable_prefix = if p.optional && !ptype.starts_with('?') {
+                "?"
+            } else {
+                ""
+            };
             content.push_str(&crate::backends::php::template_env::render(
                 "php_phpdoc_param_line.jinja",
                 context! {
@@ -191,18 +196,17 @@ pub(super) fn generate_public_api(
             .enumerate()
             .map(|(idx, p)| {
                 let ptype = php_type(&p.ty);
-                // Check if the parameter is optional: either the type itself is nullable
-                // (like Option<T> which php_type renders as ?T), or it's a default-constructible
-                // type that can use a null default. DO NOT use p.optional flag here — that field
-                // is IR metadata and does not represent optionality for PHP purposes.
+                // Check if the parameter is optional: IR metadata p.optional indicates Option<T>
+                // (which php_type renders as ?T), or it's a default-constructible type that can
+                // use a null default.
                 let type_is_nullable = ptype.starts_with('?');
-                let can_be_optional = type_is_nullable || is_optional_default_constructible_param(p);
+                let is_optional_in_ir = p.optional;
+                let can_be_optional = type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p);
 
-                // Only emit `= null` default for parameters that are truly nullable (Option<T>)
-                // or default-constructible. The tail_optional check ensures PHP 8.1 compliance
-                // (required params before optional ones).
+                // Only emit `= null` default for parameters that are truly optional.
+                // The tail_optional check ensures PHP 8.1 compliance (required params before optional ones).
                 let can_emit_default =
-                    tail_optional[idx] && (type_is_nullable || is_optional_default_constructible_param(p));
+                    tail_optional[idx] && (type_is_nullable || is_optional_in_ir || is_optional_default_constructible_param(p));
 
                 if can_be_optional && can_emit_default {
                     // ptype may already be nullable (e.g., "?string" from php_type handling
