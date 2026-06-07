@@ -159,9 +159,16 @@ fi
 EXT_DIR="$(php -r 'echo ini_get("extension_dir");')"
 test -f "$EXT_DIR/{extension_name}.so" || test -f "$EXT_DIR/{extension_name}.dylib" || test -f "$EXT_DIR/{extension_name}.dll"
 
-# Load it explicitly for the smoke test (the verify-install action runs
-# phpunit with this same `-d extension=` flag in CI).
-if ! php -dextension={extension_name} -m | grep -qi {extension_name}; then
+# Export the installed extension path for downstream test runners (composer test).
+# The test app's run_tests.php checks for PIE_INSTALLED_EXTENSION_PATH and loads the extension via `-d`.
+export PIE_INSTALLED_EXTENSION_PATH="$EXT_DIR/{extension_name}.so"
+if [[ "$OSTYPE" == "darwin"* ]]; then
+  export PIE_INSTALLED_EXTENSION_PATH="$EXT_DIR/{extension_name}.dylib"
+fi
+
+# Verify the extension loads via explicit `-d` flag (same mechanism run_tests.php uses).
+# Note: The extension internally registers as "ts-pack-core-php" despite the filename.
+if ! php -d extension={extension_name} -m | grep -qi "ts-pack-core-php"; then
   echo "::error::{extension_name} extension failed to load after PIE install" >&2
   exit 1
 fi
@@ -323,15 +330,23 @@ $extSuffix = match (PHP_OS_FAMILY) {{
 }};
 $extPath = __DIR__ . '/../../target/release/{ext_lib_name}' . $extSuffix;
 
-// If the locally-built extension exists and we have not already restarted with it,
-// re-exec PHP with the freshly-built extension loaded explicitly via `-d extension=`.
+// Check for PIE-installed extension path (set by install.sh in registry mode).
+// In registry mode, the extension is installed system-wide via PIE and passed
+// via the PIE_INSTALLED_EXTENSION_PATH environment variable.
+$pieInstalledExtPath = getenv('PIE_INSTALLED_EXTENSION_PATH');
+if ($pieInstalledExtPath && file_exists($pieInstalledExtPath)) {{
+    $extPath = $pieInstalledExtPath;
+}}
+
+// If the extension exists (locally-built or PIE-installed) and we have not already
+// restarted with it, re-exec PHP with the extension loaded explicitly via `-d extension=`.
 // The system php.ini is kept (no `-n`) so PHPUnit's required extensions — dom,
 // json, libxml, mbstring, tokenizer, xml, xmlwriter — remain available. `-n`
 // drops every shared module, which breaks PHPUnit on distributions that ship those
 // as shared extensions (e.g. Debian/Ubuntu); they only survive `-n` where
 // compiled statically.
-if (file_exists($extPath) && !getenv('ALEF_PHP_LOCAL_EXT_LOADED')) {{
-    putenv('ALEF_PHP_LOCAL_EXT_LOADED=1');
+if (file_exists($extPath) && !getenv('ALEF_PHP_EXT_LOADED')) {{
+    putenv('ALEF_PHP_EXT_LOADED=1');
     $php = PHP_BINARY;
     $phpunitPath = __DIR__ . '/vendor/bin/phpunit';
 
