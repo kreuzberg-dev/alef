@@ -40,12 +40,11 @@ pub(super) fn render_pom_xml(
             )
         }
     };
-    // Registry-mode test_apps consume the published Maven Central JAR, which
-    // bundles natives under `/natives/{rid}/`; NativeLib extracts and loads
-    // them at startup without needing java.library.path. Local-mode e2e tests
-    // depend on a locally-built JAR that does NOT bundle natives, and must
-    // resolve the shared library from a separate cargo build output.
-    let include_native_lib_path = matches!(dep_mode, crate::e2e::config::DependencyMode::Local);
+    // E2E tests always depend on locally-built native libraries, regardless of
+    // dep_mode. This ensures the shared library is copied from the workspace
+    // cargo build output into the JAR at package time, so NativeLib can
+    // extract and load it at startup.
+    let include_native_lib_path = true;
     crate::e2e::template_env::render(
         "java/pom.xml.jinja",
         minijinja::context! {
