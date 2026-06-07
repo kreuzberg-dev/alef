@@ -825,6 +825,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/swift_bridge_adapter_method_open.swift.jinja"),
     ),
     (
+        "swift_bridge_adapter_method_close.swift.jinja",
+        include_str!("templates/swift_bridge_adapter_method_close.swift.jinja"),
+    ),
+    (
         "swift_bridge_adapter_void_return.swift.jinja",
         include_str!("templates/swift_bridge_adapter_void_return.swift.jinja"),
     ),

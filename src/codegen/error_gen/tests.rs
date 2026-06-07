@@ -60,7 +60,7 @@ fn named_field(name: &str) -> FieldDef {
 fn sample_error() -> ErrorDef {
     ErrorDef {
         name: "ConversionError".to_string(),
-        rust_path: "sample_markdown_rs::ConversionError".to_string(),
+        rust_path: "sample_markup_rs::ConversionError".to_string(),
         original_rust_path: String::new(),
         variants: vec![
             ErrorVariant {
@@ -124,8 +124,8 @@ fn sample_method(name: &str, return_type: TypeRef) -> crate::core::ir::MethodDef
 
 fn error_with_methods() -> ErrorDef {
     ErrorDef {
-        name: "SampleLlmError".to_string(),
-        rust_path: "sample_llm::error::SampleLlmError".to_string(),
+        name: "SampleAppError".to_string(),
+        rust_path: "sample_app::error::SampleAppError".to_string(),
         original_rust_path: String::new(),
         variants: vec![],
         doc: String::new(),
@@ -152,10 +152,10 @@ fn test_gen_error_types() {
 #[test]
 fn test_gen_error_converter() {
     let error = sample_error();
-    let output = gen_pyo3_error_converter(&error, "sample_markdown_rs");
-    assert!(output.contains("fn conversion_error_to_py_err(e: sample_markdown_rs::ConversionError) -> pyo3::PyErr {"));
-    assert!(output.contains("sample_markdown_rs::ConversionError::ParseError(..) => ParseError::new_err(msg),"));
-    assert!(output.contains("sample_markdown_rs::ConversionError::IoError(..) => IoError::new_err(msg),"));
+    let output = gen_pyo3_error_converter(&error, "sample_markup_rs");
+    assert!(output.contains("fn conversion_error_to_py_err(e: sample_markup_rs::ConversionError) -> pyo3::PyErr {"));
+    assert!(output.contains("sample_markup_rs::ConversionError::ParseError(..) => ParseError::new_err(msg),"));
+    assert!(output.contains("sample_markup_rs::ConversionError::IoError(..) => IoError::new_err(msg),"));
 }
 
 #[test]
@@ -240,10 +240,8 @@ fn test_gen_napi_error_types() {
 #[test]
 fn test_gen_napi_error_converter() {
     let error = sample_error();
-    let output = gen_napi_error_converter(&error, "sample_markdown_rs");
-    assert!(
-        output.contains("fn conversion_error_to_napi_err(e: sample_markdown_rs::ConversionError) -> napi::Error {")
-    );
+    let output = gen_napi_error_converter(&error, "sample_markup_rs");
+    assert!(output.contains("fn conversion_error_to_napi_err(e: sample_markup_rs::ConversionError) -> napi::Error {"));
     assert!(output.contains("napi::Error::new(napi::Status::GenericFailure,"));
     assert!(output.contains("[ParseError]"));
     assert!(output.contains("[IoError]"));
@@ -283,20 +281,20 @@ fn test_napi_unit_variant() {
 #[test]
 fn test_gen_wasm_error_converter() {
     let error = sample_error();
-    let output = gen_wasm_error_converter(&error, "sample_markdown_rs", &[]);
+    let output = gen_wasm_error_converter(&error, "sample_markup_rs", &[]);
     // Main converter function signature
-    assert!(output.contains(
-        "fn conversion_error_to_js_value(e: sample_markdown_rs::ConversionError) -> wasm_bindgen::JsValue {"
-    ));
+    assert!(
+        output.contains(
+            "fn conversion_error_to_js_value(e: sample_markup_rs::ConversionError) -> wasm_bindgen::JsValue {"
+        )
+    );
     // Structured object with code + message
     assert!(output.contains("js_sys::Object::new()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"code\".into(), &code.into()).ok()"));
     assert!(output.contains("js_sys::Reflect::set(&obj, &\"message\".into(), &message.into()).ok()"));
     assert!(output.contains("obj.into()"));
     // error_code helper
-    assert!(
-        output.contains("fn conversion_error_error_code(e: &sample_markdown_rs::ConversionError) -> &'static str {")
-    );
+    assert!(output.contains("fn conversion_error_error_code(e: &sample_markup_rs::ConversionError) -> &'static str {"));
     assert!(output.contains("\"parse_error\""));
     assert!(output.contains("\"io_error\""));
     assert!(output.contains("\"other\""));
@@ -310,8 +308,10 @@ fn test_gen_wasm_error_converter() {
 #[test]
 fn test_gen_php_error_converter() {
     let error = sample_error();
-    let output = gen_php_error_converter(&error, "sample_markdown_rs");
-    assert!(output.contains("fn conversion_error_to_php_err(e: sample_markdown_rs::ConversionError) -> ext_php_rs::exception::PhpException {"));
+    let output = gen_php_error_converter(&error, "sample_markup_rs");
+    assert!(output.contains(
+        "fn conversion_error_to_php_err(e: sample_markup_rs::ConversionError) -> ext_php_rs::exception::PhpException {"
+    ));
     assert!(output.contains("PhpException::default(format!(\"[ParseError] {}\", msg))"));
     assert!(output.contains("#[allow(dead_code)]"));
 }
@@ -323,9 +323,9 @@ fn test_gen_php_error_converter() {
 #[test]
 fn test_gen_magnus_error_converter() {
     let error = sample_error();
-    let output = gen_magnus_error_converter(&error, "sample_markdown_rs");
+    let output = gen_magnus_error_converter(&error, "sample_markup_rs");
     assert!(
-        output.contains("fn conversion_error_to_magnus_err(e: sample_markdown_rs::ConversionError) -> magnus::Error {")
+        output.contains("fn conversion_error_to_magnus_err(e: sample_markup_rs::ConversionError) -> magnus::Error {")
     );
     assert!(
         output.contains("magnus::Error::new(unsafe { magnus::Ruby::get_unchecked() }.exception_runtime_error(), msg)")
@@ -340,8 +340,8 @@ fn test_gen_magnus_error_converter() {
 #[test]
 fn test_gen_rustler_error_converter() {
     let error = sample_error();
-    let output = gen_rustler_error_converter(&error, "sample_markdown_rs");
-    assert!(output.contains("fn conversion_error_to_rustler_err(e: sample_markdown_rs::ConversionError) -> String {"));
+    let output = gen_rustler_error_converter(&error, "sample_markup_rs");
+    assert!(output.contains("fn conversion_error_to_rustler_err(e: sample_markup_rs::ConversionError) -> String {"));
     assert!(output.contains("e.to_string()"));
     assert!(output.contains("#[allow(dead_code)]"));
 }
@@ -353,8 +353,8 @@ fn test_gen_rustler_error_converter() {
 #[test]
 fn test_gen_go_error_struct_with_methods() {
     let error = error_with_methods();
-    let output = gen_go_error_struct(&error, "samplellm");
-    // Stutter-stripped: "SampleLlm" prefix of "SampleLlmError" stripped for "samplellm" pkg
+    let output = gen_go_error_struct(&error, "sampleapp");
+    // Stutter-stripped: "SampleApp" prefix of "SampleAppError" stripped for "sampleapp" pkg
     assert!(output.contains("type Error struct {"), "struct def: {output}");
     // Fields are emitted directly on the struct — no accessor methods (avoids
     // field/method name collision that go vet rejects).
@@ -435,7 +435,7 @@ fn test_gen_go_error_struct_no_methods() {
 #[test]
 fn test_gen_java_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_java_error_types(&error, "dev.sample_crate.samplellm");
+    let files = gen_java_error_types(&error, "dev.sample_crate.sampleapp");
     assert_eq!(files.len(), 1); // base only, no variants
     let base = &files[0].1;
     assert!(
@@ -464,12 +464,12 @@ fn test_gen_java_error_types_with_methods() {
     );
     // Simple no-args constructor still present
     assert!(
-        base.contains("public SampleLlmErrorException(final String message)"),
+        base.contains("public SampleAppErrorException(final String message)"),
         "simple ctor: {base}"
     );
     // Full constructor with introspection params
     assert!(
-            base.contains("public SampleLlmErrorException(final String message, final int statusCode, final boolean isTransient, final String errorType)"),
+            base.contains("public SampleAppErrorException(final String message, final int statusCode, final boolean isTransient, final String errorType)"),
             "full ctor: {base}"
         );
 }
@@ -493,7 +493,7 @@ fn test_gen_java_error_types_no_methods() {
 #[test]
 fn test_gen_csharp_error_types_with_methods() {
     let error = error_with_methods();
-    let files = gen_csharp_error_types(&error, "SampleCrate.SampleLlm", None);
+    let files = gen_csharp_error_types(&error, "SampleCrate.SampleApp", None);
     assert_eq!(files.len(), 1); // base only, no variants
     let base = &files[0].1;
     assert!(
@@ -510,12 +510,12 @@ fn test_gen_csharp_error_types_with_methods() {
     );
     // Simple constructor (with defaults)
     assert!(
-        base.contains("public SampleLlmErrorException(string message) : base(message)"),
+        base.contains("public SampleAppErrorException(string message) : base(message)"),
         "simple ctor: {base}"
     );
     // Full constructor
     assert!(
-            base.contains("public SampleLlmErrorException(string message, ushort statusCode, bool isTransient, string errorType) : base(message)"),
+            base.contains("public SampleAppErrorException(string message, ushort statusCode, bool isTransient, string errorType) : base(message)"),
             "full ctor: {base}"
         );
 }

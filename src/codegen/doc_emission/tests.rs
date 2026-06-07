@@ -463,7 +463,7 @@ fn example_for_target_ruby_example_preserved_for_ruby() {
 fn render_phpdoc_sections_with_rust_example_emits_no_at_example_block() {
     let doc = "Convert HTML.\n\n# Arguments\n\n* `html` - The HTML input.\n\n# Example\n\n```rust\nlet result = convert(html, None)?;\n```";
     let sections = parse_rustdoc_sections(doc);
-    let out = render_phpdoc_sections(&sections, "SampleMarkdownException");
+    let out = render_phpdoc_sections(&sections, "SampleMarkupException");
     assert!(!out.contains("```php"), "no PHP @example block for Rust source");
     assert!(!out.contains("```rust"), "raw Rust must not leak into PHPDoc");
     assert!(out.contains("@param"), "other sections must still be emitted");

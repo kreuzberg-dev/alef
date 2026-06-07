@@ -110,7 +110,7 @@ pub struct ConversionConfig<'a> {
     ///   - binding→core: `serde_wasm_bindgen::from_value(val.<name>.clone()).unwrap_or_default()`
     pub tagged_data_enum_names: Option<&'a AHashSet<String>>,
     /// Names of cfg-gated fields that must NOT be skipped in conversions because the binding
-    /// emits them (via [`super::generators::RustBindingConfig::never_skip_cfg_field_names`]).
+    /// emits them (via `RustBindingConfig::never_skip_cfg_field_names`).
     /// Empty by default; backends populate from trait-bridge `bind_via = "options_field"` config.
     pub never_skip_cfg_field_names: &'a [String],
     /// Names of trait-bridge OptionsField fields whose binding wrapper holds the core value

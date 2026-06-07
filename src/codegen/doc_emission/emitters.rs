@@ -344,7 +344,7 @@ pub fn emit_gleam_doc(out: &mut String, doc: &str, indent: &str) {
 /// `///` source lines into a single `/** ... */` Doxygen block per item, so we
 /// only need to emit per-line `///` content here.
 ///
-/// Translates rustdoc sections via [`render_doxygen_sections`]:
+/// Translates rustdoc sections via `render_doxygen_sections`:
 ///
 /// - `# Arguments` → `\param <name> <description>` (one per arg).
 /// - `# Returns`   → `\return <description>`.

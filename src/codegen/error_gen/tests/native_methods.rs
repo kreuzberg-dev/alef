@@ -166,7 +166,7 @@ fn test_python_exception_name_no_double_prefix() {
 #[test]
 fn test_gen_wasm_error_methods_empty_when_no_methods() {
     let error = sample_error(); // methods: vec![]
-    let output = gen_wasm_error_methods(&error, "sample_markdown_rs", "");
+    let output = gen_wasm_error_methods(&error, "sample_markup_rs", "");
     assert!(output.is_empty(), "should produce no output when methods is empty");
 }
 
@@ -174,19 +174,19 @@ fn test_gen_wasm_error_methods_empty_when_no_methods() {
 fn test_gen_wasm_error_methods_struct_and_impl() {
     let error = error_with_methods();
     // wasm_prefix is the full type prefix, e.g. "Wasm" — the struct name is
-    // {wasm_prefix}{ErrorName} = "WasmSampleLlmError".
-    let output = gen_wasm_error_methods(&error, "sample_llm", "Wasm");
+    // {wasm_prefix}{ErrorName} = "WasmSampleAppError".
+    let output = gen_wasm_error_methods(&error, "sample_app", "Wasm");
     // Struct definition
     assert!(
-        output.contains("pub struct WasmSampleLlmError"),
+        output.contains("pub struct WasmSampleAppError"),
         "must emit opaque struct: {output}"
     );
     assert!(
-        output.contains("pub(crate) inner: sample_llm::error::SampleLlmError"),
+        output.contains("pub(crate) inner: sample_app::error::SampleAppError"),
         "{output}"
     );
     // Impl block
-    assert!(output.contains("#[wasm_bindgen]\nimpl WasmSampleLlmError"), "{output}");
+    assert!(output.contains("#[wasm_bindgen]\nimpl WasmSampleAppError"), "{output}");
     // Methods with camelCase js_name
     assert!(output.contains("js_name = \"statusCode\""), "{output}");
     assert!(output.contains("pub fn status_code(&self) -> u16"), "{output}");
@@ -206,20 +206,20 @@ fn test_gen_wasm_error_methods_struct_and_impl() {
 #[test]
 fn test_gen_ffi_error_methods_empty_when_no_methods() {
     let error = sample_error(); // methods: vec![]
-    let output = gen_ffi_error_methods(&error, "sample_markdown_rs", "sample_markup");
+    let output = gen_ffi_error_methods(&error, "sample_markup_rs", "sample_markup");
     assert!(output.is_empty(), "should produce no output when methods is empty");
 }
 
 #[test]
 fn test_gen_ffi_error_methods_status_code() {
     let error = error_with_methods();
-    let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
+    let output = gen_ffi_error_methods(&error, "sample_app", "sampleapp");
     assert!(
-        output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_status_code("),
+        output.contains("pub unsafe extern \"C\" fn sampleapp_sample_app_error_status_code("),
         "must emit status_code fn: {output}"
     );
     assert!(
-        output.contains("err: *const sample_llm::error::SampleLlmError"),
+        output.contains("err: *const sample_app::error::SampleAppError"),
         "{output}"
     );
     assert!(output.contains("-> u16"), "{output}");
@@ -231,9 +231,9 @@ fn test_gen_ffi_error_methods_status_code() {
 #[test]
 fn test_gen_ffi_error_methods_is_transient() {
     let error = error_with_methods();
-    let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
+    let output = gen_ffi_error_methods(&error, "sample_app", "sampleapp");
     assert!(
-        output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_is_transient("),
+        output.contains("pub unsafe extern \"C\" fn sampleapp_sample_app_error_is_transient("),
         "must emit is_transient fn: {output}"
     );
     assert!(output.contains("-> bool"), "{output}");
@@ -244,9 +244,9 @@ fn test_gen_ffi_error_methods_is_transient() {
 #[test]
 fn test_gen_ffi_error_methods_error_type_with_free() {
     let error = error_with_methods();
-    let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
+    let output = gen_ffi_error_methods(&error, "sample_app", "sampleapp");
     assert!(
-        output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_error_type("),
+        output.contains("pub unsafe extern \"C\" fn sampleapp_sample_app_error_error_type("),
         "must emit error_type fn: {output}"
     );
     assert!(output.contains("-> *mut std::ffi::c_char"), "{output}");
@@ -256,7 +256,7 @@ fn test_gen_ffi_error_methods_error_type_with_free() {
     assert!(output.contains("return std::ptr::null_mut();"), "{output}");
     // free companion
     assert!(
-        output.contains("pub unsafe extern \"C\" fn samplellm_sample_llm_error_error_type_free("),
+        output.contains("pub unsafe extern \"C\" fn sampleapp_sample_app_error_error_type_free("),
         "must emit _free companion: {output}"
     );
     assert!(output.contains("drop(std::ffi::CString::from_raw(ptr))"), "{output}");
@@ -265,6 +265,6 @@ fn test_gen_ffi_error_methods_error_type_with_free() {
 #[test]
 fn test_gen_ffi_error_methods_safety_comments() {
     let error = error_with_methods();
-    let output = gen_ffi_error_methods(&error, "sample_llm", "samplellm");
+    let output = gen_ffi_error_methods(&error, "sample_app", "sampleapp");
     assert!(output.contains("// SAFETY:"), "must include SAFETY comments: {output}");
 }
