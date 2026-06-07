@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **java (panama)**: fix unreported exception in opaque-handle methods and error checking. `MethodHandle.invoke()` is declared `throws Throwable`, which includes checked exceptions not covered by `catch (RuntimeException e)` alone. The catch blocks in `stream_method_catch.jinja` and `streaming_helpers.jinja` now catch `Throwable` to correctly handle all possible exceptions from MethodHandle invocation. The broader catch is intentional as all exceptions during FFI calls are converted into the binding's exception class. (`src/backends/java/templates/stream_method_catch.jinja`, `src/backends/java/templates/streaming_helpers.jinja`) <!-- N+15-java-throwable -->
+
 ## [0.23.26] - 2026-06-07
 
 ### Fixed
