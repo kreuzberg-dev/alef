@@ -3490,7 +3490,7 @@ fn emit_swift_bridge_files(
     // crate-specific swift file has no imports at all.  Both reference C types (RustStr,
     // __private__Option*, __swift_bridge__$Vec_*) that live in the RustBridgeC SwiftPM target.
     let core_swift_content = make_swift_bridge_ref_ptr_public(&append_rust_string_ref_to_string_extension(
-        &prepend_rust_bridge_c_import(&core_swift),
+        &add_retroactive_to_imported_protocol_conformances(&prepend_rust_bridge_c_import(&core_swift)),
     ));
     let crate_swift_content = make_swift_bridge_ref_ptr_public(&prepend_rust_bridge_c_import(&crate_swift));
 
@@ -5588,6 +5588,37 @@ fn make_swift_bridge_ref_ptr_public(content: &str) -> String {
             "    public var ptr: UnsafeMutableRawPointer",
         )
         .replace("    var isOwned: Bool = true", "    public var isOwned: Bool = true")
+}
+
+/// Add `@retroactive` to extensions of types imported from `RustBridgeC` that
+/// conform them to standard library protocols. Swift 6 warns:
+/// `extension declares a conformance of imported type 'RustStr' to imported
+/// protocol 'Identifiable'; this will not behave correctly if the owners of
+/// 'RustBridgeC' introduce this conformance in the future — note: add
+/// '@retroactive' to silence this warning`.
+///
+/// swift-bridge emits two such extensions in `SwiftBridgeCore.swift`:
+/// `extension RustStr: Identifiable` and `extension RustStr: Equatable`.
+/// Without `@retroactive`, every consumer build gets two-per-file noise
+/// warnings that drown out legitimate diagnostics. This pass rewrites them in
+/// place; it is idempotent (already-annotated lines match the target form and
+/// are not rewritten).
+fn add_retroactive_to_imported_protocol_conformances(content: &str) -> String {
+    const TARGETS: &[(&str, &str)] = &[
+        (
+            "extension RustStr: Identifiable",
+            "extension RustStr: @retroactive Identifiable",
+        ),
+        (
+            "extension RustStr: Equatable",
+            "extension RustStr: @retroactive Equatable",
+        ),
+    ];
+    let mut out = content.to_string();
+    for (from, to) in TARGETS {
+        out = out.replace(from, to);
+    }
+    out
 }
 
 fn prepend_rust_bridge_c_import(content: &str) -> String {

@@ -93,7 +93,8 @@ let package = Package(
     ),
     .target(
       name: "{module}", dependencies: ["RustBridge"],
-      path: "Sources/{module}"),
+      path: "Sources/{module}",
+      exclude: ["LICENSE"]),
     .testTarget(
       name: "{module}Tests", dependencies: ["{module}"],
       path: "Tests/{module}Tests"),
