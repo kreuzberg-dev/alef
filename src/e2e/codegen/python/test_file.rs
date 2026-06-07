@@ -178,17 +178,71 @@ pub(super) fn render_test_file(
         });
 
     let mut used_enum_types: BTreeSet<String> = BTreeSet::new();
-    if needs_options_type && !enum_fields.is_empty() {
-        for fixture in fixtures.iter() {
-            for arg in &e2e_config.call.args {
-                if arg.arg_type == "json_object" {
-                    let value = resolve_field(&fixture.input, &arg.field);
-                    if let Some(obj) = value.as_object() {
-                        for key in obj.keys() {
-                            if let Some(enum_type) = enum_fields.get(key) {
-                                used_enum_types.insert(enum_type.clone());
-                            }
+    let mut used_config_types: BTreeSet<String> = BTreeSet::new();
+
+    // Collect all enum and config types referenced in call arguments.
+    // Enum types come from two sources:
+    // 1. Explicitly configured enum_fields (e.g., [e2e.call] enum_fields = {"format": "OutputFormat"})
+    // 2. Auto-detected enum field types in the options_type via resolve_field_enum_type
+    // Config types are top-level named types used as constructor arguments (e.g., EmbeddingConfig).
+    for fixture in fixtures.iter() {
+        for arg in &e2e_config.call.args {
+            let value = resolve_field(&fixture.input, &arg.field);
+
+            // For json_object args, collect both enum types and config types.
+            if arg.arg_type == "json_object" && !value.is_null() {
+                if let Some(obj) = value.as_object() {
+                    // Collect explicitly configured enum fields
+                    for key in obj.keys() {
+                        if let Some(enum_type) = enum_fields.get(key) {
+                            used_enum_types.insert(enum_type.clone());
                         }
+                    }
+                }
+                // Collect the config type itself (e.g., ExtractionConfig, EmbeddingConfig)
+                if let Some(opts_type) = effective_options_type.as_deref() {
+                    if !value.is_null() && value.is_object() {
+                        // This is a constructor call like ExtractionConfig(...), so import the type
+                        used_config_types.insert(opts_type.to_string());
+                    }
+                }
+            }
+
+            // For handle args, collect constructor types referenced by element_type
+            if arg.arg_type == "handle" {
+                if let Some(elem_type) = &arg.element_type {
+                    // Only import if it's a named type (not a primitive)
+                    let is_primitive = matches!(
+                        elem_type.as_str(),
+                        "str"
+                            | "int"
+                            | "float"
+                            | "bool"
+                            | "bytes"
+                            | "list"
+                            | "dict"
+                            | "tuple"
+                            | "Any"
+                            | "String"
+                            | "&str"
+                            | "char"
+                            | "u8"
+                            | "u16"
+                            | "u32"
+                            | "u64"
+                            | "u128"
+                            | "usize"
+                            | "i8"
+                            | "i16"
+                            | "i32"
+                            | "i64"
+                            | "i128"
+                            | "isize"
+                            | "f32"
+                            | "f64"
+                    );
+                    if !is_primitive {
+                        used_config_types.insert(elem_type.clone());
                     }
                 }
             }
@@ -233,6 +287,7 @@ pub(super) fn render_test_file(
             enum_fields,
             handle_nested_types,
             &used_enum_types,
+            &used_config_types,
             &mut thirdparty_from,
         );
     }
@@ -321,6 +376,7 @@ fn build_thirdparty_imports(
     enum_fields: &std::collections::HashMap<String, String>,
     handle_nested_types: &std::collections::HashMap<String, String>,
     used_enum_types: &BTreeSet<String>,
+    used_config_types: &BTreeSet<String>,
     thirdparty_from: &mut Vec<String>,
 ) {
     let handle_constructors: Vec<String> = e2e_config
@@ -486,6 +542,18 @@ fn build_thirdparty_imports(
         }
     }
 
+    // Merge all top-level type names (functions, classes, enums) into import_names.
+    for config_type in used_config_types {
+        if !import_names.contains(config_type) {
+            import_names.push(config_type.clone());
+        }
+    }
+    for enum_type in used_enum_types {
+        if !import_names.contains(enum_type) {
+            import_names.push(enum_type.clone());
+        }
+    }
+
     if let (true, Some(opts_type)) = (
         needs_options_type && (options_via == "kwargs" || options_via == "from_json"),
         options_type,
@@ -497,21 +565,10 @@ fn build_thirdparty_imports(
             let native_mod = from_json_module.unwrap_or(module);
             thirdparty_from.push(format!("from {native_mod} import {opts_type}"));
         } else {
-            import_names.push(opts_type.clone());
+            if !import_names.contains(opts_type) {
+                import_names.push(opts_type.clone());
+            }
             thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
-        }
-        if !used_enum_types.is_empty() {
-            let enum_mod = e2e_config
-                .call
-                .overrides
-                .get("python")
-                .and_then(|o| o.enum_module.as_deref())
-                .unwrap_or(module);
-            let enum_names: Vec<&String> = used_enum_types.iter().collect();
-            thirdparty_from.push(format!(
-                "from {enum_mod} import {}",
-                enum_names.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
-            ));
         }
     } else {
         thirdparty_from.push(format!("from {module} import {}", import_names.join(", ")));
