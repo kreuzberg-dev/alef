@@ -1952,15 +1952,16 @@ fn gen_extendr_flat_data_enum_from_core(enum_def: &crate::core::ir::EnumDef, cor
         }
     }
 
-    // Emit a `_ => Self::default()` catch-all when the binding match cannot be exhaustive
-    // over the core enum. This happens when alef skips variants (`#[alef(skip)]`) or when
-    // cfg-gated variants in core may exist at runtime but are absent from the binding.
-    if !enum_def.excluded_variants.is_empty() {
-        out.push_str(&crate::backends::extendr::template_env::render(
-            "flat_enum_from_core_impl_catch_all.jinja",
-            minijinja::context! {},
-        ));
-    }
+    // Always emit a `_ => Self::default()` catch-all. The IR-extraction crate may build
+    // with a different feature set than the binding crate, and source variants gated by
+    // `#[cfg(feature = "...")]` are silently absent from the extracted IR. `EnumVariant`
+    // does not carry the cfg expression, so we cannot conditionally emit. The catch-all
+    // is annotated with `#[allow(unreachable_patterns)]` to silence the warning for
+    // enums whose binding match happens to be fully exhaustive at compile time.
+    out.push_str(&crate::backends::extendr::template_env::render(
+        "flat_enum_from_core_impl_catch_all.jinja",
+        minijinja::context! {},
+    ));
 
     out.push_str(&crate::backends::extendr::template_env::render(
         "flat_enum_from_core_impl_footer.jinja",
