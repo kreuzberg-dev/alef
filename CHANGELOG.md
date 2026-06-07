@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.30] - 2026-06-07
+
 ### Fixed
+
+- **node build defaults test**: Update the default Node build-command regression
+  test to assert the pinned `@napi-rs/cli` invocation emitted by the current
+  scaffold configuration.
 
 - **dart cargo.toml dependency sort**: Emit the generated Rust `[dependencies]`
   block in alphabetical order so cargo-sort no longer rewrites the generated
