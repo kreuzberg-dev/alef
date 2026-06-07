@@ -54,7 +54,7 @@ impl client::TestClientRenderer for SwiftTestClientRenderer {
 
         let _ = writeln!(
             out,
-            "        let _baseURL = ProcessInfo.processInfo.environment[\"SUT_URL\"] ?? \"http://127.0.0.1:8009\""
+            "        let _baseURL = ProcessInfo.processInfo.environment[\"SUT_URL\"] ?? \"http://127.0.0.1:8000\""
         );
         let _ = writeln!(
             out,
