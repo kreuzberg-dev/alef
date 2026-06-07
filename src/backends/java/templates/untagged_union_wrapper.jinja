@@ -35,7 +35,7 @@ public final class {{ class_name }} {
 
     public static {{ class_name }} of(final List<String> items) {
         var arr = JsonNodeFactory.instance.arrayNode();
-        for (var s : items) arr.add(s);
+        for (var s : items) { arr.add(s); }
         return new {{ class_name }}(arr);
     }
 
@@ -60,9 +60,9 @@ public final class {{ class_name }} {
     }
 
     public Optional<List<String>> asList() {
-        if (value == null || !value.isArray()) return Optional.empty();
+        if (value == null || !value.isArray()) { return Optional.empty(); }
         var result = new ArrayList<String>(value.size());
-        for (var node : value) result.add(node.asText());
+        for (var node : value) { result.add(node.asText()); }
         return Optional.of(result);
     }
 
@@ -72,9 +72,8 @@ public final class {{ class_name }} {
 
     @Override
     public boolean equals(final Object o) {
-        if (this == o) return true;
-        if (!(o instanceof {{ class_name }} other)) return false;
-        return Objects.equals(value, other.value);
+        return this == o
+            || (o instanceof {{ class_name }} other && Objects.equals(value, other.value));
     }
 
     @Override

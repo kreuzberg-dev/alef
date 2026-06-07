@@ -28,7 +28,11 @@
             return null;
         }
         byte[] result = outPtr.reinterpret(outLen).toArray(ValueLayout.JAVA_BYTE);
-        {{ free_bytes }}.invoke(outPtr, outLen, outCap);
+        try {
+            {{ free_bytes }}.invoke(outPtr, outLen, outCap);
+        } catch (Throwable e) {
+            throw new {{ exception_class }}("failed to free FFI-allocated bytes", e);
+        }
         return result;
     }
 {%- endif %}

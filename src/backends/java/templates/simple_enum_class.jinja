@@ -21,11 +21,9 @@
                 return e;
             }
         }
-        // This enum has variant(s) excluded from binding (marked with #[cfg_attr(alef, alef(skip))]):
-{%- if has_excluded_variants %}
+{% if has_excluded_variants %}        // This enum has variant(s) excluded from binding (marked with #[cfg_attr(alef, alef(skip))]):
         // Excluded variants that may appear in Rust-serialized JSON: {{ excluded_variant_names | join(", ") }}
-{%- endif %}
-        throw new IllegalArgumentException("Unknown {{ enum_name }} value: " + value);
+{% endif %}        throw new IllegalArgumentException("Unknown {{ enum_name }} value: " + value);
     }
 
     /** Returns the wire-format string value (matches JSON serialization). */

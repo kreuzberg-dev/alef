@@ -33,7 +33,11 @@
 - id: alef-sync-versions
   name: alef sync versions
   language: script
-  entry: hooks/alef_hook.py sync-versions
+  # `--no-regen` so the hook only writes version-stamped manifest files; without
+  # the flag, sync-versions also fires a full `alef generate` pass — desirable
+  # for `task set-version` but the wrong shape for a per-commit hook (slow, and
+  # any unrelated regen drift surfaces as "files modified" on every commit).
+  entry: hooks/alef_hook.py sync-versions --no-regen
   files: 'Cargo\.toml$'
   pass_filenames: false
   description: "Sync version from Cargo.toml to all package manifests (pyproject.toml, package.json, etc.)"

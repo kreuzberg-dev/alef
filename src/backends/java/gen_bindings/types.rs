@@ -421,7 +421,7 @@ pub(crate) fn gen_record_type(
                     } else {
                         format!("{jname} == 0")
                     };
-                    Some(format!("        if ({cond}) {jname} = {n}{suffix};"))
+                    Some(format!("        if ({cond}) {{ {jname} = {n}{suffix}; }}"))
                 }
                 _ => None,
             }
