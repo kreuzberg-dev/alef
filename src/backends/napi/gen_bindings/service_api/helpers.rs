@@ -32,6 +32,9 @@ pub(super) fn find_contract<'a>(api: &'a ApiSurface, trait_name: &str) -> Option
     api.handler_contracts.iter().find(|c| c.trait_name == trait_name)
 }
 
+// `api` is used in the TypeRef::Named arm to look up opaque types; clippy
+// incorrectly classifies it as only-used-in-recursion because the check
+// happens inside a match arm rather than at the top of the function.
 #[allow(clippy::only_used_in_recursion)]
 pub(super) fn gen_metadata_extraction(ty: &TypeRef, core_import: &str, api: &ApiSurface) -> String {
     match ty {

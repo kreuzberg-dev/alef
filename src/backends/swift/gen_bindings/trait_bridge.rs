@@ -338,8 +338,11 @@ fn swift_method_params(params: &[crate::core::ir::ParamDef], exclude_types: &Has
 /// Get the Swift type name for a TypeRef.
 ///
 /// Protocol methods use native types (excluded types as native structs).
-#[allow(clippy::only_used_in_recursion, dead_code)]
-fn swift_type_name_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> String {
+// Protocol methods use native types; `_exclude_types` is accepted for API
+// symmetry with `swift_type_name` but is not consulted — excluded types are
+// always emitted by their native name in protocol contexts.
+#[allow(dead_code)]
+fn swift_type_name_native(ty: &TypeRef, _exclude_types: &HashSet<String>) -> String {
     match ty {
         TypeRef::Primitive(p) => match p {
             crate::core::ir::PrimitiveType::Bool => "Bool".to_string(),
@@ -364,13 +367,13 @@ fn swift_type_name_native(ty: &TypeRef, exclude_types: &HashSet<String>) -> Stri
             // Protocol uses native type name (excluded or not)
             name.clone()
         }
-        TypeRef::Vec(inner) => format!("[{}]", swift_type_name_native(inner, exclude_types)),
+        TypeRef::Vec(inner) => format!("[{}]", swift_type_name_native(inner, _exclude_types)),
         TypeRef::Map(k, v) => format!(
             "[{}: {}]",
-            swift_type_name_native(k, exclude_types),
-            swift_type_name_native(v, exclude_types)
+            swift_type_name_native(k, _exclude_types),
+            swift_type_name_native(v, _exclude_types)
         ),
-        TypeRef::Optional(inner) => format!("{}?", swift_type_name_native(inner, exclude_types)),
+        TypeRef::Optional(inner) => format!("{}?", swift_type_name_native(inner, _exclude_types)),
         TypeRef::Unit => "Void".to_string(),
         TypeRef::Json => "String".to_string(),
         TypeRef::Duration => "TimeInterval".to_string(),
