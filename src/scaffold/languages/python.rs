@@ -319,6 +319,7 @@ classifiers = [
 dev = {dev_group}
 
 [tool.maturin]
+profile = "release"
 module-name = "{python_package}.{module_name}"
 manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 # abi3-py310 produces a single wheel per platform that loads on Python 3.10+,
