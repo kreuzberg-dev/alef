@@ -965,8 +965,13 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>
     let mut lines = vec![];
 
     // Emit the #[php_class] decorator with optional namespace.
+    // ext-php-rs 0.15+ removed `#[php_class(name = "...")]` / `(namespace = "...")`;
+    // namespace must use the two-attribute form `#[php_class]` + `#[php(name = "Ns\\ClassName")]`.
+    // Backslashes in the namespace must be escaped in the generated Rust string literal.
     if let Some(ns) = php_namespace {
-        lines.push(format!("#[php_class(namespace = \"{}\")]", ns));
+        let ns_escaped = ns.replace('\\', "\\\\");
+        lines.push("#[php_class]".to_string());
+        lines.push(format!("#[php(name = \"{}\\\\{}\")]", ns_escaped, enum_def.name));
     } else {
         lines.push("#[php_class]".to_string());
     }
