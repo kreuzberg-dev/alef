@@ -40,6 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **backend code organization**: split PHP service API generation, Rustler helper
+  generation, WASM function generation, and FFI function generation into
+  concern-based modules while preserving their existing backend APIs.
+  (`src/backends/php/gen_bindings/service_api.rs`,
+  `src/backends/rustler/gen_bindings/helpers.rs`,
+  `src/backends/wasm/gen_bindings/functions.rs`,
+  `src/backends/ffi/gen_bindings/functions.rs`)
+
 - **code organization**: split the Kotlin object-wrapper generator, core e2e
   config model, streaming assertion generator, and CLI extraction pipeline into
   concern-based modules while keeping their existing public APIs available from
