@@ -24,7 +24,13 @@ pub(super) fn render_test_file(
     // Suppress unused_local_variable: `final result = await api.method(...)` is
     // emitted for every test case; tests that only check for absence of errors
     // do not consume `result`, triggering this dart-analyze warning.
-    out.push_str("// ignore_for_file: unused_local_variable\n\n");
+    //
+    // Suppress unused_element: the `_alefE2eText` and `_camelToSnake` helpers
+    // are emitted unconditionally so per-test bodies can call them, but some
+    // category-scoped files (download, smoke, ...) contain only fixtures whose
+    // assertions never reach an enum field, leaving the helpers technically
+    // unused in that file.
+    out.push_str("// ignore_for_file: unused_local_variable, unused_element\n\n");
 
     // Check if any fixture needs the http package (HTTP server tests).
     let has_http_fixtures = fixtures.iter().any(|f| f.is_http_test());
@@ -53,11 +59,12 @@ pub(super) fn render_test_file(
     });
 
     // Detect whether any non-HTTP fixture uses a json_object arg that resolves to a JSON array —
-    // those are materialized via `jsonDecode` at test-run time and cast to `List<String>`.
-    // Handle args themselves no longer require `jsonDecode` since they construct the config via
-    // the FRB-generated `createCrawlConfigFromJson(json:)` helper which accepts the JSON string
-    // directly. The variable name is kept as `has_handle_args` for config stability.
-    let has_handle_args = fixtures.iter().any(|f| {
+    // historically these were materialized via `jsonDecode` at test-run time and cast to
+    // `List<String>`. The current emitter routes both handle args and array json_objects
+    // through `create<Config>FromJson(json:)` or direct Dart list literals, so `dart:convert`
+    // is no longer required for this path. The detection is retained for forward compatibility
+    // and to keep the analysis structure stable; the variable is intentionally not consumed.
+    let _has_handle_args = fixtures.iter().any(|f| {
         if f.is_http_test() {
             return false;
         }
@@ -177,10 +184,13 @@ pub(super) fn render_test_file(
     if has_http_fixtures || has_mock_url_refs {
         let _ = writeln!(out, "import 'dart:async';");
     }
-    // dart:convert provides jsonDecode for handle-arg engine construction, HTTP response parsing,
-    // and PageAction array deserialization, plus utf8/LineSplitter for decoding the mock-server's
-    // startup stdout (MOCK_SERVER_URL= / MOCK_SERVERS=) in the spawn harness.
-    if has_http_fixtures || has_handle_args || has_page_action || has_mock_url_refs {
+    // dart:convert provides jsonDecode for HTTP response parsing and PageAction array
+    // deserialization, plus utf8/LineSplitter for decoding the mock-server's startup stdout
+    // (MOCK_SERVER_URL= / MOCK_SERVERS=) in the spawn harness. Handle-arg engine construction
+    // no longer needs jsonDecode — it routes through `create<Config>FromJson(json:)` which
+    // accepts the JSON string directly, so `has_handle_args` is intentionally excluded here
+    // to avoid an unused `dart:convert` import.
+    if has_http_fixtures || has_page_action || has_mock_url_refs {
         let _ = writeln!(out, "import 'dart:convert';");
     }
     let _ = writeln!(out);

@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `yard-coverage` stops flagging the alef-generated cross-compile constant as
   undocumented. (`src/scaffold/languages/ruby.rs`)
 
+- **dart e2e (unused element / unused import)**: extend the file-level
+  `ignore_for_file` directive to cover `unused_element` so the unconditionally
+  emitted `_alefE2eText` / `_camelToSnake` helpers do not trip `dart analyze`
+  in category files whose assertions never reach an enum field. Also drop
+  `has_handle_args` from the `dart:convert` import gate — handle-arg engine
+  construction now routes through `create<Config>FromJson(json:)` and no
+  longer requires `jsonDecode`, so the import was wasted whenever a fixture
+  had a handle-arg without any other consumer of `dart:convert`.
+  (`src/e2e/codegen/dart/test_file.rs`)
+
 ## [0.23.28] - 2026-06-07
 
 ### Changed
