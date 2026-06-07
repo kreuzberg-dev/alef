@@ -155,6 +155,12 @@ pub(crate) fn scaffold_node_cargo(
         }
         all_deps.push_str("async-trait = \"0.1\"");
     }
+    if has_trait_bridges && !all_deps.contains("tokio-util") {
+        if !all_deps.is_empty() {
+            all_deps.push('\n');
+        }
+        all_deps.push_str("tokio-util = { version = \"0.7\", features = [\"sync\"] }");
+    }
     if has_streaming && !all_deps.contains("futures-util = ") && !all_deps.contains("futures-util =\"") {
         if !all_deps.is_empty() {
             all_deps.push('\n');
@@ -180,13 +186,14 @@ pub(crate) fn scaffold_node_cargo(
 
     // Build the cargo-machete ignored list. `serde_json` is always emitted
     // unconditionally above so we always ignore it. Conditional deps
-    // (`async-trait` for trait bridges, `futures-util` for streaming) are
+    // (`async-trait` and `tokio-util` for trait bridges, `futures-util` for streaming) are
     // appended only when the scaffold actually adds them to `[dependencies]`,
     // so cargo-machete doesn't flap on umbrellas whose API surface doesn't
     // exercise the trait-bridge / streaming codepath.
     let mut machete_ignored: Vec<&str> = vec!["serde_json"];
     if has_trait_bridges {
         machete_ignored.push("async-trait");
+        machete_ignored.push("tokio-util");
     }
     if has_streaming {
         machete_ignored.push("futures-util");
