@@ -31,7 +31,7 @@ pub(super) fn render_visitor_test_file(
     header: &str,
     prefix: &str,
     e2e_config: &E2eConfig,
-    config: &ResolvedCrateConfig,
+    _config: &ResolvedCrateConfig,
 ) -> String {
     use crate::e2e::fixture::CallbackAction;
 
@@ -51,19 +51,12 @@ pub(super) fn render_visitor_test_file(
     let prefix_upper = prefix.to_uppercase();
     let visitor_type_stem = prefix.to_pascal_case();
     let visitor_callbacks_type = format!("{prefix_upper}{visitor_type_stem}VisitorCallbacks");
-    let visitor_context_stem = config
-        .trait_bridges
-        .iter()
-        .find_map(|bridge| bridge.context_type.as_deref())
-        .unwrap_or("SyntaxContext");
-    if visitor_context_stem == "SyntaxContext" {
-        let _ = writeln!(
-            out,
-            "#error \"C visitor fixtures require trait_bridge.context_type metadata; add it to alef.toml or skip visitor fixtures for C\""
-        );
-        let _ = writeln!(out);
-    }
-    let visitor_context_type = format!("{prefix_upper}{visitor_context_stem}");
+    // The C FFI re-defines the visitor context as a stem-prefixed struct
+    // (mirror of `HtmVisitorCallbacks`) so the callback signatures take the
+    // C-friendly view, NOT the opaque Rust `NodeContext` handle. Match the
+    // FFI naming pattern instead of reading the trait_bridge.context_type
+    // (which names the Rust-core type, not the FFI re-export).
+    let visitor_context_type = format!("{prefix_upper}{visitor_type_stem}Context");
     let visitor_handle_type = format!("{prefix_upper}{visitor_type_stem}Visitor");
 
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -143,7 +136,7 @@ pub(super) fn render_visitor_test_file(
         let _ = writeln!(out);
 
         // Attach visitor to options.
-        let _ = writeln!(out, "    {prefix}_options_set_visitor_handle(_options, _visitor);");
+        let _ = writeln!(out, "    {prefix}_options_set_visitor(_options, _visitor);");
         let _ = writeln!(out);
 
         // Call the configured C FFI function.
