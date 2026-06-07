@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java pmd suppressions**: Add class-level `@SuppressWarnings("PMD")` annotations
+  to all alef-generated Java classes to suppress design/codestyle/errorprone rules
+  that legitimately cannot critique generated code (AvoidCatchingGenericException,
+  TooManyMethods, GodClass, CloseResource for Arena, ReturnEmptyCollectionRatherThanNull
+  for Jackson fields, CommentRequired, ShortVariable, RedundantFieldInitializer,
+  FieldNamingConventions, UseExplicitTypes, ConfusingTernary, etc.). Affected
+  templates: ffi_main_class_header, facade_class, opaque_handle_header,
+  bridge_class_header, trait_bridge, visitor_bridge, record_declaration,
+  untagged_union_wrapper, service_class_header, sealed_union_serializer,
+  byte_array_serializer, visit_result, simple_enum_class, exception_class,
+  infrastructure_exception, json_util, and native_lib. Consumers can now remove
+  noisy PMD excludes from their ruleset.xml.
+
 - **zig trait bridge registration**: Pass vtable as typed pointer (`&_c_vtable`)
   instead of value (`_c_vtable`) to C FFI register functions. The C ABI layer
   expects `[*c]const struct_*VTable`, but the Zig emitter was passing a value

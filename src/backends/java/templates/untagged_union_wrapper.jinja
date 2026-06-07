@@ -15,6 +15,7 @@ import java.util.Optional;
  * {{ doc }}
  */
 {%- endif %}
+@SuppressWarnings("PMD")
 public final class {{ class_name }} {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final JsonNode value;

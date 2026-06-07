@@ -15,6 +15,7 @@ import java.util.List;
  * Allocates Panama FFM upcall stubs for a Visitor and assembles
  * the generated C visitor callback table in native memory.
  */
+@SuppressWarnings("PMD")
 final class VisitorBridge implements AutoCloseable {
     private static final Linker LINKER = Linker.nativeLinker();
     private static final MethodHandles.Lookup LOOKUP =

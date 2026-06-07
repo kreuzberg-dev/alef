@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
  * assembles the C vtable in native memory, and provides static
  * register{{ trait_pascal }}/unregister{{ trait_pascal }} helpers.
  */
+@SuppressWarnings("PMD")
 public final class {{ bridge_class }} implements AutoCloseable {
 
     private static final Linker LINKER = Linker.nativeLinker();

@@ -6,6 +6,7 @@
  * Annotate any {@code byte[]} field sent to the FFI layer with
  * {@code @JsonSerialize(using = ByteArrayToIntArraySerializer.class)}.
  */
+@SuppressWarnings("PMD")
 public class ByteArrayToIntArraySerializer extends StdSerializer<byte[]> {
     /** Default constructor required by Jackson. */
     public ByteArrayToIntArraySerializer() {

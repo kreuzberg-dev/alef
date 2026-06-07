@@ -14,6 +14,7 @@ import java.lang.invoke.MethodType;
  * - {{ ffi_prefix }}_{{ service_snake }}_new() -> opaque handle
  * - {{ ffi_prefix }}_{{ service_snake }}_free(opaque)
 {{ bindings_doc }} */
+@SuppressWarnings("PMD")
 public class {{ class_name }} implements AutoCloseable {
 
     private MemorySegment ownerHandle;
