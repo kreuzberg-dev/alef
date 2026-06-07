@@ -420,6 +420,14 @@ pub(super) fn render_test_file(
 
     let _ = writeln!(out, "void main() {{");
 
+    // Track whether RustLib.init() in `setUpAll` succeeded. When it fails (e.g. the
+    // prebuilt native library is missing on this host), `tearDownAll` must NOT call
+    // `RustLib.dispose()` — flutter_rust_bridge's `disposeImpl` runs a non-null
+    // assertion on the lazily-initialised `api` field and fails with
+    // "Null check operator used on a null value", masking the original load error.
+    let _ = writeln!(out, "  var _rustLibInitialized = false;");
+    let _ = writeln!(out);
+
     // Emit setUpAll to initialize the flutter_rust_bridge before any test runs and,
     // when fixtures load files by path, chdir to test_documents so that relative
     // paths like "docx/fake.docx" resolve correctly.
@@ -428,6 +436,7 @@ pub(super) fn render_test_file(
     // The FIXTURES_DIR environment variable can override this for CI environments.
     let _ = writeln!(out, "  setUpAll(() async {{");
     let _ = writeln!(out, "    await RustLib.init();");
+    let _ = writeln!(out, "    _rustLibInitialized = true;");
     if needs_chdir {
         let test_docs_path = e2e_config.test_documents_relative_from(0);
         let _ = writeln!(
@@ -444,10 +453,12 @@ pub(super) fn render_test_file(
     let _ = writeln!(out);
 
     // Always emit tearDownAll to dispose of RustLib singleton and close resources.
-    // RustLib is initialized in setUpAll and must be cleaned up after all tests.
-    // RustLib.dispose() is always called to ensure proper cleanup (required for non-empty body).
+    // RustLib is initialized in setUpAll and must be cleaned up after all tests, but
+    // only dispatch `dispose()` when init succeeded — see `_rustLibInitialized` above.
     let _ = writeln!(out, "  tearDownAll(() async {{");
-    let _ = writeln!(out, "    RustLib.dispose();");
+    let _ = writeln!(out, "    if (_rustLibInitialized) {{");
+    let _ = writeln!(out, "      RustLib.dispose();");
+    let _ = writeln!(out, "    }}");
     if has_http_fixtures {
         let _ = writeln!(out, "    _httpClient.close(force: true);");
     }

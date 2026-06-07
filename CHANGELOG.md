@@ -24,6 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   had a handle-arg without any other consumer of `dart:convert`.
   (`src/e2e/codegen/dart/test_file.rs`)
 
+- **dart e2e (tearDownAll null-check on init failure)**: guard the unconditional
+  `RustLib.dispose()` call in `tearDownAll` behind a `_rustLibInitialized` flag
+  set after a successful `RustLib.init()` in `setUpAll`. When the native library
+  fails to load (e.g. the prebuilt `.dylib` / `.so` / `.dll` is missing on the
+  host), `RustLib.dispose()` would dereference flutter_rust_bridge's lazily-set
+  `api` field and throw "Null check operator used on a null value" in the
+  teardown, masking the original load error. The flag ensures dispose is only
+  attempted when init actually succeeded. (`src/e2e/codegen/dart/test_file.rs`)
+
 ## [0.23.28] - 2026-06-07
 
 ### Changed
