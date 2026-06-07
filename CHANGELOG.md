@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ruby (magnus)**: emit `##` YARD documentation comment for the generated `VERSION` constant in `version.rb` so that `yard-coverage` correctly identifies all public constants and reaches 100% documented. (`src/backends/magnus/templates/version_rb_wrapper.rb.jinja`)
+
 ## [0.23.25] - 2026-06-07
 
 ### Fixed
