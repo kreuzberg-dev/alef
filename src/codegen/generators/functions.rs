@@ -360,6 +360,33 @@ pub fn gen_function_with_mutex(
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
 
+        // Check if we need to cast primitives due to type mapping (e.g., u32 → i32 for extendr)
+        let cast_suffix = match &func.return_type {
+            TypeRef::Primitive(prim) => {
+                let mapped = mapper.map_type(&func.return_type);
+                // If the mapped type differs from the original, we need a cast
+                let original = match prim {
+                    crate::core::ir::PrimitiveType::U8 => "u8",
+                    crate::core::ir::PrimitiveType::U16 => "u16",
+                    crate::core::ir::PrimitiveType::U32 => "u32",
+                    crate::core::ir::PrimitiveType::U64 => "u64",
+                    crate::core::ir::PrimitiveType::I8 => "i8",
+                    crate::core::ir::PrimitiveType::I16 => "i16",
+                    crate::core::ir::PrimitiveType::I32 => "i32",
+                    crate::core::ir::PrimitiveType::I64 => "i64",
+                    crate::core::ir::PrimitiveType::Usize => "usize",
+                    crate::core::ir::PrimitiveType::Isize => "isize",
+                    _ => "",
+                };
+                if original != "" && mapped != original {
+                    format!(" as {}", mapped)
+                } else {
+                    String::new()
+                }
+            }
+            _ => String::new(),
+        };
+
         // Determine return wrapping strategy
         let returns_ref = func.returns_ref;
         let wrap_return = |expr: &str| -> String {
@@ -505,16 +532,32 @@ pub fn gen_function_with_mutex(
             };
             let wrapped = wrap_return("val");
             if wrapped == "val" {
-                format!("{core_call}{err_conv}")
+                if cast_suffix.is_empty() {
+                    format!("{core_call}{err_conv}")
+                } else {
+                    format!("{core_call}.map(|val| val{cast_suffix}){err_conv}")
+                }
             } else if wrapped == "val.into()" {
-                format!("{core_call}.map(Into::into){err_conv}")
+                if cast_suffix.is_empty() {
+                    format!("{core_call}.map(Into::into){err_conv}")
+                } else {
+                    format!("{core_call}.map(|val| (val{cast_suffix}).into()){err_conv}")
+                }
             } else if let Some(type_path) = wrapped.strip_suffix("::from(val)") {
-                format!("{core_call}.map({type_path}::from){err_conv}")
+                if cast_suffix.is_empty() {
+                    format!("{core_call}.map({type_path}::from){err_conv}")
+                } else {
+                    format!("{core_call}.map(|val| {type_path}::from(val{cast_suffix})){err_conv}")
+                }
             } else {
                 format!("{core_call}.map(|val| {wrapped}){err_conv}")
             }
         } else {
-            wrap_return(&core_call)
+            if cast_suffix.is_empty() {
+                wrap_return(&core_call)
+            } else {
+                wrap_return(&format!("({core_call}){cast_suffix}"))
+            }
         }
     };
 

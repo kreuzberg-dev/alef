@@ -2373,7 +2373,8 @@ fn gen_extendr_json_bridged_function(
                 } else if param.is_mut {
                     format!("&mut {}_core", param.name)
                 } else {
-                    format!("{}_core", param.name)
+                    // Convert Vec<T> to &[T] for functions expecting slices
+                    format!("{}_core.as_slice()", param.name)
                 }
             } else if needs_json_struct || needs_json_enum {
                 if param.optional && param.is_ref {
