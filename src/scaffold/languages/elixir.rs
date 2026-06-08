@@ -286,22 +286,29 @@ pub(crate) fn scaffold_elixir(api: &ApiSurface, config: &ResolvedCrateConfig) ->
     ];
 
     // The NIF crate's `[lib] path` (see `scaffold_elixir_cargo`) determines
-    // where the Rust source lives:
-    // - Default / native output: `[lib] path` defaults to `src/lib.rs` next to
-    //   the NIF `Cargo.toml`, so the source is `native/<nif>/src`. That dir is
-    //   listed directly and the tarball is self-contained.
-    // - External output (`[crate.output] elixir = "crates/<lib>-elixir/src/"`):
-    //   `[lib] path` points at the external source dir and `native/<nif>/src`
-    //   does NOT exist on disk. Listing it makes `mix hex.build` hard-fail with
-    //   `Missing files: native/<nif>/src`, and shipping only `*.ex` from the
-    //   external dir leaves the Rust NIF source out of the tarball so
-    //   RustlerPrecompiled's source-compile fallback cannot build standalone.
-    //   In that case list the external source dir itself: it holds both the
-    //   Rust `lib.rs` (and any sibling `*.rs`) and the generated `*.ex` modules,
-    //   so the path the `[lib] path` resolves to ships in the tarball.
-    match external_elixir_src.as_deref() {
-        Some(relative) => files_entries.push(relative.to_string()),
-        None => files_entries.push(format!("native/{nif_name}/src")),
+    // where the Rust source lives. Check if the standard native/<nif>/src exists
+    // on disk:
+    // - If it does: use it (standard monorepo layout, self-contained).
+    // - If it doesn't: the Rust source is elsewhere (either at an external path
+    //   configured via `[crate.output] elixir`, or co-located with the wrapper
+    //   module in lib/). We must list the directory containing the actual lib.rs
+    //   or the hex tarball will be incomplete and RustlerPrecompiled's build
+    //   fallback will fail. Omit it here if `lib_populated` will add it below.
+    let native_src_dir_rel = format!("{pkg_dir}/native/{nif_name}/src");
+    let native_src_dir = if let Some(ws_root) = config.workspace_root.as_deref() {
+        ws_root.join(&native_src_dir_rel)
+    } else {
+        PathBuf::from(&native_src_dir_rel)
+    };
+    if native_src_dir.exists() {
+        files_entries.push(format!("native/{nif_name}/src"));
+    } else if let Some(relative) = external_elixir_src.as_deref() {
+        // External source: list the directory containing the actual lib.rs
+        files_entries.push(relative.to_string());
+    } else if !lib_populated {
+        // No standard src dir, no external path, and lib/ is not already being added.
+        // Rust source must be in lib/; add it now.
+        files_entries.push("lib".to_string());
     }
 
     let native_crate_dir_rel = format!("{pkg_dir}/native/{nif_name}");

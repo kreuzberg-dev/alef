@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.47] - 2026-06-08
+
 ### Fixed
 
 - **Zig null-guard now returns `error.Serialization` (existing KreuzbergError member) instead of the made-up `error.SerializationFailed`.** The 0.23.45 null-guard fix introduced `error.SerializationFailed`, which is not a member of the canonical KreuzbergError set (`{Cache, Cancelled, …, Serialization, …}`). Zig 0.16 rejected this with `error: 'error.SerializationFailed' not a member of destination error set` at every Named-result emission site (e.g. `extract_file_sync` → `ExtractionResult`), breaking 8 kreuzberg e2e test binaries (smoke, contract, code, async, embeddings, error, format_specific, summarization). The template now emits `error.Serialization`, which is the existing canonical member that callers' `KreuzbergError![]u8` return type already accepts. Test updated to assert the corrected error name.
