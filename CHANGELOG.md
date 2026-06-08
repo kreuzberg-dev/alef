@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.32] - 2026-06-08
+
+### Fixed
+
+- **python e2e tests `NameError` for `EmbeddingConfig`, `OutputFormat`,
+  `ResultFormat`**: The Python e2e import collector iterated the global
+  `e2e_config.call.args` (the default call config) instead of the per-fixture
+  resolved call. Fixtures that override the call via `"call": "embed_texts"`
+  (e.g. `embed_texts_batch`, `embed_texts_different_preset`) therefore had
+  their `EmbeddingConfig` opts type imported under the wrong call, while the
+  render path correctly emitted `EmbeddingConfig(...)` — producing
+  `NameError` at test runtime. The collector now resolves the per-fixture
+  call config and its `options_type` exactly like the render path. The
+  same pass also runs `resolve_field_enum_type` on each json_object key so
+  auto-detected enum types (`OutputFormat`, `ResultFormat`, …) reach the
+  import set instead of relying solely on the explicit `enum_fields` map.
+
 ## [0.23.31] - 2026-06-07
 
 ### Fixed

@@ -825,7 +825,7 @@ fn emit_handle_arg(
 
 /// Resolve the enum type name for a field if it's an enum type in the TypeDef,
 /// and return None if it's not an enum or the type cannot be resolved.
-fn resolve_field_enum_type(
+pub(super) fn resolve_field_enum_type(
     field_name: &str,
     options_type: Option<&str>,
     type_defs: &[crate::core::ir::TypeDef],

@@ -16,7 +16,7 @@ use super::helpers::{
     resolve_handle_nested_types, resolve_module, resolve_options_type, resolve_options_via,
 };
 use super::http::render_http_test_function;
-use super::test_function::render_test_function;
+use super::test_function::{render_test_function, resolve_field_enum_type};
 
 /// Render a complete Python test file for a single fixture category.
 pub(super) fn render_test_file(
@@ -186,21 +186,50 @@ pub(super) fn render_test_file(
     // 2. Auto-detected enum field types in the options_type via resolve_field_enum_type
     // Config types are top-level named types used as constructor arguments (e.g., EmbeddingConfig).
     for fixture in fixtures.iter() {
-        for arg in &e2e_config.call.args {
+        // Resolve the per-fixture call config so we iterate the actual args that
+        // will be rendered. The global `e2e_config.call.args` covers only the
+        // default call (e.g. extract_file); fixtures that opt into a different
+        // call via `"call": "embed_texts"` need their own args + options_type,
+        // otherwise the rendered constructor (`EmbeddingConfig(...)`) never
+        // gets a matching import and the test fails with `NameError`.
+        let cc = e2e_config.resolve_call_for_fixture(
+            fixture.call.as_deref(),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &fixture.input,
+        );
+        let fixture_opts_type: Option<String> = cc
+            .overrides
+            .get("python")
+            .and_then(|o| o.options_type.clone())
+            .or_else(|| cc.options_type.clone())
+            .or_else(|| effective_options_type.clone());
+
+        for arg in &cc.args {
             let value = resolve_field(&fixture.input, &arg.field);
 
             // For json_object args, collect both enum types and config types.
             if arg.arg_type == "json_object" && !value.is_null() {
                 if let Some(obj) = value.as_object() {
-                    // Collect explicitly configured enum fields
+                    // Collect explicitly configured enum fields. Auto-detected
+                    // enums (resolve_field_enum_type below) must mirror the
+                    // render path in test_function.rs — otherwise the kwarg
+                    // builder will emit `OutputFormat.MARKDOWN` while this
+                    // import collector never adds `OutputFormat`, producing a
+                    // `NameError` at test runtime.
                     for key in obj.keys() {
                         if let Some(enum_type) = enum_fields.get(key) {
                             used_enum_types.insert(enum_type.clone());
+                        } else if let Some(auto_enum_type) =
+                            resolve_field_enum_type(key, fixture_opts_type.as_deref(), type_defs, enums)
+                        {
+                            used_enum_types.insert(auto_enum_type);
                         }
                     }
                 }
                 // Collect the config type itself (e.g., ExtractionConfig, EmbeddingConfig)
-                if let Some(opts_type) = effective_options_type.as_deref() {
+                if let Some(opts_type) = fixture_opts_type.as_deref() {
                     if !value.is_null() && value.is_object() {
                         // This is a constructor call like ExtractionConfig(...), so import the type
                         used_config_types.insert(opts_type.to_string());
