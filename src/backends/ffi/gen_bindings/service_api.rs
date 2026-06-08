@@ -1545,12 +1545,11 @@ mod tests {
         );
     }
 
-    /// Configurator functions must unbox the owner's inner field before calling the
-    /// consuming method and re-box the result. The opaque handle stores the owner as
-    /// `Box<OwnerType>`, so calling a `self`-consuming method through auto-deref would
-    /// yield `OwnerType` (not `Box<OwnerType>`), causing a type mismatch. The generator
-    /// must emit `let inner = *owner.inner;` followed by
-    /// `owner.inner = Box::new(inner.method(args));`.
+    /// Configurator functions must take the owner's inner field out, call the
+    /// consuming method, and put the result back. The opaque handle stores the owner
+    /// as `Option<Box<OwnerType>>`, so the generator must emit
+    /// `let inner = match (*owner).inner.take() { Some(boxed) => *boxed, None => ... };`
+    /// followed by `(*owner).inner = Some(Box::new(inner.method(args)));`.
     #[test]
     fn configurator_function_unboxes_and_reboxes_inner() {
         use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, ServiceDef, TypeRef};
@@ -1624,14 +1623,14 @@ mod tests {
             rs.contains("fn worker_crate_worker_setup("),
             "configurator fn must be emitted; got:\n{rs}"
         );
-        // Must unbox the inner App before calling the consuming method.
+        // Must take the inner App out of the Option before calling the consuming method.
         assert!(
-            rs.contains("let inner = *owner.inner;"),
-            "configurator must unbox owner.inner before calling the consuming method; got:\n{rs}"
+            rs.contains("let inner = match (*owner).inner.take()"),
+            "configurator must `take()` owner.inner before calling the consuming method; got:\n{rs}"
         );
-        // Must re-box the returned value and assign it back.
+        // Must re-box the returned value and assign it back inside Some(...).
         assert!(
-            rs.contains("owner.inner = Box::new(inner.setup("),
+            rs.contains("(*owner).inner = Some(Box::new(inner.setup("),
             "configurator must re-box the result and assign to owner.inner; got:\n{rs}"
         );
     }

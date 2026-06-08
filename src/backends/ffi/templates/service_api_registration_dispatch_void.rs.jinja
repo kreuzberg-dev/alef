@@ -1,5 +1,7 @@
     unsafe {
-        let owner_ref = &mut (*owner).inner;
-        owner_ref.{{ method_name }}({{ meta_args }}handler);
+        match (*owner).inner.as_mut() {
+            Some(owner_ref) => owner_ref.{{ method_name }}({{ meta_args }}handler),
+            None => return 1, // Error: service already consumed
+        }
     }
     0

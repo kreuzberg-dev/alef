@@ -1,8 +1,13 @@
 /// Opaque handle to a {{ service_name }} service instance.
 /// Allocated by {{ new_fn_name }}(), freed by {{ free_fn_name }}().
+///
+/// `inner` is `Option<Box<…>>` so a `Finalize` entrypoint can `.take()` the
+/// owner out without invalidating the C pointer. Consumers must still call
+/// `{{ free_fn_name }}()` after a `Finalize` returns to release the opaque
+/// shell; the shell drops trivially when `inner` is `None`.
 #[repr(C)]
 pub struct {{ opaque_name }} {
-    inner: Box<{{ owner_path }}>,
+    inner: Option<Box<{{ owner_path }}>>,
 }
 
 /// Allocate a new {{ service_name }} instance.
@@ -14,7 +19,7 @@ pub struct {{ opaque_name }} {
 pub extern "C" fn {{ new_fn_name }}() -> *mut {{ opaque_name }} {
     let owner = {{ owner_path }}::{{ constructor_name }}();
     Box::into_raw(Box::new({{ opaque_name }} {
-        inner: Box::new(owner),
+        inner: Some(Box::new(owner)),
     }))
 }
 
@@ -24,6 +29,7 @@ pub extern "C" fn {{ new_fn_name }}() -> *mut {{ opaque_name }} {
 /// - `ptr` must have been allocated by {{ new_fn_name }}().
 /// - After this call, `ptr` is invalid and must not be dereferenced.
 /// - Calling this twice on the same pointer causes undefined behavior.
+/// - Safe to call even after a `Finalize` entrypoint has emptied `inner`.
 #[no_mangle]
 pub extern "C" fn {{ free_fn_name }}(ptr: *mut {{ opaque_name }}) {
     if !ptr.is_null() {

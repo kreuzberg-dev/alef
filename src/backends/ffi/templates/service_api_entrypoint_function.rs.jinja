@@ -2,7 +2,10 @@
 ///
 /// # Safety
 /// - `owner` must be a valid pointer returned by `{{ new_fn_name }}()` and not yet freed.
-/// - `owner` is consumed by this call; it must not be used or freed afterwards.
+/// - The inner owner value is moved out by this call and the opaque shell is left
+///   with `inner = None`. The caller may still invoke `{{ free_fn_name }}()`
+///   afterwards to release the shell; subsequent registration/configurator calls
+///   on the same pointer will fail with the null-return error code.
 #[no_mangle]
 pub extern "C" fn {{ fn_name }}(
     owner: *mut {{ opaque_name }}{{ param_decls }}
@@ -10,7 +13,11 @@ pub extern "C" fn {{ fn_name }}(
     if owner.is_null() {
         return {{ null_return }};
     }
-{{ pre_call_body }}    // SAFETY: owner was allocated by _new() (Box::into_raw) and is consumed here.
-    let owner = unsafe { Box::from_raw(owner) };
-    let inner = *owner.inner;
+{{ pre_call_body }}    // SAFETY: owner was allocated by _new() and is valid until freed.
+    // Move the inner owner out; leave `None` behind so the consumer's deferred
+    // `_free` call drops the empty shell instead of touching a moved-from box.
+    let inner = match unsafe { (*owner).inner.take() } {
+        Some(boxed) => *boxed,
+        None => return {{ null_return }},
+    };
 {{ runtime_block }}{{ return_body }}}

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.46] - 2026-06-08
+
+### Fixed
+
+- **FFI `Finalize` entrypoints no longer cause double-free / use-after-free in
+  cgo, JNI, and swift-import wrappers.** The opaque shell now stores
+  `inner: Option<Box<OwnerType>>` instead of `Box<OwnerType>` so a `Finalize`
+  entrypoint can `.take()` the owner out without invalidating the C pointer
+  the consumer holds. Consumers may still call the matching `_free` after a
+  `Finalize` returns — the shell drops trivially when `inner` is `None`.
+  Previously the entrypoint template emitted
+  `let owner = unsafe { Box::from_raw(owner) };`, which dropped the shell at
+  end of scope; downstream cgo and JNI bindings still ran their
+  `defer C.<prefix>_free(ptr)` or JNI finalizer, producing
+  `free(): invalid pointer` (Java glibc), `SIGSEGV` in
+  `runtime.cgocall(<prefix>_app_free)` (Go), or `XCTUnwrap failed: expected
+  non-nil value of type "NSHTTPURLResponse"` (Swift, where the sidecar
+  harness exited before the URLSession request could complete).
+  Registration dispatch templates were rewritten to match on
+  `(*owner).inner.as_mut()` and return error code `1` when the service has
+  already been consumed. The `service_api_configurator_function` template
+  uses the same `.take()` / re-`Some(Box::new(...))` pattern so the caller's
+  opaque handle stays at the same address; the function still returns the
+  same `owner` pointer on success. Affects the Go, Java, C#, Swift, Dart,
+  Kotlin Android, and Zig FFI consumers.
+
 ## [0.23.45] - 2026-06-08
 
 ### Fixed
