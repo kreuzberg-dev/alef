@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.49] - 2026-06-08
+
+### Fixed
+
+- **napi service-wrapper App is now actually exposed to consumers as the default `App` export.** Two bugs broke this chain since 0.23.48: (a) `strip_typescript_annotations` mangled the converted `require()` calls (truncated trailing parenthesis on the destructured import lines), so `service.cjs` failed to load at runtime and the post-build patch in `index.js` silently caught the error; (b) the post-build PatchFile marker was a hardcoded `module.exports.JsWebSocketMessage = nativeBinding.JsWebSocketMessage` string that doesn't exist in most generated `index.js` files, so the wrapper-export injection never fired. The marker is now the always-present `module.exports = nativeBinding;` line, and the patched block requires `./service.cjs` (the transpiled CommonJS) before that final assignment so wrapper exports stick. Consumers' destructuring `const { App, ... } = require('@<name>/node');` now resolves to the wrapper App with route methods (`get/post/put/patch/delete/into_router`) instead of the bare native binding. Added 4 unit tests for `strip_typescript_annotations` (import conversion, `export class` removal, `private` keyword removal, type-annotation stripping) and 1 integration test asserting the patch injects wrapper exports before the native export.
+- **elixir scaffold no longer lists `native/<nif>/src` in the Hex package `files:` when that directory does not exist on disk.** The prior code path unconditionally included `native/<nif>/src` when no workspace root was provided AND no `external_elixir_src` was configured, so `mix hex.publish` would fail with `Missing files: native/<nif>/src` for any package whose NIF source is co-located with the wrapper in `lib/` or lives outside the canonical `packages/elixir/native/<nif>/src/` layout. The fix removes the unverified fallback: alef now only lists native source paths it has confirmed (workspace root + `.exists()` check or `[crate.output]` external path); when neither applies, the entry is omitted and `lib/` carries the source.
+
 ## [0.23.48] - 2026-06-08
 
 ### Fixed
