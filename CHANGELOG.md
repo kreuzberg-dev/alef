@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Java e2e pom.xml native library fallback path**: The e2e Java pom.xml was configured
+  to copy native libraries only from `${workspace.root}/target/release/`, which fails when
+  the FFI is pre-built and distributed as a tarball in `ffi/lib/` (used by test_app CI
+  runners). Updated the antrun copy task to use a two-level fallback: first try `ffi/lib/`
+  (pre-built distribution), then fall back to `${workspace.root}/target/release` (local
+  Cargo build). This mirrors the C test_app's Makefile strategy, allowing Java e2e tests
+  to run in isolated CI environments without requiring a full workspace Cargo build.
 - **Swift ZSwiftPluginHelpers.swift RustString import regression**: The generated
   `ZSwiftPluginHelpers.swift` file was importing `RustBridgeC` instead of `RustBridge`,
   which caused "cannot find 'RustString' in scope" compile errors. `RustString` is
