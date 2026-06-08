@@ -978,7 +978,7 @@ impl Backend for NapiBackend {
                 PostBuildStep::PatchFile {
                     path: "index.js",
                     find: "module.exports = nativeBinding;",
-                    replace: "// Re-export the service wrapper's App class if available.\ntry {\n  const _service = require('./service.cjs');\n  if (_service && _service.App) {\n    module.exports.App = _service.App;\n  }\n} catch (e) {\n  // service.cjs not available; use native binding\n}\n\nmodule.exports = nativeBinding;",
+                    replace: "module.exports = nativeBinding;\n\n// Re-export the service wrapper's App class if available.\ntry {\n  const _service = require('./service.cjs');\n  if (_service && _service.App) {\n    module.exports.App = _service.App;\n  }\n} catch (e) {\n  // service.cjs not available; use native binding\n}",
                 },
             ],
         })
