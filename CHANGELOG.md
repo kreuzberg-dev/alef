@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   0.23.37 introduced. Configurators are no-op chain methods, so their params
   are intentionally prefixed `_` to silence unused-param warnings. The test
   assertion was not updated alongside 0.23.37, leaving alef CI red.
+- **`e2e_kotlin_array_of_strings_arg` test file finder skips
+  `SutServerSetup.kt` boilerplate**. The fixture sets `mock_response`, which
+  triggers SutServerSetup emission as the first `.kt` file. `find(ends_with
+  ".kt")` returned the boilerplate, never the fixture-generated Test.kt that
+  carries the actual `listOf("First", "Second")` emission under audit. Test
+  was failing on origin/main but masked by the earlier clippy block.
 
 ## [0.23.40] - 2026-06-08
 
