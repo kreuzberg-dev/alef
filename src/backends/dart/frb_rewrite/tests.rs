@@ -669,6 +669,55 @@ fn prologue_replacement_helper_closes_before_init_opens() {
 }
 
 #[test]
+fn prologue_replacement_uses_abi_current_for_arch_detection() {
+    // The generated loader must use Abi.current() from dart:ffi for reliable
+    // architecture detection, not fragile Platform.version string parsing.
+    let replacement = frb_init_prologue_replacement("test_pkg", "test_mod", "test_stem");
+
+    // Verify Abi.current() is used.
+    assert!(
+        replacement.contains("final abi = Abi.current();"),
+        "must use Abi.current() for architecture detection, got:\n{replacement}"
+    );
+
+    // Verify platform-specific Abi constants are mapped correctly.
+    assert!(
+        replacement.contains("Abi.linuxX64"),
+        "must check Abi.linuxX64"
+    );
+    assert!(
+        replacement.contains("Abi.linuxArm64"),
+        "must check Abi.linuxArm64"
+    );
+    assert!(
+        replacement.contains("Abi.macosX64"),
+        "must check Abi.macosX64"
+    );
+    assert!(
+        replacement.contains("Abi.macosArm64"),
+        "must check Abi.macosArm64"
+    );
+    assert!(
+        replacement.contains("Abi.windowsX64"),
+        "must check Abi.windowsX64"
+    );
+    assert!(
+        replacement.contains("Abi.windowsArm64"),
+        "must check Abi.windowsArm64"
+    );
+
+    // Verify RID strings are correctly mapped.
+    assert!(
+        replacement.contains("'linux-x64'"),
+        "must map to linux-x64 RID"
+    );
+    assert!(
+        replacement.contains("'macos-x64'"),
+        "must map to macos-x64 RID"
+    );
+}
+
+#[test]
 fn fix_handler_executor_strips_orphaned_paren_sync_task() {
     // FRB 2.x generates code with orphaned closing paren before .executeSync()
     // Pattern: `),\n).executeSync();`

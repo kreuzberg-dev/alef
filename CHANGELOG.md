@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Dart external library loader arch detection regression**: The flutter_rust_bridge
+  external library loader template was using fragile `Platform.version` string parsing
+  to detect CPU architecture instead of the official `Abi.current()` API from `dart:ffi`.
+  Replaced with reliable `Abi.current()` checks for `Abi.linuxX64`, `Abi.linuxArm64`,
+  `Abi.macosX64`, `Abi.macosArm64`, `Abi.windowsX64`, and `Abi.windowsArm64`. This fixes
+  Dart test_app RID computation when searching for native libraries in pub.dev package
+  locations like `lib/src/native/<rid>/` and allows environment variable overrides
+  (`FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR`) to work reliably across platforms.
 - **homebrew e2e test_app version parameterization coverage**: Added unit tests to
   verify that `HomebrewCodegen` correctly substitutes the version into the generated
   `run_tests.sh` script, ensuring consumers regenerating their test_app via Alef
