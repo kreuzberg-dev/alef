@@ -287,17 +287,15 @@ fn gen_service_class_ts(
                 ));
             }
             EntrypointKind::Finalize => {
-                let base_ty = typescript_type_annotation(&ep.return_type);
-                // napi-rs exposes Rust `async fn` (or `tokio::spawn`-backed
-                // entrypoints) as JS functions that return `Promise<T>`. The
-                // TS wrapper signature must match the native function's actual
-                // return shape; declaring a bare `T` against a `Promise<T>`
-                // body fails TS2322.
-                let return_ty = if ep.is_async {
-                    format!("Promise<{base_ty}>")
-                } else {
-                    base_ty
-                };
+                // The Rust bridge for Finalize hardcodes its return type to
+                // `napi::Result<()>` (see `rust_glue::gen_run_function`'s
+                // Finalize arm) and is unconditionally declared `pub async
+                // fn`. So the JS-side function always returns
+                // `Promise<void>`. The IR's `ep.return_type` describes the
+                // *Rust* service method's return (e.g. `Router`) — using it
+                // here yields a TS signature that does not match the bridge
+                // and trips TS2322 at the `return native_fn(...)` site.
+                let return_ty = "Promise<void>".to_owned();
                 out.push_str(&render(
                     "service_ts_entrypoint_finalize.jinja",
                     context! {

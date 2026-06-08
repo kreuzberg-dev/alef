@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.38] - 2026-06-08
+
+### Fixed
+
+- **napi `Finalize` entrypoint TS return type now matches the Rust bridge**:
+  The Rust bridge for `EntrypointKind::Finalize` hardcodes its return type to
+  `napi::Result<()>` (see `rust_glue::gen_run_function`) and is
+  unconditionally declared `pub async fn`, so the JS-side function always
+  returns `Promise<void>`. The TS wrapper previously read
+  `EntrypointDef::return_type` from the IR — which describes the *Rust*
+  service method's return (e.g. `Router`) — and emitted a signature like
+  `into_router(): Router` (or whatever the IR mapped that named type to,
+  including `string` when fallthrough hit), tripping TS2322 *Type
+  'Promise<T>' is not assignable to type 'T'* at the `return native_fn(...)`
+  site. The wrapper now hardcodes `Promise<void>` for Finalize to match the
+  bridge contract until alef wires a DTO through the Finalize boundary.
+
 ## [0.23.37] - 2026-06-08
 
 ### Fixed
