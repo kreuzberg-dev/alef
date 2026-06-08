@@ -226,11 +226,11 @@ pub fn default_test_apps_run_config(
             before: None,
             run: Some(StringOrVec::Single(format!(
                 "cd {test_apps_dir}/zig && \
-                cat build.zig.zon | tr '\\n' ' ' | sed 's/}} *,/}}\\n/g' | \
+                cat build.zig.zon | tr '\\n' ' ' | sed 's/}}, */}}\\n/g' | \
                 while read block; do \
                   dep=$(echo \"$block\" | sed -n 's/.*\\.\\([a-z_0-9]*\\) *= *\\.{{.*/\\1/p'); \
                   url=$(echo \"$block\" | sed -n 's/.*\\.url *= *\"\\([^\"]*\\)\".*/\\1/p'); \
-                  [ -n \"$dep\" ] && [ -n \"$url\" ] && zig fetch --save=\"$dep\" \"$url\" 2>&1 | grep -v overwriting || true; \
+                  [ -n \"$dep\" ] && [ -n \"$url\" ] && zig fetch --save=\"$dep\" \"$url\" 2>&1 | grep -v 'overwriting' || true; \
                 done && \
                 zig build test"
             ))),

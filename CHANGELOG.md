@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **zig test_apps_run sed pattern regression**: The `zig fetch --save` command was
+  failing to extract dependency names and URLs from `build.zig.zon` because the sed
+  pattern was looking for `}} *,` (two braces) instead of `}, *` (single brace + comma)
+  between dependency blocks. This caused the pattern to match nothing, leaving `.hash`
+  fields missing, and `zig build test` would abort with "dependency is missing hash field".
+  Fixed by correcting the sed pattern to `s/}, */}\n/g` so dependency blocks are properly
+  split and `zig fetch --save=<dep_name> <url>` can populate hashes at test runtime.
 - **Dart external library loader arch detection regression**: The flutter_rust_bridge
   external library loader template was using fragile `Platform.version` string parsing
   to detect CPU architecture instead of the official `Abi.current()` API from `dart:ffi`.
