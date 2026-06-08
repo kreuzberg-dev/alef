@@ -12,8 +12,27 @@ use std::collections::HashSet;
 
 /// All recognised release target names.
 pub const ALL_RELEASE_TARGETS: &[&str] = &[
-    "python", "node", "ruby", "cli", "crates", "docker", "homebrew", "java", "csharp", "go", "wasm", "php", "elixir",
-    "r", "c-ffi", "dart", "swift", "gleam", "zig", "kotlin",
+    "python",
+    "node",
+    "ruby",
+    "cli",
+    "crates",
+    "docker",
+    "homebrew",
+    "java",
+    "csharp",
+    "go",
+    "wasm",
+    "php",
+    "elixir",
+    "r",
+    "c-ffi",
+    "dart",
+    "swift",
+    "gleam",
+    "zig",
+    "kotlin",
+    "kotlin-android",
 ];
 
 /// Computed release metadata.
@@ -259,6 +278,7 @@ fn normalise_target(t: &str) -> &str {
         "dart" | "flutter" | "pub" => "dart",
         "swift" | "spm" => "swift",
         "kotlin" | "kt" => "kotlin",
+        "kotlin-android" | "kotlin_android" | "android" | "kt-android" => "kotlin-android",
         other => other,
     }
 }
@@ -369,6 +389,11 @@ mod tests {
         assert_eq!(normalise_target("spm"), "swift");
         // kotlin aliases
         assert_eq!(normalise_target("kt"), "kotlin");
+        // kotlin-android aliases (separate target from kotlin/JVM; uses JNI native libs)
+        assert_eq!(normalise_target("kotlin-android"), "kotlin-android");
+        assert_eq!(normalise_target("kotlin_android"), "kotlin-android");
+        assert_eq!(normalise_target("android"), "kotlin-android");
+        assert_eq!(normalise_target("kt-android"), "kotlin-android");
     }
 
     #[test]
@@ -376,7 +401,7 @@ mod tests {
         let meta = compute("v1.0.0", "all", None, "release", false, false, None).unwrap();
         let json_str = meta.to_json().unwrap();
         let val: serde_json::Value = serde_json::from_str(&json_str).unwrap();
-        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+        for lang in ["dart", "swift", "gleam", "zig", "kotlin", "kotlin_android"] {
             let key = format!("release_{lang}");
             assert!(val[&key].as_bool().unwrap(), "expected {key}=true when --targets all");
         }
@@ -384,7 +409,7 @@ mod tests {
 
     #[test]
     fn new_languages_individually_selectable() {
-        for lang in ["dart", "swift", "gleam", "zig", "kotlin"] {
+        for lang in ["dart", "swift", "gleam", "zig", "kotlin", "kotlin-android"] {
             let meta = compute("v1.0.0", lang, None, "workflow_dispatch", false, false, None).unwrap();
             assert!(
                 meta.targets.get(lang).copied().unwrap_or(false),
