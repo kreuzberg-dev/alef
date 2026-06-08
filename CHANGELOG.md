@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **NAPI service preamble emits broken TypeScript imports**: The generated
+  `service.ts` produced `import type { JsObject, Method, RequestData, Response,
+  RouteBuilder, ServerConfig } from "./index"` plus an unconditional
+  `import { {service}_run } from "./index"`. Three bugs in
+  `backends/napi/gen_bindings/service_api/typescript.rs::gen_service_ts`:
+  (a) the import list was pre-seeded with `JsObject`, which is not exported by
+  the napi-rs runtime — every consumer hit TS2305; (b) wrapper types
+  (e.g. `RouteBuilder`) and Fixed-arg enum types (e.g. `Method`) were placed
+  in the type-only bucket but are used as values at runtime
+  (`new RouteBuilder(Method.Get, …)`) — TS1361; (c) the native bridge import
+  hardcoded the `_run` suffix even when the only non-excluded entrypoint was
+  `finalize`/`into_router`, producing dead imports and `Cannot find name
+  '{service}_into_router'` cascades. `gen_service_ts` now delegates to a new
+  `classify_service_imports` helper that splits names into three buckets
+  (`type_imports`, `value_imports`, `native_imports`), enumerates the actual
+  non-excluded entrypoints, and strips any name from `type_imports` that also
+  appears in `value_imports`. The `service_ts_preamble.jinja` template emits
+  one conditional line per bucket so empty buckets disappear cleanly. Covered
+  by four unit tests in `classify_service_imports_tests`.
+
 - **Swift inbound box protocol `Usize` return type mapping**: `swift_inbound_type` in `bridge_artifacts.rs` mapped both `Usize` and `Isize` primitives to `Int`, so protocols for Rust trait methods returning `usize` (e.g., `EmbeddingBackend::dimensions`) declared `func dimensions() -> Int` instead of `func dimensions() -> UInt`. Swift type-check failed in inbound bridge protocols. Fixed by mapping `Usize -> "UInt"`.
 
 - **NAPI trait bridge V8 lifetime issue**: NAPI-RS trait bridges were using `unsafe { transmute }` to extend JS object lifetimes to `'static`, causing V8 GC to finalize objects while references were still held. This led to "Cannot convert undefined or null to object" errors in plugin registry clear operations when GC ran between test files. Fixed by storing `napi::Reference<Object>` instead, which safely pins JS objects to the V8 heap across method calls. Constructor now takes `env: napi::Env` parameter for Reference creation. Method bodies use `.borrow()` to access the referenced JS object.

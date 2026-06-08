@@ -1,6 +1,11 @@
 // Auto-generated service API class
 
+{% if type_imports %}
 import type { {{ type_imports }} } from "./index";
-{% if native_import %}
-import { {{ native_import }} } from "./index";
+{% endif %}
+{% if value_imports %}
+import { {{ value_imports }} } from "./index";
+{% endif %}
+{% if native_imports %}
+import { {{ native_imports }} } from "./index";
 {% endif %}

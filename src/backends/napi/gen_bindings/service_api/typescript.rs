@@ -7,6 +7,105 @@ use crate::core::ir::{ApiSurface, EntrypointKind, RegistrationDef, ServiceDef, T
 
 use super::helpers::typescript_type_annotation;
 
+/// Classified import lists for the generated TypeScript service preamble.
+///
+/// Names referenced only in type position (handler DTOs, constructor/
+/// configurator parameter types, registration signature parameter types) go
+/// into `type_imports` — emitted as `import type { … }`. Names referenced at
+/// runtime — wrapper constructors (`new RouteBuilder(…)`) and enum types whose
+/// variants are reached via member access in registration variant bodies
+/// (`Method.Get`) — go into `value_imports`, emitted as a plain
+/// `import { … }`. The native bridge function names are split into a third
+/// list so the line is omitted entirely when every entrypoint is excluded
+/// from the binding surface.
+struct ServiceImports {
+    type_imports: Vec<String>,
+    value_imports: Vec<String>,
+    native_imports: Vec<String>,
+}
+
+fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> ServiceImports {
+    let mut type_imports: Vec<String> = Vec::new();
+    let mut value_imports: Vec<String> = Vec::new();
+    let mut native_imports: Vec<String> = Vec::new();
+
+    for contract in &api.handler_contracts {
+        if let Some(req_ty) = &contract.wire_request_type {
+            type_imports.push(req_ty.clone());
+        }
+        if let Some(resp_ty) = &contract.wire_response_type {
+            type_imports.push(resp_ty.clone());
+        }
+    }
+
+    if let Some(service) = api.services.first() {
+        for param in &service.constructor.params {
+            if let TypeRef::Named(name) = &param.ty {
+                type_imports.push(name.clone());
+            }
+        }
+        for method in &service.configurators {
+            for param in &method.params {
+                if let TypeRef::Named(name) = &param.ty {
+                    type_imports.push(name.clone());
+                }
+            }
+        }
+
+        for reg in &service.registrations {
+            for variant in &reg.variants {
+                if let Some(wrapper_call) = &variant.wrapper_call {
+                    value_imports.push(wrapper_call.wrapper_type_name.clone());
+                    for arg in &wrapper_call.args {
+                        if let crate::core::ir::WrapperConstructorArg::Fixed {
+                            param_name: _,
+                            value_expr,
+                        } = arg
+                        {
+                            // "mycrate::Method::Get" → second-to-last segment is the type name.
+                            let parts: Vec<&str> = value_expr.split("::").collect();
+                            if parts.len() >= 2 {
+                                value_imports.push(parts[parts.len() - 2].to_string());
+                            }
+                        }
+                    }
+                }
+                for param in &variant.signature_params {
+                    if let TypeRef::Named(name) = &param.ty {
+                        type_imports.push(name.clone());
+                    }
+                }
+            }
+        }
+
+        let service_name = &service.name;
+        for ep in &service.entrypoints {
+            let method_key = format!("{}.{}", service_name, ep.method);
+            if !config.exclude.methods.contains(&method_key) {
+                native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method));
+            }
+        }
+    }
+
+    type_imports.sort();
+    type_imports.dedup();
+    value_imports.sort();
+    value_imports.dedup();
+    native_imports.sort();
+    native_imports.dedup();
+
+    // A name that is referenced as a value must not also appear in
+    // `import type { … }` — TypeScript would otherwise flag it unused or the
+    // value import would shadow the type import in the type-only namespace.
+    type_imports.retain(|name| !value_imports.contains(name));
+
+    ServiceImports {
+        type_imports,
+        value_imports,
+        native_imports,
+    }
+}
+
 pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
     api: &ApiSurface,
     native_module: &str,
@@ -14,92 +113,15 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
 ) -> String {
     let mut out = String::new();
 
-    // Build type imports for the preamble template
-    let mut imports = vec!["JsObject".to_owned()];
-    for contract in &api.handler_contracts {
-        // We'll import the wire DTO types for type annotations
-        if let Some(req_ty) = &contract.wire_request_type {
-            imports.push(req_ty.clone());
-        }
-        if let Some(resp_ty) = &contract.wire_response_type {
-            imports.push(resp_ty.clone());
-        }
-    }
-    // Add service constructor and configurator param types
-    if let Some(service) = api.services.first() {
-        for param in &service.constructor.params {
-            if let TypeRef::Named(name) = &param.ty {
-                imports.push(name.clone());
-            }
-        }
-        for method in &service.configurators {
-            for param in &method.params {
-                if let TypeRef::Named(name) = &param.ty {
-                    imports.push(name.clone());
-                }
-            }
-        }
-        // Add registration variant wrapper types, metadata param types, and fixed enum types
-        for reg in &service.registrations {
-            for variant in &reg.variants {
-                if let Some(wrapper_call) = &variant.wrapper_call {
-                    imports.push(wrapper_call.wrapper_type_name.clone());
-                    // Extract enum types from Fixed args (e.g., "mycrate::Method::Get" → "Method")
-                    for arg in &wrapper_call.args {
-                        if let crate::core::ir::WrapperConstructorArg::Fixed {
-                            param_name: _,
-                            value_expr,
-                        } = arg
-                        {
-                            // Split on :: and take the second-to-last part (the type name).
-                            // "mycrate::Method::Get" → ["mycrate", "Method", "Get"] → "Method"
-                            let parts: Vec<&str> = value_expr.split("::").collect();
-                            if parts.len() >= 2 {
-                                imports.push(parts[parts.len() - 2].to_string());
-                            }
-                        }
-                    }
-                }
-                for param in &variant.signature_params {
-                    if let TypeRef::Named(name) = &param.ty {
-                        imports.push(name.clone());
-                    }
-                }
-            }
-        }
-    }
-    // Remove duplicates
-    imports.sort();
-    imports.dedup();
-
-    let type_imports = imports.join(", ");
-
-    // Only import the native function if the entrypoint method is not excluded.
-    // Check if any entrypoint (typically `run`) is excluded for this service.
-    let service_name = &api.services[0].name;
-    let has_non_excluded_entrypoint = api.services[0].entrypoints.iter().any(|ep| {
-        let method_key = format!("{}.{}", service_name, ep.method);
-        !config.exclude.methods.contains(&method_key)
-    });
-
-    if has_non_excluded_entrypoint {
-        let native_import = format!("{}_run", service_name.to_snake_case());
-        out.push_str(&render(
-            "service_ts_preamble.jinja",
-            context! {
-                type_imports,
-                native_import,
-            },
-        ));
-    } else {
-        out.push_str(&render(
-            "service_ts_preamble.jinja",
-            context! {
-                type_imports,
-                native_import => "",
-            },
-        ));
-    }
+    let imports = classify_service_imports(api, config);
+    out.push_str(&render(
+        "service_ts_preamble.jinja",
+        context! {
+            type_imports => imports.type_imports.join(", "),
+            value_imports => imports.value_imports.join(", "),
+            native_imports => imports.native_imports.join(", "),
+        },
+    ));
 
     for service in &api.services {
         gen_service_class_ts(&mut out, service, api, native_module, config);
@@ -575,4 +597,199 @@ fn emit_variant_hybrid_overloaded(
             metadata_array,
         },
     ));
+}
+
+#[cfg(test)]
+mod classify_service_imports_tests {
+    use super::{ServiceImports, classify_service_imports};
+    use crate::core::config::resolved::ResolvedCrateConfig;
+    use crate::core::ir::{
+        ApiSurface, EntrypointDef, EntrypointKind, HandlerContractDef, MethodDef, ParamDef, RegistrationDef,
+        RegistrationVariant, RegistrationVariantStyle, ServiceDef, TypeRef, WrapperConstructorArg,
+        WrapperConstructorCall,
+    };
+
+    fn named_param(name: &str, type_name: &str) -> ParamDef {
+        ParamDef {
+            name: name.to_owned(),
+            ty: TypeRef::Named(type_name.to_owned()),
+            ..ParamDef::default()
+        }
+    }
+
+    fn empty_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_owned(),
+            params: Vec::new(),
+            return_type: TypeRef::Unit,
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }
+    }
+
+    fn handler_contract(req: &str, resp: &str) -> HandlerContractDef {
+        HandlerContractDef {
+            trait_name: "Handler".to_owned(),
+            rust_path: "test::Handler".to_owned(),
+            dispatch: empty_method("dispatch"),
+            optional_methods: Vec::new(),
+            wire_request_type: Some(req.to_owned()),
+            wire_response_type: Some(resp.to_owned()),
+            dispatch_extra_params: Vec::new(),
+            wire_param_name: None,
+            dispatch_return_type: None,
+            response_adapter: None,
+            doc: String::new(),
+        }
+    }
+
+    fn route_variant() -> RegistrationVariant {
+        RegistrationVariant {
+            name: "get".to_owned(),
+            overrides: Vec::new(),
+            wrapper_call: Some(WrapperConstructorCall {
+                metadata_param: "builder".to_owned(),
+                wrapper_type_path: "test::RouteBuilder".to_owned(),
+                wrapper_type_name: "RouteBuilder".to_owned(),
+                constructor_method: "new".to_owned(),
+                args: vec![
+                    WrapperConstructorArg::Fixed {
+                        param_name: "method".to_owned(),
+                        value_expr: "test::Method::Get".to_owned(),
+                    },
+                    WrapperConstructorArg::Free {
+                        param: named_param("path", "Path"),
+                    },
+                ],
+            }),
+            signature_params: vec![named_param("path", "Path")],
+            doc: None,
+            style: RegistrationVariantStyle::Hybrid,
+        }
+    }
+
+    fn fixture_surface() -> ApiSurface {
+        let service = ServiceDef {
+            name: "App".to_owned(),
+            rust_path: "test::App".to_owned(),
+            constructor: MethodDef {
+                params: vec![named_param("config", "ServerConfig")],
+                ..empty_method("new")
+            },
+            configurators: Vec::new(),
+            registrations: vec![RegistrationDef {
+                method: "route".to_owned(),
+                callback_param: "handler".to_owned(),
+                callback_contract: "Handler".to_owned(),
+                metadata_params: vec![named_param("builder", "RouteBuilder")],
+                receiver: None,
+                return_type: TypeRef::Unit,
+                error_type: None,
+                doc: String::new(),
+                variants: vec![route_variant()],
+            }],
+            entrypoints: vec![
+                EntrypointDef {
+                    method: "run".to_owned(),
+                    kind: EntrypointKind::Run,
+                    is_async: true,
+                    params: Vec::new(),
+                    return_type: TypeRef::Unit,
+                    error_type: None,
+                    doc: String::new(),
+                },
+                EntrypointDef {
+                    method: "into_router".to_owned(),
+                    kind: EntrypointKind::Finalize,
+                    is_async: false,
+                    params: Vec::new(),
+                    return_type: TypeRef::Named("Router".to_owned()),
+                    error_type: None,
+                    doc: String::new(),
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+        };
+        ApiSurface {
+            crate_name: "test".to_owned(),
+            version: "0.0.0".to_owned(),
+            handler_contracts: vec![handler_contract("RequestData", "Response")],
+            services: vec![service],
+            ..ApiSurface::default()
+        }
+    }
+
+    #[test]
+    fn classifies_wrappers_and_fixed_enums_as_value_imports() {
+        let api = fixture_surface();
+        let config = ResolvedCrateConfig::default();
+
+        let ServiceImports {
+            type_imports,
+            value_imports,
+            native_imports,
+        } = classify_service_imports(&api, &config);
+
+        assert_eq!(value_imports, vec!["Method", "RouteBuilder"]);
+        assert_eq!(
+            type_imports,
+            vec![
+                "Path".to_owned(),
+                "RequestData".to_owned(),
+                "Response".to_owned(),
+                "ServerConfig".to_owned(),
+            ]
+        );
+        assert_eq!(native_imports, vec!["app_into_router", "app_run"]);
+    }
+
+    #[test]
+    fn excludes_native_import_when_entrypoint_method_is_excluded() {
+        let api = fixture_surface();
+        let mut config = ResolvedCrateConfig::default();
+        config.exclude.methods.push("App.run".to_owned());
+
+        let imports = classify_service_imports(&api, &config);
+
+        assert_eq!(imports.native_imports, vec!["app_into_router"]);
+    }
+
+    #[test]
+    fn empty_native_imports_when_all_entrypoints_excluded() {
+        let api = fixture_surface();
+        let mut config = ResolvedCrateConfig::default();
+        config.exclude.methods.push("App.run".to_owned());
+        config.exclude.methods.push("App.into_router".to_owned());
+
+        let imports = classify_service_imports(&api, &config);
+
+        assert!(imports.native_imports.is_empty());
+    }
+
+    #[test]
+    fn does_not_pre_seed_jsobject() {
+        let api = fixture_surface();
+        let imports = classify_service_imports(&api, &ResolvedCrateConfig::default());
+
+        assert!(
+            !imports.type_imports.iter().any(|n| n == "JsObject"),
+            "JsObject must not appear in type imports — it is not exported by the napi-rs runtime"
+        );
+        assert!(
+            !imports.value_imports.iter().any(|n| n == "JsObject"),
+            "JsObject must not appear in value imports either"
+        );
+    }
 }
