@@ -1752,3 +1752,84 @@ type = "CrawlStreamRequest"
         "deinit() must call the _free FFI function: {content}"
     );
 }
+
+#[test]
+fn named_json_return_guards_against_null_to_json_pointer() {
+    // Regression: `<prefix>_<snake>_to_json` is allowed to return NULL when
+    // serialisation fails (e.g., a result contains a field the FFI layer can't
+    // represent). The previous template called `std.mem.sliceTo(_json_ptr, 0)`
+    // unconditionally and panicked with `reached unreachable code` on the
+    // `ptr != null` assert deep in std.mem.lenSliceTo, crashing the test
+    // process. The fix returns `error.SerializationFailed` when the pointer
+    // is NULL so callers see an error instead of an ABRT.
+    let result_type = TypeDef {
+        name: "ExtractionResult".into(),
+        rust_path: "demo::ExtractionResult".into(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("content", TypeRef::String, false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        doc: String::new(),
+        cfg: None,
+        is_trait: false,
+        has_default: false,
+        has_stripped_cfg_fields: false,
+        is_return_type: true,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![result_type],
+        functions: vec![FunctionDef {
+            name: "extract".into(),
+            rust_path: "demo::extract".into(),
+            original_rust_path: String::new(),
+            params: vec![make_param("path", TypeRef::String)],
+            return_type: TypeRef::Named("ExtractionResult".into()),
+            is_async: false,
+            error_type: Some("Error".into()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let files = ZigBackend.generate_bindings(&api, &make_config()).unwrap();
+    let content = &files[0].content;
+    assert!(
+        content.contains("if (_json_ptr == null) return error.SerializationFailed;"),
+        "named struct return must guard against NULL to_json pointer: {content}"
+    );
+    // And the slice/dupe must come AFTER the guard, never before.
+    let guard_pos = content
+        .find("if (_json_ptr == null) return error.SerializationFailed;")
+        .expect("guard line present");
+    let slice_pos = content
+        .find("std.mem.sliceTo(_json_ptr, 0)")
+        .expect("slice line present");
+    assert!(
+        guard_pos < slice_pos,
+        "null-guard must precede sliceTo so the assertion never fires"
+    );
+}
