@@ -74,6 +74,15 @@ pub fn prepare(
                     )?;
                     eprintln!("  vendored to {}", result.vendor_dir.display());
                 }
+                // CoreOnly vendors the core crate's sources alongside the binding,
+                // but the BINDING crate's Cargo.toml still references workspace
+                // members via `path = "..."` — those paths only resolve in-workspace
+                // and break the gem/hex build on a consumer machine. Apply the same
+                // binding-manifest rewrite that Registry mode does so the published
+                // package compiles standalone. The vendored core sources remain
+                // available for users who want to build from local source, while
+                // cargo falls back to the registry version for normal installs.
+                rewrite_binding_path_deps(config, lang, require_registry, dry_run)?;
             }
             VendorMode::Full => {
                 let core_crate_dir = resolve_core_crate_dir(config);
@@ -92,56 +101,7 @@ pub fn prepare(
                 }
             }
             VendorMode::Registry => {
-                // Rewrite the shipped binding manifest's workspace-member path
-                // deps to registry version-deps so the crate builds from source
-                // on the consumer's machine (no workspace present).
-                match resolve_binding_manifest(config, lang) {
-                    Some(manifest) => {
-                        let workspace_root = resolve_workspace_root(config);
-                        let ws_root = Path::new(&workspace_root);
-                        let manifest_abs = if manifest.is_absolute() {
-                            manifest.clone()
-                        } else {
-                            ws_root.join(&manifest)
-                        };
-
-                        if !manifest_abs.exists() {
-                            eprintln!(
-                                "Skipping Registry rewrite for {lang}: binding manifest not found at {}",
-                                manifest_abs.display()
-                            );
-                        } else {
-                            let members = workspace::workspace_member_crates(ws_root)?;
-                            let version = config
-                                .resolved_version()
-                                .context("cannot resolve crate version for Registry vendor mode")?;
-                            if dry_run {
-                                eprintln!(
-                                    "[dry-run] Would rewrite workspace-member path deps to registry \
-                                     version-deps (v{version}) in {} for {lang}",
-                                    manifest_abs.display()
-                                );
-                            } else {
-                                eprintln!(
-                                    "Rewriting workspace-member path deps to registry version-deps \
-                                     (v{version}) in {} for {lang}...",
-                                    manifest_abs.display()
-                                );
-                                vendor::rewrite_path_deps_to_registry(&manifest_abs, &members, &version)?;
-                                if let Some(manifest_dir) = manifest_abs.parent() {
-                                    // In require_registry (CI/release) mode, regenerate the
-                                    // lock and fail hard if a member version is not yet on the
-                                    // registry. Otherwise, delete the lock (lenient default).
-                                    vendor::scrub_or_regenerate_lock(manifest_dir, require_registry, require_registry)?;
-                                }
-                                eprintln!("  rewrote {}", manifest_abs.display());
-                            }
-                        }
-                    }
-                    None => {
-                        eprintln!("Skipping Registry rewrite for {lang}: no shipped binding manifest");
-                    }
-                }
+                rewrite_binding_path_deps(config, lang, require_registry, dry_run)?;
             }
             VendorMode::None => {}
         }
@@ -592,6 +552,68 @@ fn resolve_workspace_root(config: &ResolvedCrateConfig) -> String {
         .as_ref()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|| ".".to_string())
+}
+
+/// Rewrite the shipped binding manifest's workspace-member path deps to
+/// registry version-deps so the crate builds standalone on a consumer machine
+/// (no workspace present). Shared by both `VendorMode::Registry` and
+/// `VendorMode::CoreOnly` — CoreOnly vendors core sources alongside the
+/// binding but the binding manifest still references workspace members via
+/// `path = "..."`, which only resolves in-workspace.
+fn rewrite_binding_path_deps(
+    config: &ResolvedCrateConfig,
+    lang: Language,
+    require_registry: bool,
+    dry_run: bool,
+) -> Result<()> {
+    let Some(manifest) = resolve_binding_manifest(config, lang) else {
+        eprintln!("Skipping path-dep rewrite for {lang}: no shipped binding manifest");
+        return Ok(());
+    };
+
+    let workspace_root = resolve_workspace_root(config);
+    let ws_root = Path::new(&workspace_root);
+    let manifest_abs = if manifest.is_absolute() {
+        manifest
+    } else {
+        ws_root.join(&manifest)
+    };
+
+    if !manifest_abs.exists() {
+        eprintln!(
+            "Skipping path-dep rewrite for {lang}: binding manifest not found at {}",
+            manifest_abs.display()
+        );
+        return Ok(());
+    }
+
+    let members = workspace::workspace_member_crates(ws_root)?;
+    let version = config
+        .resolved_version()
+        .context("cannot resolve crate version for path-dep rewrite")?;
+    if dry_run {
+        eprintln!(
+            "[dry-run] Would rewrite workspace-member path deps to registry \
+             version-deps (v{version}) in {} for {lang}",
+            manifest_abs.display()
+        );
+        return Ok(());
+    }
+
+    eprintln!(
+        "Rewriting workspace-member path deps to registry version-deps \
+         (v{version}) in {} for {lang}...",
+        manifest_abs.display()
+    );
+    vendor::rewrite_path_deps_to_registry(&manifest_abs, &members, &version)?;
+    if let Some(manifest_dir) = manifest_abs.parent() {
+        // In require_registry (CI/release) mode, regenerate the lock and fail
+        // hard if a member version is not yet on the registry. Otherwise,
+        // delete the lock (lenient default).
+        vendor::scrub_or_regenerate_lock(manifest_dir, require_registry, require_registry)?;
+    }
+    eprintln!("  rewrote {}", manifest_abs.display());
+    Ok(())
 }
 
 /// Resolve the path of the binding `Cargo.toml` that SHIPS for a source-build

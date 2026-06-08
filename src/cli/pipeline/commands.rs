@@ -549,9 +549,13 @@ enum TestAppOutcome {
 /// kills + reaps the process so no orphan listener survives the run.
 struct MockServerHandle {
     child: std::process::Child,
-    /// Env vars to inject into every test-app `run` command: always
-    /// `MOCK_SERVER_URL`, plus `MOCK_SERVERS` when the server printed it.
-    env_vars: Vec<(&'static str, String)>,
+    /// Env vars to inject into every test-app `run` command:
+    /// - `MOCK_SERVER_URL` (always)
+    /// - `MOCK_SERVERS` JSON map (when the server printed it)
+    /// - `MOCK_SERVER_<FIXTURE_ID_UPPER>` per host-root fixture (derived from
+    ///   the `MOCK_SERVERS` JSON), so generated shell-based test scripts can
+    ///   reference per-fixture URLs without parsing JSON themselves.
+    env_vars: Vec<(String, String)>,
 }
 
 impl Drop for MockServerHandle {
@@ -697,9 +701,30 @@ fn start_mock_server(config: &ResolvedCrateConfig) -> anyhow::Result<Option<Mock
         }
     });
 
-    let mut env_vars: Vec<(&'static str, String)> = vec![("MOCK_SERVER_URL", url)];
+    let mut env_vars: Vec<(String, String)> = vec![("MOCK_SERVER_URL".to_string(), url)];
     if let Some(servers) = servers {
-        env_vars.push(("MOCK_SERVERS", servers));
+        // Derive one MOCK_SERVER_<FIXTURE_ID_UPPER>=<url> env var per entry in
+        // the JSON map. Generated shell-based test scripts (brew, others) read
+        // these directly instead of parsing JSON. Falls back to MOCK_SERVERS-only
+        // export on parse failure so we never silently break existing harnesses.
+        match serde_json::from_str::<std::collections::HashMap<String, String>>(&servers) {
+            Ok(map) => {
+                for (fixture_id, server_url) in &map {
+                    env_vars.push((
+                        format!("MOCK_SERVER_{}", fixture_id.to_ascii_uppercase()),
+                        server_url.clone(),
+                    ));
+                }
+            }
+            Err(e) => {
+                warn!(
+                    "Failed to parse MOCK_SERVERS JSON for per-fixture env-var derivation: {e}. \
+                     Shell-based test apps that expect MOCK_SERVER_<FIXTURE_ID> will fall back to \
+                     MOCK_SERVER_URL."
+                );
+            }
+        }
+        env_vars.push(("MOCK_SERVERS".to_string(), servers));
     }
 
     Ok(Some(MockServerHandle { child, env_vars }))
@@ -731,10 +756,7 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
     // failure aborts the whole run with a clear error rather than letting every
     // harness fail with "connection refused".
     let server = start_mock_server(config).context("failed to start e2e mock-server for test apps")?;
-    let server_env: Vec<(&str, String)> = server
-        .as_ref()
-        .map(|h| h.env_vars.iter().map(|(k, v)| (*k, v.clone())).collect())
-        .unwrap_or_default();
+    let server_env: Vec<(String, String)> = server.as_ref().map(|h| h.env_vars.clone()).unwrap_or_default();
     // Plain, overwrite-style export prefix for the server env vars. Do NOT use
     // `run_command_streamed_with_env` here: it appends PATH-style
     // (`export VAR='val'"${VAR:+:$VAR}"`), which corrupts a plain value like
