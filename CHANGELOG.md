@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Python e2e generator emits `EnumType("variant")` constructor for enum-typed
+  kwargs** instead of `EnumType.VARIANT_UPPER` attribute access. The previous
+  emission only worked for unit enums alef projects as `(str, Enum)` subclasses
+  in `options.py`. Tagged-union enums emitted as `#[pyclass]` structs in the
+  native module (e.g. `OutputFormat`) expose no class-level variant constants —
+  attribute access raised `AttributeError: type object 'OutputFormat' has no
+  attribute 'MARKDOWN'` at runtime. The new constructor-call form resolves in
+  both representations: `(str, Enum)` lookup-by-value returns the canonical
+  variant, and `#[pyclass]` structs route the string through their serde-backed
+  constructor. **Why:** kreuzberg rc.7 e2e Python suite failed every
+  `OutputFormat`-bearing fixture. The 0.23.35 changelog claimed this fix; the
+  code change was never landed.
+- **Kotlin Android e2e batch arguments wrap path strings in the configured
+  `element_type` constructor** when the binding is Kotlin Android. Commit
+  `fb4439df7` removed the wrap as part of a JVM-side string-array fix, leaving
+  the Android batch path emitting `listOf("path1.pdf", "path2.pdf")` instead of
+  `listOf(FileBytesItem(Files.readAllBytes(...), "application/octet-stream"),
+  ...)`. The Android binding's batch entry points take typed item lists, not
+  raw paths, so generated tests failed to compile. The JVM path keeps the raw
+  `listOf(literals)` form because JVM bindings use the JSON literal shape
+  directly.
+- **`functions/tests.rs` clippy module-inception**: removed the redundant inner
+  `mod tests { ... }` wrapper. The file is already auto-loaded as
+  `functions::tests` by the parent `#[cfg(test)] mod tests;` declaration, so
+  the inner wrapper produced the `functions::tests::tests` path that clippy
+  flagged. Tests now live at the file level.
+- **NAPI configurator test asserts the underscore-prefixed param form** that
+  0.23.37 introduced. Configurators are no-op chain methods, so their params
+  are intentionally prefixed `_` to silence unused-param warnings. The test
+  assertion was not updated alongside 0.23.37, leaving alef CI red.
+
 ## [0.23.40] - 2026-06-08
 
 ### Fixed

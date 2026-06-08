@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt::Write as FmtWrite;
 
-use heck::{ToShoutySnakeCase, ToSnakeCase};
+use heck::ToSnakeCase;
 
 use crate::e2e::codegen::resolve_field;
 use crate::e2e::config::E2eConfig;
@@ -985,18 +985,21 @@ fn emit_json_object_arg(
                         let py_val = if let Some(enum_type) = enum_fields.get(k) {
                             // Explicit override: use the configured enum type
                             if let Some(s) = v.as_str() {
-                                let upper_val = s.to_shouty_snake_case();
-                                format!("{enum_type}.{upper_val}")
+                                format!("{enum_type}(\"{s}\")")
                             } else {
                                 json_to_python_literal(v)
                             }
                         } else if let Some(auto_enum_type) =
                             resolve_field_enum_type(k, Some(opts_type), type_defs, enums)
                         {
-                            // Auto-detect: if field type is an enum, emit as EnumType.VARIANT
+                            // Auto-detect: if field type is an enum, emit as EnumType("variant").
+                            // Constructor-call form works for both (str, Enum) subclasses (where
+                            // lookup-by-value resolves to the canonical variant) and #[pyclass]
+                            // tagged-union structs (which expose a serde-backed constructor).
+                            // Attribute access (EnumType.VARIANT) fails for pyclass-emitted
+                            // enums because they have no class-level variant constants.
                             if let Some(s) = v.as_str() {
-                                let upper_val = s.to_shouty_snake_case();
-                                format!("{auto_enum_type}.{upper_val}")
+                                format!("{auto_enum_type}(\"{s}\")")
                             } else {
                                 json_to_python_literal(v)
                             }
@@ -1138,6 +1141,65 @@ mod tests {
         let value = serde_json::Value::String("/9j/4AAQ".to_string());
         emit_bytes_arg(&mut bindings, &mut exprs, &value, "data");
         assert!(bindings[0].contains("b64decode"), "got: {:?}", bindings[0]);
+    }
+
+    #[test]
+    fn emit_json_object_arg_enum_field_emits_constructor_call() {
+        use crate::core::ir::{EnumDef, EnumVariant, FieldDef, TypeDef, TypeRef};
+
+        let enum_def = EnumDef {
+            name: "OutputFormat".to_string(),
+            rust_path: "demo::OutputFormat".to_string(),
+            variants: vec![EnumVariant {
+                name: "Markdown".to_string(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let type_def = TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "demo::ExtractionConfig".to_string(),
+            fields: vec![FieldDef {
+                name: "output_format".to_string(),
+                ty: TypeRef::Named("OutputFormat".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let enums = vec![enum_def];
+        let type_defs = vec![type_def];
+
+        let mut bindings = Vec::new();
+        let mut exprs = Vec::new();
+        let value = serde_json::json!({"output_format": "markdown"});
+        let done = emit_json_object_arg(
+            &mut bindings,
+            &mut exprs,
+            &value,
+            "opts",
+            Some("ExtractionConfig"),
+            "kwargs",
+            &HashMap::new(),
+            &None,
+            &type_defs,
+            &enums,
+        );
+        assert!(done);
+        // Constructor-call form works for both (str, Enum) subclasses and #[pyclass] tagged-union
+        // structs. Attribute access (OutputFormat.MARKDOWN) fails for the latter because they have
+        // no class-level variant constants.
+        assert!(
+            bindings[0].contains("OutputFormat(\"markdown\")"),
+            "expected constructor-call emission, got: {:?}",
+            bindings[0]
+        );
+        assert!(
+            !bindings[0].contains("OutputFormat.MARKDOWN"),
+            "must not emit attribute access, got: {:?}",
+            bindings[0]
+        );
     }
 
     #[test]

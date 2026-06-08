@@ -213,11 +213,34 @@ pub(super) fn build_args_and_setup(
                 parts.push(default_val);
             }
             Some(v) => {
-                // Typed arrays carry `element_type` and are materialised as a
-                // plain `listOf(...)` of the JSON literals.
+                // Typed arrays carry `element_type` and are materialised as `listOf(...)`.
+                // For kotlin_android batch APIs the element type is a binding class
+                // (e.g. FileBytesItem) that wraps file bytes + content type, so string
+                // path entries must be read into ByteArray and wrapped in a constructor call.
+                // For JVM bindings the element type matches the JSON literal shape, so we emit
+                // the raw `listOf(literals)` form.
                 if arg.arg_type == "json_object" && v.is_array() && arg.element_type.is_some() {
-                    // For typed arrays, just convert to listOf(elements) without special file handling.
-                    // The element_type in the config indicates the element type name, not a special constructor.
+                    if let Some(element_type) = arg.element_type.as_deref().filter(|_| kotlin_android_style) {
+                        let items: Vec<String> = v
+                            .as_array()
+                            .map(|arr| {
+                                arr.iter()
+                                    .map(|item| {
+                                        if let Some(path) = item.as_str() {
+                                            format!(
+                                                "{element_type}(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(\"{}\")), \"application/octet-stream\")",
+                                                escape_kotlin(path)
+                                            )
+                                        } else {
+                                            super::values::json_to_kotlin(item)
+                                        }
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        parts.push(format!("listOf({})", items.join(", ")));
+                        continue;
+                    }
                     let items: Vec<String> = v
                         .as_array()
                         .map(|arr| arr.iter().map(super::values::json_to_kotlin).collect())

@@ -203,8 +203,8 @@ fn typescript_output_contains_configurator() {
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
     assert!(
-        output.contains("with_timeout(timeout_ms: number)"),
-        "expected `with_timeout` configurator:\n{output}"
+        output.contains("with_timeout(_timeout_ms: number)"),
+        "expected `with_timeout` configurator (param prefixed with _ because configurators are no-op chain methods):\n{output}"
     );
     assert!(
         output.contains("return this;"),
