@@ -86,6 +86,7 @@ fn simple_type() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -105,6 +106,7 @@ fn simple_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Gpu".into(),
@@ -116,6 +118,7 @@ fn simple_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -128,6 +131,7 @@ fn simple_enum() -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -199,6 +203,7 @@ fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     });
     let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
     assert!(
@@ -224,6 +229,7 @@ fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     });
     let result = gen_enum_from_binding_to_core(&enum_def, "my_crate");
     assert!(
@@ -269,6 +275,7 @@ fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     });
     // Unit-only binding (default config has binding_enums_have_data=false).
     let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
@@ -318,6 +325,7 @@ fn untagged_tuple_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Parts".into(),
@@ -348,6 +356,7 @@ fn untagged_tuple_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -360,6 +369,7 @@ fn untagged_tuple_enum() -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -695,6 +705,7 @@ fn arc_field_type(field: FieldDef) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 

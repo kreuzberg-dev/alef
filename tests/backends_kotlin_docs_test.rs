@@ -53,6 +53,7 @@ fn test_kdoc_emitted_for_function() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],

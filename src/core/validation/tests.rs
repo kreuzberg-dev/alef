@@ -24,6 +24,7 @@ fn function_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Func
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -68,6 +69,7 @@ fn method_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Method
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

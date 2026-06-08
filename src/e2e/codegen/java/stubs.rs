@@ -427,6 +427,7 @@ mod test_backend_tests {
             has_default_impl: !required,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }
     }
 
@@ -516,6 +517,7 @@ mod test_backend_tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let methods = [&method];
@@ -604,6 +606,7 @@ mod test_backend_tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let methods = [&method];

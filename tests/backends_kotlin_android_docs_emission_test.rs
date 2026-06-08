@@ -104,6 +104,7 @@ fn data_class_field_carries_kdoc() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -149,6 +150,7 @@ fn enum_variants_carry_kdoc() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Accurate".into(),
@@ -160,6 +162,7 @@ fn enum_variants_carry_kdoc() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Execution mode.".into(),
@@ -172,6 +175,7 @@ fn enum_variants_carry_kdoc() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -235,6 +239,7 @@ fn module_free_function_facade_carries_kdoc() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -306,6 +311,7 @@ fn error_type_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "is_transient".into(),
@@ -324,6 +330,7 @@ fn error_type_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "error_type".into(),
@@ -342,6 +349,7 @@ fn error_type_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
             ],
             binding_excluded: false,

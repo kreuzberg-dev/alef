@@ -734,6 +734,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 })
                 .collect(),
             doc: String::new(),
@@ -746,6 +747,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }
     }
 
@@ -837,6 +839,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             originally_had_data_fields: false,
+            version: Default::default(),
         };
 
         EnumDef {
@@ -857,6 +860,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }
     }
 
@@ -956,6 +960,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -967,6 +972,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -979,6 +985,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         };
 
         let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -1033,6 +1040,7 @@ mod tests {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -1044,6 +1052,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         };
 
         let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -1097,6 +1106,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -1108,6 +1118,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         };
 
         let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");

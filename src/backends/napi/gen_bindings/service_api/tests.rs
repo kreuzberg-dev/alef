@@ -35,6 +35,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let configurator = MethodDef {
@@ -60,6 +61,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -139,6 +141,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let contract = HandlerContractDef {

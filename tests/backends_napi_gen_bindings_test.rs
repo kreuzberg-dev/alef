@@ -108,6 +108,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "extract_file".to_string(),
@@ -161,6 +162,7 @@ fn test_basic_generation() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "Mode".to_string(),
@@ -177,6 +179,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Accurate".to_string(),
@@ -188,6 +191,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Processing mode".to_string(),
@@ -200,6 +204,7 @@ fn test_basic_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -286,6 +291,7 @@ fn test_bytes_struct_fields_use_jsbytes_and_modern_ts_types() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -349,6 +355,7 @@ fn dts_preserves_native_argument_order_for_defaultable_config_param() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "process_document".to_string(),
@@ -419,6 +426,7 @@ fn dts_preserves_native_argument_order_for_defaultable_config_param() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -476,6 +484,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "Config".to_string(),
@@ -499,6 +508,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![FunctionDef {
@@ -518,6 +528,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![
             EnumDef {
@@ -534,6 +545,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 }],
                 doc: String::new(),
                 cfg: None,
@@ -545,6 +557,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             },
             EnumDef {
                 name: "Payload".to_string(),
@@ -560,6 +573,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 }],
                 doc: String::new(),
                 cfg: None,
@@ -571,6 +585,7 @@ fn typescript_barrel_splits_value_and_type_exports_without_duplicates() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             },
         ],
         errors: vec![],
@@ -639,6 +654,7 @@ fn test_type_mapping() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -702,6 +718,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Active".to_string(),
@@ -713,6 +730,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Complete".to_string(),
@@ -724,6 +742,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Task status".to_string(),
@@ -736,6 +755,7 @@ fn test_enum_generation() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -799,6 +819,7 @@ fn test_binding_excluded_field_is_hidden_from_napi_api() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "accept_upload".to_string(),
@@ -833,6 +854,7 @@ fn test_binding_excluded_field_is_hidden_from_napi_api() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -945,6 +967,7 @@ fn test_async_function() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1026,6 +1049,7 @@ fn test_methods_generation() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "create".to_string(),
@@ -1044,6 +1068,7 @@ fn test_methods_generation() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
             ],
             is_opaque: true,
@@ -1062,6 +1087,7 @@ fn test_methods_generation() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1132,6 +1158,7 @@ fn test_error_types() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -1229,6 +1256,7 @@ fn test_opaque_type() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: true,
@@ -1246,6 +1274,7 @@ fn test_opaque_type() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1323,6 +1352,7 @@ fn test_optional_and_default_fields() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1412,6 +1442,7 @@ fn test_async_method() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: true,
@@ -1429,6 +1460,7 @@ fn test_async_method() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1513,6 +1545,7 @@ fn test_static_method_with_error() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: true,
@@ -1530,6 +1563,7 @@ fn test_static_method_with_error() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1599,6 +1633,7 @@ fn test_map_types() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1670,6 +1705,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     };
 
     let make_type = |name: &str| TypeDef {
@@ -1694,6 +1730,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1719,6 +1756,7 @@ fn test_tagged_enum_different_named_types_per_variant_uses_into_not_serde_json()
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1784,6 +1822,7 @@ fn make_trait_def_napi(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -1809,6 +1848,7 @@ fn make_method_napi(name: &str, return_type: TypeRef, has_error: bool, has_defau
         has_default_impl: has_default,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -1830,6 +1870,7 @@ fn make_async_method_napi(name: &str, return_type: TypeRef) -> MethodDef {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -1859,6 +1900,7 @@ fn make_api_napi() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1875,6 +1917,7 @@ fn make_api_napi() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -1886,6 +1929,7 @@ fn make_api_napi() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2242,6 +2286,7 @@ fn test_napi_dts_trait_bridge_interface_matches_runtime_contract() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         ..make_api_napi()
@@ -2338,6 +2383,7 @@ fn make_language_type_def() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -2375,6 +2421,7 @@ fn make_get_language_func() -> FunctionDef {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -2566,6 +2613,7 @@ fn make_language_registry_type_def() -> TypeDef {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: true,
         is_clone: false,
@@ -2583,6 +2631,7 @@ fn make_language_registry_type_def() -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -2791,6 +2840,7 @@ fn test_napi_js_name_on_non_opaque_struct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -2850,6 +2900,7 @@ fn test_napi_js_name_on_opaque_struct() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -2909,6 +2960,7 @@ fn test_napi_js_name_on_string_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -2920,6 +2972,7 @@ fn test_napi_js_name_on_string_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             is_copy: true,
@@ -2927,6 +2980,7 @@ fn test_napi_js_name_on_string_enum() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2986,6 +3040,7 @@ fn test_dts_dto_fields_are_readonly() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -3061,6 +3116,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             FunctionDef {
                 name: "get_id".to_string(),
@@ -3079,6 +3135,7 @@ fn test_optional_return_types_emit_null_not_undefined() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         enums: vec![],
@@ -3163,6 +3220,7 @@ fn struct_doc_and_field_docs_emitted_as_rustdoc() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -3218,6 +3276,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Image".to_string(),
@@ -3229,6 +3288,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "The category of a downloaded asset.".to_string(),
@@ -3241,6 +3301,7 @@ fn enum_and_variant_docs_emitted_as_rustdoc() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3296,6 +3357,7 @@ fn function_doc_emitted_as_rustdoc_single_and_multiline() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             FunctionDef {
                 name: "crawl".to_string(),
@@ -3314,6 +3376,7 @@ fn function_doc_emitted_as_rustdoc_single_and_multiline() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         enums: vec![],
@@ -3387,6 +3450,7 @@ fn test_vec_vec_string_field_conversion_emits_no_trailing_angle_bracket() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -3469,6 +3533,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                     has_default_impl: true,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 }],
                 is_opaque: true,
                 is_clone: false,
@@ -3486,6 +3551,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "RenderContext".to_string(),
@@ -3509,6 +3575,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "RendererHandle".to_string(),
@@ -3532,6 +3599,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![FunctionDef {
@@ -3567,6 +3635,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "RenderResult".to_string(),
@@ -3582,6 +3651,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -3593,6 +3663,7 @@ fn test_trait_bridge_function_uses_alias_rust_path_outside_visitor_module() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: HashMap::new(),

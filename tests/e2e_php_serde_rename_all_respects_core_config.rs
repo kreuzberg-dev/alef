@@ -88,6 +88,7 @@ fn php_respects_serde_rename_all_camel_case_when_present() {
         fields: Vec::new(),
         methods: Vec::new(),
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let toml_src = r#"
@@ -160,6 +161,7 @@ fn php_camel_cases_keys_when_core_type_lacks_rename_all() {
         fields: Vec::new(),
         methods: Vec::new(),
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let toml_src = r#"

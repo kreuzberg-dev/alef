@@ -75,6 +75,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -397,6 +398,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -408,6 +410,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -421,6 +424,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -462,6 +466,7 @@ fn data_bearing_enum_emits_associated_values() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Unit".into(),
@@ -473,6 +478,7 @@ fn data_bearing_enum_emits_associated_values() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -486,6 +492,7 @@ fn data_bearing_enum_emits_associated_values() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -530,6 +537,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Default".into(),
@@ -541,6 +549,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Dracula".into(),
@@ -552,6 +561,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -567,6 +577,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -629,6 +640,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "ApiKey".into(),
@@ -643,6 +655,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -655,6 +668,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -705,6 +719,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     // `OpaqueHandle` is not declared anywhere, so it is not in
@@ -718,6 +733,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -730,6 +746,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -801,6 +818,7 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "schema_query_only".into(),
@@ -819,6 +837,7 @@ fn nullary_free_function_returning_named_dto_wraps_bridge_call_in_converter() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -875,6 +894,7 @@ fn sync_function_emits_public_static_func() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -922,6 +942,7 @@ fn async_function_emits_async_keyword() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -965,6 +986,7 @@ fn error_throwing_function_emits_throws() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1008,6 +1030,7 @@ fn async_throws_function_emits_both_qualifiers() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1197,6 +1220,7 @@ fn error_enum_with_methods_emits_extension_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "is_transient".into(),
@@ -1215,6 +1239,7 @@ fn error_enum_with_methods_emits_extension_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "error_type".into(),
@@ -1233,6 +1258,7 @@ fn error_enum_with_methods_emits_extension_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
             ],
             binding_excluded: false,
@@ -1293,6 +1319,7 @@ fn make_sync_fn(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Func
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -1566,6 +1593,7 @@ fn async_bytes_function_emits_async_forwarder() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1696,6 +1724,7 @@ fn make_streaming_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -1713,6 +1742,7 @@ fn make_streaming_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1862,6 +1892,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 }],
                 is_opaque: true,
                 is_clone: false,
@@ -1879,6 +1910,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ChatCompletionChunk".to_string(),
@@ -1906,6 +1938,7 @@ fn streaming_chunk_type_with_serde_and_fields_emits_codable_struct() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -2008,6 +2041,7 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -2025,6 +2059,7 @@ fn opaque_class_method_emits_doc_comment_above_signature() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -2123,6 +2158,7 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: true,
         is_clone: false,
@@ -2140,6 +2176,7 @@ fn method_with_first_class_dto_param_calls_into_rust_at_call_site() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2230,6 +2267,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: true,
         is_clone: false,
@@ -2247,6 +2285,7 @@ fn method_with_dto_param_only_adds_throws_even_without_error_type() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2577,6 +2616,7 @@ fn forwarder_optional_string_return_emits_json_decode_body() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -2668,6 +2708,7 @@ fn forwarder_named_dto_param_calls_into_rust_before_bridge_call() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -2741,6 +2782,7 @@ fn forwarder_optional_named_dto_param_uses_optional_chained_into_rust() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -2795,6 +2837,7 @@ fn async_function_with_result_and_opaque_param_emits_forwarder() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -2916,6 +2959,7 @@ fn swift_string_param_not_wrapped() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],

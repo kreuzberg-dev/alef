@@ -97,6 +97,7 @@ fn make_api_with_binding_excluded_error() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             binding_excluded: false,
             binding_exclusion_reason: None,

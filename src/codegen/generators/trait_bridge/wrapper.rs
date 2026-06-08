@@ -75,6 +75,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let version_body = generator.gen_sync_method_body(&version_method, spec);
 
@@ -96,6 +97,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let init_body = generator.gen_sync_method_body(&init_method, spec);
 
@@ -117,6 +119,7 @@ pub fn gen_bridge_plugin_impl(spec: &TraitBridgeSpec, generator: &dyn TraitBridg
         has_default_impl: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let shutdown_body = generator.gen_sync_method_body(&shutdown_method, spec);
 

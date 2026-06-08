@@ -48,6 +48,7 @@ fn make_method(name: &str, doc: &str, return_type: TypeRef) -> MethodDef {
         trait_source: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -74,6 +75,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -216,6 +218,7 @@ fn godoc_on_free_function_emits_arguments_bullets_and_errors() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -352,6 +355,7 @@ fn option_string_return_null_checks_and_boxes_value() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

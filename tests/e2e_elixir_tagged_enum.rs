@@ -91,6 +91,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Down".to_string(),
@@ -102,6 +103,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -114,6 +116,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // MyAction tagged enum with camelCase rename_all
@@ -152,6 +155,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             // Scroll { direction: ScrollDirection }
             EnumVariant {
@@ -183,6 +187,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             // Scrape (unit variant)
             EnumVariant {
@@ -195,6 +200,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -207,6 +213,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     vec![scroll_direction, my_action]

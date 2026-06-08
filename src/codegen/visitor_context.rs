@@ -381,6 +381,7 @@ pub(crate) mod test_support {
                 has_default_impl: true,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_trait: true,
             doc: String::new(),

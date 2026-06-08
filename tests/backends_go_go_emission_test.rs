@@ -150,6 +150,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 has_default_impl: false,
+                version: Default::default(),
             }],
             is_opaque: false,
             is_clone: true,
@@ -167,6 +168,7 @@ fn test_unmarshal_bytes_returns_slice_not_pointer() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -248,6 +250,7 @@ fn test_zero_default_dto_skips_functional_options() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -328,6 +331,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 // Struct variant with multiple named fields
                 EnumVariant {
@@ -343,6 +347,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "A document for input.".to_string(),
@@ -355,6 +360,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
@@ -434,6 +440,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 // Struct variant: OcrDocument::Encoded { data: String, mime: String }
                 EnumVariant {
@@ -449,6 +456,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "A document for OCR.".to_string(),
@@ -461,6 +469,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
@@ -530,6 +539,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Base64".to_string(),
@@ -544,6 +554,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -556,6 +567,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // OcrRequest has a required field `document: OcrDocument`
@@ -584,6 +596,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -655,6 +668,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "JsonObject".to_string(),
@@ -666,6 +680,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "JsonSchema".to_string(),
@@ -677,6 +692,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -689,6 +705,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // ChatRequest has an optional field `response_format: Option<ResponseFormat>`
@@ -721,6 +738,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

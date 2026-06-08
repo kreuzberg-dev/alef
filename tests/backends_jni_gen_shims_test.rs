@@ -73,6 +73,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -123,6 +124,7 @@ fn make_demo_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let config_type = TypeDef {
@@ -153,6 +155,7 @@ fn make_demo_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     ApiSurface {
@@ -176,6 +179,7 @@ fn make_demo_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "DemoModel".to_string(),
@@ -191,6 +195,7 @@ fn make_demo_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: "Available models.".to_string(),
             cfg: None,
@@ -202,6 +207,7 @@ fn make_demo_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -718,6 +724,7 @@ fn real_ir_shape_optional_ref_result_async() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     // create_client(api_key: Option<String>, base_url: Option<String>, timeout_secs: Option<u64>,
@@ -791,6 +798,7 @@ fn real_ir_shape_optional_ref_result_async() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     // unregister_custom_provider(name: &str) -> bool
@@ -827,6 +835,7 @@ fn real_ir_shape_optional_ref_result_async() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -943,6 +952,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let client_type = TypeDef {
@@ -967,6 +977,7 @@ fn method_ref_mut_receiver_emits_mut_cast() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1020,6 +1031,7 @@ fn method_ref_receiver_emits_const_cast() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let client_type = TypeDef {
@@ -1044,6 +1056,7 @@ fn method_ref_receiver_emits_const_cast() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1112,6 +1125,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let client_type = TypeDef {
@@ -1136,6 +1150,7 @@ fn method_slice_u8_param_receives_jbytearray() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1207,6 +1222,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "Parser".to_string(),
@@ -1230,6 +1246,7 @@ fn method_optional_bytes_param_and_return_use_jbytearray_nullability() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1305,6 +1322,7 @@ fn method_pathbuf_param_receives_raw_string() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let client_type = TypeDef {
@@ -1329,6 +1347,7 @@ fn method_pathbuf_param_receives_raw_string() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1407,6 +1426,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let client_type = TypeDef {
@@ -1431,6 +1451,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

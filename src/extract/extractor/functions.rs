@@ -6,7 +6,8 @@ use crate::extract::type_resolver;
 
 use super::defaults::extract_default_values;
 use super::helpers::{
-    build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, extract_doc_comments, unwrap_optional,
+    build_rust_path, extract_binding_exclusion_reason, extract_cfg_condition, extract_doc_comments,
+    extract_version_annotation, unwrap_optional,
 };
 
 fn has_non_lifetime_generics(generics: &syn::Generics) -> bool {
@@ -103,6 +104,7 @@ pub(crate) fn extract_function(item: &syn::ItemFn, crate_name: &str, module_path
         return_newtype_wrapper: None,
         binding_excluded,
         binding_exclusion_reason,
+        version: extract_version_annotation(&item.attrs),
     })
 }
 
@@ -275,6 +277,7 @@ pub(crate) fn extract_impl_block(
             ),
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         });
     }
 }
@@ -494,6 +497,7 @@ pub(crate) fn extract_method(
         has_default_impl: false,
         binding_excluded,
         binding_exclusion_reason,
+        version: extract_version_annotation(&method.attrs),
     }
 }
 

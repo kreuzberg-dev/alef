@@ -32,6 +32,7 @@ fn make_method(name: &str, required: bool) -> MethodDef {
         has_default_impl: !required,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -135,6 +136,7 @@ fn make_method_with_params(name: &str, required: bool) -> MethodDef {
         has_default_impl: !required,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

@@ -1164,6 +1164,7 @@ mod tests {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let field = FieldDef {
             name: "renderer".to_string(),

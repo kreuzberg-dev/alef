@@ -54,6 +54,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -73,6 +74,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) 
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -121,6 +123,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Custom".to_string(),
@@ -173,6 +176,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         Some("type".to_string()), // serde_tag makes this a sealed interface
@@ -274,6 +278,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Complete".to_string(),
@@ -285,6 +290,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         Some("type".to_string()), // serde_tag makes this a sealed interface

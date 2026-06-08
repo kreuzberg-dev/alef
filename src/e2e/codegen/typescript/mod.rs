@@ -412,6 +412,7 @@ fn test_method(
         has_default_impl,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

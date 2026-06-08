@@ -119,6 +119,7 @@ fn sample_method(name: &str, return_type: TypeRef) -> crate::core::ir::MethodDef
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

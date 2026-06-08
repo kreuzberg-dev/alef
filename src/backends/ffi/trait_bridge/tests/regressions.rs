@@ -47,6 +47,7 @@ fn bug1_excluded_type_is_fully_qualified_in_trait_impl() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("Renderer", vec![internal_doc_method]);
     let bridge_cfg = sample_bridge_cfg("Renderer");
@@ -121,6 +122,7 @@ fn bug2_sync_method_body_uses_trait_error_type_not_box_from() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("Backend", vec![method.clone()]);
     let bridge_cfg = sample_bridge_cfg("Backend");
@@ -189,6 +191,7 @@ fn bug3_returns_ref_vec_string_emits_slice_ref_and_cache_field() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("DocumentExtractor", vec![method]);
     let bridge_cfg = sample_bridge_cfg("DocumentExtractor");
@@ -317,6 +320,7 @@ fn bug5_async_str_param_uses_to_string_not_clone() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("Backend", vec![method]);
     let bridge_cfg = sample_bridge_cfg("Backend");
@@ -387,6 +391,7 @@ fn bug6_async_excluded_type_return_signature_and_deserialization() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("Extractor", vec![method]);
     let bridge_cfg = sample_bridge_cfg("Extractor");
@@ -520,6 +525,7 @@ fn bug_ffi1_trait_impl_param_types_respect_is_ref() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("Extractor", vec![method]);
     let bridge_cfg = sample_bridge_cfg("Extractor");
@@ -595,6 +601,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
         has_default_impl: true, // visitor method — has default but FFI still emits it
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_def = make_trait_def("HtmlVisitor", vec![method]);
     let bridge_cfg = sample_bridge_cfg("HtmlVisitor");
@@ -625,6 +632,7 @@ fn lifetime_param_named_type_emits_angle_lifetime_placeholder() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: true, // <-- the key flag
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],

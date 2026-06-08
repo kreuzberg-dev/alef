@@ -258,6 +258,7 @@ mod tests {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             types: vec![crate::core::ir::TypeDef {
                 name: "Config".to_string(),
@@ -281,6 +282,7 @@ mod tests {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 }],
                 is_opaque: false,
                 is_clone: false,
@@ -298,6 +300,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             }],
             ..ApiSurface::default()
         };
@@ -343,6 +346,7 @@ mod tests {
                     has_default_impl: false,
                     binding_excluded: true,
                     binding_exclusion_reason: Some("test exclusion".to_string()),
+                    version: Default::default(),
                 }],
                 is_opaque: false,
                 is_clone: false,
@@ -360,6 +364,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             }],
             functions: vec![FunctionDef {
                 name: "internal_fn".to_string(),
@@ -378,6 +383,7 @@ mod tests {
                 return_newtype_wrapper: None,
                 binding_excluded: true,
                 binding_exclusion_reason: Some("test exclusion".to_string()),
+                version: Default::default(),
             }],
             ..ApiSurface::default()
         };
@@ -407,6 +413,7 @@ mod tests {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             }],
             errors: vec![ErrorDef {
                 name: "Error".to_string(),
@@ -475,6 +482,7 @@ mod tests {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             }],
             ..ApiSurface::default()
         };

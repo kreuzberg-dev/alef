@@ -68,6 +68,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -87,6 +88,7 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -101,6 +103,7 @@ fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVarian
         binding_exclusion_reason: None,
         is_tuple,
         originally_had_data_fields: false,
+        version: Default::default(),
     }
 }
 
@@ -122,6 +125,7 @@ fn make_function(name: &str, return_type: TypeRef) -> FunctionDef {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

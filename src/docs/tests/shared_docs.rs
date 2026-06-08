@@ -24,6 +24,7 @@ fn test_generate_types_doc_renders_enum_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "SlanetWired".into(),
@@ -35,6 +36,7 @@ fn test_generate_types_doc_renders_enum_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Table structure model.".into(),
@@ -47,6 +49,7 @@ fn test_generate_types_doc_renders_enum_variants() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -87,6 +90,7 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Github".into(),
@@ -98,6 +102,7 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: "HTML theme.".into(),
@@ -110,6 +115,7 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let out = render_enum_for_shared_doc(&en);
     assert!(out.contains("| Variant | Wire value | Description |"));
@@ -135,6 +141,7 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            version: Default::default(),
         }],
         // Doc-comment contains an internal heading that should be demoted
         doc: "Output format specification.\n\n## Variants\n\nDetailed variant info.".into(),
@@ -147,6 +154,7 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let out = render_enum_for_shared_doc(&en);
     // The internal heading ## should become #### (demoted by 2 levels).
@@ -210,6 +218,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![
@@ -227,6 +236,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 }],
                 doc: "Image format enum.".into(),
                 cfg: None,
@@ -238,6 +248,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             },
             EnumDef {
                 name: "Unrelated".into(),
@@ -253,6 +264,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 }],
                 doc: "Not referenced by any config type.".into(),
                 cfg: None,
@@ -264,6 +276,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             },
         ],
         errors: vec![],

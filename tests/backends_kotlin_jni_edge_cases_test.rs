@@ -89,6 +89,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_method = MethodDef {
         name: "do_thing".into(),
@@ -107,6 +108,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -130,6 +132,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),

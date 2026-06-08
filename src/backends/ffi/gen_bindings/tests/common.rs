@@ -141,6 +141,7 @@ pub(super) fn sample_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "extract".to_string(),
@@ -175,6 +176,7 @@ pub(super) fn sample_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "OutputFormat".to_string(),
@@ -191,6 +193,7 @@ pub(super) fn sample_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Html".to_string(),
@@ -202,6 +205,7 @@ pub(super) fn sample_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Output format.".to_string(),
@@ -214,6 +218,7 @@ pub(super) fn sample_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -327,6 +332,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_element_start".to_string(),
@@ -361,6 +367,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_link".to_string(),
@@ -431,6 +438,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_heading".to_string(),
@@ -501,6 +509,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_blockquote".to_string(),
@@ -571,6 +580,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_list_item".to_string(),
@@ -641,6 +651,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "visit_table_row".to_string(),
@@ -711,6 +722,7 @@ pub(super) fn visitor_api() -> ApiSurface {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         is_opaque: false,
@@ -729,6 +741,7 @@ pub(super) fn visitor_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     });
     api.types.push(TypeDef {
         name: "RenderSettings".to_string(),
@@ -816,6 +829,7 @@ pub(super) fn visitor_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
     api
 }

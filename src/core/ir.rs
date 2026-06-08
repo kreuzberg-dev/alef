@@ -33,6 +33,28 @@ pub enum DefaultValue {
     None,
 }
 
+/// Deprecation metadata extracted from `#[deprecated(...)]`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct DeprecationInfo {
+    /// Version when the item was deprecated (from `#[deprecated(since = "...")]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Deprecation note (from `#[deprecated(note = "...")]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Version annotation on an IR item.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct VersionAnnotation {
+    /// Version when this item was introduced (from `#[alef(since = "...")]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
+    /// Deprecation info (from `#[deprecated(...)]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<DeprecationInfo>,
+}
+
 /// Complete API surface extracted from a Rust crate's public interface.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ApiSurface {
@@ -405,6 +427,9 @@ pub struct TypeDef {
     /// opaque wrapper newtypes `pub struct Wrapper(pub Source<'static>)`.
     #[serde(default)]
     pub has_lifetime_params: bool,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// A field on a public struct.
@@ -517,6 +542,9 @@ pub struct MethodDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// How `self` is received.
@@ -568,6 +596,9 @@ pub struct FunctionDef {
     /// Human-readable reason for `binding_excluded`, used in diagnostics.
     #[serde(default)]
     pub binding_exclusion_reason: Option<String>,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// A function/method parameter.
@@ -696,6 +727,9 @@ pub struct EnumDef {
     /// (e.g. Dart FRB `From<CoreType>` impls) can emit `unreachable!()` arms for them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub excluded_variants: Vec<EnumVariant>,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// An enum variant.
@@ -727,6 +761,9 @@ pub struct EnumVariant {
     /// unit pattern, which would be a compiler error against the real core type.
     #[serde(default)]
     pub originally_had_data_fields: bool,
+    /// Version annotation (since, deprecated).
+    #[serde(default)]
+    pub version: VersionAnnotation,
 }
 
 /// An error type (enum used in Result<T, E>).

@@ -158,6 +158,7 @@ fn test_emit_test_backend_is_generic_no_domain_names() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let bridge = TraitBridgeConfig {
@@ -254,6 +255,7 @@ fn test_emit_test_backend_includes_name_version_properties_with_super_trait() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let bridge = TraitBridgeConfig {

@@ -73,6 +73,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -132,6 +133,7 @@ fn make_trait_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -193,6 +195,7 @@ fn trait_bridge_complex_return_is_explicitly_unsupported() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
         )],
         functions: vec![],
@@ -245,6 +248,7 @@ fn string_param_allocates_z_string_and_frees() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -305,6 +309,7 @@ fn bytes_param_passes_ptr_and_len() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -358,6 +363,7 @@ fn vec_param_takes_json_slice() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -409,6 +415,7 @@ fn result_function_checks_last_error_code() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -484,6 +491,7 @@ fn async_function_is_emitted_as_sync() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -569,6 +577,7 @@ fn enum_emits_zig_enum_or_union() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -580,6 +589,7 @@ fn enum_emits_zig_enum_or_union() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -593,6 +603,7 @@ fn enum_emits_zig_enum_or_union() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -723,6 +734,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let get_language_fn = FunctionDef {
         name: "get_language".to_string(),
@@ -741,6 +753,7 @@ fn opaque_handle_with_no_methods_is_emitted() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -828,6 +841,7 @@ fn bool_return_emits_not_zero_conversion() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -884,6 +898,7 @@ fn bool_return_in_error_union_emits_not_zero_conversion() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -956,6 +971,7 @@ fn string_param_infallible_defers_free_after_c_call() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1026,6 +1042,7 @@ fn error_set_includes_out_of_memory_and_return_type_is_single_error_set() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -1099,6 +1116,7 @@ fn string_param_fallible_defers_free_after_c_call() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -1177,6 +1195,7 @@ fn string_return_uses_len_companion_and_pointer_slice() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1237,6 +1256,7 @@ fn optional_string_return_uses_len_companion_with_null_guard() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1288,6 +1308,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1310,6 +1331,7 @@ fn from_json_params_check_null_and_defer_handle_cleanup() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1387,6 +1409,7 @@ type = "*const std::ffi::c_char"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1472,6 +1495,7 @@ type = "CrawlStreamRequest"
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let engine_type = TypeDef {
@@ -1496,6 +1520,7 @@ type = "CrawlStreamRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1667,6 +1692,7 @@ type = "CrawlStreamRequest"
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let engine_type = TypeDef {
@@ -1691,6 +1717,7 @@ type = "CrawlStreamRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {

@@ -61,6 +61,7 @@ fn make_type_def(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDe
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -90,6 +91,7 @@ fn make_method(
         has_default_impl,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -111,6 +113,7 @@ fn make_func(name: &str, params: Vec<ParamDef>) -> FunctionDef {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

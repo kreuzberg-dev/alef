@@ -149,6 +149,7 @@ fn test_gen_magnus_kwargs_constructor_hash_path_for_many_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
 
@@ -577,6 +578,7 @@ fn test_gen_magnus_hash_constructor_generic_type_prefix() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
     // Vec<String> is a generic type; must use <Vec<String>>::try_convert
@@ -663,6 +665,7 @@ fn test_magnus_hash_constructor_no_double_option_when_ty_is_optional() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let output = gen_magnus_kwargs_constructor(&typ, &simple_type_mapper);
     // The try_convert call must be for the inner type (i64, as mapped by simple_type_mapper),

@@ -63,6 +63,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let function = FunctionDef {
@@ -98,6 +99,7 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
