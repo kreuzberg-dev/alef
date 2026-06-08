@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **PHP facade now emits `?T $name` for `Option<T>` params forced into a
+  non-tail position by PHP 8.1 required-before-optional ordering.** When a
+  Rust function has the canonical `extract_file(path, mime_type: Option<&str>,
+  config: &ExtractionConfig)` shape, PHP 8.1 forbids putting the optional
+  `$mime_type` between two required params with a `= null` default, so the
+  emitter is forced to skip the default. Previously, the same branch also
+  dropped the `?` nullable marker, producing `string $mime_type` — every call
+  that passed `null` for `mime_type` then crashed with `TypeError: Argument
+
+  #2 ($mime_type) must be of type string, null given`. The fix emits
+  `?string $mime_type` (nullable, no default) so callers can still pass
+  `null` to mean Rust `None`, while satisfying PHP 8.1's ordering rule.
+  Affected every PHP e2e test that passed `null` for `mime_type` (17
+  failures across `ContractTest`, `SmokeTest`, and `SummarizationTest`).
+  Regression test
+  `facade_emits_nullable_marker_for_non_tail_optional_param` pins the
+  behaviour against the canonical 3-arg shape.
+
 ## [0.23.42] - 2026-06-08
 
 ### Fixed

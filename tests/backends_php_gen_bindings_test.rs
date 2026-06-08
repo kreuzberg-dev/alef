@@ -4116,3 +4116,99 @@ fn test_php_source_files_have_blank_line_after_opening_tag() {
         );
     }
 }
+
+#[test]
+fn facade_emits_nullable_marker_for_non_tail_optional_param() {
+    // Regression: when an `Option<T>` param is followed by a non-nullable required
+    // param, PHP 8.1 ordering forces the optional param into a non-tail position.
+    // The facade must still emit `?T $name` (nullable, no default) so callers can
+    // pass `null`. Before the fix, the emitter dropped the `?` entirely, producing
+    // `string $mime_type` for the canonical `extract_file(path, mime_type, config)`
+    // signature, which made every test passing `null` for `mime_type` fail with a
+    // PHP TypeError.
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ExtractionConfig".to_string(),
+            rust_path: "test_lib::ExtractionConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+        }],
+        functions: vec![FunctionDef {
+            name: "extract_file".to_string(),
+            rust_path: "test_lib::extract_file".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                ParamDef {
+                    name: "path".to_string(),
+                    ty: TypeRef::Path,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "mime_type".to_string(),
+                    ty: TypeRef::String,
+                    optional: true,
+                    ..ParamDef::default()
+                },
+                ParamDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("ExtractionConfig".to_string()),
+                    is_ref: true,
+                    ..ParamDef::default()
+                },
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let files = backend.generate_public_api(&api, &make_config()).unwrap();
+    let facade = files.first().expect("facade file generated");
+    assert!(
+        facade.content.contains("?string $mime_type"),
+        "facade must keep the nullable marker on non-tail Option<T> params; got:\n{}",
+        facade.content
+    );
+    // Reject a non-nullable `string $mime_type` (must be `?string`). Use leading-space
+    // anchors so the `?` form isn't a substring match for the non-`?` form.
+    assert!(
+        !facade.content.contains(" string $mime_type"),
+        "facade must not emit a non-nullable `string $mime_type`; got:\n{}",
+        facade.content
+    );
+}

@@ -213,6 +213,17 @@ pub(super) fn generate_public_api(
                     } else {
                         format!("?{} ${} = null", ptype, p.name)
                     }
+                } else if can_be_optional {
+                    // PHP 8.1+ allows `?Type $name` (nullable without default) even
+                    // when a non-nullable required parameter follows. Required by
+                    // Rust `Option<T>` params that PHP 8.1 ordering forces into a
+                    // non-tail position — drop the default but keep the `?` so
+                    // callers can pass `null` (matches Rust `None`).
+                    if ptype.starts_with('?') {
+                        format!("{} ${}", ptype, p.name)
+                    } else {
+                        format!("?{} ${}", ptype, p.name)
+                    }
                 } else {
                     format!("{} ${}", ptype, p.name)
                 }
