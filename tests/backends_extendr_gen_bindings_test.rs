@@ -71,6 +71,26 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
+fn make_param(name: &str, ty: TypeRef, optional: bool) -> ParamDef {
+    ParamDef {
+        name: name.to_string(),
+        ty,
+        optional,
+        default: None,
+        sanitized: false,
+        typed_default: None,
+        is_ref: false,
+        is_mut: false,
+        newtype_wrapper: None,
+        original_type: None,
+        map_is_ahash: false,
+        map_key_is_cow: false,
+        vec_inner_is_ref: false,
+        map_is_btree: false,
+        core_wrapper: CoreWrapper::None,
+    }
+}
+
 fn make_type(name: &str, fields: Vec<FieldDef>, has_default: bool) -> TypeDef {
     TypeDef {
         name: name.to_string(),
@@ -1930,5 +1950,103 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
             .content
             .contains(r#".Call("wrap__compute", value, _flag"#),
         "R wrapper should not emit leading underscore in .Call() args"
+    );
+}
+
+#[test]
+fn test_emits_reference_for_named_non_opaque_struct_params() {
+    // Regression test for https://github.com/kreuzberg-dev/alef/issues/XXX:
+    // Free functions that take non-opaque struct params (e.g. config: ExtractionConfig)
+    // must emit them as `&T` in the Rust binding, not as owned `T` or as `String`.
+    // Extendr's #[extendr] macro only generates TryFrom<&Robj> for &T (reference),
+    // not for owned T. The R caller passes ExternalPtr objects directly from the
+    // R6 class, and extendr unwraps them transparently when the param is `&T`.
+    let backend = ExtendrBackend;
+
+    let config_type = TypeDef {
+        name: "ExtractionConfig".to_string(),
+        rust_path: "test_lib::ExtractionConfig".to_string(),
+        original_rust_path: String::new(),
+        fields: vec![make_field("timeout", TypeRef::Primitive(PrimitiveType::U32), false)],
+        methods: vec![],
+        is_opaque: false,
+        is_clone: true,
+        is_copy: false,
+        is_trait: false,
+        has_default: true,
+        has_stripped_cfg_fields: false,
+        is_return_type: false,
+        serde_rename_all: None,
+        has_serde: true,
+        super_traits: vec![],
+        doc: String::new(),
+        cfg: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        is_variant_wrapper: false,
+        has_lifetime_params: false,
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![config_type],
+        functions: vec![FunctionDef {
+            name: "extract_file".to_string(),
+            rust_path: "test_lib::extract_file".to_string(),
+            original_rust_path: String::new(),
+            params: vec![
+                make_param("path", TypeRef::String, false),
+                make_param("mime_type", TypeRef::Optional(Box::new(TypeRef::String)), true),
+                make_param("config", TypeRef::Named("ExtractionConfig".to_string()), false),
+            ],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).expect("generation");
+    let content = &files[0].content;
+
+    // Verify: free function signature must use &ExtractionConfig for the config param, not String
+    // When a non-optional Named param follows an optional param, extendr wraps it in Nullable<&T>.
+    assert!(
+        (content.contains(
+            "pub fn extract_file(path: String, mime_type: Option<Option<String>>, config: Nullable<&ExtractionConfig>)"
+        ) || content.contains(
+            "pub fn extract_file(path: String, mime_type: Option<Option<String>>, config: &ExtractionConfig)"
+        )),
+        "free function with named struct param must use &T or Nullable<&T>, not String: {content}"
+    );
+
+    // Verify: should NOT deserialize from JSON string — that was the old bug
+    assert!(
+        !content.contains("serde_json::from_str(&config)"),
+        "named struct params should not be deserialized from JSON string: {content}"
+    );
+
+    // Verify: call site should convert Nullable properly if present, then pass to core
+    assert!(
+        (content.contains("config.into_option()")
+            || content.contains("let result = test_lib::extract_file(path, mime_type, &config")),
+        "config param should not use JSON deserialization: {content}"
     );
 }

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **R extendr backend now emits struct-typed params as `&T` instead of JSON-passthrough `String`.** When a free function accepts a non-opaque struct param (e.g., `extract_file(path, mime_type: Option<&str>, config: &ExtractionConfig)`), the binding signature previously downgraded `config` to `String` and deserialized it from JSON inside the function body, causing every call that passed the R6 `ExtractionConfig` ExternalPtr to fail with `Expected Strings got ExternalPtr`. After setting `named_non_opaque_params_by_ref=true`, extendr can now convert `&Robj` → `&T` directly via its `TryFrom<&Robj>` impl; the fix disables JSON bridging for non-opaque struct params to let the standard `gen_function` emit `&T` or `Nullable<&T>` signatures. Affected 48 R e2e test failures.
+
 ## [0.23.44] - 2026-06-08
 
 ### Fixed
