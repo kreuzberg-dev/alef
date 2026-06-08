@@ -84,9 +84,7 @@ fn classify_service_imports(api: &ApiSurface, config: &ResolvedCrateConfig) -> S
                 // napi-rs auto-camelCases Rust function names at the JS boundary
                 // (e.g. `app_into_router` → `appIntoRouter`), so the imported
                 // symbol must match the camelCase form.
-                native_imports.push(
-                    format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case(),
-                );
+                native_imports.push(format!("{}_{}", service_name.to_snake_case(), ep.method).to_lower_camel_case());
             }
         }
     }

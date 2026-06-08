@@ -61,6 +61,14 @@ pub fn cleanup_orphaned_files(current_gen_paths: &HashSet<PathBuf>) -> anyhow::R
         if !visited_dirs.insert(canonical_dir.clone()) {
             continue;
         }
+        // Skip entire touched subtrees that live under a dependency-cache
+        // ancestor (e.g. test_apps/<lang>/tests/). The recursive descent
+        // already short-circuits direct subdirs by name; this guards the
+        // entry point so registry-mode writes into a protected subtree do
+        // not pull the walker into a sweep of curated downstream files.
+        if has_dependency_cache_ancestor(&canonical_dir) {
+            continue;
+        }
         removed_count += cleanup_dir_recursive(&canonical_dir, &normalized, &touched_dirs)?;
     }
 
@@ -94,12 +102,35 @@ const DEPENDENCY_CACHE_DIRS: &[&str] = &[
     ".gradle", // Gradle build cache
     ".m2",     // Maven local repo
     ".cache",
+    // test_apps/ holds consumer-owned downstream test projects in the
+    // polyglot binding repository pattern. Files there may carry alef:hash:
+    // headers from version-sync text_replacements or from prior registry-mode
+    // e2e generation, but the surrounding scaffolding (composer.json,
+    // build.gradle.kts, Cargo.toml, …) is curated by humans. Treat the whole
+    // tree as opaque to the cleanup walker: alef may still write into it from
+    // the registry-mode e2e backend, but orphan-delete is unsafe here because
+    // partial regeneration would remove curated files that lost their previous
+    // companions.
+    "test_apps",
 ];
 
+/// True if `dir`'s own basename matches a dependency-cache name. Used inside
+/// the recursive descent to short-circuit `node_modules/`, `vendor/`, etc.
 fn is_consumer_dependency_dir(dir: &Path) -> bool {
     dir.file_name()
         .and_then(|n| n.to_str())
         .is_some_and(|name| DEPENDENCY_CACHE_DIRS.contains(&name))
+}
+
+/// True if any path component of `dir` matches a dependency-cache name. Used
+/// at the touched-dirs entry point because `current_gen_paths.parent()` can
+/// land on a path like `test_apps/python/tests/` whose basename (`tests`)
+/// would otherwise sneak past `is_consumer_dependency_dir` and trigger
+/// orphan-delete inside a protected subtree.
+fn has_dependency_cache_ancestor(dir: &Path) -> bool {
+    dir.components()
+        .filter_map(|c| c.as_os_str().to_str())
+        .any(|name| DEPENDENCY_CACHE_DIRS.contains(&name))
 }
 
 fn cleanup_dir_recursive(
@@ -267,6 +298,41 @@ mod tests {
         assert!(bridge_kt.exists(), "current bridge.kt must survive");
         assert!(!stale_java.exists(), "stale java orphan must be removed");
         assert!(user_java.exists(), "user-written java must survive (no alef hash)");
+    }
+
+    /// Regression: when the current run writes some files into a `test_apps/`
+    /// subtree (registry-mode e2e generation), unrelated alef-marked files in
+    /// the same `test_apps/` tree from previous runs must NOT be swept.
+    /// Downstream polyglot repos hold curated test projects under
+    /// `test_apps/<lang>/`; partial regeneration must not wipe co-located
+    /// curated scaffolding (composer.json, build.gradle.kts, pyproject.toml)
+    /// just because the current iteration emits a different subset.
+    #[test]
+    fn cleanup_skips_test_apps_subtree_unconditionally() {
+        let tempdir = tempfile::tempdir().expect("tempdir");
+        let test_apps_python = tempdir.path().join("test_apps/python");
+        let test_apps_python_tests = test_apps_python.join("tests");
+        fs::create_dir_all(&test_apps_python_tests).expect("create test_apps tests dir");
+
+        let alef_header = format!("// alef:hash:{TEST_HASH}\n");
+        // Current run regenerates a test file under test_apps/python/tests/
+        // — its parent becomes a touched_dir entry point of the walker.
+        let regen_test = test_apps_python_tests.join("test_smoke.py");
+        fs::write(&regen_test, format!("{alef_header}def test_smoke(): pass\n")).expect("write regen");
+        // Stale alef-marked file from a previous run in the same touched dir
+        // — without the test_apps ancestor exclusion it would be deleted.
+        let stale_sibling = test_apps_python_tests.join("test_legacy.py");
+        fs::write(&stale_sibling, format!("{alef_header}def test_legacy(): pass\n")).expect("write stale sibling");
+
+        let current_gen_paths = HashSet::from([regen_test.clone()]);
+        let removed = cleanup_orphaned_files(&current_gen_paths).expect("cleanup");
+
+        assert_eq!(removed, 0, "test_apps subtree must be skipped by the walker");
+        assert!(regen_test.exists(), "regen test survives");
+        assert!(
+            stale_sibling.exists(),
+            "stale sibling must survive despite alef hash header"
+        );
     }
 
     /// Regression: renamed files in the same directory must be cleaned up.

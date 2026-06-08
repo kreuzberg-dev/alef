@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.40] - 2026-06-08
+
+### Fixed
+
+- **napi visitor result-variant lookup now matches the JS-side property casing**:
+  Generated napi visitor methods called `obj.get_named_property::<Unknown>("{{
+  variant.wire_name }}")` against return objects whose JS shape uses lowercase
+  property names (`{custom: "..."}`, `{error: "..."}`) — but `variant.wire_name`
+  rendered as `"Custom"` / `"Error"` for Rust-side enums named with PascalCase.
+  The lookup silently fell through, the visitor returned the default
+  discriminant, and downstream consumers observed all visitor custom-text and
+  error returns silently dropped on the floor. The template now maps the
+  well-known result variants `Custom`/`Error` to their JS lowercase
+  counterparts before the property lookup; other variants keep `wire_name` so
+  domain-named results still round-trip.
+- **Cleanup walker now treats `test_apps/` subtrees as opaque**:
+  Polyglot binding repositories place curated downstream test projects under
+  `test_apps/<lang>/` and version-sync the manifests via
+  `[[workspace.sync.text_replacements]]`. Those replacements appended
+  `alef:hash:` headers to files alef does not otherwise own, and when
+  registry-mode e2e emitted into the same tree the next clean cycle would
+  orphan-delete any sibling whose path did not appear in `current_gen_paths`
+  for that iteration — wiping curated `composer.json`, `build.gradle.kts`,
+  `pyproject.toml`, etc. The cleanup walker now skips both direct
+  `test_apps/` directories (basename match) and any touched-dir entry whose
+  path has a `test_apps` ancestor component, so partial regeneration cannot
+  delete co-located curated scaffolding. Added regression test
+  `cleanup_skips_test_apps_subtree_unconditionally`.
+
 ## [0.23.39] - 2026-06-08
 
 ### Fixed
@@ -32,7 +61,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `napi::Result<()>` (see `rust_glue::gen_run_function`) and is
   unconditionally declared `pub async fn`, so the JS-side function always
   returns `Promise<void>`. The TS wrapper previously read
-  `EntrypointDef::return_type` from the IR — which describes the *Rust*
+  `EntrypointDef::return_type` from the IR — which describes the _Rust_
   service method's return (e.g. `Router`) — and emitted a signature like
   `into_router(): Router` (or whatever the IR mapped that named type to,
   including `string` when fallthrough hit), tripping TS2322 *Type
@@ -54,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **napi `Finalize` entrypoint return type now wraps async natives in `Promise`**:
   When the underlying napi-rs function is `async` (`#[napi]` on an async fn),
   the bridge returns `Promise<T>` but the generated wrapper declared `(): T`,
-  producing TS2322 *Type 'Promise<T>' is not assignable to type 'T'* at the
+  producing TS2322 _Type 'Promise<T>' is not assignable to type 'T'_ at the
   `return native_fn(...);` site. The wrapper now emits `(): Promise<T>` when
   `EntrypointDef::is_async` is true.
 
@@ -70,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   napi-rs exposes Rust constructors only as static factory methods
   (`WrapperType.new(...)`); (3) wire DTOs (`RequestData`, `Response`) imported
   via `import type` but never referenced because handler signatures are
-  `(...args: any[])` — emitting TS6196 *declared but never used*. All three
+  `(...args: any[])` — emitting TS6196 _declared but never used_. All three
   are fixed in `gen_service_ts`: native imports are camelCased via
   `heck::ToLowerCamelCase`, wrapper construction uses
   `{wrapper_type}.{constructor_method}({args})` reading the
