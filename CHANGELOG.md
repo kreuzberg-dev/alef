@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.33] - 2026-06-08
+
 ### Fixed
 
 - **Java e2e pom.xml native library fallback path**: The e2e Java pom.xml was configured
