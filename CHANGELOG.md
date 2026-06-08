@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **php e2e test_app install.sh fails to enable extension in php.ini**: PIE 1.4.0+
+  with `--skip-enable-extension` no longer auto-updates php.ini after installing the
+  extension binary. The generated `install.sh` now explicitly appends `extension=<name>`
+  to the loaded php.ini file after PIE install (with idempotent guards to prevent
+  duplicates on re-runs). This ensures the extension loads automatically when PHP
+  starts, fixing registry-mode test_app failures where PIE reports "Extension has
+  NOT been automatically enabled".
 - **java compile failure from `*/` nested in rustdoc `{@code …}`**: rustdoc
   comments containing `/** … */` snippets inside backticks were rendered as
   `{@code /** … */ }`, where the inner `*/` closed the surrounding

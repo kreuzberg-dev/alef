@@ -537,4 +537,31 @@ mod composer_json_tests {
             "install.sh must not use composer to install PIE, got:\n{content}"
         );
     }
+
+    #[test]
+    fn registry_install_sh_enables_extension_in_php_ini() {
+        let content = render_install_sh("test/pkg", "my_ext", "1.0.0");
+        // After PIE install, script must locate php.ini and enable the extension.
+        assert!(
+            content.contains("php --ini"),
+            "install.sh must locate php.ini using 'php --ini', got:\n{content}"
+        );
+        assert!(
+            content.contains("Loaded Configuration File:"),
+            "install.sh must grep for 'Loaded Configuration File:' from php --ini, got:\n{content}"
+        );
+        // Script must append the extension line (idempotently).
+        assert!(
+            content.contains("extension=my_ext"),
+            "install.sh must append 'extension=my_ext' to php.ini, got:\n{content}"
+        );
+        assert!(
+            content.contains("^extension=my_ext"),
+            "install.sh must guard against duplicate extension entries, got:\n{content}"
+        );
+        assert!(
+            content.contains(">> \"$PHP_INI\""),
+            "install.sh must append to php.ini, got:\n{content}"
+        );
+    }
 }
