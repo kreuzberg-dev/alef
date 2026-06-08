@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **e2e zig `test_apps_run` nukes `zig-pkg/` + `.zig-cache/` before `zig fetch`.** After a fresh rc cuts, `zig fetch --save="$dep" "$url"` resolves the new tarball cleanly but the per-test-app `zig-pkg/<dep-1.9.0-rc.<prev>-<hash>/` directory carries a `file_hash` whose computed value no longer matches the new package digest. The next `zig build test` then fails with `failed to check cache: '<src>.zig' file_hash FileNotFound` despite the manifest looking correct. Always nuke both caches before fetch.
 
+- **e2e php `install.sh` always runs `pie install`.** The previous existence-only skip (`[[ -f $EXT_DIR/<name>.so ]] && skip`) left a stale `.so` from a prior rc in `$EXT_DIR`; the new rc's source code expected new FFI symbols, the stale `.so` didn't have them, and `php -m` failed to load the extension. PIE is idempotent — re-installing overwrites the binary cleanly — and the downstream php.ini-append guard already prevents duplicate `extension=` lines, so dropping the skip is safe.
+
 - **PHP facade now emits `?T $name` for `Option<T>` params forced into a
   non-tail position by PHP 8.1 required-before-optional ordering.** When a
   Rust function has the canonical `extract_file(path, mime_type: Option<&str>,
