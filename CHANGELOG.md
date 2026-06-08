@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **NAPI trait bridge V8 lifetime issue**: NAPI-RS trait bridges were using `unsafe { transmute }` to extend JS object lifetimes to `'static`, causing V8 GC to finalize objects while references were still held. This led to "Cannot convert undefined or null to object" errors in plugin registry clear operations when GC ran between test files. Fixed by storing `napi::Reference<Object>` instead, which safely pins JS objects to the V8 heap across method calls. Constructor now takes `env: napi::Env` parameter for Reference creation. Method bodies use `.borrow()` to access the referenced JS object.
+
 - **Kotlin e2e codegen options_type resolution**: The Kotlin e2e test file generator was
   resolving `options_type` at the global level only, causing fixtures that override the
   call with a different `options_type` (e.g., via `[e2e.calls.custom_call.overrides.kotlin]
@@ -109,7 +111,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **verify reports stale immediately after clean regen**: `alef all`, `alef
   generate`, and `alef scaffold` previously called `write_alef_toml_version`
-  *after* `finalize_hashes`, so the embedded `alef:hash:` was computed against
+  _after_ `finalize_hashes`, so the embedded `alef:hash:` was computed against
   the pre-update `alef.toml` bytes while `alef verify` recomputed the inputs
   hash against the post-update bytes. The two hashes never matched, and every
   alef-headered file was reported stale on the very next verify run — masking

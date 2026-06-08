@@ -607,11 +607,20 @@ mod tests {
         let tests = default_cli_tests();
         let out = render_run_tests("myorg/tap", "mytool", None, "1.9.0-rc.25", "mytool", &tests);
         // Version must be parameterized into the script.
-        assert!(out.contains("VERSION=\"1.9.0-rc.25\""), "must set VERSION variable to the provided version");
+        assert!(
+            out.contains("VERSION=\"1.9.0-rc.25\""),
+            "must set VERSION variable to the provided version"
+        );
         // The $VERSION variable must be used in the test expectation.
-        assert!(out.contains("*\"$VERSION\"*"), "must reference $VERSION in the version test expectation");
+        assert!(
+            out.contains("*\"$VERSION\"*"),
+            "must reference $VERSION in the version test expectation"
+        );
         // The $CLI_FORMULA variable must be used to call the binary.
-        assert!(out.contains("eval \"$CLI_FORMULA --version\""), "must use $CLI_FORMULA variable");
+        assert!(
+            out.contains("eval \"$CLI_FORMULA --version\""),
+            "must use $CLI_FORMULA variable"
+        );
     }
 
     #[test]

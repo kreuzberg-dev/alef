@@ -681,40 +681,16 @@ fn prologue_replacement_uses_abi_current_for_arch_detection() {
     );
 
     // Verify platform-specific Abi constants are mapped correctly.
-    assert!(
-        replacement.contains("Abi.linuxX64"),
-        "must check Abi.linuxX64"
-    );
-    assert!(
-        replacement.contains("Abi.linuxArm64"),
-        "must check Abi.linuxArm64"
-    );
-    assert!(
-        replacement.contains("Abi.macosX64"),
-        "must check Abi.macosX64"
-    );
-    assert!(
-        replacement.contains("Abi.macosArm64"),
-        "must check Abi.macosArm64"
-    );
-    assert!(
-        replacement.contains("Abi.windowsX64"),
-        "must check Abi.windowsX64"
-    );
-    assert!(
-        replacement.contains("Abi.windowsArm64"),
-        "must check Abi.windowsArm64"
-    );
+    assert!(replacement.contains("Abi.linuxX64"), "must check Abi.linuxX64");
+    assert!(replacement.contains("Abi.linuxArm64"), "must check Abi.linuxArm64");
+    assert!(replacement.contains("Abi.macosX64"), "must check Abi.macosX64");
+    assert!(replacement.contains("Abi.macosArm64"), "must check Abi.macosArm64");
+    assert!(replacement.contains("Abi.windowsX64"), "must check Abi.windowsX64");
+    assert!(replacement.contains("Abi.windowsArm64"), "must check Abi.windowsArm64");
 
     // Verify RID strings are correctly mapped.
-    assert!(
-        replacement.contains("'linux-x64'"),
-        "must map to linux-x64 RID"
-    );
-    assert!(
-        replacement.contains("'macos-x64'"),
-        "must map to macos-x64 RID"
-    );
+    assert!(replacement.contains("'linux-x64'"), "must map to linux-x64 RID");
+    assert!(replacement.contains("'macos-x64'"), "must map to macos-x64 RID");
 }
 
 #[test]
