@@ -1812,6 +1812,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -1834,6 +1835,7 @@ fn named_json_return_guards_against_null_to_json_pointer() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
