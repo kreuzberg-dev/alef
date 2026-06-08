@@ -78,11 +78,19 @@ pub(crate) fn escape_javadoc_line(s: &str) -> String {
                 code.push(c);
             }
             result.push_str("{@code ");
-            for code_ch in code.chars() {
+            let mut code_iter = code.chars().peekable();
+            while let Some(code_ch) = code_iter.next() {
                 match code_ch {
                     '<' => result.push_str("&lt;"),
                     '>' => result.push_str("&gt;"),
                     '&' => result.push_str("&amp;"),
+                    // Literal `*/` inside {@code …} would prematurely close the
+                    // surrounding /** … */ javadoc. Escape the slash to keep the
+                    // span intact (parser still renders the original glyph).
+                    '*' if code_iter.peek() == Some(&'/') => {
+                        code_iter.next();
+                        result.push_str("*&#47;");
+                    }
                     other => result.push(other),
                 }
             }

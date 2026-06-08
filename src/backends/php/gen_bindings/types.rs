@@ -985,13 +985,83 @@ pub(crate) fn gen_enum_constants(enum_def: &EnumDef, php_namespace: Option<&str>
     lines.push(format!("impl {} {{", enum_def.name));
 
     for variant in &enum_def.variants {
-        let const_name = variant.name.to_uppercase();
+        let const_name = escape_php_reserved_constant(&variant.name.to_uppercase());
         lines.push(format!("    pub const {}: &str = \"{}\";", const_name, variant.name));
     }
 
     lines.push("}".to_string());
 
     lines.join("\n")
+}
+
+/// PHP class constant names are case-insensitively reserved against PHP keywords.
+/// `pub const CLASS: ...` fails to load with "A class constant must not be called 'class';
+/// it is reserved for class name fetching". Append `_` to keep the literal variant
+/// name distinguishable while sidestepping the reserved set.
+fn escape_php_reserved_constant(name: &str) -> String {
+    const RESERVED: &[&str] = &[
+        "CLASS",
+        "INTERFACE",
+        "TRAIT",
+        "ENUM",
+        "FUNCTION",
+        "NAMESPACE",
+        "CONST",
+        "STATIC",
+        "ABSTRACT",
+        "FINAL",
+        "PRIVATE",
+        "PROTECTED",
+        "PUBLIC",
+        "CASE",
+        "DEFAULT",
+        "EXTENDS",
+        "IMPLEMENTS",
+        "NEW",
+        "USE",
+        "RETURN",
+        "IF",
+        "ELSE",
+        "ELSEIF",
+        "ENDIF",
+        "WHILE",
+        "FOR",
+        "FOREACH",
+        "AS",
+        "DO",
+        "SWITCH",
+        "BREAK",
+        "CONTINUE",
+        "AND",
+        "OR",
+        "XOR",
+        "TRUE",
+        "FALSE",
+        "NULL",
+        "ECHO",
+        "PRINT",
+        "ISSET",
+        "UNSET",
+        "EMPTY",
+        "EXIT",
+        "DIE",
+        "GLOBAL",
+        "GOTO",
+        "TRY",
+        "CATCH",
+        "FINALLY",
+        "THROW",
+        "INSTANCEOF",
+        "MATCH",
+        "FN",
+        "YIELD",
+        "READONLY",
+    ];
+    if RESERVED.contains(&name) {
+        format!("{name}_")
+    } else {
+        name.to_string()
+    }
 }
 
 /// Return true if an enum is a "tagged data enum" — has a serde tag AND at least one variant
@@ -1532,4 +1602,23 @@ fn flat_enum_binding_to_core_field_expr(f: &crate::core::ir::FieldDef, flat_name
     };
 
     if f.is_boxed { format!("Box::new({expr})") } else { expr }
+}
+
+#[cfg(test)]
+mod escape_php_reserved_constant_tests {
+    use super::escape_php_reserved_constant;
+
+    #[test]
+    fn appends_underscore_to_reserved_words() {
+        assert_eq!(escape_php_reserved_constant("CLASS"), "CLASS_");
+        assert_eq!(escape_php_reserved_constant("INTERFACE"), "INTERFACE_");
+        assert_eq!(escape_php_reserved_constant("ENUM"), "ENUM_");
+    }
+
+    #[test]
+    fn leaves_normal_identifiers_alone() {
+        assert_eq!(escape_php_reserved_constant("VARIABLE"), "VARIABLE");
+        assert_eq!(escape_php_reserved_constant("STRUCT"), "STRUCT");
+        assert_eq!(escape_php_reserved_constant("OTHER"), "OTHER");
+    }
 }
