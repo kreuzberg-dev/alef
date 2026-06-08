@@ -207,6 +207,18 @@ pub fn render_app_harness(
         "new"
     };
 
+    // napi-rs does not expose `new`-able JS constructors for Rust types — Rust
+    // constructors become static factory methods (`RouteBuilder.new(...)`).
+    // wasm-bindgen DOES expose them as proper JS constructors, so it keeps the
+    // `new RouteBuilder(...)` syntax. Detect by import path the same way as the
+    // App constructor selection above; the value is consumed by the harness
+    // template's `{% if route_builder_constructor_method == ".new" %}` branch.
+    let route_builder_constructor_method = if imports.iter().any(|imp| imp.contains("/node")) {
+        ".new"
+    } else {
+        "new"
+    };
+
     let route_builder_class = e2e_config.harness.route_builder.as_deref().unwrap_or("RouteBuilder");
 
     // Determine which ServerConfig factory expression to use (backend-specific defaults).
@@ -241,6 +253,7 @@ pub fn render_app_harness(
             app_class => app_class.as_deref().unwrap_or("App"),
             method_enum => method_enum.as_deref().unwrap_or("Method"),
             route_builder_class => route_builder_class,
+            route_builder_constructor_method => route_builder_constructor_method,
             run_method => run_method.as_deref().unwrap_or("run"),
             register_route_method => register_method.as_str(),
             constructor_method => constructor_method,

@@ -75,7 +75,11 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   const fullRoute = `/fixtures/${fixtureId}${route}`;
 
   // Build RouteBuilder and register the route
+  {% if route_builder_constructor_method == ".new" -%}
+  let builder = {{ route_builder_class }}.new(methodEnum, fullRoute);
+  {%- else -%}
   let builder = new {{ route_builder_class }}(methodEnum, fullRoute);
+  {%- endif %}
 
   // Wire handler middleware through to the RouteBuilder.
   // Each entry in `middleware` is a {name: config} pair. The dispatch table
@@ -108,7 +112,11 @@ for (const [fixtureId, fixture] of Object.entries(_FIXTURES)) {
   // If the fixture has CORS middleware configured, register an OPTIONS preflight handler
   if (handler.middleware && handler.middleware.cors) {
     const corsConfig = handler.middleware.cors;
+    {% if route_builder_constructor_method == ".new" -%}
+    const optionsBuilder = {{ route_builder_class }}.new({{ method_enum }}.Options, fullRoute);
+    {%- else -%}
     const optionsBuilder = new {{ route_builder_class }}({{ method_enum }}.Options, fullRoute);
+    {%- endif %}
 
     // Build a CORS preflight handler
     const corsHandlerFn = (request) => {

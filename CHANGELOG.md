@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.39] - 2026-06-08
+
+### Fixed
+
+- **TypeScript e2e harness `RouteBuilder` construction now matches the runtime
+  surface per backend**:
+  The shared `typescript/app_harness.mjs.jinja` template unconditionally used
+  `new RouteBuilder(method, path)`, which works for wasm-bindgen (real JS
+  constructors) but fails at runtime for napi-rs — napi-rs exposes Rust
+  constructors only as static factory methods (`RouteBuilder.new(...)`), and
+  the `new`-ed instance silently fails to register, so every fixture handler
+  returned 404 in the node CI E2E run. Parameterise the template with
+  `route_builder_constructor_method`; the napi config passes `.new`, wasm
+  keeps the existing `new`-keyword form. Companion to v0.23.36 which fixed
+  the same pattern in the generated `service.ts`.
+
 ## [0.23.38] - 2026-06-08
 
 ### Fixed
