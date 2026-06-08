@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift ZSwiftPluginHelpers.swift RustString import regression**: The generated
+  `ZSwiftPluginHelpers.swift` file was importing `RustBridgeC` instead of `RustBridge`,
+  which caused "cannot find 'RustString' in scope" compile errors. `RustString` is
+  defined in `RustBridge` module (via `SwiftBridgeCore.swift`), not `RustBridgeC`.
+  Fixed by changing the import from `import RustBridgeC` to `import RustBridge` in
+  the helper functions that encode/decode JSON envelopes for plugin trait method returns.
 - **zig test_apps_run sed pattern regression**: The `zig fetch --save` command was
   failing to extract dependency names and URLs from `build.zig.zon` because the sed
   pattern was looking for `}} *,` (two braces) instead of `}, *` (single brace + comma)

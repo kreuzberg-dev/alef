@@ -102,7 +102,7 @@ pub(super) fn emit_function_param_box_files(
 // swift-format-ignore-file
 
 import Foundation
-import RustBridgeC
+import RustBridge
 
 // MARK: - JSON Envelope
 
