@@ -284,8 +284,11 @@ mod tests {
         let new_name = rust_bridge_dir.join("ZSwiftPluginHelpers.swift");
 
         // Simulate the old file from a previous alef run
-        fs::write(&old_name, format!("{alef_header}// alef:hash:{TEST_HASH}\n\nenum InboundEnvelope\n"))
-            .expect("write old file");
+        fs::write(
+            &old_name,
+            format!("{alef_header}// alef:hash:{TEST_HASH}\n\nenum InboundEnvelope\n"),
+        )
+        .expect("write old file");
 
         // New alef run only emits the renamed file
         let new_content = format!("{alef_header}// alef:hash:{TEST_HASH}\n\nenum InboundEnvelope\n");
