@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Publish workflow now mints `kreuzberg-dev-publisher[bot]` GitHub App tokens (`secrets.BOT_APP_ID` / `secrets.BOT_APP_PRIVATE_KEY`) for every release-write step**, replacing the prior `HOMEBREW_TOKEN` PAT and the workflow-scoped `GITHUB_TOKEN` used for release-asset uploads and homebrew-tap pushes. The bot identity must be granted branch-protection-bypass on `kreuzberg-dev/homebrew-tap` for tap pushes to land.
+- **Bump `ext-php-rs` pin from `0.15.12` to `0.15.15`.** Picks up the latest 0.15.x patches; the minimum-version comment still notes `0.15.12+` as the floor required by the `StaticModuleEntry`-based module entry in `gen_bindings/rust_bindings.rs`.
 
 ## [0.23.55] - 2026-06-09
 

@@ -51,7 +51,7 @@ pub mod cargo {
 
     // renovate: datasource=crate depName=ext-php-rs
     // 0.15.12+ required for `StaticModuleEntry` used by gen_bindings/rust_bindings.rs module entry.
-    pub const EXT_PHP_RS: &str = "0.15.12";
+    pub const EXT_PHP_RS: &str = "0.15.15";
 
     // renovate: datasource=crate depName=js-sys
     pub const JS_SYS: &str = "0.3";
