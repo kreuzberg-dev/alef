@@ -7,11 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift ZSwiftPluginHelpers envelope helper return types: change `RustString` to `String`.** The JSON envelope helpers (`encodeOkVoidEnvelope`, `encodeOkEnvelope`, `encodeErrEnvelope`) were emitting `return RustString(...)` but `RustString` is not a defined type in Swift bindings. Swift uses native `String` type directly. Fixed by changing return types and implementations to use `String` instead of the non-existent `RustString` wrapper. This fixes the Swift build error `error: cannot find type 'RustString' in scope` in the generated `ZSwiftPluginHelpers.swift` plugin marshal helpers.
+
+- **PyO3 enum `__new__` FromStr: deduplicate match arms when serde_rename equals lowercased variant name.** The Jinja template for `#[new]` constructor emitted one arm for the canonical lowercased variant name AND one arm for the serde_rename, causing duplicate unreachable-pattern compiler errors when the rename happened to equal the lowercased name (e.g., `Auto` with `serde_rename = "auto"` or `RDFa` with `serde_rename = "rdfa"`). Rust codegen now checks if `serde_rename.to_lowercase() == variant_name.to_lowercase()` and omits the redundant arm, preventing duplicate matches. Added unit test `pyo3_enum_dedup_serde_rename_when_equals_lowercased_variant` to verify the fix. Fixes CI E2E run 27218748023 Python compile errors at `kreuzberg-py/src/lib.rs:13116` and `:13311`.
+
+- **C#: sealed union JSON converter now handles binding-excluded variants for forward compatibility.** When a tagged enum variant is marked with `#[cfg_attr(alef, alef(skip))]` (binding-excluded, e.g., `FormatMetadata::Code`), it was omitted from the switch statement in the `JsonConverter`. When Rust serializes that variant (e.g., when `tree-sitter` feature is enabled and produces `Code` metadata), the C# converter received JSON with the discriminator but had no case, throwing "Unknown discriminator: code". Now the converter includes all variants (binding-excluded and non-excluded) in the switch: non-excluded variants deserialize normally, while excluded variants throw a specific error mentioning they are feature-gated, improving forward compatibility and diagnostics. Fixes CI E2E run 27218748023 C# `JsonException: Unknown FormatMetadata discriminator: code`.
+
+- **C# e2e trait bridge stubs: properties with validation requirements (e.g., Dimensions) now emit sensible defaults.** Test backend stubs for trait methods with zero parameters and numeric return types were using language-wide defaults (e.g., 0 for usize), causing validation failures at registration time. For known properties like `Dimensions`, `EmbeddingDimensions`, or `ModelDimensions` that have minimum-value constraints (must be > 0), the stub emitter now returns 1 instead of 0. Fixes CI E2E run 27218748023 C# `ValidationError: Embedding backend must report dimensions() > 0`.
+
 ## [0.23.66] - 2026-06-09
 
 ### Fixed
 
-- **PHP test_app `install.sh`: verify extension via `extension_loaded()` instead of parsing `php -m` output.** `php -m | grep` is fragile when an extension is loaded via both `php.ini` *and* a `conf.d/` drop-in (e.g. when a prior PIE install left a `conf.d` entry behind) — PHP prints `Module "..." is already loaded` to stderr, the test_apps `2>&1` capture treats it as fatal, and the `else` branch's `php -d extension=...` then double-loads and reproduces the warning. Switched to `php -r 'exit(extension_loaded("ext") ? 0 : 1);'` which checks runtime state directly and is unaffected by load source or stderr noise. Fixes tslp v1.9.0-rc.30 test_apps/php verification failure when the host already had the extension enabled.
+- **PHP test_app `install.sh`: verify extension via `extension_loaded()` instead of parsing `php -m` output.** `php -m | grep` is fragile when an extension is loaded via both `php.ini` _and_ a `conf.d/` drop-in (e.g. when a prior PIE install left a `conf.d` entry behind) — PHP prints `Module "..." is already loaded` to stderr, the test_apps `2>&1` capture treats it as fatal, and the `else` branch's `php -d extension=...` then double-loads and reproduces the warning. Switched to `php -r 'exit(extension_loaded("ext") ? 0 : 1);'` which checks runtime state directly and is unaffected by load source or stderr noise. Fixes tslp v1.9.0-rc.30 test_apps/php verification failure when the host already had the extension enabled.
 
 ## [0.23.65] - 2026-06-09
 
