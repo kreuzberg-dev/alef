@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.59] - 2026-06-09
+
 ### Fixed
 
 - **Dart: `frb_generated.dart` now imports `dart:ffi` for `Abi` class.** The external library loader injected into `frb_generated.dart` uses `Abi.current()` to detect the platform architecture and select RID-specific native libraries at runtime. The import list was missing `import 'dart:ffi';`, causing Dart compilation to fail with `Error: Undefined name 'Abi'` in CI. The `ensure_loader_imports` function now adds `dart:ffi` alongside the existing `dart:io`, `dart:isolate`, and `dart:core` imports. Regression test verifies the import is present in loader rewrites.
