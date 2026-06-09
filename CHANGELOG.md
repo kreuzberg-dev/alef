@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **PyO3 enum `__new__` FromStr dedup: actually emit dedup logic in the Jinja template.** v0.23.67 added the dedup CHANGELOG entry without the matching Jinja change; the duplicate `match` arms continued to land in regen output. The template `enums/enum_definition.jinja` now guards the serde_rename arm with `and (variant.serde_rename | lower) != (variant.name | lower)`. Re-fixes kreuzberg CI E2E run 27218748023 Python compile errors at `kreuzberg-py/src/lib.rs:13116` and `:13311`.
+
+## [0.23.67] - 2026-06-09
+
+### Fixed
+
 - **Dart: scope-aware FRB handler-executor rewriter prevents corruption of `BaseHandler` class-field calls.** The build-script `fix_handler_executor_calls` did an unconditional global string replace of `handler.executeSync(...)` → `await handler(...)`. Where `handler` was a callback parameter the rewrite was correct; where `handler` was the inherited `BaseHandler` class field (FRB's normal service-API emission for methods without a callback parameter), the rewrite produced `await handler(SyncTask(...))` — invalid Dart because `BaseHandler` instances are not directly invocable. The patch corrupted every sync service-method body. Replaced the global replace with a scope-aware pass that only rewrites `handler.execute*(Task(...))` → `Task(...).execute*()` inside methods whose signature contains a callback `Function(` parameter. Class-field invocations are left as-is (FRB's emission is already correct for them).
 
 - **Swift e2e harness: split embedded fixtures JSON across multiple lines to avoid compiler limits on large string literals.** When the fixtures payload approached ~200KB, embedding it as a single-line Swift triple-quoted literal caused `JSONSerialization.jsonObject` to fail at runtime. Splitting the payload into 30KB chunks separated by newlines inside the triple-quoted literal sidesteps the limit while keeping the JSON semantics intact (the joined string parses identically).
