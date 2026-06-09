@@ -187,13 +187,17 @@ if [[ "$OSTYPE" == "darwin"* ]]; then
   export PIE_INSTALLED_EXTENSION_PATH="$EXT_DIR/{extension_name}.dylib"
 fi
 
-# Verify the extension loads. If php.ini already enables it (from this run or a
-# prior one), `php -m` alone reports it loaded and adding `-d extension=` would
-# raise "Module ... is already loaded". Only fall back to the explicit `-d`
-# flag when the extension is not auto-loaded by php.ini.
-if php -m 2>/dev/null | grep -qi "{extension_name}"; then
+# Verify the extension loads. Use `extension_loaded()` via `php -r` instead of
+# parsing `php -m` output: `php -m` is fragile when an extension is enabled via
+# both php.ini *and* a conf.d drop-in (e.g. when a prior PIE install left a
+# conf.d entry behind), because PHP prints "Module ... is already loaded" to
+# stderr and the test harness 2>&1 capture treats it as fatal. `extension_loaded`
+# checks runtime state directly and is unaffected by load source or stderr noise.
+if php -r 'exit(extension_loaded("{extension_name}") ? 0 : 1);' 2>/dev/null; then
   echo "{extension_name} extension loaded via php.ini"
-elif ! php -d extension={extension_name} -m | grep -qi "{extension_name}"; then
+elif php -d extension={extension_name} -r 'exit(extension_loaded("{extension_name}") ? 0 : 1);' 2>/dev/null; then
+  echo "{extension_name} extension loaded via -d flag"
+else
   echo "::error::{extension_name} extension failed to load after PIE install" >&2
   exit 1
 fi

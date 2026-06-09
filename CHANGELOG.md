@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.66] - 2026-06-09
+
+### Fixed
+
+- **PHP test_app `install.sh`: verify extension via `extension_loaded()` instead of parsing `php -m` output.** `php -m | grep` is fragile when an extension is loaded via both `php.ini` *and* a `conf.d/` drop-in (e.g. when a prior PIE install left a `conf.d` entry behind) — PHP prints `Module "..." is already loaded` to stderr, the test_apps `2>&1` capture treats it as fatal, and the `else` branch's `php -d extension=...` then double-loads and reproduces the warning. Switched to `php -r 'exit(extension_loaded("ext") ? 0 : 1);'` which checks runtime state directly and is unaffected by load source or stderr noise. Fixes tslp v1.9.0-rc.30 test_apps/php verification failure when the host already had the extension enabled.
+
 ## [0.23.65] - 2026-06-09
 
 ### Fixed
