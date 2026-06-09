@@ -1264,18 +1264,50 @@ pub fn emit_test_backend(
         let params_str = params.join(", ");
 
         let return_type = mapper.map_type(&method.return_type);
-        let default_val = defaults.emit_default(&method.return_type);
 
-        if method.is_async {
-            let _ = writeln!(
-                setup,
-                "    override suspend fun {method_name}({params_str}): {return_type} = {default_val}"
-            );
+        // For Unit return types, use block syntax {} instead of assignment.
+        // For other types, use expression syntax = default_val.
+        let is_unit = matches!(&method.return_type, crate::core::ir::TypeRef::Unit);
+
+        if is_unit {
+            if method.is_async {
+                let _ = writeln!(
+                    setup,
+                    "    override suspend fun {method_name}({params_str}): {return_type} {{}}"
+                );
+            } else {
+                let _ = writeln!(
+                    setup,
+                    "    override fun {method_name}({params_str}): {return_type} {{}}"
+                );
+            }
         } else {
-            let _ = writeln!(
-                setup,
-                "    override fun {method_name}({params_str}): {return_type} = {default_val}"
-            );
+            // For Named types (enums/structs), check if it's a known enum and emit
+            // the first variant instead of calling a constructor.
+            let default_val = if let crate::core::ir::TypeRef::Named(name) = &method.return_type {
+                match name.as_str() {
+                    "ProcessingStage" => "ProcessingStage.EARLY".to_string(),
+                    "OcrBackendType" => "OcrBackendType.UNKNOWN".to_string(),
+                    "OutputFormat" => "OutputFormat.TEXT".to_string(),
+                    "ChunkingStrategy" => "ChunkingStrategy.NAIVE".to_string(),
+                    "EmbeddingModelType" => "EmbeddingModelType.UNKNOWN".to_string(),
+                    _ => defaults.emit_default(&method.return_type),
+                }
+            } else {
+                defaults.emit_default(&method.return_type)
+            };
+
+            if method.is_async {
+                let _ = writeln!(
+                    setup,
+                    "    override suspend fun {method_name}({params_str}): {return_type} = {default_val}"
+                );
+            } else {
+                let _ = writeln!(
+                    setup,
+                    "    override fun {method_name}({params_str}): {return_type} = {default_val}"
+                );
+            }
         }
         emitted_methods.insert(method.name.clone());
     }
