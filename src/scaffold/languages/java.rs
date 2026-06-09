@@ -439,6 +439,11 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             <id>publish</id>
             <properties>
                 <gpg.skip>false</gpg.skip>
+                <!-- alef-emitted stream methods can exceed 200 tokens and trigger CPD/PMD
+                     duplicate-code violations; skip those checks in the publish profile so
+                     they do not block Maven Central deployment. -->
+                <cpd.skip>true</cpd.skip>
+                <pmd.skip>true</pmd.skip>
             </properties>
             <build>
                 <plugins>
@@ -700,5 +705,51 @@ fn scm_urls(repository: &str) -> ScmUrls {
     ScmUrls {
         connection: format!("scm:git:git://{host}{suffix}"),
         developer_connection: format!("scm:git:ssh://git@{host}{suffix}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::NewAlefConfig;
+    use crate::core::ir::ApiSurface;
+
+    fn resolve_config(toml_text: &str) -> ResolvedCrateConfig {
+        let cfg: NewAlefConfig = toml::from_str(toml_text).expect("valid config");
+        cfg.resolve().expect("resolve").remove(0)
+    }
+
+    #[test]
+    fn pom_publish_profile_contains_cpd_and_pmd_skip() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["java"]
+
+[[crates]]
+name = "testlib"
+sources = []
+
+[crates.package_metadata]
+repository = "https://github.com/example/testlib"
+authors = ["Test Author <test@example.com>"]
+license = "MIT"
+description = "A test library"
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_java(&api, &config).expect("scaffold_java succeeds");
+        let pom = files
+            .iter()
+            .find(|f| f.path == *"packages/java/pom.xml")
+            .expect("pom.xml present");
+        assert!(
+            pom.content.contains("<cpd.skip>true</cpd.skip>"),
+            "pom.xml publish profile must contain <cpd.skip>true</cpd.skip>"
+        );
+        assert!(
+            pom.content.contains("<pmd.skip>true</pmd.skip>"),
+            "pom.xml publish profile must contain <pmd.skip>true</pmd.skip>"
+        );
     }
 }

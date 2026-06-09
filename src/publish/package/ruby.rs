@@ -49,10 +49,26 @@ pub fn package_ruby(
     let lib_dest = lib_dest_dir.join(&lib_filename);
     fs::copy(&native_lib, &lib_dest).with_context(|| format!("copying native lib to {}", lib_dest.display()))?;
 
+    // Collect all .rb wrapper files already present in lib/ so they are included
+    // alongside the native shared object.  Without them `gem push` rejects the gem
+    // with "invalid gem structure" because the require paths cannot be satisfied.
+    let mut rb_files: Vec<String> = scan_rb_files(&pkg_dir.join("lib"))
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.strip_prefix(&pkg_dir).ok().map(|r| r.to_string_lossy().into_owned()))
+        .collect();
+    rb_files.sort();
+    // Always include the native lib path even if it was just staged (scan_rb_files
+    // skips .so/.bundle files by design).
+    let native_lib_path = format!("lib/{gem_name}/{lib_filename}");
+    if !rb_files.contains(&native_lib_path) {
+        rb_files.push(native_lib_path);
+    }
+
     // Write a platform-specific gemspec.
     let gemspec_name = format!("{gem_name}-platform.gemspec");
     let gemspec_path = pkg_dir.join(&gemspec_name);
-    let platform_gemspec = generate_platform_gemspec(&gem_name, version, &platform, &lib_filename)?;
+    let platform_gemspec = generate_platform_gemspec(&gem_name, version, &platform, &rb_files)?;
     fs::write(&gemspec_path, platform_gemspec)?;
 
     // Run gem build.
@@ -119,9 +135,40 @@ fn find_ruby_native_lib(
     )
 }
 
-fn generate_platform_gemspec(gem_name: &str, version: &str, platform: &str, lib_file: &str) -> Result<String> {
-    // Generate a minimal gemspec that references the pre-compiled native library.
-    let lib_path = format!("lib/{gem_name}/{lib_file}");
+fn scan_rb_files(lib_dir: &Path) -> Result<Vec<PathBuf>> {
+    // Walk lib_dir and collect all .rb files (not native libs).
+    let mut found = Vec::new();
+    if !lib_dir.exists() {
+        return Ok(found);
+    }
+    for entry in fs::read_dir(lib_dir).with_context(|| format!("reading {}", lib_dir.display()))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_dir() {
+            // One level of recursion is sufficient for typical gem layouts:
+            // lib/{gem}.rb, lib/{gem}/version.rb, lib/{gem}/native.rb, etc.
+            for sub in fs::read_dir(&path).with_context(|| format!("reading {}", path.display()))? {
+                let sub = sub?;
+                let sub_path = sub.path();
+                if sub_path.extension().is_some_and(|e| e == "rb") {
+                    found.push(sub_path);
+                }
+            }
+        } else if path.extension().is_some_and(|e| e == "rb") {
+            found.push(path);
+        }
+    }
+    Ok(found)
+}
+
+fn generate_platform_gemspec(gem_name: &str, version: &str, platform: &str, files: &[String]) -> Result<String> {
+    // Generate a minimal gemspec that references the pre-compiled native library
+    // AND all Ruby wrapper files required to satisfy the gem's require paths.
+    let files_ruby = files
+        .iter()
+        .map(|f| format!("    {f:?}"))
+        .collect::<Vec<_>>()
+        .join(",\n");
     Ok(format!(
         r#"# frozen_string_literal: true
 Gem::Specification.new do |spec|
@@ -129,7 +176,9 @@ Gem::Specification.new do |spec|
   spec.version       = {version:?}
   spec.platform      = {platform:?}
   spec.summary       = "{gem_name} native extension"
-  spec.files         = [{lib_path:?}]
+  spec.files         = [
+{files_ruby}
+  ]
   spec.require_paths = ["lib"]
 end
 "#
@@ -162,12 +211,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generate_platform_gemspec_valid_ruby() {
-        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", "libmylib_rb.so").unwrap();
-        assert!(spec.contains("mylib"));
-        assert!(spec.contains("1.0.0"));
-        assert!(spec.contains("x86_64-linux"));
-        assert!(spec.contains("libmylib_rb.so"));
+    fn generate_platform_gemspec_includes_native_and_wrapper_files() {
+        let files = vec![
+            "lib/mylib.rb".to_string(),
+            "lib/mylib/version.rb".to_string(),
+            "lib/mylib/native.rb".to_string(),
+            "lib/mylib/libmylib_rb.so".to_string(),
+        ];
+        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files).unwrap();
+        assert!(spec.contains("mylib"), "gem name present");
+        assert!(spec.contains("1.0.0"), "version present");
+        assert!(spec.contains("x86_64-linux"), "platform present");
+        assert!(spec.contains("libmylib_rb.so"), "native lib present");
+        assert!(spec.contains("lib/mylib.rb"), "top-level wrapper present");
+        assert!(spec.contains("lib/mylib/version.rb"), "version wrapper present");
+        assert!(spec.contains("lib/mylib/native.rb"), "native wrapper present");
+    }
+
+    #[test]
+    fn scan_rb_files_finds_wrappers_and_skips_non_rb() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let lib_dir = tmp.path().join("lib");
+        let sub_dir = lib_dir.join("mylib");
+        std::fs::create_dir_all(&sub_dir).unwrap();
+        // Top-level wrapper.
+        std::fs::write(lib_dir.join("mylib.rb"), b"").unwrap();
+        // Sub-level wrappers.
+        std::fs::write(sub_dir.join("version.rb"), b"").unwrap();
+        std::fs::write(sub_dir.join("native.rb"), b"").unwrap();
+        // Native lib — should NOT appear in scan results.
+        std::fs::write(sub_dir.join("libmylib_rb.so"), b"").unwrap();
+
+        let mut found = scan_rb_files(&lib_dir).unwrap();
+        found.sort();
+        let names: Vec<String> = found
+            .iter()
+            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+        assert!(names.contains(&"mylib.rb".to_string()), "top-level wrapper found");
+        assert!(names.contains(&"version.rb".to_string()), "version.rb found");
+        assert!(names.contains(&"native.rb".to_string()), "native.rb found");
+        assert!(!names.contains(&"libmylib_rb.so".to_string()), ".so excluded from scan");
     }
 
     #[test]

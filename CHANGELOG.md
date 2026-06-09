@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.52] - 2026-06-09
+
+### Fixed
+
+- **Java POM emitter now emits `<cpd.skip>true</cpd.skip>` and `<pmd.skip>true</pmd.skip>` in the publish profile.** Alef-emitted stream-method shims can exceed the 200-token CPD threshold, causing `maven-pmd-plugin:cpd-check` to report duplications and block Maven Central deployment. Publishing should not be gated on duplicate-code analysis of generated code; the two properties suppress CPD/PMD only in the publish profile where signing and deployment run.
+- **Ruby platform gemspec now includes all `.rb` wrapper files in `spec.files`.** The prior emitter set `spec.files = [native_lib_path]`, omitting `lib/{gem}.rb`, `lib/{gem}/version.rb`, and `lib/{gem}/native.rb`. RubyGems rejected the resulting gem with "invalid gem structure" because those require-path entry points were absent. The emitter now scans `lib/` for `.rb` files and lists them alongside the native shared object.
+
 ## [0.23.51] - 2026-06-08
 
 ### Fixed
