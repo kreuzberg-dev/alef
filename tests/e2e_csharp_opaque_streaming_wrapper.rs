@@ -55,6 +55,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "StreamEngine".to_string(),
@@ -93,6 +94,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "StreamRequest".to_string(),
@@ -135,6 +137,7 @@ fn test_opaque_streaming_static_wrapper() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         enums: vec![],

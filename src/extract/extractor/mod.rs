@@ -21,8 +21,8 @@ use self::functions::{
     resolve_return_type,
 };
 use self::helpers::{
-    build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments, is_pub,
-    is_thiserror_enum,
+    build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments,
+    extract_version_annotation, is_pub, is_thiserror_enum,
 };
 use self::paths::{apply_parent_reexport_shortening, derive_module_path};
 use self::postprocess::{resolve_newtypes, resolve_trait_sources};
@@ -353,6 +353,7 @@ fn extract_items(
                     binding_exclusion_reason,
                     is_variant_wrapper: false,
                     has_lifetime_params: false,
+                    version: extract_version_annotation(&item_type.attrs),
                 });
             }
             syn::Item::Trait(item_trait)
@@ -436,6 +437,7 @@ fn extract_items(
                                 has_default_impl: method.default.is_some(),
                                 binding_excluded: method_binding_excluded,
                                 binding_exclusion_reason: method_binding_exclusion_reason,
+                                version: extract_version_annotation(&method.attrs),
                             })
                         } else {
                             None
@@ -485,6 +487,7 @@ fn extract_items(
                     binding_exclusion_reason: trait_binding_exclusion_reason,
                     is_variant_wrapper: false,
                     has_lifetime_params: false,
+                    version: extract_version_annotation(&item_trait.attrs),
                 });
             }
             syn::Item::Mod(item_mod) => {

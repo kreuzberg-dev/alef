@@ -22,6 +22,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "ActualDefault".to_string(),
@@ -33,6 +34,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -45,6 +47,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // Create an API surface with the enum
@@ -112,6 +115,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     // The enum_defaults map should map MyEnumType to ActualDefault
@@ -148,6 +152,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Auto".to_string(),
@@ -159,6 +164,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -171,6 +177,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         },
         EnumDef {
             name: "NoDefaultEnum".to_string(),
@@ -187,6 +194,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Option2".to_string(),
@@ -198,6 +206,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -210,6 +219,7 @@ fn enum_default_variants_map_extracts_default_variants() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         },
     ];
 

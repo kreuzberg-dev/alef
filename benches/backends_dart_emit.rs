@@ -75,6 +75,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -90,6 +91,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
             binding_excluded: false,
             binding_exclusion_reason: None,
             originally_had_data_fields: false,
+            version: Default::default(),
         })
         .collect();
 
@@ -109,6 +111,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: Vec::new(),
+        version: Default::default(),
     }
 }
 
@@ -196,6 +199,7 @@ fn make_synthetic_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
     }
 

@@ -98,6 +98,7 @@ fn sample_error() -> ErrorDef {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -119,6 +120,7 @@ fn sample_method(name: &str, return_type: TypeRef) -> crate::core::ir::MethodDef
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -136,6 +138,7 @@ fn error_with_methods() -> ErrorDef {
         ],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -187,6 +190,7 @@ fn test_unit_variant_pattern() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let output = gen_pyo3_error_converter(&error, "my_crate");
     assert!(output.contains("my_crate::MyError::NotFound => NotFoundError::new_err(msg),"));
@@ -214,6 +218,7 @@ fn test_struct_variant_pattern() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let output = gen_pyo3_error_converter(&error, "my_crate");
     assert!(
@@ -268,6 +273,7 @@ fn test_napi_unit_variant() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let output = gen_napi_error_converter(&error, "my_crate");
     assert!(output.contains("my_crate::MyError::NotFound =>"));
@@ -402,6 +408,7 @@ fn test_gen_go_error_struct_no_field_method_collision() {
         ],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let output = gen_go_error_struct(&error, "mypkg");
     // Fields must be present.
@@ -731,6 +738,7 @@ fn test_go_sentinels_no_placeholder_leak() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let output = gen_go_sentinel_errors(std::slice::from_ref(&error));
     assert!(

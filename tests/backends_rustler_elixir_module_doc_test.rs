@@ -92,6 +92,7 @@ fn test_struct_module_emits_moduledoc_heredoc_when_doc_present() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let config = make_config("test_app");
@@ -160,6 +161,7 @@ fn test_struct_module_emits_moduledoc_false_when_doc_empty() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -204,6 +206,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Warning".into(),
@@ -215,6 +218,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: "Severity levels for diagnostics.".into(),
@@ -227,6 +231,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -312,6 +317,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Warning".into(),
@@ -342,6 +348,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: "All diagnostic variants emitted by the analyzer.".into(),
@@ -354,6 +361,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let config = make_config("test_app");
     let api = ApiSurface {

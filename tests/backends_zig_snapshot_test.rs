@@ -79,6 +79,7 @@ fn make_basic_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "process".into(),
@@ -100,6 +101,7 @@ fn make_basic_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "Status".to_string(),
@@ -116,6 +118,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -127,6 +130,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Processing status.".to_string(),
@@ -139,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -170,6 +175,7 @@ fn make_basic_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -239,6 +245,7 @@ fn trait_bridge_vtable_builder_coverage() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     // Add a trait type (marked as a trait with is_trait=true)
@@ -264,6 +271,7 @@ fn trait_bridge_vtable_builder_coverage() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     api.types.push(trait_def);
 
@@ -350,6 +358,7 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let trait_def = TypeDef {
@@ -374,6 +383,7 @@ fn trait_bridge_multiple_traits_emit_all_vtable_builders() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         };
         api.types.push(trait_def);
     }
@@ -507,6 +517,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let trait_def = TypeDef {
@@ -531,6 +542,7 @@ fn trait_bridge_register_fn_passes_vtable_pointer_not_value() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     api.types.push(trait_def);
 

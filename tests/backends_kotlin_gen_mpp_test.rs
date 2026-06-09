@@ -82,6 +82,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -103,6 +104,7 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_asy
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -462,6 +464,7 @@ fn mpp_sealed_enum_in_common_main() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "PlainText".to_string(),
@@ -473,6 +476,7 @@ fn mpp_sealed_enum_in_common_main() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             cfg: None,
@@ -485,6 +489,7 @@ fn mpp_sealed_enum_in_common_main() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -535,6 +540,7 @@ fn mpp_error_sealed_class_in_common_main() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

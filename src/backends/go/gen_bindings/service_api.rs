@@ -912,6 +912,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let get_variant = crate::core::ir::RegistrationVariant {
@@ -1001,6 +1002,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),

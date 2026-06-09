@@ -36,6 +36,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             // Opaque RouteBuilder with static new constructor
             TypeDef {
@@ -95,6 +96,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 }],
                 is_opaque: true,
                 is_clone: false,
@@ -112,6 +114,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -130,6 +133,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Post".to_string(),
@@ -141,6 +145,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "HTTP method.".to_string(),
@@ -153,6 +158,7 @@ fn opaque_with_constructor_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

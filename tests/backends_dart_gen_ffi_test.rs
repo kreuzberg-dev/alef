@@ -43,6 +43,7 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, error_
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -108,6 +109,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -297,6 +299,7 @@ fn unit_enum_emits_dart_enum() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Inactive".to_string(),
@@ -308,6 +311,7 @@ fn unit_enum_emits_dart_enum() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         serde_rename_all: None,
@@ -319,6 +323,7 @@ fn unit_enum_emits_dart_enum() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let api = ApiSurface {
         enums: vec![en],

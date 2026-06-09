@@ -231,6 +231,7 @@ mod tests {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "is_transient".to_string(),
@@ -249,6 +250,7 @@ mod tests {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "error_type".to_string(),
@@ -267,10 +269,12 @@ mod tests {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
             ],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let mut out = String::new();
         let mut imports = BTreeSet::new();

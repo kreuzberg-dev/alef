@@ -82,6 +82,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -103,6 +104,7 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_asy
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -124,6 +126,7 @@ fn make_fallible_function(name: &str, params: Vec<ParamDef>, return_type: TypeRe
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -252,6 +255,7 @@ fn native_unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "PlainText".to_string(),
@@ -263,6 +267,7 @@ fn native_unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             cfg: None,
@@ -275,6 +280,7 @@ fn native_unit_enum_emits_enum_class() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -366,6 +372,7 @@ fn native_fallible_function_checks_error_code() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

@@ -85,6 +85,7 @@ fn print_generated_java_code() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ParseResult".to_string(),
@@ -149,6 +150,7 @@ fn print_generated_java_code() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![
@@ -204,6 +206,7 @@ fn print_generated_java_code() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             FunctionDef {
                 name: "extractFileAsync".to_string(),
@@ -257,6 +260,7 @@ fn print_generated_java_code() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         enums: vec![EnumDef {
@@ -274,6 +278,7 @@ fn print_generated_java_code() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "RichText".to_string(),
@@ -285,6 +290,7 @@ fn print_generated_java_code() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "StructuredText".to_string(),
@@ -296,6 +302,7 @@ fn print_generated_java_code() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Available text backends".to_string(),
@@ -308,6 +315,7 @@ fn print_generated_java_code() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
@@ -339,6 +347,7 @@ fn print_generated_java_code() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

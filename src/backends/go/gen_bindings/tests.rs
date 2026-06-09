@@ -119,6 +119,7 @@ fn test_gen_go_opaque_constructor_emits_new_function() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let ctor = ClientConstructorConfig {
         params: vec![ConstructorParam {

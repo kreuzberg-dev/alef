@@ -101,6 +101,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -165,6 +166,7 @@ fn function_emits_object_member() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -210,6 +212,7 @@ fn unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -221,6 +224,7 @@ fn unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -234,6 +238,7 @@ fn unit_enum_emits_enum_class() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -302,6 +307,7 @@ fn async_function_emits_suspend() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -363,6 +369,7 @@ fn unit_error_variant_emits_sealed_class() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -407,6 +414,7 @@ fn error_variant_with_fields_emits_data_class() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -466,6 +474,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "is_transient".into(),
@@ -484,6 +493,7 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
                 MethodDef {
                     name: "error_type".into(),
@@ -502,10 +512,12 @@ fn error_sealed_class_with_methods_emits_abstract_properties() {
                     has_default_impl: false,
                     binding_excluded: false,
                     binding_exclusion_reason: None,
+                    version: Default::default(),
                 },
             ],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -556,6 +568,7 @@ fn function_imports_native_facade() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -634,6 +647,7 @@ type = "ChatCompletionRequest"
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -657,6 +671,7 @@ type = "ChatCompletionRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -790,6 +805,7 @@ type = "ChatCompletionRequest"
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -813,6 +829,7 @@ type = "ChatCompletionRequest"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -885,6 +902,7 @@ target = "jvm"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             MethodDef {
                 name: "get_description".into(),
@@ -903,6 +921,7 @@ target = "jvm"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         is_opaque: true,
@@ -921,6 +940,7 @@ target = "jvm"
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo-crate".into(),
@@ -1021,6 +1041,7 @@ target = "jvm"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -1038,6 +1059,7 @@ target = "jvm"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
@@ -1173,6 +1195,7 @@ target = "jvm"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -1190,6 +1213,7 @@ target = "jvm"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
@@ -1287,6 +1311,7 @@ fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     }
 }
 
@@ -1325,6 +1350,7 @@ fn short_sealed_class_variant_emits_single_line() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let mut out = String::new();
     emit_enum_pub(&en, &mut out, "dev.sample_crate");
@@ -1366,6 +1392,7 @@ fn long_sealed_class_variant_emits_multi_line() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let mut out = String::new();
     emit_enum_pub(&en, &mut out, "dev.sample_crate");
@@ -1394,6 +1421,7 @@ fn make_error_def(name: &str, variants: Vec<ErrorVariant>) -> ErrorDef {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

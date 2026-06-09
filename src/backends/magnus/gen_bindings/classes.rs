@@ -1020,6 +1020,7 @@ mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
@@ -1040,6 +1041,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Done".to_string(),
@@ -1051,6 +1053,7 @@ mod tests {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -1063,6 +1066,7 @@ mod tests {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         };
         let code = gen_enum(&enum_def);
         assert!(code.contains("enum Status"), "must emit enum definition");

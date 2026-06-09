@@ -83,6 +83,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Docx".into(),
@@ -113,6 +114,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -125,6 +127,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     let result = gen_elixir_enum_module(&format_enum, "SampleCrate");
@@ -184,6 +187,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "OgImage".into(),
@@ -195,6 +199,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "TwitterImage".into(),
@@ -206,6 +211,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -218,6 +224,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     let result = gen_elixir_enum_module(&image_source_enum, "SampleFixture");
@@ -296,6 +303,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Other".into(),
@@ -326,6 +334,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -338,6 +347,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // Simulate calling with known types available

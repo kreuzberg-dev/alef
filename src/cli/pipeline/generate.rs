@@ -419,6 +419,7 @@ mod validation_tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }
     }
 
@@ -449,6 +450,7 @@ mod validation_tests {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             ..ApiSurface::default()
         };

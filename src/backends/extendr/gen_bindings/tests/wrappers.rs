@@ -170,6 +170,7 @@ fn extendr_wrappers_emits_roxygen_doc_block_for_free_functions() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+            version: Default::default(),
             }],
             enums: vec![],
             errors: vec![],
@@ -261,6 +262,7 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "extract_bytes".to_string(),
@@ -290,6 +292,7 @@ fn extendr_wrappers_default_required_config_objects_in_r() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -394,6 +397,7 @@ fn make_instance_method(name: &str) -> MethodDef {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -424,6 +428,7 @@ fn make_api_with_instance_method() -> ApiSurface {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -589,6 +594,7 @@ fn extendr_wrappers_emits_roxygen_class_block_with_field_lines_for_struct() {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -673,6 +679,7 @@ fn extendr_wrappers_emits_param_doc_from_arguments_section_for_function() {
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+            version: Default::default(),
             }],
             enums: vec![],
             errors: vec![],
@@ -736,6 +743,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Binary".to_string(),
@@ -747,6 +755,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Wire payload variants.".to_string(),
@@ -759,6 +768,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

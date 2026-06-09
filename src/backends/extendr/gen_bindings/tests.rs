@@ -75,6 +75,7 @@ fn make_api_surface() -> ApiSurface {
             is_variant_wrapper: false,
 
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -93,6 +94,7 @@ fn make_api_surface() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],

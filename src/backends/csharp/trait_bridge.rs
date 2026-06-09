@@ -817,6 +817,7 @@ mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
@@ -920,6 +921,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }];
         let bridge_cfg = make_bridge_cfg("Checker", None);
         let bridges = vec![("Checker".to_string(), &bridge_cfg, &trait_def)];
@@ -1161,6 +1163,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
         let bridge_cfg = make_bridge_cfg("Processor", None);
         let bridges = vec![("Processor".to_string(), &bridge_cfg, &trait_def)];
@@ -1235,6 +1238,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
         let bridge_cfg = make_bridge_cfg("PostProcessor", Some("Plugin"));
         let bridges = vec![("PostProcessor".to_string(), &bridge_cfg, &trait_def)];

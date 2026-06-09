@@ -1020,6 +1020,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let registration = RegistrationDef {
@@ -1082,6 +1083,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),
@@ -1234,6 +1236,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let get_variant = RegistrationVariant {
@@ -1318,6 +1321,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),
@@ -1453,6 +1457,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let plain_variant = RegistrationVariant {
@@ -1505,6 +1510,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: None,
@@ -1577,6 +1583,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let constructor = MethodDef {
             name: "new".to_owned(),
@@ -1595,6 +1602,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let api = ApiSurface {
             crate_name: "worker_crate".to_owned(),

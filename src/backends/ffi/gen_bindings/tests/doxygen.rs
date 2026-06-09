@@ -38,6 +38,7 @@ fn doxygen_sample_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "lookup".to_string(),
@@ -79,6 +80,7 @@ fn doxygen_sample_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "Severity".to_string(),
@@ -94,6 +96,7 @@ fn doxygen_sample_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: "Diagnostic severity level.".to_string(),
             cfg: None,
@@ -105,6 +108,7 @@ fn doxygen_sample_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -275,9 +279,11 @@ fn test_error_type_with_methods_gets_opaque_typedef_in_cbindgen_toml() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
 
     let config = sample_config();
@@ -319,6 +325,7 @@ fn test_error_type_without_methods_does_not_get_typedef_in_cbindgen_toml() {
         methods: vec![],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
 
     let config = sample_config();

@@ -74,6 +74,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -100,6 +101,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -369,6 +371,7 @@ fn lib_rs_emits_bridge_fn_per_ir_function() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -419,6 +422,7 @@ fn lib_rs_async_fn_uses_async_fn_keyword() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -461,6 +465,7 @@ fn lib_rs_result_fn_uses_map_err_to_string() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -506,6 +511,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -517,6 +523,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -530,6 +537,7 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -662,6 +670,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -689,6 +698,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -1398,6 +1408,7 @@ stub_methods = ["process_bytes_batch"]
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             FunctionDef {
                 name: "greet".into(),
@@ -1416,6 +1427,7 @@ stub_methods = ["process_bytes_batch"]
                 return_newtype_wrapper: None,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
         ],
         enums: vec![],
@@ -1537,6 +1549,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     // A free function that takes ProcessConfig as input forces a From<Mirror> for Core impl.
@@ -1557,6 +1570,7 @@ fn sanitized_string_cow_field_roundtrips_in_from_mirror_to_core_impl() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1701,6 +1715,7 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let process_fn = FunctionDef {
@@ -1720,6 +1735,7 @@ fn sanitized_string_non_cow_field_falls_back_to_default_in_from_mirror_to_core_i
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1878,6 +1894,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Image".into(),
@@ -1889,6 +1906,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Classification of downloaded assets.".to_string(),
@@ -1901,6 +1919,7 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1953,6 +1972,7 @@ fn mirror_enum_data_variant_field_emits_rustdoc() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -1964,6 +1984,7 @@ fn mirror_enum_data_variant_field_emits_rustdoc() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2069,9 +2090,11 @@ fn mirror_error_introspection_uses_safe_from_conversion_not_transmute() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2160,6 +2183,7 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let error = ErrorDef {
@@ -2213,6 +2237,7 @@ fn mirror_error_from_impl_handles_optional_string_duration_and_sanitized_fields(
         methods: vec![status_code_method],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2380,9 +2405,11 @@ fn mirror_error_from_impl_uses_tuple_syntax_for_tuple_variants() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2477,6 +2504,7 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            version: Default::default(),
         }],
         doc: String::new(),
         cfg: None,
@@ -2488,6 +2516,7 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     let api = ApiSurface {

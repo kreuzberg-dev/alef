@@ -1,6 +1,6 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
-use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, TypeDef};
+use crate::core::ir::{ApiSurface, EnumDef, ErrorDef, FunctionDef, MethodDef, TypeDef, VersionAnnotation};
 use heck::ToPascalCase;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -235,6 +235,32 @@ pub(super) fn generate_lang_doc(
 }
 
 // ---------------------------------------------------------------------------
+// Version annotation rendering
+// ---------------------------------------------------------------------------
+
+fn push_version_annotation(out: &mut String, version: &VersionAnnotation) {
+    if let Some(ref since) = version.since {
+        out.push_str(&template_env::render(
+            "since_badge.jinja",
+            minijinja::context! { since => since },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+    if let Some(ref dep) = version.deprecated {
+        out.push_str(&template_env::render(
+            "deprecated_notice.jinja",
+            minijinja::context! {
+                since => dep.since.as_deref().unwrap_or(""),
+                note => dep.note.as_deref().unwrap_or(""),
+            },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Function rendering
 // ---------------------------------------------------------------------------
 
@@ -252,6 +278,8 @@ fn render_function(
         "heading.jinja",
         minijinja::context! { marker => "####", title => format!("{fn_name}()") },
     ));
+
+    push_version_annotation(&mut out, &func.version);
 
     // Extract parameter descriptions from the RAW doc string BEFORE cleaning
     let param_docs = extract_param_docs(&func.doc);
@@ -336,6 +364,8 @@ fn render_method(method: &MethodDef, type_name_str: &str, lang: Language, ffi_pr
         minijinja::context! { marker => "####", title => format!("{mname}()") },
     ));
 
+    push_version_annotation(&mut out, &method.version);
+
     let doc = clean_doc(&method.doc, lang);
     // Demote any embedded headings in the method documentation by 2 levels
     // to ensure they stay nested under the method heading (####).
@@ -371,6 +401,8 @@ fn render_type(ty: &TypeDef, lang: Language, api: &ApiSurface, ffi_prefix: &str)
         "heading.jinja",
         minijinja::context! { marker => "####", title => tname },
     ));
+
+    push_version_annotation(&mut out, &ty.version);
 
     let doc = clean_doc(&ty.doc, lang);
     // Demote any embedded headings in the type documentation by 2 levels
@@ -444,6 +476,8 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
         minijinja::context! { marker => "####", title => ename },
     ));
 
+    push_version_annotation(&mut out, &en.version);
+
     let doc = clean_doc(&en.doc, lang);
     // Demote any embedded headings in the enum documentation by 2 levels
     // to ensure they stay nested under the enum heading (####).
@@ -475,6 +509,20 @@ fn render_enum(en: &EnumDef, lang: Language, ffi_prefix: &str) -> String {
                 })
                 .collect();
             vdoc = format!("{vdoc} — Fields: {}", fields_desc.join(", "));
+        }
+        // Inline version annotations into the description cell (block-level elements
+        // cannot appear inside a Markdown table row).
+        if let Some(ref since) = variant.version.since {
+            vdoc = format!("{vdoc} — **Since:** `v{since}`");
+        }
+        if let Some(ref dep) = variant.version.deprecated {
+            let dep_note = match (&dep.since, &dep.note) {
+                (Some(s), Some(n)) => format!("Deprecated since `v{s}`: {n}"),
+                (Some(s), None) => format!("Deprecated since `v{s}`"),
+                (None, Some(n)) => format!("Deprecated: {n}"),
+                (None, None) => "Deprecated".to_string(),
+            };
+            vdoc = format!("{vdoc} — {dep_note}");
         }
         out.push_str(&template_env::render(
             "variant_row.jinja",

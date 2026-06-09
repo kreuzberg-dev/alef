@@ -63,10 +63,12 @@ fn test_gen_unit_enum_type_produces_type_string_and_const_block() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            version: Default::default(),
         }],
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let out = gen_unit_enum_type(&enum_def);
     assert!(out.contains("type Status string"));
@@ -98,6 +100,7 @@ fn test_gen_struct_type_emits_json_tags() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let out = gen_struct_type(
         &typ,
@@ -139,6 +142,7 @@ fn test_gen_data_enum_sealed_interface() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Bearer".to_string(),
@@ -150,11 +154,13 @@ fn test_gen_data_enum_sealed_interface() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let out = gen_data_enum_type(&enum_def);
     // Should emit sealed interface
@@ -207,6 +213,7 @@ fn gen_struct_type_marshal_optional_bytes_field_does_not_dereference() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let out = gen_struct_type(
         &typ,
@@ -250,6 +257,7 @@ fn gen_config_options_defaults_data_enum_field_to_nil_not_composite_literal() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let mut data_enum_names = std::collections::HashSet::new();
     data_enum_names.insert("ChunkSizing");
@@ -302,6 +310,7 @@ fn test_gen_struct_type_emits_no_config_options_by_default() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let out = gen_struct_type(
         &typ,
@@ -358,6 +367,7 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     // Simulate the config allowing DialOptions for functional-options
     let out = gen_config_options(

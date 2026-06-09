@@ -21,6 +21,11 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("errors_phrase.jinja", include_str!("templates/errors_phrase.jinja")),
     ("base_class.jinja", include_str!("templates/base_class.jinja")),
     ("bold_heading.jinja", include_str!("templates/bold_heading.jinja")),
+    ("since_badge.jinja", include_str!("templates/since_badge.jinja")),
+    (
+        "deprecated_notice.jinja",
+        include_str!("templates/deprecated_notice.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

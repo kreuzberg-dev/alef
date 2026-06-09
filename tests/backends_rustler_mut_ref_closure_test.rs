@@ -57,6 +57,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     // Function signature: process_handles(handles: Vec<&mut SampleHandle>) -> bool
@@ -93,6 +94,7 @@ fn test_vec_of_mutable_refs_in_closure_preserves_mutability() {
         cfg: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let config = make_config("test_app");

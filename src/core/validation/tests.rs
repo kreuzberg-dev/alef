@@ -24,6 +24,7 @@ fn function_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Func
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -68,6 +69,7 @@ fn method_def(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Method
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -587,6 +589,7 @@ fn api_surface_validation_checks_enum_and_error_variant_fields() {
             methods: Vec::new(),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     };
@@ -637,6 +640,7 @@ fn api_surface_validation_skips_binding_excluded_variant_fields() {
             methods: Vec::new(),
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     };

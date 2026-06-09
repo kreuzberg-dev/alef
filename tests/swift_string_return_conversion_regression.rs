@@ -44,6 +44,7 @@ fn make_function(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> Fun
         returns_ref: false,
         returns_cow: false,
         return_newtype_wrapper: None,
+        version: Default::default(),
     }
 }
 

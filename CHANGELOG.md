@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Per-item version annotations in IR and docs generator**: Added `VersionAnnotation` and `DeprecationInfo` types to the IR. `FunctionDef`, `MethodDef`, `TypeDef`, `EnumDef`, and `EnumVariant` now carry a `version` field populated from `#[alef(since = "x.y.z")]` and `#[deprecated(since = "...", note = "...")]` Rust attributes. The docs generator renders a `**Since:** \`vX.Y.Z\`` badge and a `!!! warning` admonition for deprecated items in generated `api-{lang}.md` reference pages. Variant-level version annotations are inlined into the description column of the enum table. Backend binding emission (e.g. `@Deprecated` in Java, `[Obsolete]` in C#) is tracked as a follow-up.
+
 ## [0.23.57] - 2026-06-09
 
 ### Fixed

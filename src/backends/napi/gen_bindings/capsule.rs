@@ -331,6 +331,7 @@ mod tests {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }
     }
 
@@ -362,6 +363,7 @@ mod tests {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
         let capsules = capsule_map(&[("Language", make_capsule_config("Language", "sample_language"))]);
         assert!(!function_involves_capsule(&func, &capsules));

@@ -34,6 +34,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Green".into(),
@@ -45,6 +46,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Blue".into(),
@@ -56,6 +58,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         excluded_variants: vec![],
@@ -68,6 +71,7 @@ fn make_color_enum() -> EnumDef {
         serde_rename_all: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -83,6 +87,7 @@ fn excluded_variant() -> EnumVariant {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     }
 }
 

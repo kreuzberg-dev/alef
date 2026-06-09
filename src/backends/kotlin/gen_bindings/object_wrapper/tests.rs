@@ -35,6 +35,7 @@ fn make_variant(name: &str, serde_rename: Option<&str>, fields: Vec<FieldDef>) -
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        version: Default::default(),
     }
 }
 
@@ -60,6 +61,7 @@ fn make_enum(
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 

@@ -53,6 +53,7 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -78,6 +79,7 @@ fn make_method(name: &str, return_type: TypeRef, has_error: bool, has_default: b
         has_default_impl: has_default,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -103,6 +105,7 @@ fn make_method_with_params(name: &str, params: Vec<ParamDef>, return_type: TypeR
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -882,6 +885,7 @@ ffi = "crates/mylib-ffi/src/"
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1049,6 +1053,7 @@ ffi = "crates/mylib-ffi/src/"
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1139,6 +1144,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "get_language".to_string(),
@@ -1157,6 +1163,7 @@ ffi = "crates/mylib-ffi/src/"
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1232,6 +1239,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1301,6 +1309,7 @@ ffi = "crates/mylib-ffi/src/"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],

@@ -42,6 +42,7 @@ fn async_function(params: Vec<ParamDef>) -> FunctionDef {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -189,6 +190,7 @@ fn input_dtos_dedup_flag_skips_generation() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     assert!(should_have_input_dto(&make_type("OcrOptions", "max_depth", true, true)));
@@ -363,6 +365,7 @@ fn gen_input_dto_excludes_binding_excluded_fields() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let (code, _name) = gen_input_dto_for_type("CrawlConfig", "sample_fixture", &type_def);
@@ -440,6 +443,7 @@ fn feature_gated_fields_get_cfg_guards() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     // Generate without the "layout" feature enabled

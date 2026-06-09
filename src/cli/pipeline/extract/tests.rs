@@ -137,6 +137,7 @@ fn validate_extracted_api_does_not_suppress_critical_codes() {
             cfg: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         ..ApiSurface::default()
     };
@@ -238,6 +239,7 @@ fn make_typedef(name: &str) -> crate::core::ir::TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -279,6 +281,7 @@ fn make_funcdef(name: &str, return_type: TypeRef, param_types: Vec<TypeRef>) -> 
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -565,6 +568,7 @@ fn configurator_survives_exclude_methods_post_service_pass() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let constructor_method = MethodDef {
         name: "new".to_string(),
@@ -583,6 +587,7 @@ fn configurator_survives_exclude_methods_post_service_pass() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let service = ServiceDef {
         name: "Foo".to_string(),

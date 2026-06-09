@@ -73,6 +73,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -230,6 +231,7 @@ fn unit_enum_emits_dart_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".into(),
@@ -241,6 +243,7 @@ fn unit_enum_emits_dart_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -254,6 +257,7 @@ fn unit_enum_emits_dart_enum() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -299,6 +303,7 @@ fn data_bearing_enum_emits_sealed_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Rectangle".into(),
@@ -310,6 +315,7 @@ fn data_bearing_enum_emits_sealed_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -323,6 +329,7 @@ fn data_bearing_enum_emits_sealed_class() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -375,6 +382,7 @@ fn simple_sync_function_emits_static_method() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -441,6 +449,7 @@ fn default_config_param_uses_default_constructor_for_empty_default_type() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -496,6 +505,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "Strategy".into(),
@@ -511,6 +521,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -522,6 +533,7 @@ fn default_config_param_synthesizes_expression_from_type_metadata() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -571,6 +583,7 @@ fn async_function_emits_future_return_and_async_keyword() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -626,6 +639,7 @@ fn error_returning_function_emits_doc_comment() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -697,6 +711,7 @@ fn error_type_emits_sealed_class_hierarchy() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -802,6 +817,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -828,6 +844,7 @@ fn make_trait(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -1462,6 +1479,7 @@ fn enum_variant_named_default_is_escaped() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Dark".into(),
@@ -1473,6 +1491,7 @@ fn enum_variant_named_default_is_escaped() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: String::new(),
@@ -1485,6 +1504,7 @@ fn enum_variant_named_default_is_escaped() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1534,6 +1554,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -1545,6 +1566,7 @@ fn tuple_variant_with_numeric_field_name_is_escaped() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1627,6 +1649,7 @@ fn error_message_template_strips_placeholders_and_escapes_special_chars() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),

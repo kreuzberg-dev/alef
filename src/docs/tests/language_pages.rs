@@ -1,4 +1,5 @@
 use super::*;
+use crate::core::ir::{DeprecationInfo, VersionAnnotation};
 
 #[test]
 fn test_generate_docs_with_function_renders_signature_and_params() {
@@ -23,6 +24,7 @@ fn test_generate_docs_with_function_renders_signature_and_params() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -67,6 +69,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Plain".to_string(),
@@ -78,6 +81,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "The output format.".to_string(),
@@ -90,6 +94,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -159,6 +164,7 @@ fn test_generate_docs_with_type_renders_fields_and_doc() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -218,6 +224,7 @@ fn test_generate_docs_with_error_appears_in_lang_page_and_errors_md() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -241,4 +248,200 @@ fn test_generate_docs_with_error_appears_in_lang_page_and_errors_md() {
         .unwrap();
     assert!(errors_file.content.contains("ConversionError"));
     assert!(errors_file.content.contains("Invalid input: {0}"));
+}
+
+#[test]
+fn test_function_with_since_renders_version_badge() {
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "1.0.0".to_string(),
+        functions: vec![FunctionDef {
+            name: "new_fn".to_string(),
+            rust_path: "mylib::new_fn".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: VersionAnnotation {
+                since: Some("0.5.0".to_string()),
+                deprecated: None,
+            },
+        }],
+        types: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let config = make_test_config();
+    let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-python"))
+        .unwrap()
+        .content;
+    assert!(
+        content.contains("**Since:** `v0.5.0`"),
+        "expected since badge, got:\n{content}"
+    );
+}
+
+#[test]
+fn test_function_deprecated_renders_warning_admonition() {
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "2.0.0".to_string(),
+        functions: vec![FunctionDef {
+            name: "old_fn".to_string(),
+            rust_path: "mylib::old_fn".to_string(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: VersionAnnotation {
+                since: None,
+                deprecated: Some(DeprecationInfo {
+                    since: Some("1.5.0".to_string()),
+                    note: Some("use new_fn instead".to_string()),
+                }),
+            },
+        }],
+        types: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let config = make_test_config();
+    let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-python"))
+        .unwrap()
+        .content;
+    assert!(
+        content.contains("!!! warning"),
+        "expected warning admonition, got:\n{content}"
+    );
+    assert!(
+        content.contains("Deprecated"),
+        "expected Deprecated text, got:\n{content}"
+    );
+    assert!(
+        content.contains("1.5.0"),
+        "expected deprecated since version, got:\n{content}"
+    );
+    assert!(
+        content.contains("use new_fn instead"),
+        "expected deprecation note, got:\n{content}"
+    );
+}
+
+#[test]
+fn test_enum_variant_with_since_renders_inline_in_table() {
+    use crate::core::ir::{EnumVariant, VersionAnnotation};
+    let api = ApiSurface {
+        crate_name: "mylib".to_string(),
+        version: "1.0.0".to_string(),
+        functions: vec![],
+        types: vec![],
+        enums: vec![EnumDef {
+            name: "Status".to_string(),
+            rust_path: "mylib::Status".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Active".to_string(),
+                    fields: vec![],
+                    doc: "Currently active.".to_string(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                    version: VersionAnnotation {
+                        since: Some("0.5.0".to_string()),
+                        deprecated: None,
+                    },
+                },
+                EnumVariant {
+                    name: "Legacy".to_string(),
+                    fields: vec![],
+                    doc: "Old name.".to_string(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                    version: VersionAnnotation {
+                        since: None,
+                        deprecated: Some(DeprecationInfo {
+                            since: Some("0.5.0".to_string()),
+                            note: Some("use Active".to_string()),
+                        }),
+                    },
+                },
+            ],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+    let config = make_test_config();
+    let files = generate_docs(&api, &config, &[Language::Python], "out").unwrap();
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_str().unwrap().contains("api-python"))
+        .unwrap()
+        .content;
+    assert!(
+        content.contains("Since:") && content.contains("v0.5.0"),
+        "variant since badge must appear inline in table, got:\n{content}"
+    );
+    assert!(
+        content.contains("Deprecated since") && content.contains("use Active"),
+        "variant deprecated note must appear inline in table, got:\n{content}"
+    );
 }

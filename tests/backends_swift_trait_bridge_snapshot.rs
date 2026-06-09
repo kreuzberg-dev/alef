@@ -40,6 +40,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -66,6 +67,7 @@ fn make_trait_def(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 

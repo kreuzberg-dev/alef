@@ -47,6 +47,7 @@ pub(crate) fn make_method(
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -74,6 +75,7 @@ pub(crate) fn make_function(
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

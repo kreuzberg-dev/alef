@@ -99,6 +99,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_method = MethodDef {
         name: "do_thing".into(),
@@ -117,6 +118,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -140,6 +142,7 @@ fn make_jni_api_with_client_and_function() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -174,6 +177,7 @@ fn make_simple_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -210,6 +214,7 @@ fn make_top_level_bytes_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -445,6 +450,7 @@ target = "jvm"
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -517,6 +523,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let embeddings_method = MethodDef {
         name: "embeddings".into(),
@@ -535,6 +542,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -558,6 +566,7 @@ fn make_api_with_chat_and_embeddings() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -668,6 +677,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -691,6 +701,7 @@ fn make_api_with_speech_method() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -778,6 +789,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -801,6 +813,7 @@ fn jni_optional_byte_array_method_uses_nullable_facade_and_empty_array_sentinel(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let api = ApiSurface {
         crate_name: "demo".into(),
@@ -871,6 +884,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -894,6 +908,7 @@ fn make_api_with_unit_return_method() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),

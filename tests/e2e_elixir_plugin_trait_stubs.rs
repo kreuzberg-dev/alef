@@ -34,6 +34,7 @@ fn make_method(name: &str, return_type: TypeRef, has_default: bool) -> MethodDef
         has_default_impl: has_default,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 

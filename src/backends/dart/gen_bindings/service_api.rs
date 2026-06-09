@@ -623,6 +623,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let registration = RegistrationDef {
@@ -685,6 +686,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),
@@ -819,6 +821,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         // Finalize with unrepresentable Named return type
@@ -881,6 +884,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         // Finalize method marked as sanitized (returns an unknown type mapped to String)
@@ -901,6 +905,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         // Finalize entrypoint that references the sanitized method
@@ -938,6 +943,7 @@ mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         };
 
         let api = ApiSurface {
@@ -1086,6 +1092,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         };
 
         let variant_with_wrapper = RegistrationVariant {
@@ -1167,6 +1174,7 @@ mod tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             },
             optional_methods: vec![],
             wire_request_type: Some("RequestData".to_owned()),

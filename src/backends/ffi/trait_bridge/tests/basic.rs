@@ -457,6 +457,7 @@ fn test_string_param_marshalled_to_c_char() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
     );
     let bridge_cfg = sample_bridge_cfg("Greeter");

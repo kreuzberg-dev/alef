@@ -429,6 +429,7 @@ mod trait_bridge_tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }
     }
 
@@ -529,6 +530,7 @@ mod trait_bridge_tests {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }
         };
 

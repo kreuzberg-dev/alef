@@ -539,6 +539,7 @@ mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
@@ -675,6 +676,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
 
         let policy = excluded_named_type_bridge_policy(&trait_def, &HashSet::new());
@@ -761,6 +763,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
 
         let bridge_cfg = make_bridge_cfg("DocumentExtractor");
@@ -901,6 +904,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
 
         // Method returning Vec<String>
@@ -921,6 +925,7 @@ mod tests {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
 
         let bridge_cfg = make_bridge_cfg("TextExtractor");

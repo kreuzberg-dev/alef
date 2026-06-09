@@ -109,6 +109,7 @@ fn make_streaming_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -132,6 +133,7 @@ fn make_streaming_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -171,6 +173,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let trait_type = TypeDef {
         name: "Renderer".into(),
@@ -194,6 +197,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let public_carrier = TypeDef {
         name: "PublicCarrier".into(),
@@ -217,6 +221,7 @@ fn make_trait_carrier_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let mut excluded_type_paths = ::std::collections::HashMap::new();
     excluded_type_paths.insert("HiddenCarrier".to_string(), "demo::HiddenCarrier".to_string());
@@ -394,6 +399,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -417,6 +423,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let create_client_fn = FunctionDef {
         name: "create_client".into(),
@@ -451,6 +458,7 @@ fn make_opaque_factory_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -535,6 +543,7 @@ fn make_handle_only_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let create_engine_fn = FunctionDef {
         name: "create_engine".into(),
@@ -553,6 +562,7 @@ fn make_handle_only_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let scrape_fn = FunctionDef {
         name: "scrape".into(),
@@ -606,6 +616,7 @@ fn make_handle_only_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -707,6 +718,7 @@ fn make_optional_params_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let client_type = TypeDef {
         name: "DefaultClient".into(),
@@ -730,6 +742,7 @@ fn make_optional_params_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     use alef::core::ir::PrimitiveType;
     let create_client_fn = FunctionDef {
@@ -838,6 +851,7 @@ fn make_optional_params_api() -> ApiSurface {
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -1021,6 +1035,7 @@ fn make_nullable_primitives_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1160,6 +1175,7 @@ fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> Enu
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: false,
+        version: Default::default(),
     }
 }
 
@@ -1199,6 +1215,7 @@ fn make_sealed_variants_api() -> ApiSurface {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     ApiSurface {
@@ -1391,6 +1408,7 @@ fn make_tuple_error_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -1488,6 +1506,7 @@ fn make_convert_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ParseOutput".into(),
@@ -1511,6 +1530,7 @@ fn make_convert_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![FunctionDef {
@@ -1565,6 +1585,7 @@ fn make_convert_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1676,6 +1697,7 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "DemoResult".into(),
@@ -1699,6 +1721,7 @@ fn make_batch_function_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![FunctionDef {
@@ -1734,6 +1757,7 @@ fn make_batch_function_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -1901,6 +1925,7 @@ fn make_generic_container_api(return_ty: TypeRef, fn_name: &str) -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -2087,6 +2112,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "TowerResponse".into(),
@@ -2110,6 +2136,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "KeepMe".into(),
@@ -2133,6 +2160,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -2150,6 +2178,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             }],
             doc: String::new(),
             cfg: None,
@@ -2161,6 +2190,7 @@ fn make_exclude_types_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![ErrorDef {
             name: "TowerError".into(),
@@ -2199,6 +2229,7 @@ fn make_exclude_types_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -2289,6 +2320,7 @@ fn make_trait_api() -> ApiSurface {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: false,
         is_clone: false,
@@ -2306,6 +2338,7 @@ fn make_trait_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     ApiSurface {
         crate_name: "demo".into(),
@@ -2538,6 +2571,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let skipped_type = TypeDef {
         name: "SkippedDto".into(),
@@ -2580,6 +2614,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_exclusion_reason: Some("alef(skip)".into()),
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let included_enum = EnumDef {
         name: "IncludedMode".into(),
@@ -2595,6 +2630,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            version: Default::default(),
         }],
         doc: String::new(),
         cfg: None,
@@ -2606,6 +2642,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
     let skipped_enum = EnumDef {
         name: "SkippedMode".into(),
@@ -2621,6 +2658,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            version: Default::default(),
         }],
         doc: String::new(),
         cfg: None,
@@ -2632,6 +2670,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
         binding_excluded: true,
         binding_exclusion_reason: Some("alef(skip)".into()),
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -2749,6 +2788,7 @@ fn make_long_signature_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let short_method = MethodDef {
@@ -2784,6 +2824,7 @@ fn make_long_signature_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let zero_param_method = MethodDef {
@@ -2803,6 +2844,7 @@ fn make_long_signature_api() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let trait_type = TypeDef {
@@ -2827,6 +2869,7 @@ fn make_long_signature_api() -> ApiSurface {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     ApiSurface {

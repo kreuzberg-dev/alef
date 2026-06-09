@@ -26,6 +26,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let configurator = MethodDef {
@@ -51,6 +52,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -140,6 +142,7 @@ fn make_fixture_surface() -> ApiSurface {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let contract = HandlerContractDef {
@@ -247,6 +250,7 @@ fn php_output_contains_registration_variants() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -344,6 +348,7 @@ fn php_output_verb_decorator_style_direct_method_only() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -445,6 +450,7 @@ fn php_output_builder_style_factory_only() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -546,6 +552,7 @@ fn php_output_hybrid_style_both_forms() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {
@@ -745,6 +752,7 @@ fn php_output_required_params_not_nullable() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let service = ServiceDef {
@@ -835,6 +843,7 @@ fn php_output_wrapper_call_delegates_to_base_method() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let registration = RegistrationDef {

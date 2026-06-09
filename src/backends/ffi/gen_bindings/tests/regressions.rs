@@ -79,6 +79,7 @@ result_type = "VisitResult"
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     });
     let backend = FfiBackend;
 
@@ -186,6 +187,7 @@ fn test_bytes_result_return_uses_out_params_and_emits_free_bytes() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -290,6 +292,7 @@ type = "ChatRequest"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -307,6 +310,7 @@ type = "ChatRequest"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -437,6 +441,7 @@ type = "*const std::ffi::c_char"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -539,6 +544,7 @@ fn ahashmap_cow_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -630,6 +636,7 @@ fn test_optional_vec_still_uses_as_deref() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -700,6 +707,7 @@ fn test_optional_bytes_field_accessor_emits_out_len_and_length_writes() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let code = gen_field_accessor(

@@ -75,6 +75,7 @@ fn make_type(name: &str, fields: Vec<FieldDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -95,6 +96,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             })
             .collect(),
         doc: String::new(),
@@ -108,6 +110,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -423,6 +426,7 @@ fn lib_rs_has_free_function_shim() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -476,6 +480,7 @@ fn lib_rs_async_function_blocks_on_tokio_runtime() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -535,6 +540,7 @@ fn lib_rs_result_function_has_map_err_chain() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -812,6 +818,7 @@ fn make_method(
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -839,6 +846,7 @@ fn make_trait_type(name: &str, rust_path: &str, methods: Vec<MethodDef>) -> Type
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -1218,6 +1226,7 @@ fn cargo_toml_serde_json_dep_present_when_has_serde_type_with_vec_field() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1441,6 +1450,7 @@ type = "ChatCompletionRequest"
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -1458,6 +1468,7 @@ type = "ChatCompletionRequest"
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1584,6 +1595,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
 
     let api = ApiSurface {
@@ -1611,6 +1623,7 @@ fn opaque_type_refmut_method_emits_mut_receiver_in_extern_and_shim() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1691,6 +1704,7 @@ fn make_simple_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -1717,6 +1731,7 @@ fn make_opaque_type(name: &str, methods: Vec<MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -2251,6 +2266,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: true,
+                version: Default::default(),
             })
             .collect(),
         doc: String::new(),
@@ -2263,6 +2279,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -2313,6 +2330,7 @@ fn function_with_vec_tagged_enum_param_uses_json_deserial() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![tagged_enum],
         errors: vec![],

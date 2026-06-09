@@ -45,6 +45,7 @@ fn test_visitor_file_emits_prefixed_struct() {
             has_default_impl: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: false,
         is_clone: false,
@@ -62,6 +63,7 @@ fn test_visitor_file_emits_prefixed_struct() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let output = gen_visitor_file(
@@ -120,6 +122,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
             has_default_impl: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: false,
         is_clone: false,
@@ -137,6 +140,7 @@ fn test_visitor_file_uses_configured_function_options_field_and_result() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let output = gen_visitor_file(
@@ -196,6 +200,7 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
             has_default_impl: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         is_opaque: false,
         is_clone: false,
@@ -213,6 +218,7 @@ fn test_generic_trait_without_compat_callback_types_does_not_emit_fixed_helpers(
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
 
     let output = gen_visitor_file(
@@ -399,6 +405,7 @@ fn bridge_function(
         return_newtype_wrapper: None,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -425,6 +432,7 @@ fn trait_def(name: &str, methods: Vec<alef::core::ir::MethodDef>) -> TypeDef {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     }
 }
 
@@ -446,6 +454,7 @@ fn method(name: &str, params: Vec<ParamDef>, return_type: TypeRef) -> alef::core
         has_default_impl: true,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -495,6 +504,7 @@ fn result_enum(name: &str, variants: Vec<EnumVariant>, serde_rename_all: Option<
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     }
 }
 
@@ -511,6 +521,7 @@ fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVaria
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: payload_field.is_some(),
+        version: Default::default(),
     }
 }
 

@@ -276,6 +276,27 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
         minijinja::context! { marker => "####", title => &en.name },
     ));
 
+    // Version annotation
+    if let Some(ref since) = en.version.since {
+        out.push_str(&template_env::render(
+            "since_badge.jinja",
+            minijinja::context! { since => since },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+    if let Some(ref dep) = en.version.deprecated {
+        out.push_str(&template_env::render(
+            "deprecated_notice.jinja",
+            minijinja::context! {
+                since => dep.since.as_deref().unwrap_or(""),
+                note => dep.note.as_deref().unwrap_or(""),
+            },
+        ));
+        out.push('\n');
+        out.push('\n');
+    }
+
     let doc = clean_doc(&en.doc, Language::Rust);
     // Demote any embedded headings in the enum documentation by 2 levels
     // to ensure they stay nested under the enum heading (####).

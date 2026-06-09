@@ -22,6 +22,7 @@ fn php_enum_default_variant_uses_marked_variant() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Second".to_string(),
@@ -33,6 +34,7 @@ fn php_enum_default_variant_uses_marked_variant() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -45,6 +47,7 @@ fn php_enum_default_variant_uses_marked_variant() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // The helper should return the #[default]-marked variant, not the first one
@@ -74,6 +77,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Second".to_string(),
@@ -85,6 +89,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -97,6 +102,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         excluded_variants: vec![],
+        version: Default::default(),
     };
 
     // Without #[default], should fall back to the first variant

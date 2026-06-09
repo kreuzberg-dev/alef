@@ -92,6 +92,7 @@ fn make_basic_api() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "process".into(),
@@ -113,6 +114,7 @@ fn make_basic_api() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![EnumDef {
             name: "Status".to_string(),
@@ -129,6 +131,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Inactive".to_string(),
@@ -140,6 +143,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Processing status.".to_string(),
@@ -152,6 +156,7 @@ fn make_basic_api() -> ApiSurface {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![ErrorDef {
             name: "DemoError".to_string(),
@@ -183,6 +188,7 @@ fn make_basic_api() -> ApiSurface {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -242,6 +248,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "Wrapper".to_string(),
@@ -265,6 +272,7 @@ fn snapshot_conversion_struct_with_named_types() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![FunctionDef {
@@ -284,6 +292,7 @@ fn snapshot_conversion_struct_with_named_types() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -327,6 +336,7 @@ fn snapshot_conversion_enum_with_data() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -344,6 +354,7 @@ fn snapshot_conversion_enum_with_data() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Error".to_string(),
@@ -355,6 +366,7 @@ fn snapshot_conversion_enum_with_data() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Result enum with data.".to_string(),
@@ -367,6 +379,7 @@ fn snapshot_conversion_enum_with_data() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -409,6 +422,7 @@ fn snapshot_conversion_vec_of_named() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "getItems".into(),
@@ -427,6 +441,7 @@ fn snapshot_conversion_vec_of_named() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -460,6 +475,7 @@ fn make_method(name: &str, params: Vec<ParamDef>, return_type: TypeRef, is_async
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     }
 }
 
@@ -495,6 +511,7 @@ fn snapshot_trait_bridge_inbound() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ImageConfig".to_string(),
@@ -518,6 +535,7 @@ fn snapshot_trait_bridge_inbound() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ProcessingResult".to_string(),
@@ -541,6 +559,7 @@ fn snapshot_trait_bridge_inbound() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ImageProcessor".to_string(),
@@ -630,6 +649,7 @@ fn snapshot_trait_bridge_inbound() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -719,6 +739,7 @@ fn snapshot_tuple_field_as_vec() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "extract_keywords".into(),
@@ -740,6 +761,7 @@ fn snapshot_tuple_field_as_vec() {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![ErrorDef {
@@ -760,6 +782,7 @@ fn snapshot_tuple_field_as_vec() {
             methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         excluded_type_paths: ::std::collections::HashMap::new(),
         excluded_trait_names: ::std::collections::HashSet::new(),
@@ -808,6 +831,7 @@ fn snapshot_streaming_adapter() {
                 has_default_impl: false,
                 binding_excluded: false,
                 binding_exclusion_reason: None,
+                version: Default::default(),
             }],
             is_opaque: true,
             is_clone: false,
@@ -825,6 +849,7 @@ fn snapshot_streaming_adapter() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -904,6 +929,7 @@ fn snapshot_first_class_struct_optional_field() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -985,6 +1011,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             // The options type that receives the visitor via a field.
             TypeDef {
@@ -1009,6 +1036,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             // The visitor trait implemented by Swift.
             TypeDef {
@@ -1039,6 +1067,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -1057,6 +1086,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Stop".to_string(),
@@ -1068,6 +1098,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Decision returned by a visitor callback.".to_string(),
@@ -1080,6 +1111,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1177,6 +1209,7 @@ fn snapshot_into_rust_bulk_constructor_primitives() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1270,6 +1303,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "Diagnostic".to_string(),
@@ -1296,6 +1330,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
             TypeDef {
                 name: "ProcessResult".to_string(),
@@ -1327,6 +1362,7 @@ fn snapshot_into_rust_bulk_constructor_nested() {
                 binding_exclusion_reason: None,
                 is_variant_wrapper: false,
                 has_lifetime_params: false,
+                version: Default::default(),
             },
         ],
         functions: vec![],
@@ -1433,6 +1469,7 @@ fn snapshot_intorust_bulk_constructor_primitive_no_default() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1543,6 +1580,7 @@ fn snapshot_intorust_json_fallback_shim_present_for_map_dto() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![],
@@ -1619,6 +1657,7 @@ fn snapshot_enum_variant_optional_field() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1638,6 +1677,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 // Variant with optional String field -- same extractor form.
                 EnumVariant {
@@ -1650,6 +1690,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 // Variant with non-optional field -- must stay bare.
                 EnumVariant {
@@ -1662,6 +1703,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Streaming event enum.".to_string(),
@@ -1674,6 +1716,7 @@ fn snapshot_enum_variant_optional_field() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1749,6 +1792,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![],
         enums: vec![EnumDef {
@@ -1766,6 +1810,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
                 EnumVariant {
                     name: "Parts".to_string(),
@@ -1777,6 +1822,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    version: Default::default(),
                 },
             ],
             doc: "Untagged content enum.".to_string(),
@@ -1789,6 +1835,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             excluded_variants: vec![],
+            version: Default::default(),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

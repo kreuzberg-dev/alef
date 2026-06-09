@@ -69,6 +69,7 @@ fn make_api_surface() -> ApiSurface {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }],
         functions: vec![FunctionDef {
             name: "process".to_string(),
@@ -87,6 +88,7 @@ fn make_api_surface() -> ApiSurface {
             return_newtype_wrapper: None,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         }],
         enums: vec![],
         errors: vec![],
@@ -199,6 +201,7 @@ gem_name = "my_gem"
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
             EnumVariant {
                 name: "Inactive".to_string(),
@@ -210,6 +213,7 @@ gem_name = "my_gem"
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                version: Default::default(),
             },
         ],
         doc: String::new(),
@@ -222,6 +226,7 @@ gem_name = "my_gem"
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         cfg: None,
+        version: Default::default(),
     });
 
     let files = backend.generate_public_api(&api, &config).unwrap();

@@ -229,6 +229,7 @@ fn trampoline_bytes_param_includes_len_companion() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let mut out = String::new();
     gen_trampoline(&mut out, "Ingester", "Ingester", &method);
@@ -288,6 +289,7 @@ fn c_trampoline_signature_bytes_param_includes_len_companion() {
         has_default_impl: false,
         binding_excluded: false,
         binding_exclusion_reason: None,
+        version: Default::default(),
     };
     let sig = c_trampoline_signature("goIngesterProcess", &method);
     assert!(
@@ -320,6 +322,7 @@ fn trait_bridge_vtable_includes_free_string_callback() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "OcrBackend".to_string(),
@@ -402,6 +405,7 @@ fn register_c_call_passes_vtable_by_value() {
         binding_exclusion_reason: None,
         is_variant_wrapper: false,
         has_lifetime_params: false,
+        version: Default::default(),
     };
     let bridge_cfg = TraitBridgeConfig {
         trait_name: "Backend".to_string(),

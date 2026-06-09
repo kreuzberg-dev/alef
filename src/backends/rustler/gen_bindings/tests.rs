@@ -108,6 +108,7 @@ fn test_service_module_included_when_services_present() {
             has_default_impl: false,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         },
         configurators: vec![],
         registrations: vec![],

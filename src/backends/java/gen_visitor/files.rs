@@ -607,6 +607,7 @@ pub(super) mod tests {
             has_default_impl: true,
             binding_excluded: false,
             binding_exclusion_reason: None,
+            version: Default::default(),
         });
         let config = visitor_config("DemoVisitor", "VisitContext", "FlowDecision");
 
@@ -690,6 +691,7 @@ pub(super) mod tests {
                         has_default_impl: true,
                         binding_excluded: false,
                         binding_exclusion_reason: None,
+                        version: Default::default(),
                     }],
                     vec![],
                 ),
@@ -726,6 +728,7 @@ pub(super) mod tests {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
+                version: Default::default(),
             }],
             errors: vec![],
             excluded_type_paths: Default::default(),
@@ -759,6 +762,7 @@ pub(super) mod tests {
             binding_exclusion_reason: None,
             is_variant_wrapper: false,
             has_lifetime_params: false,
+            version: Default::default(),
         }
     }
 
