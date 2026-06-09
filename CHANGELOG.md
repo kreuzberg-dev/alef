@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Publish workflow now mints `kreuzberg-dev-publisher[bot]` GitHub App tokens (`secrets.BOT_APP_ID` / `secrets.BOT_APP_PRIVATE_KEY`) for every release-write step**, replacing the prior `HOMEBREW_TOKEN` PAT and the workflow-scoped `GITHUB_TOKEN` used for release-asset uploads and homebrew-tap pushes. The bot identity must be granted branch-protection-bypass on `kreuzberg-dev/homebrew-tap` for tap pushes to land.
 
+## [0.23.54] - 2026-06-09
+
+### Fixed
+
+- **napi `strip_typescript_annotations` now preserves the method-body `{` opener when the return type is itself a function type (`(...) => (...) => T`).** Two interacting bugs in the regex-style scanner used to transpile `service.ts` → `service.cjs`: (a) the boundary check broke on any `=` at `paren_depth == 0`, so the second `=>` arrow in a function-type return annotation was treated as an assignment terminator and the trailing `{` was swallowed into the skipped span; (b) every `>` unconditionally decremented `angle_depth`, so any `=>` in the input drove the counter to `-1` and permanently disabled subsequent `angle_depth == 0` boundary checks — the scanner then walked past the method-body `{` to EOL. Fixes are tight match-arm guards: skip past `=>` as one unit, and only decrement `angle_depth` when a generic is actually open. The published `@spikard/node` style packages had a syntactically invalid `service.cjs` since the wrapper was introduced; `oxlint` would catch this in consumer CI but the alef-side test suite did not (the assertion only checked param-list stripping, not the brace). Test strengthened and a second regression test covers the simpler arrow-in-param-list shape.
+
 ## [0.23.53] - 2026-06-09
 
 ### Fixed
