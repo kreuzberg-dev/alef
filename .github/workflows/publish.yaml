@@ -41,8 +41,6 @@ jobs:
   prepare:
     name: Prepare release
     runs-on: runner-medium
-    permissions:
-      contents: write
     outputs:
       tag: ${{ steps.meta.outputs.tag }}
       version: ${{ steps.meta.outputs.version }}
@@ -217,9 +215,15 @@ jobs:
       (needs.check-homebrew.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true') &&
       needs.publish-crates.result != 'failure'
     runs-on: runner-medium
-    permissions:
-      contents: write
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: tap-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: kreuzberg-dev
+          repositories: homebrew-tap
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
@@ -227,7 +231,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: kreuzberg-dev/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TOKEN }}
+          token: ${{ steps.tap-token.outputs.token }}
           path: homebrew-tap
 
       - name: Update formula
@@ -240,10 +244,10 @@ jobs:
       - name: Commit and push formula
         working-directory: homebrew-tap
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
-          git config user.name "kreuzberg-bot"
-          git config user.email "bot@kreuzberg.dev"
+          git config user.name "kreuzberg-dev-publisher[bot]"
+          git config user.email "291994444+kreuzberg-dev-publisher[bot]@users.noreply.github.com"
           if git diff --quiet Formula/alef.rb; then
             echo "No formula changes; skipping commit."
             exit 0
@@ -262,8 +266,6 @@ jobs:
       needs.publish-homebrew-formula.result == 'success'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
@@ -281,6 +283,13 @@ jobs:
             bottle_tag: arm64_linux
             install_brew: true
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: kreuzberg-dev
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
@@ -298,7 +307,7 @@ jobs:
           formulas: alef
           out-dir: ${{ github.workspace }}/bottle-json
           github-repo: kreuzberg-dev/alef
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Upload bottle JSON manifests
         uses: actions/upload-artifact@v7
@@ -318,9 +327,15 @@ jobs:
       needs.publish-homebrew-formula.result == 'success' &&
       needs.homebrew-bottles.result == 'success'
     runs-on: runner-medium
-    permissions:
-      contents: write
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: tap-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: kreuzberg-dev
+          repositories: homebrew-tap
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
@@ -328,7 +343,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: kreuzberg-dev/homebrew-tap
-          token: ${{ secrets.HOMEBREW_TOKEN }}
+          token: ${{ steps.tap-token.outputs.token }}
           path: homebrew-tap
 
       - uses: actions/download-artifact@v8
@@ -350,10 +365,10 @@ jobs:
       - name: Commit and push bottle DSL
         working-directory: homebrew-tap
         env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TOKEN }}
+          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
-          git config user.name "kreuzberg-bot"
-          git config user.email "bot@kreuzberg.dev"
+          git config user.name "kreuzberg-dev-publisher[bot]"
+          git config user.email "291994444+kreuzberg-dev-publisher[bot]@users.noreply.github.com"
           if git diff --quiet Formula/alef.rb; then
             echo "No bottle DSL changes; skipping commit."
             exit 0
@@ -372,9 +387,14 @@ jobs:
       needs.build-cli.result == 'success' &&
       (needs.check-github-release.outputs.exists != 'true' || needs.prepare.outputs.force_republish == 'true')
     runs-on: runner-medium
-    permissions:
-      contents: write
     steps:
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
+          owner: kreuzberg-dev
+
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
@@ -395,6 +415,7 @@ jobs:
           generate-notes: "false"
           draft: "false"
           dry-run: ${{ needs.prepare.outputs.dry_run }}
+          token: ${{ steps.app-token.outputs.token }}
 
   publish-crates:
     name: Publish crates.io
@@ -430,8 +451,6 @@ jobs:
     needs: [prepare, upload-release-assets, publish-crates, publish-homebrew-bottles]
     if: always()
     runs-on: runner-medium
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v6
         with:
