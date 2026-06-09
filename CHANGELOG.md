@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.60] - 2026-06-09
+
+### Fixed
+
+- **Dart: rename FRB handler bridge callback parameter from `handler` to `cb` to stop FRB 2.x shadowing its own `BaseHandler` field.** The `handler_bridge_constructor.rs.jinja` template emitted the constructor parameter as `handler: impl Fn(String) -> DartFnFuture<String> + Send + Sync + 'static`. FRB 2.x's `RustLibApiImpl` exposes its task executor through a `handler` field, so when FRB walks the Rust signature and emits the Dart binding it generated `return handler.executeNormal(NormalTask(...))` referencing the user parameter (a plain `FutureOr<String> Function(String)`) instead of the internal `BaseHandler` field. The Dart compiler then failed with `The method 'executeNormal' isn't defined for the type 'FutureOr<String> Function(String)'` and a typedef collision against FRB's own `BaseHandler` import. Renaming the parameter to `cb` matches the prior fix in `registration_method.rs.jinja` / `registration_variant.rs.jinja` and removes the last shadowing site. Existing `frb_user_callback_param_uses_non_shadowing_name` test confirms.
+- **NAPI: post-build index.js patch now matches the real napi-rs output (no trailing semicolon) and is idempotent across re-runs.** The find-string was `module.exports = nativeBinding;` (with semicolon), but `@napi-rs/cli` 3.x emits the line without one, so the patch silently no-op'd and the published `index.js` shipped without the service-wrapper re-export — consumers saw the raw native binding (snake-case methods) instead of the wrapper class. Two `PatchFile` steps now cover both with- and without-semicolon forms (in case a downstream formatter adds one), and the runner in `cli/pipeline/commands.rs` short-circuits when the replacement text is already present so multiple invocations don't stack duplicate wrappers.
+
 ## [0.23.59] - 2026-06-09
 
 ### Fixed

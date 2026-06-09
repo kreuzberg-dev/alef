@@ -1329,6 +1329,13 @@ pub fn run_post_build(
                 if file_path.exists() {
                     let content = std::fs::read_to_string(&file_path)
                         .with_context(|| format!("failed to read post-build patch target {}", file_path.display()))?;
+                    // Skip if the replacement is already present — keeps patches that
+                    // wrap (rather than substitute) their find-string idempotent across
+                    // re-runs.
+                    if content.contains(replace) {
+                        debug!("Post-build patch target already patched: {}", file_path.display());
+                        continue;
+                    }
                     let patched = content.replace(find, replace);
                     if patched != content {
                         std::fs::write(&file_path, &patched)
