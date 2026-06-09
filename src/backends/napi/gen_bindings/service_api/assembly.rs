@@ -205,11 +205,7 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
                         '>' if angle_depth > 0 => angle_depth -= 1,
                         // `=>` inside a type annotation is a function-type arrow, not an
                         // assignment terminator — skip past both chars and keep scanning.
-                        '=' if paren_depth == 0
-                            && angle_depth == 0
-                            && j + 1 < chars.len()
-                            && chars[j + 1] == '>' =>
-                        {
+                        '=' if paren_depth == 0 && angle_depth == 0 && j + 1 < chars.len() && chars[j + 1] == '>' => {
                             j += 1;
                         }
                         ',' | '=' | '{' | ';' if paren_depth == 0 && angle_depth == 0 => {

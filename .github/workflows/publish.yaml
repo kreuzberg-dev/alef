@@ -246,8 +246,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
-          git config user.name "kreuzberg-dev-publisher[bot]"
-          git config user.email "291994444+kreuzberg-dev-publisher[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git diff --quiet Formula/alef.rb; then
             echo "No formula changes; skipping commit."
             exit 0
@@ -367,8 +367,8 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.tap-token.outputs.token }}
         run: |
-          git config user.name "kreuzberg-dev-publisher[bot]"
-          git config user.email "291994444+kreuzberg-dev-publisher[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           if git diff --quiet Formula/alef.rb; then
             echo "No bottle DSL changes; skipping commit."
             exit 0
