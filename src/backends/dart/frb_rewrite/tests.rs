@@ -258,6 +258,10 @@ fn loader_rewrite_injecsample_package_relative_resolution() {
         out.contains("import 'dart:isolate';"),
         "must import dart:isolate, got:\n{out}"
     );
+    assert!(
+        out.contains("import 'dart:ffi';"),
+        "must import dart:ffi for Abi, got:\n{out}"
+    );
 }
 
 #[test]

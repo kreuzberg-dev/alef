@@ -1,6 +1,6 @@
-/// Ensure `dart:io`, `dart:isolate`, and `dart:core` are imported (the loader helper uses
-/// `File`, `Isolate`, and `Uri`). Inserts the imports after the first existing `import`
-/// line if missing. Idempotent.
+/// Ensure `dart:io`, `dart:isolate`, `dart:core`, and `dart:ffi` are imported (the loader
+/// helper uses `File`, `Isolate`, `Uri`, and `Abi`). Inserts the imports after the first
+/// existing `import` line if missing. Idempotent.
 ///
 /// To avoid namespace conflict with the FRB-generated `Uri` class, imports
 /// `dart:core.Uri` with an alias (`_DartCoreUri`), then replaces all
@@ -19,6 +19,7 @@ pub(super) fn ensure_loader_imports(source: &str) -> String {
         ("import 'dart:core' as _DartCore;", "import 'dart:core' as _DartCore;\n"),
         ("import 'dart:io';", "import 'dart:io';\n"),
         ("import 'dart:isolate';", "import 'dart:isolate';\n"),
+        ("import 'dart:ffi';", "import 'dart:ffi';\n"),
     ];
 
     // Find the first import line to anchor insertions so the added imports sit
