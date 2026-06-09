@@ -224,6 +224,26 @@ fn typescript_output_contains_registration_method() {
 }
 
 #[test]
+fn typescript_output_direct_register_method_uses_lower_camel_case() {
+    // The direct-register variant (non-decorator) emits as a class method on the
+    // wrapper App. JS classes use lowerCamelCase, so `register_<method>` must be
+    // converted: `register_add_handler` → `registerAddHandler`. Without conversion
+    // consumers hit `TypeError: app.registerAddHandler is not a function` at
+    // runtime because the wrapper exposes the snake_case identifier instead.
+    let surface = make_fixture_surface();
+    let config = make_test_config();
+    let output = gen_service_ts(&surface, "my_crate", &config);
+    assert!(
+        output.contains("registerAddHandler("),
+        "expected lowerCamelCase `registerAddHandler` direct method, found snake_case or missing:\n{output}"
+    );
+    assert!(
+        !output.contains("register_add_handler("),
+        "snake_case `register_add_handler` must not survive into the emitted class:\n{output}"
+    );
+}
+
+#[test]
 fn typescript_output_contains_run_entrypoint() {
     let surface = make_fixture_surface();
     let config = make_test_config();

@@ -355,8 +355,12 @@ fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: 
         },
     ));
 
-    // Also expose a direct (non-decorator) register variant
-    let direct_name = format!("register_{method_name}");
+    // Also expose a direct (non-decorator) register variant. The wrapper method
+    // is a JS class method, so it must be lowerCamelCase even though the IR's
+    // `reg.method` is snake_case (matches Rust convention). Without conversion
+    // consumers hit `TypeError: app.registerRoute is not a function` because
+    // the wrapper exposes `register_route` instead.
+    let direct_name = format!("register_{method_name}").to_lower_camel_case();
     if direct_name != *method_name {
         meta_params.push("handler: (...args: any[]) => any".to_string());
         let full_sig = meta_params.join(", ");
