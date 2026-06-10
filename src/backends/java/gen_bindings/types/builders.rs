@@ -92,6 +92,7 @@ pub(super) fn gen_builder_nested_class(
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
     // Explicitly specify buildMethodName="build" to ensure Jackson calls the build() method.
+    body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
     body.push_str("    @JsonPOJOBuilder(withPrefix = \"with\", buildMethodName = \"build\")\n");
     body.push_str("    public static final class Builder {\n");
     body.push('\n');

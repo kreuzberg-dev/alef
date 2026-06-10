@@ -283,6 +283,7 @@ impl TraitBridgeGenerator for ExtendrBridgeGenerator {
                 registry_getter => registry_getter,
                 required_methods => has_methods,
                 required_methods_list => required_methods_list,
+                error_map => ".map_err(|e| extendr_api::Error::Other(e))?",
             },
         )
     }

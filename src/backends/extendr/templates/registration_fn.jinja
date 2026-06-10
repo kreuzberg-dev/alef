@@ -1,21 +1,19 @@
 #[extendr]
-pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> std::result::Result<(), String> {
+pub fn {{ register_fn }}(r_backend: extendr_api::Robj) -> extendr_api::Result<()> {
 {% if required_methods %}
     let required_methods = [{{ required_methods_list }}];
     for method in &required_methods {
         match r_backend.dollar(method) {
             Ok(v) if !v.is_null() && !v.is_na() => {},
-            _ => return Err(format!("Backend missing required method: {}", method)),
+            _ => return Err(extendr_api::Error::Other(format!("Backend missing required method: {}", method))),
         }
     }
 
 {% endif %}
-    let wrapper = {{ wrapper }}::new(r_backend)?;
+    let wrapper = {{ wrapper }}::new(r_backend).map_err(|e| extendr_api::Error::Other(e))?;
     let arc: Arc<dyn {{ trait_path }}> = Arc::new(wrapper);
 
     let registry = {{ registry_getter }}();
     let mut registry = registry.write();
-    registry.register(arc).map_err(|e| {
-        format!("Failed to register backend: {}", e)
-    })
+    registry.register(arc).map_err(|e| extendr_api::Error::Other(format!("Failed to register backend: {}", e)))
 }
