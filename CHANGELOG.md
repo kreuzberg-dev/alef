@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.73] - 2026-06-10
+
+### Fixed
+
+- **R extendr: drop duplicate `let {name}_core` preamble in needs_by_ref_struct branch.** v0.23.72's needs_by_ref_struct branch emitted its own `let {name}_core: core::T = {name}.clone().into();` preamble, but the downstream `named_let_bindings` loop already emits the same line for non-JSON Named params — every #[extendr] fn with a by-ref Named param landed in regen with two identical lets that `cargo` reports as `error[E0428]: the name '...' is defined multiple times` (or shadow warning under -D warnings). The needs_by_ref_struct branch now only sets the signature; `named_let_bindings` retains exclusive ownership of the preamble.
+
 ## [0.23.72] - 2026-06-10
 
 ### Fixed

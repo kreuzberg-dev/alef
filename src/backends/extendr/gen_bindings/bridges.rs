@@ -544,19 +544,16 @@ pub(super) fn gen_extendr_json_bridged_function(
         } else if needs_by_ref_struct {
             // Non-optional Named struct with cfg.named_non_opaque_params_by_ref=true.
             // The signature must take `&LocalBinding` (the R wrapper struct) because
-            // extendr derives `TryFrom<&Robj>` for the local wrapper, not for the
-            // upstream core type. The body then converts to the core type via the
-            // wrapper's `Into<core::T>` impl and passes the core ref to the core fn.
-            let (local_name, core_ty_path) = match &param.ty {
-                TypeRef::Named(n) => (n.clone(), format!("{core_import}::{n}")),
+            // extendr derives `TryFrom<&Robj>` only for the local wrapper, not for the
+            // upstream core type. The downstream `named_let_bindings` loop in this same
+            // function emits `let {name}_core: core::T = {name}.clone().into();` so the
+            // call site already receives the core ref via `&{name}_core` — no preamble
+            // needed here.
+            let local_name = match &param.ty {
+                TypeRef::Named(n) => n.clone(),
                 _ => unreachable!(),
             };
-            let sig_ty = format!("&{local_name}");
-            sig_params.push(format!("{}: {sig_ty}", param.name));
-            body_preamble.push_str(&format!(
-                "    let {name}_core: {core_ty_path} = {name}.clone().into();\n",
-                name = param.name
-            ));
+            sig_params.push(format!("{}: &{local_name}", param.name));
         } else if needs_json_struct || needs_json_enum {
             let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Named(n) => (format!("{core_import}::{n}"), false),
@@ -721,9 +718,9 @@ pub(super) fn gen_extendr_json_bridged_function(
             } else if matches!(&param.ty, TypeRef::Named(n) if !opaque_types.contains(n.as_str())) {
                 // By-ref Named struct (when cfg.named_non_opaque_params_by_ref=true and !param.optional)
                 if cfg.named_non_opaque_params_by_ref && !param.optional {
-                    // Signature is `&LocalBinding`; preamble emitted
-                    // `let {name}_core: core::T = {name}.clone().into();` — pass `&{name}_core`
-                    // to the core fn which expects `&core::T`.
+                    // Signature is `&LocalBinding`; named_let_bindings emits
+                    // `let {name}_core: core::T = {name}.clone().into();` — pass
+                    // `&{name}_core` to the core fn which expects `&core::T`.
                     format!("&{}_core", param.name)
                 } else if param.optional {
                     format!("{}_core.as_ref()", param.name)
