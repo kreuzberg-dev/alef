@@ -76,9 +76,10 @@ pub fn emit_test_backend(
             _ => mapper.map_type(&method.return_type).to_string(),
         };
 
-        // Default value: use String for marshalled types, otherwise use defaults.emit_default.
+        // Default value: for Named types (JSON-marshalled), emit "null" as a JSON-valid default.
+        // For primitives and other types, use the standard defaults.
         let default_val = match &method.return_type {
-            crate::core::ir::TypeRef::Named(_) => "\"\"".to_string(),
+            crate::core::ir::TypeRef::Named(_) => "\"null\"".to_string(),
             _ => defaults.emit_default(&method.return_type),
         };
 
@@ -283,6 +284,10 @@ mod tests {
         assert!(
             output.contains("-> String"),
             "named return type must marshal as String, got:\n{output}"
+        );
+        assert!(
+            output.contains("\"null\""),
+            "named return type default must be JSON-valid (\\\"null\\\"), got:\n{output}"
         );
     }
 

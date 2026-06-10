@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift e2e test stubs: emit JSON-valid defaults for trait-bridge methods with Named return types.** Trait-bridge methods whose Rust return type is a Named type (enum, struct) are marshalled as JSON strings across the FFI boundary. The test-backend stub generator was emitting empty string `""` as the default, which caused `serde_json::from_str` to panic with "EOF while parsing". The fix emits `"null"` as the default — a valid JSON literal that deserializes successfully. Fixes `testRegisterPostProcessorTraitBridge` and similar fixture panics in Swift e2e runs.
 - **Python e2e pyproject.toml: emit valid `[tool.pytest.ini_options]` TOML table.** The Python e2e test app generator was emitting invalid TOML under `[tool.pytest]` with dotted keys like `ini_options.asyncio_mode = "auto"`. Pytest 7+ expects configuration under the `[tool.pytest.ini_options]` table with bare keys: `asyncio_mode = "auto"`. Changed both the Jinja template (`pyproject.toml.jinja`) and the Rust renderer (`config.rs` `render_pyproject()`) to emit the correct table format, eliminating `PytestConfigWarning: Unknown config option` messages and collection errors. Updated the corresponding test assertion from `ini_options.testpaths` to `testpaths`.
 
 ## [0.24.0] - 2026-06-10
