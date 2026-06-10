@@ -170,20 +170,19 @@ fn gen_single_typescript_trait_bridge(trait_name: &str, trait_def: &crate::core:
 
         // Generate return type (all returns are strings for JSON marshalling)
         let return_type = "string";
-        let throws_clause = if has_error { " throws" } else { "" };
         let optional_mark = if has_error { "?" } else { "" };
 
-        // Interface method (both sync and async with optional error)
+        // Interface method - make it optional if it can throw (error_type.is_some())
         interface_methods.push_str(&format!(
-            "  {}{}({}){}: {};\n",
-            method_camel, optional_mark, params, throws_clause, return_type
+            "  {}{}({}): {};\n",
+            method_camel, optional_mark, params, return_type
         ));
 
         // Adapter method delegate
         let call_args = method
             .params
             .iter()
-            .map(|p| format!("\"{}\"", p.name.to_lower_camel_case()))
+            .map(|p| p.name.to_lower_camel_case())
             .collect::<Vec<_>>()
             .join(", ");
 
