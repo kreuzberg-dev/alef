@@ -455,19 +455,20 @@ pub(super) fn gen_extendr_json_bridged_function(
     for param in &func.params {
         let needs_json_vec = match &param.ty {
             TypeRef::Vec(inner) => match inner.as_ref() {
-                TypeRef::Named(n) => {
-                    enum_names.contains(n.as_str())
-                        || opaque_types.contains(n.as_str())
-                        || extendr_incompatible_types.contains(n.as_str())
+                TypeRef::Named(_) => {
+                    // Vec<Named> always needs JSON bridging because extendr cannot
+                    // derive TryFrom<&Robj> for Vec<LocalStruct> — the binding wrappers
+                    // are local-only, not exposed to R's Robj system. JSON serialization
+                    // is the safe transport for heterogeneous struct collections.
+                    true
                 }
                 _ => false,
             },
             TypeRef::Optional(opt_inner) => match opt_inner.as_ref() {
                 TypeRef::Vec(vec_inner) => match vec_inner.as_ref() {
-                    TypeRef::Named(n) => {
-                        enum_names.contains(n.as_str())
-                            || opaque_types.contains(n.as_str())
-                            || extendr_incompatible_types.contains(n.as_str())
+                    TypeRef::Named(_) => {
+                        // Optional<Vec<Named>> also needs JSON bridging for the same reason.
+                        true
                     }
                     _ => false,
                 },
@@ -682,10 +683,9 @@ pub(super) fn gen_extendr_json_bridged_function(
         .map(|param| {
             let needs_json = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {
-                    TypeRef::Named(n) => {
-                        enum_names.contains(n.as_str())
-                            || opaque_types.contains(n.as_str())
-                            || extendr_incompatible_types.contains(n.as_str())
+                    TypeRef::Named(_n) => {
+                        // Vec<Named> always needs JSON bridging. See above for explanation.
+                        true
                     }
                     _ => false,
                 },
@@ -758,10 +758,9 @@ pub(super) fn gen_extendr_json_bridged_function(
 
     let params_need_json_deserialize = func.params.iter().any(|p| match &p.ty {
         TypeRef::Vec(inner) => match inner.as_ref() {
-            TypeRef::Named(n) => {
-                enum_names.contains(n.as_str())
-                    || opaque_types.contains(n.as_str())
-                    || extendr_incompatible_types.contains(n.as_str())
+            TypeRef::Named(_n) => {
+                // Vec<Named> always needs JSON deserialization.
+                true
             }
             _ => false,
         },
