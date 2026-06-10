@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kotlin Android e2e test stubs: extract method defaults from fixture.input.backend.** The trait-bridge stub generator now pulls numeric/string return values from `fixture.input.backend` (e.g., `dimensions: 768` from embedding backend fixtures) instead of hardcoding `0`. Numeric defaults without fixture values emit `1` (downstream validation rejects `0` for counts like `dimensions()`). Mirrors the Swift, Java, Node, and Go fix pattern for parity across all trait-bridge languages. Fixes `testRegisterEmbeddingBackendTraitBridge` and similar Kotlin Android e2e validation errors.
+
 ## [0.24.1] - 2026-06-10
 
 ### Fixed

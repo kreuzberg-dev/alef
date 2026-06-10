@@ -1197,6 +1197,38 @@ mod tests {
     }
 }
 
+/// Extract a default value from fixture.input.backend for a stub method.
+///
+/// Given a method name and fixture, attempts to find the corresponding input value
+/// in fixture.input.backend. For numeric defaults that would be 0, emits 1 instead
+/// (downstream validation rejects 0 for counts like dimensions).
+fn extract_kotlin_android_fixture_default(method_name: &str, fixture: &crate::e2e::fixture::Fixture) -> Option<String> {
+    use heck::ToLowerCamelCase;
+
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object())?;
+
+    // Try snake_case first, then lower_camel_case.
+    let val = backend_input
+        .get(&method_name.to_lowercase())
+        .or_else(|| backend_input.get(&method_name.to_lower_camel_case()))?;
+
+    Some(match val {
+        serde_json::Value::Number(n) => {
+            // For numeric defaults, emit 1 instead of 0 if it's 0.
+            if let Some(i) = n.as_i64() {
+                if i == 0 { "1".to_string() } else { i.to_string() }
+            } else if let Some(u) = n.as_u64() {
+                if u == 0 { "1".to_string() } else { u.to_string() }
+            } else {
+                n.to_string()
+            }
+        }
+        serde_json::Value::String(s) => format!("\"{}\"", s),
+        serde_json::Value::Bool(b) => b.to_string(),
+        _ => return None, // Complex types not supported
+    })
+}
+
 /// Emit a Kotlin Android test backend stub class for a trait bridge.
 ///
 /// Generates a class implementing `I{TraitName}`. Required methods are overridden
@@ -1282,20 +1314,22 @@ pub fn emit_test_backend(
                 );
             }
         } else {
-            // For Named types (enums/structs), check if it's a known enum and emit
-            // the first variant instead of calling a constructor.
-            let default_val = if let crate::core::ir::TypeRef::Named(name) = &method.return_type {
-                match name.as_str() {
-                    "ProcessingStage" => "ProcessingStage.EARLY".to_string(),
-                    "OcrBackendType" => "OcrBackendType.UNKNOWN".to_string(),
-                    "OutputFormat" => "OutputFormat.TEXT".to_string(),
-                    "ChunkingStrategy" => "ChunkingStrategy.NAIVE".to_string(),
-                    "EmbeddingModelType" => "EmbeddingModelType.UNKNOWN".to_string(),
-                    _ => defaults.emit_default(&method.return_type),
+            // Try to extract default from fixture.input.backend first.
+            let default_val = extract_kotlin_android_fixture_default(&method.name, fixture).unwrap_or_else(|| {
+                // Fall back to language defaults.
+                if let crate::core::ir::TypeRef::Named(name) = &method.return_type {
+                    match name.as_str() {
+                        "ProcessingStage" => "ProcessingStage.EARLY".to_string(),
+                        "OcrBackendType" => "OcrBackendType.UNKNOWN".to_string(),
+                        "OutputFormat" => "OutputFormat.TEXT".to_string(),
+                        "ChunkingStrategy" => "ChunkingStrategy.NAIVE".to_string(),
+                        "EmbeddingModelType" => "EmbeddingModelType.UNKNOWN".to_string(),
+                        _ => defaults.emit_default(&method.return_type),
+                    }
+                } else {
+                    defaults.emit_default(&method.return_type)
                 }
-            } else {
-                defaults.emit_default(&method.return_type)
-            };
+            });
 
             if method.is_async {
                 let _ = writeln!(
