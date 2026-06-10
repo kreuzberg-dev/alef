@@ -782,27 +782,28 @@ pub(super) fn gen_extendr_json_bridged_function(
     });
     let effectively_fallible = func.error_type.is_some() || params_need_json_deserialize;
 
-    let (ret_type, result_convert) = match &func.return_type {
+    let (ret_type, result_convert, wrap_in_result_closure) = match &func.return_type {
         TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(_)) => {
             if effectively_fallible {
                 let ser = format!(
                     "result.map(|v| serde_json::to_string(&v){err_map}).transpose()",
                     err_map = err_map
                 );
-                ("Result<Option<String>>".to_string(), ser)
+                ("Result<Option<String>>".to_string(), ser, true)
             } else {
                 let ser = "result.map(|v| serde_json::to_string(&v).expect(\"serialization failed\"))".to_string();
-                ("Option<String>".to_string(), ser)
+                ("Option<String>".to_string(), ser, false)
             }
         }
         _ => {
             if effectively_fallible {
                 let ser = format!("serde_json::to_string(&result){err_map}");
-                ("Result<String>".to_string(), ser)
+                ("Result<String>".to_string(), ser, true)
             } else {
                 (
                     "String".to_string(),
                     "serde_json::to_string(&result).expect(\"serialization failed\")".to_string(),
+                    false,
                 )
             }
         }
@@ -830,7 +831,7 @@ pub(super) fn gen_extendr_json_bridged_function(
         core_call.clone()
     };
 
-    let body = if func.is_async {
+    let inner_body = if func.is_async {
         if func.error_type.is_some() {
             format!(
                 "{body_preamble}{named_let_bindings}\
@@ -873,6 +874,21 @@ pub(super) fn gen_extendr_json_bridged_function(
             convert = convert,
             result_convert = result_convert,
         )
+    };
+
+    let body = if wrap_in_result_closure {
+        // Wrap the computation in a closure that returns Result, then match on it
+        // and convert errors to R stop() calls via throw_r_error()
+        format!(
+            "match (|| -> {ret_type} {{ Ok({}) }})() {{\n    \
+             Ok(v) => v,\n    \
+             Err(e) => extendr_api::throw_r_error(&format!(\"{{:?}}\", e)),\n    \
+             }}",
+            inner_body.trim(),
+            ret_type = ret_type
+        )
+    } else {
+        inner_body
     };
 
     let params_str = sig_params.join(", ");

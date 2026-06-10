@@ -243,6 +243,32 @@ pub(super) fn render_test_file_inner(
         }
     }
 
+    // Collect element_type classes used by json_object array args (e.g., BatchBytesItem, BatchFileItem).
+    // These are needed for both ObjectMapper deserialization and for importing at the top of the file.
+    let mut element_type_classes: HashSet<String> = HashSet::new();
+    for f in fixtures.iter() {
+        let cc =
+            e2e_config.resolve_call_for_fixture(f.call.as_deref(), &f.id, &f.resolved_category(), &f.tags, &f.input);
+        let lang_for_recipe = if kotlin_android_style {
+            "kotlin_android"
+        } else {
+            "kotlin"
+        };
+        let recipe = crate::e2e::codegen::recipe::ResolvedE2eCallRecipe::resolve(lang_for_recipe, f, cc, type_defs);
+        for a in recipe
+            .args
+            .iter()
+            .filter(|arg| arg.arg_type == "json_object" && arg.element_type.is_some())
+        {
+            let v = crate::e2e::codegen::resolve_field(&f.input, &a.field);
+            if !v.is_null() {
+                if let Some(element_type) = a.element_type.as_deref() {
+                    element_type_classes.insert(element_type.to_string());
+                }
+            }
+        }
+    }
+
     // Also need ObjectMapper when a handle arg has a non-null config.
     let needs_object_mapper_for_handle = fixtures.iter().any(|f| {
         let cc =
@@ -351,6 +377,14 @@ pub(super) fn render_test_file_inner(
         sorted_opts.sort();
         for opts_type in sorted_opts {
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{opts_type}");
+        }
+    }
+    // Import element_type classes used by json_object array args (e.g., BatchBytesItem, BatchFileItem).
+    if !element_type_classes.is_empty() {
+        let mut sorted_elements: Vec<&String> = element_type_classes.iter().collect();
+        sorted_elements.sort();
+        for element_type in sorted_elements {
+            let _ = writeln!(out, "import {binding_pkg_for_imports}.{element_type}");
         }
     }
     // Import trait bridge classes used by fixtures (kotlin_android only).
