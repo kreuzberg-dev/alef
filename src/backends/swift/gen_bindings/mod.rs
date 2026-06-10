@@ -534,7 +534,7 @@ impl Backend for SwiftBackend {
             files.push(box_file);
         }
 
-        // Emit Swift{Trait}Box.swift and SwiftPluginHelpers.swift for every FunctionParam bridge.
+        // Emit Swift{Trait}Box.swift and ZSwiftPluginHelpers.swift for every FunctionParam bridge.
         for box_file in boxes::emit_function_param_box_files(api, config, &rust_bridge_sources, &exclude_types) {
             files.push(box_file);
         }

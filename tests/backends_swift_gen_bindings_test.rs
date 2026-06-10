@@ -1650,7 +1650,7 @@ fn output_path_uses_pascal_case_module_name() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // Six files: main Swift wrapper, Rust bridge crate files, RustBridgeC
-    // placeholder header, and the unconditional `SwiftPluginHelpers.swift`
+    // placeholder header, and the unconditional `ZSwiftPluginHelpers.swift`
     // (commit 12362ba09 — FunctionParam Box generation helpers).
     assert_eq!(files.len(), 6);
 

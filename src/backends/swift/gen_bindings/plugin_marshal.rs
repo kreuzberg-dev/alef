@@ -239,7 +239,7 @@ pub struct ParamDecode {
 /// Returns the Swift FFI return type for the Box `alef_*` shim.
 ///
 /// Rules:
-/// - If method has an error_type (throws): always `"RustString"` (JSON envelope).
+/// - If method has an error_type (throws): always `"String"` (JSON envelope).
 /// - If method returns Unit and no error: `"Void"`.
 /// - If method returns Bool and no error: `"Bool"`.
 /// - If method returns primitive int and no error: the mapped type (UInt32, Int64, etc.).
@@ -536,13 +536,13 @@ mod tests {
     #[test]
     fn test_return_ffi_type_throwing_unit() {
         let method = make_method("initialize", vec![], TypeRef::Unit, Some("Error".to_string()));
-        assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
+        assert_eq!(swift_shim_return_ffi_type(&method), "String");
     }
 
     #[test]
     fn test_return_ffi_type_throwing_string() {
         let method = make_method("process", vec![], TypeRef::String, Some("Error".to_string()));
-        assert_eq!(swift_shim_return_ffi_type(&method), "RustString");
+        assert_eq!(swift_shim_return_ffi_type(&method), "String");
     }
 
     #[test]

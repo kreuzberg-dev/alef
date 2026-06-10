@@ -25,14 +25,14 @@ public final class SwiftImageProcessorBox {
         return RustString(bridge.version())
     }
 
-    public func alef_initialize() -> RustString {
+    public func alef_initialize() -> String {
         do {
             try bridge.initialize()
             return encodeOkVoidEnvelope()
         } catch { return encodeErrEnvelope("\(error)") }
     }
 
-    public func alef_shutdown() -> RustString {
+    public func alef_shutdown() -> String {
         do {
             try bridge.shutdown()
             return encodeOkVoidEnvelope()
@@ -40,7 +40,7 @@ public final class SwiftImageProcessorBox {
     }
 
     // MARK: Trait-specific shims
-    public func alef_process_image(image_bytes imageBytes: RustVec<UInt8>, config: RustString) -> RustString {
+    public func alef_process_image(image_bytes imageBytes: RustVec<UInt8>, config: RustString) -> String {
         do {
           let result = try bridge.processImage(imageBytes: Data(imageBytes), config: config.toString())
           return encodeOkEnvelope(result)
