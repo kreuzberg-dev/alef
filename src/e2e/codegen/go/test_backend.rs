@@ -42,6 +42,7 @@ pub fn emit_test_backend(
         &std::collections::HashSet::new(),
         "",
         &std::collections::HashSet::new(),
+        &[],
     )
 }
 
@@ -57,6 +58,9 @@ pub fn emit_test_backend(
 ///
 /// `enum_names` — set of type names that are enums in the IR (used to determine zero-values
 /// for stub returns; enums map to string types in Go, so their zero-value is `""` not `nil`).
+///
+/// `enums` — full enumeration definitions, used to determine the first variant name for
+/// default enum values in stub methods (e.g., `OcrBackendTypeTesseract`).
 pub fn emit_test_backend_with_context(
     trait_bridge: &crate::core::config::TraitBridgeConfig,
     methods: &[&crate::core::ir::MethodDef],
@@ -64,6 +68,7 @@ pub fn emit_test_backend_with_context(
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
     enum_names: &std::collections::HashSet<&str>,
+    enums: &[crate::core::ir::EnumDef],
 ) -> super::super::TestBackendEmission {
     use crate::codegen::defaults::language_defaults;
     use crate::e2e::escape::sanitize_ident;
@@ -104,6 +109,7 @@ pub fn emit_test_backend_with_context(
                     import_alias,
                     enum_names,
                     fixture,
+                    enums,
                 );
             }
         }
@@ -148,6 +154,7 @@ pub fn emit_test_backend_with_context(
             import_alias,
             enum_names,
             fixture,
+            enums,
         );
     }
 
@@ -180,26 +187,68 @@ pub fn emit_test_backend_with_context(
 ///
 /// Uses go_zero_value from the type_map to ensure consistency with actual
 /// Go binding signatures. Named types check enum_names to determine if they're
-/// enums (zero-value `""`) or structs (zero-value `nil`). Primitives produce
+/// enums (zero-value is first variant) or structs (zero-value `nil`). Primitives produce
 /// their standard zero values (0, false, ""), and Vec produces a nil slice.
 ///
 /// Use `go_stub_default_with_context` with the same excluded/import-alias substitution as
 /// `stub_go_type_with_context` so the emitted zero-value matches the rendered return
-/// type. Excluded types become `json.RawMessage(nil)`, struct types qualified via
-/// `import_alias` use `alias.Type{}` (Go's struct zero-value), enums stay as `""`,
+/// type. Excluded non-enum types become `json.RawMessage(nil)`, enums in excluded_types
+/// become their first variant constant (e.g., `import_alias.EnumTypeFirstVariant`),
+/// struct types qualified via `import_alias` use `alias.Type{}` (Go's struct zero-value),
 /// and primitives/maps/slices/optionals fall back to `go_zero_value`.
 fn go_stub_default_with_context(
     ty: &crate::core::ir::TypeRef,
     enum_names: &std::collections::HashSet<&str>,
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
+    enums: &[crate::core::ir::EnumDef],
 ) -> String {
     use crate::backends::go::type_map::go_zero_value;
     use crate::core::ir::TypeRef;
 
     match ty {
+        TypeRef::Named(name) if excluded_types.contains(name.as_str()) && enum_names.contains(name.as_str()) => {
+            // Enum that's in excluded_types: emit the first variant constant.
+            // Find the enum definition to get the first variant name.
+            if let Some(enum_def) = enums.iter().find(|e| e.name == *name) {
+                if let Some(first_variant) = enum_def.variants.first() {
+                    let go_name = crate::codegen::naming::go_type_name(name);
+                    let variant_name = crate::codegen::naming::go_type_name(&first_variant.name);
+                    if !import_alias.is_empty() {
+                        format!("{import_alias}.{go_name}{variant_name}")
+                    } else {
+                        format!("{go_name}{variant_name}")
+                    }
+                } else {
+                    // Enum with no variants (shouldn't happen), fall back to nil
+                    "nil".to_string()
+                }
+            } else {
+                // Enum not found in definitions, fall back to nil
+                "nil".to_string()
+            }
+        }
         TypeRef::Named(name) if excluded_types.contains(name.as_str()) => "nil".to_string(),
-        TypeRef::Named(name) if enum_names.contains(name.as_str()) => "\"\"".to_string(),
+        TypeRef::Named(name) if enum_names.contains(name.as_str()) => {
+            // Non-excluded enum: emit the first variant constant.
+            if let Some(enum_def) = enums.iter().find(|e| e.name == *name) {
+                if let Some(first_variant) = enum_def.variants.first() {
+                    let go_name = crate::codegen::naming::go_type_name(name);
+                    let variant_name = crate::codegen::naming::go_type_name(&first_variant.name);
+                    if !import_alias.is_empty() {
+                        format!("{import_alias}.{go_name}{variant_name}")
+                    } else {
+                        format!("{go_name}{variant_name}")
+                    }
+                } else {
+                    // Enum with no variants (shouldn't happen), use empty string
+                    "\"\"".to_string()
+                }
+            } else {
+                // Enum not found in definitions, use empty string as fallback
+                "\"\"".to_string()
+            }
+        }
         TypeRef::Named(name) if !import_alias.is_empty() => {
             let go_name = crate::codegen::naming::go_type_name(name);
             format!("{import_alias}.{go_name}{{}}")
@@ -275,27 +324,42 @@ fn should_skip_method_with_type(
 ///
 /// When `excluded_types` is non-empty, any `TypeRef::Named` whose name appears in the set
 /// is substituted with `json.RawMessage` (matching the actual trait-bridge interface which
-/// serialises excluded/internal types to JSON). When `import_alias` is non-empty, remaining
-/// `TypeRef::Named` types are qualified as `{import_alias}.{GoName}` so the stub compiles
-/// from an external test package (e.g. `package e2e_test`) that imports the binding package
-/// under an alias.
+/// serialises excluded/internal types to JSON), UNLESS the type is an enum (appears in `enum_names`).
+/// Enums are exported as typed Go enums in the binding, so stubs must use the typed enum
+/// instead of `json.RawMessage` to match the interface signature.
+/// When `import_alias` is non-empty, remaining `TypeRef::Named` types are qualified as
+/// `{import_alias}.{GoName}` so the stub compiles from an external test package
+/// (e.g. `package e2e_test`) that imports the binding package under an alias.
 pub(super) fn stub_go_type_with_context(
     ty: &crate::core::ir::TypeRef,
     excluded_types: &std::collections::HashSet<&str>,
     import_alias: &str,
+    enum_names: &std::collections::HashSet<&str>,
 ) -> String {
     use crate::backends::go::type_map::go_type;
     use crate::core::ir::TypeRef;
     match ty {
         TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
-            "json.RawMessage".to_string()
+            // Check if this is an enum: if so, emit the typed enum, not json.RawMessage.
+            // Enums are exported as typed Go enums (string-based) in the binding, so the
+            // stub interface signature must use the typed enum to match.
+            if !enum_names.is_empty() && enum_names.contains(name.as_str()) {
+                let go_name = crate::codegen::naming::go_type_name(name);
+                if !import_alias.is_empty() {
+                    format!("{import_alias}.{go_name}")
+                } else {
+                    go_name
+                }
+            } else {
+                "json.RawMessage".to_string()
+            }
         }
         TypeRef::Named(name) if !import_alias.is_empty() => {
             let go_name = crate::codegen::naming::go_type_name(name);
             format!("{import_alias}.{go_name}")
         }
         TypeRef::Optional(inner) => {
-            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias);
+            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias, enum_names);
             // Excluded types become json.RawMessage which is a slice — don't add pointer
             if inner_str == "json.RawMessage" {
                 inner_str
@@ -304,12 +368,12 @@ pub(super) fn stub_go_type_with_context(
             }
         }
         TypeRef::Vec(inner) => {
-            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias);
+            let inner_str = stub_go_type_with_context(inner, excluded_types, import_alias, enum_names);
             format!("[]{inner_str}")
         }
         TypeRef::Map(k, v) => {
-            let k_str = stub_go_type_with_context(k, excluded_types, import_alias);
-            let v_str = stub_go_type_with_context(v, excluded_types, import_alias);
+            let k_str = stub_go_type_with_context(k, excluded_types, import_alias, enum_names);
+            let v_str = stub_go_type_with_context(v, excluded_types, import_alias, enum_names);
             format!("map[{k_str}]{v_str}")
         }
         _ => go_type(ty).into_owned(),
@@ -329,7 +393,8 @@ pub(super) fn method_to_camel(snake: &str) -> String {
 ///
 /// `excluded_types` — names of binding-excluded types substituted with `json.RawMessage`.
 /// `import_alias` — binding package import alias; qualifies Named types for external packages.
-/// `enum_names` — set of type names that are enums (map to string types, zero-value is `""`).
+/// `enum_names` — set of type names that are enums (map to string types, zero-value is first variant).
+/// `enums` — full enum definitions, used to determine first variant names for default values.
 #[allow(clippy::too_many_arguments)]
 fn emit_go_stub_method_body(
     out: &mut String,
@@ -341,6 +406,7 @@ fn emit_go_stub_method_body(
     import_alias: &str,
     enum_names: &std::collections::HashSet<&str>,
     fixture: &crate::e2e::fixture::Fixture,
+    enums: &[crate::core::ir::EnumDef],
 ) {
     use crate::core::ir::TypeRef;
 
@@ -351,13 +417,13 @@ fn emit_go_stub_method_body(
         .iter()
         .map(|p| {
             let go_param = go_param_name(&p.name);
-            let type_str = stub_go_type_with_context(&p.ty, excluded_types, import_alias);
+            let type_str = stub_go_type_with_context(&p.ty, excluded_types, import_alias, enum_names);
             format!("{go_param} {type_str}")
         })
         .collect();
     let param_str = params.join(", ");
 
-    let ret_ty = stub_go_type_with_context(&method.return_type, excluded_types, import_alias);
+    let ret_ty = stub_go_type_with_context(&method.return_type, excluded_types, import_alias, enum_names);
 
     // Build return type.
     let return_type_str = if method.error_type.is_some() {
@@ -375,7 +441,7 @@ fn emit_go_stub_method_body(
             TypeRef::Unit => "return nil".to_string(),
             _ => {
                 let default_val = extract_fixture_default(&method.name, fixture).unwrap_or_else(|| {
-                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias)
+                    go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias, enums)
                 });
                 format!("return {default_val}, nil")
             }
@@ -384,7 +450,7 @@ fn emit_go_stub_method_body(
         String::new()
     } else {
         let default_val = extract_fixture_default(&method.name, fixture).unwrap_or_else(|| {
-            go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias)
+            go_stub_default_with_context(&method.return_type, enum_names, excluded_types, import_alias, enums)
         });
         format!("return {default_val}")
     };
@@ -693,8 +759,15 @@ mod trait_bridge_tests {
         excluded.insert("InternalRecord");
 
         let enum_names = std::collections::HashSet::new();
-        let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "myproject", &enum_names);
+        let emission = emit_test_backend_with_context(
+            &trait_bridge,
+            &methods,
+            &fixture,
+            &excluded,
+            "myproject",
+            &enum_names,
+            &[],
+        );
 
         // Method returning directly excluded type must NOT appear in stub.
         assert!(
@@ -755,7 +828,8 @@ mod trait_bridge_tests {
         excluded.insert("DiagnosticLevel");
 
         let enum_names = std::collections::HashSet::new();
-        let emission = emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "", &enum_names);
+        let emission =
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "", &enum_names, &[]);
 
         // Method returning an excluded named type must be emitted (it's now exported as json.RawMessage).
         assert!(
@@ -801,7 +875,7 @@ mod trait_bridge_tests {
 
         let enum_names = std::collections::HashSet::new();
         let emission =
-            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "mylib", &enum_names);
+            emit_test_backend_with_context(&trait_bridge, &methods, &fixture, &excluded, "mylib", &enum_names, &[]);
 
         // Method returning Optional<ExcludedType> must NOT appear in stub.
         assert!(

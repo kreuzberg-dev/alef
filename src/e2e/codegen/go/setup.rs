@@ -130,6 +130,7 @@ pub(super) fn build_args_and_setup(
                         &excluded_named,
                         import_alias,
                         &enum_names,
+                        enums,
                     );
                     package_decls.push(emission.setup_block);
                     parts.push(emission.arg_expr);

@@ -105,7 +105,12 @@ fn go_visitor_method(method: &crate::core::ir::MethodDef, result_type: &str, imp
         .iter()
         .map(|param| {
             let name = go_param_name(&param.name);
-            let ty = stub_go_type_with_context(&param.ty, &std::collections::HashSet::new(), import_alias);
+            let ty = stub_go_type_with_context(
+                &param.ty,
+                &std::collections::HashSet::new(),
+                import_alias,
+                &std::collections::HashSet::new(),
+            );
             if ty.starts_with('*') {
                 pointer_params.insert(name.clone());
             }
