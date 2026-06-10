@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Python e2e pyproject.toml: emit valid `[tool.pytest.ini_options]` TOML table.** The Python e2e test app generator was emitting invalid TOML under `[tool.pytest]` with dotted keys like `ini_options.asyncio_mode = "auto"`. Pytest 7+ expects configuration under the `[tool.pytest.ini_options]` table with bare keys: `asyncio_mode = "auto"`. Changed both the Jinja template (`pyproject.toml.jinja`) and the Rust renderer (`config.rs` `render_pyproject()`) to emit the correct table format, eliminating `PytestConfigWarning: Unknown config option` messages and collection errors. Updated the corresponding test assertion from `ini_options.testpaths` to `testpaths`.
+
 ## [0.24.0] - 2026-06-10
 
 ### Fixed

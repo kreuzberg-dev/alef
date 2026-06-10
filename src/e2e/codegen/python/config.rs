@@ -110,13 +110,13 @@ line-length = 120
 lint.ignore = {ruff_ignore_array}
 lint.per-file-ignores."tests/**" = {ruff_tests_array}
 
-[tool.pytest]
-ini_options.asyncio_mode = "auto"
-ini_options.testpaths = {pytest_testpaths_array}
-ini_options.python_files = "test_*.py"
-ini_options.python_functions = "test_*"
-ini_options.addopts = "-v --strict-markers --tb=short"
-ini_options.timeout = 300
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = {pytest_testpaths_array}
+python_files = "test_*.py"
+python_functions = "test_*"
+addopts = "-v --strict-markers --tb=short"
+timeout = 300
 "#
     )
 }
@@ -741,7 +741,7 @@ mod tests {
             "single-element arrays should stay inline. got: {out}"
         );
         assert!(
-            out.contains("ini_options.testpaths = [\"tests\"]"),
+            out.contains("testpaths = [\"tests\"]"),
             "single-element testpaths should stay inline. got: {out}"
         );
     }
