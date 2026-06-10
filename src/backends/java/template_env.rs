@@ -12,6 +12,10 @@ static TEMPLATES: &[(&str, &str)] = &[
     ("trait_interface.jinja", include_str!("templates/trait_interface.jinja")),
     ("trait_bridge.jinja", include_str!("templates/trait_bridge.jinja")),
     (
+        "trait_adapter_bridge.jinja",
+        include_str!("templates/trait_adapter_bridge.jinja"),
+    ),
+    (
         "convert_with_visitor.jinja",
         include_str!("templates/convert_with_visitor.jinja"),
     ),

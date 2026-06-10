@@ -1,18 +1,21 @@
 //! Java (Panama FFM) trait bridge code generation for plugin systems.
 //!
-//! Emits two files per `[[trait_bridges]]` entry, both as syntactically valid
-//! single-class Java compilation units:
+//! Emits four files per `[[trait_bridges]]` entry (Path A - hand-authored interface approach):
 //!
 //! 1. `I{TraitName}.java` — managed interface users implement
 //! 2. `{TraitName}Bridge.java` — Panama upcall-stub bridge class with nested
 //!    static fields for the live-bridge registry plus
 //!    `register{TraitName}` / `unregister{TraitName}` static helpers
+//! 3. `{TraitName}Adapter.java` — wrapper implementing the interface, delegating to user impl
+//!
+//! The Adapter conforms to the hand-authored sealed interface, wrapping the user's
+//! implementation and passing it through to native side during registration.
 //!
 //! All complex parameter and return marshalling goes through Jackson JSON, matching
 //! how the FFI vtable receives values from native callers.
 
 use crate::core::ir::{MethodDef, PrimitiveType, TypeDef, TypeRef};
-use heck::{ToPascalCase, ToSnakeCase};
+use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
 use minijinja::Value;
 use std::collections::HashSet;
 
@@ -128,6 +131,107 @@ pub fn gen_trait_bridge_files(
             ffi_skip_methods,
         ),
     }
+}
+
+/// Generate a wrapper class file that implements the hand-authored sealed interface.
+///
+/// This file contains a Bridge wrapper class that:
+/// 1. Implements the hand-authored interface (e.g., IDocumentExtractor)
+/// 2. Takes the user impl in constructor
+/// 3. Delegates all method calls to the user impl
+///
+/// The Bridge class is what the registration function passes to native side.
+pub fn gen_trait_adapter_bridge_file(
+    trait_def: &TypeDef,
+    package: &str,
+    visible_type_names: &HashSet<&str>,
+    excluded_types: &HashSet<String>,
+    ffi_skip_methods: &[String],
+) -> String {
+    let trait_pascal = trait_def.name.to_pascal_case();
+    let bridge_class = format!("{trait_pascal}Adapter");
+    let interface_name = format!("I{trait_pascal}");
+
+    // Collect non-skipped methods
+    let skipped: HashSet<&str> = ffi_skip_methods.iter().map(|s| s.as_str()).collect();
+    let bridge_methods: Vec<&MethodDef> = trait_def
+        .methods
+        .iter()
+        .filter(|m| m.trait_source.is_none() && !skipped.contains(m.name.as_str()))
+        .collect();
+
+    // Build delegating method bodies
+    let mut methods_code = String::new();
+
+    // Trait bridge interfaces always have lifecycle methods (name, version, initialize, shutdown)
+    // These are defined as requirements of the sealed interface.
+    methods_code.push_str("    @Override\n");
+    methods_code.push_str("    public String name() {\n");
+    methods_code.push_str("        return impl.name();\n");
+    methods_code.push_str("    }\n\n");
+
+    methods_code.push_str("    @Override\n");
+    methods_code.push_str("    public String version() {\n");
+    methods_code.push_str("        return impl.version();\n");
+    methods_code.push_str("    }\n\n");
+
+    methods_code.push_str("    @Override\n");
+    methods_code.push_str("    public void initialize() throws Exception {\n");
+    methods_code.push_str("        impl.initialize();\n");
+    methods_code.push_str("    }\n\n");
+
+    methods_code.push_str("    @Override\n");
+    methods_code.push_str("    public void shutdown() throws Exception {\n");
+    methods_code.push_str("        impl.shutdown();\n");
+    methods_code.push_str("    }\n\n");
+
+    // Add trait-specific methods
+    for method in &bridge_methods {
+        let method_camel = method.name.to_lower_camel_case();
+        let return_type_str = java_type_visible(&method.return_type, visible_type_names, excluded_types);
+
+        let params_str = method
+            .params
+            .iter()
+            .map(|p| {
+                format!(
+                    "{} {}",
+                    java_type_visible(&p.ty, visible_type_names, excluded_types),
+                    java_param_name(&p.name)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        let call_args: Vec<String> = method.params.iter().map(|p| java_param_name(&p.name)).collect();
+        let call_args_str = call_args.join(", ");
+
+        methods_code.push_str("    @Override\n");
+        methods_code.push_str(&format!(
+            "    public {} {}({}) throws Exception {{\n",
+            return_type_str, method_camel, params_str
+        ));
+
+        if matches!(method.return_type, TypeRef::Unit) {
+            methods_code.push_str(&format!("        impl.{}({});\n", method_camel, call_args_str));
+        } else {
+            methods_code.push_str(&format!("        return impl.{}({});\n", method_camel, call_args_str));
+        }
+
+        methods_code.push_str("    }\n\n");
+    }
+
+    let imports = vec!["java.util.List", "java.util.Map"];
+
+    let ctx = minijinja::context! {
+        package => package,
+        imports => imports,
+        bridge_class => &bridge_class,
+        interface_name => &interface_name,
+        methods_code => &methods_code,
+    };
+
+    template_env::render("trait_adapter_bridge.jinja", ctx)
 }
 
 /// Generate the Java `unregister{Trait}` static helper body.

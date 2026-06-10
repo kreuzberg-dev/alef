@@ -1,7 +1,7 @@
 use super::dispatch::{gen_plugin_trampolines, gen_trampoline};
 use super::helpers::{c_trampoline_signature, method_with_excluded_substituted};
 use super::registration::{gen_clear_fn, gen_unregistration_fn};
-use super::wrapper::gen_interface_method;
+use super::wrapper::{gen_bridge_wrapper, gen_interface_method};
 use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeDef};
@@ -327,6 +327,17 @@ pub(super) fn gen_trait_bridge(
 
     out.push_str("}\n");
     out.push('\n');
+
+    // =========================================================================
+    // Path A Bridge wrapper struct and delegating methods
+    // =========================================================================
+    gen_bridge_wrapper(
+        out,
+        trait_def,
+        trait_name,
+        &bridge_cfg.ffi_skip_methods,
+        excluded_named_types,
+    );
 
     // =========================================================================
     // Exported trampolines

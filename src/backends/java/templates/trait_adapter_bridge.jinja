@@ -1,0 +1,21 @@
+package {{ package }};
+{% if imports %}
+
+{% for import in imports %}import {{ import }};
+{% endfor %}{% endif %}
+
+/**
+ * Path A Bridge implementation for {{ interface_name }}.
+ *
+ * Wraps a user-supplied implementation and delegates all method calls.
+ * This adapter conforms to the hand-authored sealed interface.
+ */
+public final class {{ bridge_class }} implements {{ interface_name }} {
+    private final {{ interface_name }} impl;
+
+    public {{ bridge_class }}({{ interface_name }} impl) {
+        this.impl = impl;
+    }
+
+{{ methods_code }}
+}

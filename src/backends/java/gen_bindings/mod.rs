@@ -452,8 +452,10 @@ impl Backend for JavaBackend {
         }
 
         // 8. Trait bridge plugin registration files
-        // Emits two files per trait: I{Trait}.java (managed interface) and
-        // {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers).
+        // Emits four files per trait:
+        // - I{Trait}.java (managed interface)
+        // - {Trait}Bridge.java (Panama upcall stubs + register/unregister helpers)
+        // - {Trait}Adapter.java (Path A wrapper implementing the interface and delegating to user impl)
         //
         // visible_type_names was computed earlier for use with record types.
         for bridge_cfg in &config.trait_bridges {
@@ -486,6 +488,15 @@ impl Backend for JavaBackend {
                     &bridge_cfg.ffi_skip_methods,
                 );
 
+                // Path A: Generate adapter bridge wrapper
+                let adapter_content = trait_bridge::gen_trait_adapter_bridge_file(
+                    trait_def,
+                    &package,
+                    &visible_type_names,
+                    &exclude_types,
+                    &bridge_cfg.ffi_skip_methods,
+                );
+
                 files.push(GeneratedFile {
                     path: base_path.join(format!("I{}.java", trait_def.name)),
                     content: interface_content,
@@ -494,6 +505,11 @@ impl Backend for JavaBackend {
                 files.push(GeneratedFile {
                     path: base_path.join(format!("{}Bridge.java", trait_def.name)),
                     content: bridge_content,
+                    generated_header: true,
+                });
+                files.push(GeneratedFile {
+                    path: base_path.join(format!("{}Adapter.java", trait_def.name)),
+                    content: adapter_content,
                     generated_header: true,
                 });
             }
