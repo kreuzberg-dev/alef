@@ -151,7 +151,11 @@ pub(super) fn java_boxed_stub_type_with_context(
     }
 }
 
-/// Return the default value for a type, substituting excluded types with `""`.
+/// Return the default value for a type, substituting excluded types with `"null"` (JSON-valid).
+///
+/// For Named types (trait-bridge serialized as JSON), emit "null" instead of empty string,
+/// which would cause serde_json::from_str to panic with "EOF while parsing".
+/// Numeric defaults use 1 instead of 0 (downstream rejects 0 for counts like dimensions()).
 pub(super) fn java_stub_default_with_context(
     ty: &crate::core::ir::TypeRef,
     excluded_types: &std::collections::HashSet<&str>,
@@ -161,24 +165,68 @@ pub(super) fn java_stub_default_with_context(
 
     match ty {
         TypeRef::Named(name) if !excluded_types.is_empty() && excluded_types.contains(name.as_str()) => {
-            "\"\"".to_string()
+            // Trait-bridge methods marshal excluded types as JSON strings. Use JSON-valid default.
+            "\"null\"".to_string()
         }
-        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !excluded_types.is_empty() && excluded_types.contains(n.as_str())) => {
-            "\"\"".to_string()
+        TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if !excluded_types.is_empty() && excluded_types.contains(n.as_str())) =>
+        {
+            // Trait-bridge methods marshal excluded types as JSON strings. Use JSON-valid default.
+            "\"null\"".to_string()
         }
         // For Named types that are NOT excluded, return null instead of trying to instantiate.
         // Complex types like ProcessingResult don't have no-arg constructors, and stub
         // methods are only used for testing trait bridge registration, not for exercising
         // the actual functionality. Returning null is safe here.
         TypeRef::Named(_) => "null".to_string(),
-        _ => defaults.emit_default(ty),
+        _ => {
+            let def = defaults.emit_default(ty);
+            // Emit 1 instead of 0 for numeric types (downstream rejects 0 for counts).
+            if def == "0" { "1".to_string() } else { def }
+        }
     }
+}
+
+/// Return a default value for a method, extracting from fixture input if available.
+///
+/// Attempts to extract the value from `fixture.input.backend` using the method name
+/// (snake_case or lower_camel_case), falling back to language defaults.
+/// For Named types, emits JSON-valid default ("null"), and for numeric defaults
+/// that would be 0, emits 1 instead.
+pub(super) fn java_stub_default_from_fixture(
+    method: &crate::core::ir::MethodDef,
+    ty: &crate::core::ir::TypeRef,
+    excluded_types: &std::collections::HashSet<&str>,
+    backend_input: Option<&serde_json::Map<String, serde_json::Value>>,
+    defaults: &dyn crate::codegen::defaults::LanguageDefaults,
+) -> String {
+    use heck::ToLowerCamelCase;
+
+    // Try to extract from fixture.input.backend first.
+    let fixture_val = backend_input
+        .and_then(|b| b.get(&method.name.to_lowercase()))
+        .or_else(|| backend_input.and_then(|b| b.get(&method.name.to_lower_camel_case())));
+
+    if let Some(val) = fixture_val {
+        // Emit the fixture value directly (primitives, numbers, strings, etc.)
+        match val {
+            serde_json::Value::Number(n) => return n.to_string(),
+            serde_json::Value::String(s) => return format!("\"{}\"", s),
+            serde_json::Value::Bool(b) => return b.to_string(),
+            _ => {
+                // Complex types: fall back to default context logic
+            }
+        }
+    }
+
+    // Fall back to context-aware defaults (which handle named/excluded types + numeric 1-vs-0).
+    java_stub_default_with_context(ty, excluded_types, defaults)
 }
 
 /// Emit a single Java stub method with excluded-types context.
 ///
 /// Like `emit_java_stub_method` but with excluded_types substitution.
-/// Excluded types are rendered as `String` in signatures and default to `""`.
+/// Excluded types are rendered as `String` in signatures and default to `"null"` (JSON-valid).
+/// Attempts to extract method defaults from fixture.input.backend if available.
 pub(super) fn emit_java_stub_method_with_context(
     out: &mut String,
     method_java: &str,
@@ -186,11 +234,13 @@ pub(super) fn emit_java_stub_method_with_context(
     defaults: &dyn crate::codegen::defaults::LanguageDefaults,
     binding_pkg: &str,
     excluded_types: &std::collections::HashSet<&str>,
+    backend_input: Option<&serde_json::Map<String, serde_json::Value>>,
 ) {
     use std::fmt::Write as _;
 
     let ret_java = java_stub_type_with_context(&method.return_type, binding_pkg, excluded_types);
-    let default_val = java_stub_default_with_context(&method.return_type, excluded_types, defaults);
+    let default_val =
+        java_stub_default_from_fixture(method, &method.return_type, excluded_types, backend_input, defaults);
 
     // Use java_stub_type_with_context for all parameter types to handle excluded types
     let params: Vec<String> = method
@@ -271,6 +321,10 @@ pub(super) fn emit_test_backend_with_context(
     let plugin_name = extract_backend_name_from_input(&fixture.input, &fixture.id);
     let backend_name = plugin_name.clone();
 
+    // Extract the backend input block if present (e.g., fixture.input.backend).
+    // Used to populate method defaults like dimensions(), backend name, etc.
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object());
+
     let defaults = language_defaults("java");
 
     let mut setup = String::new();
@@ -299,6 +353,7 @@ pub(super) fn emit_test_backend_with_context(
                     &*defaults,
                     binding_pkg,
                     excluded_types,
+                    backend_input,
                 );
             }
         }
@@ -332,6 +387,7 @@ pub(super) fn emit_test_backend_with_context(
                 &*defaults,
                 binding_pkg,
                 excluded_types,
+                backend_input,
             );
         }
     }
@@ -625,6 +681,158 @@ mod test_backend_tests {
         assert!(
             !output.contains("dev.sample_crate"),
             "must not contain hardcoded dev.sample_crate, got:\n{output}"
+        );
+    }
+
+    /// Verify that trait-bridge stub methods return JSON-valid defaults for Named types.
+    /// When a trait method has a Named (excluded) return type, it is marshalled as a JSON string.
+    /// The stub must return "null" (valid JSON), not "" (empty string), which causes parse panics.
+    #[test]
+    fn java_stub_named_return_type_emits_json_valid_default() {
+        let bridge = make_trait_bridge("PostProcessor");
+        let method = MethodDef {
+            name: "process".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("ProcessingConfig".to_string()),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("PostProcessor".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+
+        let methods = [&method];
+        let fixture = make_fixture("register_post_processor");
+        let mut excluded = std::collections::HashSet::new();
+        excluded.insert("ProcessingConfig");
+
+        let emission = super::emit_test_backend_with_context(&bridge, &methods, &fixture, "", &excluded, "");
+        let output = &emission.setup_block;
+
+        // Named types (trait-bridge JSON-marshalled) must use JSON-valid default "null", not ""
+        assert!(
+            output.contains("return \"null\""),
+            "named return type default must be JSON-valid (\\\"null\\\"), got:\n{output}"
+        );
+        // Ensure no empty string default that would cause JSON parse to fail
+        assert!(
+            !output.contains("return \"\""),
+            "must not return empty string for excluded types (causes serde_json parse panic), got:\n{output}"
+        );
+    }
+
+    /// Verify that trait-bridge stub methods emit numeric default 1 instead of 0.
+    /// Downstream validation rejects 0 for count fields like dimensions(), divisions().
+    #[test]
+    fn java_stub_numeric_return_type_emits_one_not_zero() {
+        let bridge = make_trait_bridge("EmbeddingBackend");
+        let method = MethodDef {
+            name: "dimensions".to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("EmbeddingBackend".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+
+        let methods = [&method];
+        let fixture = make_fixture("register_embedding_backend");
+        let excluded = std::collections::HashSet::new();
+
+        let emission = super::emit_test_backend_with_context(&bridge, &methods, &fixture, "", &excluded, "");
+        let output = &emission.setup_block;
+
+        // Numeric defaults must be 1, not 0 (downstream rejects 0 for counts)
+        assert!(
+            output.contains("return 1"),
+            "numeric return type default must be 1 (not 0), got:\n{output}"
+        );
+        assert!(
+            !output.contains("return 0"),
+            "must not return 0 for numeric types (fails downstream validation), got:\n{output}"
+        );
+    }
+
+    /// Verify that fixture.input.backend values are extracted and used in stub method returns.
+    /// When a fixture provides backend input like dimensions: 768, the stub uses that value.
+    #[test]
+    fn java_stub_extracts_method_defaults_from_fixture_input() {
+        let bridge = make_trait_bridge("EmbeddingBackend");
+        let method = MethodDef {
+            name: "dimensions".to_string(),
+            params: vec![],
+            return_type: TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize),
+            is_async: false,
+            is_static: false,
+            error_type: None,
+            doc: String::new(),
+            receiver: Some(crate::core::ir::ReceiverKind::Ref),
+            sanitized: false,
+            trait_source: Some("EmbeddingBackend".to_string()),
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        };
+
+        let methods = [&method];
+        let fixture = Fixture {
+            id: "register_embedding_backend_with_input".to_string(),
+            category: None,
+            description: "test".to_string(),
+            tags: vec![],
+            skip: None,
+            env: None,
+            call: None,
+            input: serde_json::json!({
+                "backend": {
+                    "dimensions": 768
+                }
+            }),
+            mock_response: None,
+            source: String::new(),
+            http: None,
+            assertions: vec![],
+            visitor: None,
+            args: vec![],
+            assertion_recipes: vec![],
+        };
+        let excluded = std::collections::HashSet::new();
+
+        let emission = super::emit_test_backend_with_context(&bridge, &methods, &fixture, "", &excluded, "");
+        let output = &emission.setup_block;
+
+        // The stub must extract and use the fixture value 768, not the default 1
+        assert!(
+            output.contains("return 768"),
+            "stub method must extract and use fixture.input.backend.dimensions (768), got:\n{output}"
+        );
+        assert!(
+            !output.contains("return 1"),
+            "must not use fallback default (1) when fixture value is present, got:\n{output}"
         );
     }
 }
