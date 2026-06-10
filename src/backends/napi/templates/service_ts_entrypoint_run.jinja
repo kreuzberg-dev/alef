@@ -4,5 +4,5 @@
 {% endif %}
    */
   async {{ ep_name }}({{ param_sig }}): Promise<void> {
-    return await {{ native_fn }}(this._registrations{{ native_args }});
+    return await this._app.{{ native_method }}({{ native_args }});
   }

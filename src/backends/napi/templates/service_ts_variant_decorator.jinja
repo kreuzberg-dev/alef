@@ -3,7 +3,7 @@
    */
   {{ variant_name }}({{ sig }}): (fn: (...args: any[]) => any) => (...args: any[]) => any {
 {{ wrapper_code }}    return (fn: (...args: any[]) => any) => {
-      this._registrations.push(["{{ base_method }}", {{ metadata_array }}, fn]);
+      this._app.{{ variant_name }}({{ native_args }}, fn);
       return fn;
     };
   }

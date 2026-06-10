@@ -4,5 +4,5 @@
 {% endif %}
    */
   {{ ep_name }}({{ param_sig }}): {{ return_ty }} {
-    return {{ native_fn }}(this._registrations{{ native_args }});
+    return this._app.{{ native_method }}({{ native_args }});
   }

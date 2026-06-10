@@ -198,8 +198,8 @@ fn typescript_output_contains_private_registrations() {
     // Instead, it stores a reference to the Rust wrapper instance (_app)
     // and delegates variant methods to it directly.
     assert!(
-        output.contains("private _app:"),
-        "expected `private _app:` (Rust wrapper instance) in output:\n{output}"
+        output.contains("private readonly _app:"),
+        "expected `private readonly _app:` (Rust wrapper instance) in output:\n{output}"
     );
 }
 

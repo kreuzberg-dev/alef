@@ -67,6 +67,12 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_rs(
         let app_type_name = format!("{prefix}{}", service.name);
         let mut impl_methods = String::new();
 
+        // Emit base registration methods (route, etc.) so TS can call them directly
+        // with already-constructed wrapper objects (JsRouteBuilder, etc.)
+        for reg in &service.registrations {
+            gen_base_registration_napi_method(&mut impl_methods, service, reg, api, &core_import, config);
+        }
+
         // Emit variant methods (per-verb registration shortcuts) so the TS
         // wrapper class can delegate per-variant calls to the napi class
         // without round-tripping callbacks through serde.
@@ -337,6 +343,131 @@ fn build_ep_call_napi(ep: &crate::core::ir::EntrypointDef, _service: &ServiceDef
     } else {
         format!("    {bind}owner.{ep_method}({args_str});\n")
     }
+}
+
+/// Emit one `#[napi]` method for a base registration on the App class.
+///
+/// The method accepts already-constructed wrapper objects (e.g. JsRouteBuilder)
+/// from the TS side, extracts the inner Rust value, creates the handler bridge,
+/// and calls the owner's registration method.
+fn gen_base_registration_napi_method(
+    out: &mut String,
+    service: &ServiceDef,
+    reg: &RegistrationDef,
+    api: &ApiSurface,
+    core_import: &str,
+    config: &ResolvedCrateConfig,
+) {
+    let base_method = &reg.method;
+    let contract_name = &reg.callback_contract;
+
+    // Look up the optional inner-accessor expression
+    let inner_accessor: String = config
+        .services
+        .iter()
+        .find(|sc| sc.owner_type == service.name)
+        .and_then(|sc| sc.host_app_inner_accessor.as_deref())
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "self".to_owned());
+
+    // Build method signature from registration's metadata_params (the wrapper types)
+    let mut rust_params = vec!["&self".to_owned()];
+    for p in &reg.metadata_params {
+        let rust_ty = typeref_to_rust_type(&p.ty, core_import);
+        // For wrapper types from TS, we expect them as napi-exposed classes
+        // The type is already qualified, just use it as-is for now
+        rust_params.push(format!("{}: {}", p.name, rust_ty));
+    }
+    rust_params.push("handler: ThreadsafeFunction<serde_json::Value, serde_json::Value>".to_string());
+    let param_sig = rust_params.join(", ");
+
+    let doc = reg.doc.trim();
+    out.push_str(&render(
+        "service_rs_base_registration_method_header.jinja",
+        context! {
+            base_method,
+            doc,
+            param_sig,
+        },
+    ));
+
+    // Create the handler bridge
+    if let Some(contract) = find_contract(api, contract_name) {
+        let bridge_name = format!("{}Bridge", contract.trait_name.to_upper_camel_case());
+        out.push_str(&render(
+            "service_rs_handler_arc.jinja",
+            context! {
+                bridge_name,
+                core_import,
+                contract_name,
+            },
+        ));
+    }
+
+    // Call the base registration method via the inner accessor
+    let meta_names: Vec<String> = reg.metadata_params.iter().map(|p| p.name.clone()).collect();
+    let meta_args = meta_names.join(", ");
+
+    if inner_accessor == "self" {
+        if !meta_names.is_empty() {
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "self",
+                    base_method,
+                    meta_args,
+                    has_meta => true,
+                },
+            ));
+        } else {
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "self",
+                    base_method,
+                    meta_args => "",
+                    has_meta => false,
+                },
+            ));
+        }
+    } else {
+        out.push_str(&render(
+            "service_rs_inner_accessor.jinja",
+            context! {
+                inner_accessor,
+            },
+        ));
+        if !meta_names.is_empty() {
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "inner",
+                    base_method,
+                    meta_args,
+                    has_meta => true,
+                },
+            ));
+        } else {
+            out.push_str(&render(
+                "service_rs_base_registration_call.jinja",
+                context! {
+                    receiver => "inner",
+                    base_method,
+                    meta_args => "",
+                    has_meta => false,
+                },
+            ));
+        }
+    }
+
+    // Handle error if the registration is fallible
+    if reg.error_type.is_some() {
+        out.push_str("        .map_err(|e| napi::Error::new(napi::Status::GenericFailure, e.to_string()))?;\n");
+    } else {
+        out.push_str("        ;\n");
+    }
+
+    out.push_str(&render("service_rs_unit_ok_footer.jinja", context! {}));
 }
 
 /// Emit one `#[napi]` async shortcut method for a registration variant on the App class.

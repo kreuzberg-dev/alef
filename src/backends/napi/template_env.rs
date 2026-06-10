@@ -195,6 +195,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/service_rs_variant_method_header.jinja"),
     ),
     (
+        "service_rs_base_registration_method_header.jinja",
+        include_str!("templates/service_rs_base_registration_method_header.jinja"),
+    ),
+    (
         "service_rs_wrapper_ctor.jinja",
         include_str!("templates/service_rs_wrapper_ctor.jinja"),
     ),

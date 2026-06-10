@@ -280,8 +280,8 @@ fn gen_service_class_ts(
         let ep_name = &ep.method;
 
         let doc = ep.doc.trim().replace('\n', "\n   * ");
-        let native_fn = format!("{}_{}", class_name.to_snake_case(), ep_name).to_lower_camel_case();
-        let native_args = ep.params.iter().map(|p| format!(", {}", p.name)).collect::<String>();
+        let native_method = ep_name.to_lower_camel_case();
+        let native_args = ep.params.iter().map(|p| p.name.as_str()).collect::<Vec<_>>().join(", ");
 
         match ep.kind {
             EntrypointKind::Run => {
@@ -291,7 +291,7 @@ fn gen_service_class_ts(
                         doc,
                         ep_name,
                         param_sig,
-                        native_fn,
+                        native_method,
                         native_args,
                     },
                 ));
@@ -313,7 +313,7 @@ fn gen_service_class_ts(
                         ep_name,
                         param_sig,
                         return_ty,
-                        native_fn,
+                        native_method,
                         native_args,
                     },
                 ));
@@ -541,6 +541,13 @@ fn emit_variant_direct_method(
     full_params.push("handler: (...args: any[]) => any".to_string());
     let full_sig = full_params.join(", ");
 
+    let native_args = variant
+        .signature_params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let doc = variant
         .doc
         .as_deref()
@@ -555,6 +562,7 @@ fn emit_variant_direct_method(
             wrapper_code,
             base_method,
             metadata_array,
+            native_args,
         },
     ));
 }
@@ -571,6 +579,13 @@ fn emit_variant_decorator_factory(
 ) {
     let sig = variant_params.join(", ");
 
+    let native_args = variant
+        .signature_params
+        .iter()
+        .map(|p| p.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+
     let doc = variant
         .doc
         .as_deref()
@@ -585,6 +600,7 @@ fn emit_variant_decorator_factory(
             wrapper_code,
             base_method,
             metadata_array,
+            native_args,
         },
     ));
 }

@@ -5,7 +5,7 @@
    */
   {{ method_name }}({{ meta_sig }}): (fn: (...args: any[]) => any) => (...args: any[]) => any {
     return (fn: (...args: any[]) => any) => {
-      this._registrations.push(["{{ method_name }}", {{ meta_array }}, fn]);
+      this._app.{{ method_name }}({{ meta_array }}, fn);
       return fn;
     };
   }

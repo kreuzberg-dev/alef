@@ -2,6 +2,6 @@
    * {{ doc }}
    */
   {{ variant_name }}({{ full_sig }}): this {
-{{ wrapper_code }}    this._registrations.push(["{{ base_method }}", {{ metadata_array }}, handler]);
+{{ wrapper_code }}    this._app.{{ variant_name }}({{ native_args }}, handler);
     return this;
   }

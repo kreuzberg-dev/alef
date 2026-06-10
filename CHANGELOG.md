@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **napi-rs: emit base registration methods on JsApp and dispatch variant/decorator calls directly instead of via a registrations array.** The previous design had TS accumulate `[method_name, [metadata...], handler]` tuples in a `_registrations` array, then pass them to a Rust free function that replayed them. This pattern failed when metadata contained opaque JS-class instances or when handlers were JS callbacks — `serde_json::Value` cannot represent these types. The fix: (1) emit a base registration method on JsApp for each registration that accepts already-constructed wrappers; (2) emit variant methods on JsApp that construct the wrapper in Rust and delegate to the base method; (3) update TS variant/decorator methods to call `this._app.methodName(...)` directly instead of accumulating `_registrations`; (4) drop the free-function entrypoint and call variant/entrypoint methods directly on `_app`. TS wrappers now hold `_app: JsApp` (read-only) and delegate all registration to Rust methods at the FFI boundary, eliminating type-representation issues.
+
 ## [0.23.75] - 2026-06-10
 
 ### Fixed
