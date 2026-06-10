@@ -34,6 +34,10 @@ pub fn emit_test_backend(
         .unwrap_or(&fixture.id)
         .to_string();
 
+    // Extract the backend input block if present (e.g., fixture.input.backend).
+    // Used to populate method defaults like dimensions(), backend name, etc.
+    let backend_input = fixture.input.get("backend").and_then(|v| v.as_object());
+
     let defaults = language_defaults("swift");
     let mapper = SwiftMapper;
 
@@ -76,11 +80,39 @@ pub fn emit_test_backend(
             _ => mapper.map_type(&method.return_type).to_string(),
         };
 
-        // Default value: for Named types (JSON-marshalled), emit "null" as a JSON-valid default.
-        // For primitives and other types, use the standard defaults.
+        // Default value: try to extract from fixture.input.backend first,
+        // then fall back to language defaults. For primitives that would emit 0,
+        // emit 1 instead (downstream rejects 0 for counts like dimensions()).
         let default_val = match &method.return_type {
             crate::core::ir::TypeRef::Named(_) => "\"null\"".to_string(),
-            _ => defaults.emit_default(&method.return_type),
+            _ => {
+                // Try to find the fixture value keyed by snake_case method name.
+                let fixture_val = backend_input
+                    .and_then(|b| b.get(&method.name.to_snake_case()))
+                    .or_else(|| {
+                        // Also try the lower_camel_case variant in case fixture uses that.
+                        backend_input.and_then(|b| b.get(&method_name))
+                    });
+
+                if let Some(val) = fixture_val {
+                    // Emit the fixture value directly (primitives, numbers, etc.)
+                    match val {
+                        serde_json::Value::Number(n) => n.to_string(),
+                        serde_json::Value::String(s) => format!("\"{}\"", s),
+                        serde_json::Value::Bool(b) => b.to_string(),
+                        _ => {
+                            // Complex types: fall back to default, but inject 1 for 0 values
+                            let def = defaults.emit_default(&method.return_type);
+                            if def == "0" { "1".to_string() } else { def }
+                        }
+                    }
+                } else {
+                    // No fixture value: use language default, but emit 1 instead of 0
+                    // for numeric types (downstream requires counts > 0).
+                    let def = defaults.emit_default(&method.return_type);
+                    if def == "0" { "1".to_string() } else { def }
+                }
+            }
         };
 
         // NOTE: Swift trait bridge methods are always sync (no async), even if the Rust trait
