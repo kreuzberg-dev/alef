@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.72] - 2026-06-10
+
+### Fixed
+
+- **R extendr by-ref param signature now uses the local R wrapper struct, not the upstream core type.** v0.23.69 routed non-optional Named struct params through the by-ref branch so they would skip JSON bridging, but the emitted signature used `&{core_import}::{name}` (e.g., `&kreuzberg::ExtractionConfig`). `#[extendr]` derives `TryFrom<&Robj>` only for the local R wrapper struct declared in the binding module, not for the upstream core type, so every such param failed with `error[E0277]: the trait bound '&kreuzberg::ExtractionConfig: extendr_api::TryFrom<&extendr_api::Robj>' is not satisfied`. The signature now takes `&{LocalBinding}`, and the body inserts `let {name}_core: {core}::{T} = {name}.clone().into();` so the call site can pass `&{name}_core` to the core fn. Resolves ~18 R e2e compilation errors across `ExtractionConfig`, `EmbeddingConfig`, `RedactionConfig`, `TranslationConfig`, `PageClassificationConfig`, `LlmConfig`, `DiffOptions`, `ExtractionResult`. Fixes CI kreuzberg run 27242661692 R e2e job.
+
 ## [0.23.71] - 2026-06-09
 
 ### Fixed
