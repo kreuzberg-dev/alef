@@ -257,6 +257,7 @@ fn gen_single_trait_bridge_file(
         "swift_trait_bridge_file.swift.jinja",
         minijinja::context! {
             trait_name => trait_name,
+            adapter_class => format!("Swift{trait_name}Adapter"),
             protocol => protocol,
             protocol_methods => protocol_methods,
             default_methods => default_methods,

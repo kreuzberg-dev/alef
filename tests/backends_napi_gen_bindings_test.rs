@@ -56,7 +56,7 @@ fn build_config_service_wrapper_patch_overrides_app_after_native_export() {
         .iter()
         .find_map(|step| match step {
             PostBuildStep::PatchFile { path, find, replace }
-                if *path == "index.js" && *find == "module.exports = nativeBinding;" =>
+                if *path == "index.js" && find.trim_end() == "module.exports = nativeBinding;" =>
             {
                 Some(*replace)
             }

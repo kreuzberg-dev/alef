@@ -233,6 +233,8 @@ pub(super) fn build_args_and_setup(
                                             "MAPPER.readValue(\"{}\", {element_type}::class.java)",
                                             escape_kotlin(&json_str)
                                         )
+                                    } else if element_type == "String" {
+                                        super::values::json_to_kotlin(item)
                                     } else if let Some(path) = item.as_str() {
                                         // For string items (file paths), construct the element with the path
                                         if kotlin_android_style {

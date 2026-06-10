@@ -15,16 +15,36 @@ public extension {{ protocol }} {
 {{ default_methods }}}
 
 /// Internal adapter wrapping a `{{ protocol }}` conformer.
-/// Marshals Swift types and trait calls to/from the C boundary.
-/// Excluded/internal types are serialised to/from JSON strings.
-final class Swift{{ trait_name }}Adapter {
+/// Wraps a user-supplied bridge and forwards calls through marshalling entry points.
+final class {{ adapter_class }} {
     private let bridge: any {{ protocol }}
 
     init(bridge: any {{ protocol }}) {
         self.bridge = bridge
     }
 
-{{ adapter_methods }}}
+    // MARK: - SwiftPluginBridge lifecycle
+
+    var name: String {
+        return bridge.name
+    }
+
+    func version() -> String {
+        return bridge.version()
+    }
+
+    func initialize() throws {
+        try bridge.initialize()
+    }
+
+    func shutdown() throws {
+        try bridge.shutdown()
+    }
+
+    // MARK: - FFI marshalling entry points
+
+{{ adapter_methods }}
+}
 
 // MARK: - Marshalling helpers
 
