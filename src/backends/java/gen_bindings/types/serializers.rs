@@ -120,11 +120,11 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         }
     }
 
-    // Check for excluded variants in the default case
+    // Check for excluded variants in the default case.
+    // enum_def.excluded_variants contains all variants marked with alef(skip) or other binding exclusions.
     let excluded_variants: Vec<String> = enum_def
-        .variants
+        .excluded_variants
         .iter()
-        .filter(|v| v.binding_excluded)
         .map(|v| {
             let discriminator = v.serde_rename.clone().unwrap_or_else(|| {
                 let name = &v.name;
