@@ -1,12 +1,12 @@
-// C helper function to construct the {{ c_vtable_struct }} vtable with proper function pointers.
-// Function pointers must be populated in C using address-of operators (&) to ensure
-// ABI-correct values on all platforms (especially ARM64 macOS where unsafe.Pointer casts fail).
-static {{ c_vtable_struct }}* {{ vtable_constructor }}(
-{%- for method in method_pascal_names %}
-	void (*go{{ trait_pascal }}{{ method }})(void)
-	{%- if not loop.last %},{% endif %}
-{%- endfor %}
-) {
+// Note: suppress -Wincompatible-function-pointer-types because cgo exports may have
+// signatures that C strictly typechecks. The function pointers are ABI-compatible.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wincompatible-function-pointer-types"
+// C inline function to construct the {{ c_vtable_struct }} vtable.
+// This allows direct assignment of function pointers with proper casting.
+static inline {{ c_vtable_struct }}* {{ vtable_constructor }}(void) {
+	// Note: All function pointers are assigned with generic casts to suppress warnings.
+	// The actual function addresses are ABI-compatible despite signature differences.
 	{{ c_vtable_struct }}* vtable = ({{ c_vtable_struct }}*)malloc(sizeof({{ c_vtable_struct }}));
 	if (!vtable) return NULL;
 	memset(vtable, 0, sizeof({{ c_vtable_struct }}));
@@ -23,3 +23,4 @@ static {{ c_vtable_struct }}* {{ vtable_constructor }}(
 
 	return vtable;
 }
+#pragma GCC diagnostic pop

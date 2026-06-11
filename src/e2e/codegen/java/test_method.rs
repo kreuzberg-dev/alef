@@ -241,13 +241,11 @@ pub(super) fn render_test_method(
     let mut final_args = args_str;
     if let Some(visitor_spec) = &fixture.visitor {
         if let Some(binding) = java_visitor_binding(config, type_defs, Some(visitor_spec), effective_options_type) {
-            if binding.result_type != "WalkDecision" {
-                setup_lines.push(format!(
-                    "org.junit.jupiter.api.Assumptions.assumeTrue(false, \"java visitor fixture '{}' requires explicit e2e result-action metadata for result type '{}'\");",
-                    escape_java(&fixture.id),
-                    escape_java(&binding.result_type)
-                ));
-            }
+            // Generic discriminated-union result types are supported by the Jinja
+            // template via the same factory shape as the default fallback type —
+            // drop the historical bail-out and let the generated code compile or
+            // surface a clear method-arity diagnostic from the host project's
+            // binding.
             let visitor_var = build_java_visitor(&mut setup_lines, visitor_spec, class_name, &binding);
             final_args = apply_java_visitor_arg(&mut setup_lines, &final_args, args, &visitor_var, &binding);
         } else {

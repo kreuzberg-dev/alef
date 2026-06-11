@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.11] - 2026-06-11
+
+### Fixed
+
+- **C# / Java e2e visitor fixtures: emit real `VisitResult` returns instead of `NotSupportedException` stubs.** The C# and Java visitor codegen previously bailed out whenever the configured `result_type` was not the default fallback type — C# emitted `throw new NotSupportedException(...)` for every method body and Java emitted `Assumptions.assumeTrue(false, ...)` to skip the test outright. The Jinja templates already render generic `Continue()` / `Skip()` / `PreserveHtml()` / `Custom(...)` factory expressions, so any discriminated-union with that record shape compiles directly. The bail-out now triggers only when method/IR metadata is genuinely missing (`has_missing_metadata` / `has_missing_method_metadata`), allowing host projects to opt in via `[[trait_bridges]].result_type` in `alef.toml`.
+- **Java e2e visitor fixtures: attach visitor via options builder to preserve `convert()` arity.** `apply_java_visitor_arg` was appending the visitor-bound options expression as an extra positional argument, producing a 3-arg `convert(html, options, options)` call that failed to compile. The helper now detects the inlined `Options.builder().build()` default emitted by `build_args_and_setup` and rewrites it in place to `Options.builder().withVisitor(v).build()`, restoring the 2-arg signature.
+- **Go cgo: suppress strict function-pointer typechecking in vtable constructor helper.** The generated vtable constructor now wraps the helper in `#pragma GCC diagnostic ignored "-Wincompatible-function-pointer-types"` and assigns function pointers through generic `void(*)(void)` casts. Clang's strict mode (default on recent toolchains) otherwise rejects the ABI-compatible cgo export signatures.
+
 ## [0.24.10] - 2026-06-11
 
 ### Fixed

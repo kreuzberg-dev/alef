@@ -173,6 +173,19 @@ pub(super) fn apply_java_visitor_arg(
     // Records emit `withVisitor` on the Builder, not the record itself; use
     // the builder-chain pattern (`Options.builder().withVisitor(v).build()`).
     let options_expr = format!("{}.builder().{}({}).build()", binding.options_type, wither, visitor_var);
+
+    // When the fixture provided no options value, `build_args_and_setup` already
+    // inlined `{OptionsType}.builder().build()` as the trailing positional arg.
+    // Replace that empty default with the visitor-bound builder expression rather
+    // than appending a second options arg (which would produce the wrong arity).
+    let default_options_expr = format!("{}.builder().build()", binding.options_type);
+    if let Some(stripped) = args_str.strip_suffix(&format!(", {default_options_expr}")) {
+        return format!("{stripped}, {options_expr}");
+    }
+    if args_str == default_options_expr {
+        return options_expr;
+    }
+
     if args_str.is_empty() {
         options_expr
     } else if let Some(stripped) = args_str.strip_suffix(", null") {
@@ -246,13 +259,15 @@ pub(super) fn emit_java_visitor_method(
         }
     };
 
-    let unsupported_diagnostic =
-        (binding.has_missing_method_metadata || binding.result_type != "WalkDecision").then(|| {
-            format!(
-                "visitor fixture callback '{method_name}' requires explicit e2e metadata for result type '{}'",
-                binding.result_type
-            )
-        });
+    // Emit the unsupported-diagnostic stub only when method metadata is missing.
+    // The Jinja template renders generic `{result_type}.skip()`/`continue_()`/
+    // `preserveHtml()`/`custom(...)` calls — any discriminated-union type that
+    // exposes those factories compiles out of the box, not only the default
+    // fallback type. The host project opts in by setting
+    // `[[trait_bridges]].result_type` in `alef.toml`.
+    let unsupported_diagnostic = binding
+        .has_missing_method_metadata
+        .then(|| format!("visitor fixture callback '{method_name}' requires explicit e2e method metadata"));
 
     let rendered = crate::e2e::template_env::render(
         "java/visitor_method.jinja",

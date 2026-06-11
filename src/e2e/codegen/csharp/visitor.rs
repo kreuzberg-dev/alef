@@ -215,7 +215,14 @@ fn emit_csharp_visitor_method(
             result_type => &visitor_config.result_type,
             action_type => action_type,
             action_value => action_value,
-            unsupported_diagnostic => (visitor_config.has_missing_metadata || visitor_config.result_type != "WalkDecision").then(|| {
+            // Emit the unsupported-diagnostic stub only when the trait_bridge or
+            // IR metadata is incomplete. The Jinja template renders generic
+            // `new {result_type}.Continue()`/`Skip()`/`PreserveHtml()`/`Custom(...)`
+            // expressions, so any discriminated-union with that record shape
+            // compiles directly — not only the default fallback type. The host
+            // project opts in by setting `[[trait_bridges]].result_type` in
+            // `alef.toml`.
+            unsupported_diagnostic => visitor_config.has_missing_metadata.then(|| {
                 format!(
                     "visitor fixture callback '{method_name}' requires explicit e2e metadata for result type '{}'",
                     visitor_config.result_type

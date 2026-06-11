@@ -166,6 +166,8 @@ pub fn gen_trait_bridges_file(
                     .map(|method| method.name.to_pascal_case())
                     .collect();
 
+                // No need for method_casts anymore - the inline function uses generic void(*)(void) casts
+
                 out.push_str(&crate::backends::go::template_env::render(
                     "vtable_constructor_helper.jinja",
                     minijinja::context! {
