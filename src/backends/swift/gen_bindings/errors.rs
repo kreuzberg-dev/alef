@@ -78,9 +78,8 @@ pub(super) fn emit_error(error: &ErrorDef, module_name: &str, out: &mut String, 
     // first-class struct initializers (`dto.rs:675`) when a unit-serde-enum
     // raw value from the Rust bridge cannot be mapped to a known Swift
     // case. Without this the generated Swift refuses to compile against
-    // any Rust error type that doesn't already declare this exact variant
-    // (e.g. kreuzcrawl `CrawlError`, which has 18 domain variants but no
-    // `Validation`). Skipped if the Rust error type already declares it.
+    // any Rust error type that doesn't already declare this exact variant.
+    // Skipped if the Rust error type already declares it.
     let has_validation_variant = error
         .variants
         .iter()

@@ -214,7 +214,11 @@ impl Backend for SwiftBackend {
                     })
                     .unwrap_or_else(|| {
                         let raw = config.error_type_name();
-                        if raw == "Error" { format!("{module_name}Error") } else { raw }
+                        if raw == "Error" {
+                            format!("{module_name}Error")
+                        } else {
+                            raw
+                        }
                     });
                 dto::emit_first_class_struct(
                     ty,
