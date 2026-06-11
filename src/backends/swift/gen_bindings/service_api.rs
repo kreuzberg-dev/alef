@@ -541,7 +541,7 @@ pub(super) fn gen_service_swift(api: &ApiSurface, service: &ServiceDef, config: 
 
     // Special config method with host and port parameters (always emitted).
     // This method constructs a ServerConfig JSON, calls the FFI to create and apply it.
-    // Get the FFI prefix from config (e.g., "spikard") for generating symbol names.
+    // Get the FFI prefix from config (e.g., "mylib") for generating symbol names.
     let ffi_prefix = config
         .ffi
         .as_ref()
