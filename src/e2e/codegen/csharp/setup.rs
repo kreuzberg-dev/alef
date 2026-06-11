@@ -388,21 +388,46 @@ fn resolve_json_object_default(
     // Try to infer type name from parameter name:
     // - Try direct match first (e.g., "config" → "Config")
     // - Then try with "Config" suffix (e.g., "options" → "OptionsConfig")
+    // - Also try "Options" and "Settings" suffixes
     let name_upper = param_name.to_upper_camel_case();
-    let candidates = [name_upper.clone(), format!("{name_upper}Config")];
+    let candidates = [
+        name_upper.clone(),
+        format!("{name_upper}Config"),
+        format!("{name_upper}Options"),
+        format!("{name_upper}Settings"),
+    ];
+
+    // Helper closure to format result based on options_via
+    let format_with_via = |type_name: &str| {
+        if options_via == Some("from_json") {
+            format!("{type_name}.FromJson(\"{{}}\")")
+        } else {
+            format!("new {type_name}()")
+        }
+    };
+
+    // Find a constructible type in candidates
     if let Some(inferred) = candidates
         .iter()
         .find(|cand| is_default_constructible(cand, type_defs))
         .cloned()
     {
-        // When options_via == "from_json", use the factory method for consistency
-        if options_via == Some("from_json") {
-            return format!("{inferred}.FromJson(\"{{}}\")");
-        }
-        return format!("new {inferred}()");
+        return format_with_via(&inferred);
     }
 
-    // Cannot determine constructible type; pass null
+    // If explicit options_type was provided but not found in type_defs, still trust it
+    // (type_defs may not include all C# binding types)
+    if let Some(opts_type) = options_type {
+        return format_with_via(opts_type);
+    }
+
+    // If we have candidates and couldn't verify constructibility in type_defs,
+    // use the first candidate anyway (assume C# binding has parameterless constructor)
+    if !candidates.is_empty() {
+        return format_with_via(&candidates[0]);
+    }
+
+    // Cannot determine any type name; pass null
     // This will fail at runtime with ArgumentNullException on non-nullable params
     "null".to_string()
 }
