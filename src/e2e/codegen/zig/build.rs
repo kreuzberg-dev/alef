@@ -310,6 +310,9 @@ pub fn build(b: *std.Build) void {
                 content,
                 "    const ffi_include = b.option([]const u8, \"ffi_include_path\", \"Path to directory containing FFI header\") orelse \"{ffi_crate_path}/include\";"
             );
+            // Compute absolute FFI path for rpath declarations so dylib loading works
+            // regardless of the test binary's working directory (e.g., when chdir'd into test_documents).
+            let _ = writeln!(content, "    const ffi_path_abs = b.pathFromRoot(ffi_path);");
             let _ = writeln!(content);
             let _ = writeln!(
                 content,
@@ -337,6 +340,11 @@ pub fn build(b: *std.Build) void {
             let _ = writeln!(
                 content,
                 "    {module_name}_module.linkSystemLibrary(\"{ffi_lib_name}\", .{{}});"
+            );
+            // Add rpath support for macOS dylib runtime linking using the absolute path.
+            let _ = writeln!(
+                content,
+                "    {module_name}_module.addRPath(.{{ .cwd_relative = ffi_path_abs }});"
             );
             let _ = writeln!(content);
         }
@@ -388,6 +396,13 @@ pub fn build(b: *std.Build) void {
         content.push_str(&format!("        .root_module = {test_name}_module,\n"));
         content.push_str("        .use_llvm = true,\n");
         content.push_str("    });\n");
+        // Add rpath support for macOS dylib runtime linking in test artifacts (Local mode only).
+        // The test binary itself needs an rpath in its load commands to locate the FFI dylib when run.
+        if matches!(dep_mode, crate::e2e::config::DependencyMode::Local) {
+            content.push_str(&format!(
+                "    {test_name}_tests.root_module.addRPath(.{{ .cwd_relative = ffi_path_abs }});\n"
+            ));
+        }
         // Run the test binary via `addRunArtifact`. When any fixture reads
         // files from `test_documents/` (arg type `file_path` or `bytes`),
         // also point the working directory at the repo-root `test_documents/`
