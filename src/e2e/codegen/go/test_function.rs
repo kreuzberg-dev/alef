@@ -12,6 +12,48 @@ use super::client;
 use super::setup::build_args_and_setup;
 use super::visitors::visitor_struct_name;
 
+/// Map a trait name to its Clear* function name.
+/// E.g., "DocumentExtractor" -> "ClearDocumentExtractors"
+fn clear_function_for_trait(trait_name: &str) -> Option<String> {
+    match trait_name {
+        "DocumentExtractor" => Some("ClearDocumentExtractors".to_string()),
+        "OcrBackend" => Some("ClearOcrBackends".to_string()),
+        "PostProcessor" => Some("ClearPostProcessors".to_string()),
+        "Validator" => Some("ClearValidators".to_string()),
+        "EmbeddingBackend" => Some("ClearEmbeddingBackends".to_string()),
+        "Renderer" => Some("ClearRenderers".to_string()),
+        _ => None,
+    }
+}
+
+/// Determine the trait type being registered from the function name.
+/// E.g., "RegisterDocumentExtractor" or "register_document_extractor" -> "DocumentExtractor"
+fn trait_from_register_function(fn_name: &str) -> Option<String> {
+    let lower = fn_name.to_lowercase();
+    match lower.as_str() {
+        "registerdocumentextractor" | "register_document_extractor" => Some("DocumentExtractor".to_string()),
+        "registerocrbackend" | "register_ocr_backend" => Some("OcrBackend".to_string()),
+        "registerpostprocessor" | "register_post_processor" => Some("PostProcessor".to_string()),
+        "registervalidator" | "register_validator" => Some("Validator".to_string()),
+        "registerembeddingbackend" | "register_embedding_backend" => Some("EmbeddingBackend".to_string()),
+        "registerrenderer" | "register_renderer" => Some("Renderer".to_string()),
+        _ => None,
+    }
+}
+
+/// Emit cleanup call for trait-bridge fixtures to avoid cgo finalizer panics.
+fn emit_trait_bridge_cleanup(out: &mut String, fixture: &Fixture, base_function_name: &str, import_alias: &str) {
+    if fixture.tags.contains(&"trait-bridge".to_string()) {
+        if let Some(trait_type) = trait_from_register_function(base_function_name) {
+            if let Some(clear_fn) = clear_function_for_trait(&trait_type) {
+                let _ = writeln!(out, "\tif err := {import_alias}.{clear_fn}(); err != nil {{");
+                let _ = writeln!(out, "\t\tt.Logf(\"{clear_fn} cleanup failed: %v\", err)");
+                let _ = writeln!(out, "\t}}");
+            }
+        }
+    }
+}
+
 pub(super) fn fixture_has_go_callable(fixture: &Fixture, e2e_config: &crate::e2e::config::E2eConfig) -> bool {
     if fixture.is_http_test() {
         return false;
@@ -283,6 +325,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         let _ = writeln!(out, "\tif err == nil {{");
         let _ = writeln!(out, "\t\tt.Errorf(\"expected an error, but call succeeded\")");
         let _ = writeln!(out, "\t}}");
+        emit_trait_bridge_cleanup(out, fixture, base_function_name, import_alias);
         let _ = writeln!(out, "}}");
         return;
     }
@@ -360,6 +403,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         let _ = writeln!(out, "\tif err != nil {{");
         let _ = writeln!(out, "\t\tt.Fatalf(\"call failed: %v\", err)");
         let _ = writeln!(out, "\t}}");
+        emit_trait_bridge_cleanup(out, fixture, base_function_name, import_alias);
         let _ = writeln!(out, "}}");
         return;
     } else {
@@ -559,6 +603,7 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         );
     }
 
+    emit_trait_bridge_cleanup(out, fixture, base_function_name, import_alias);
     let _ = writeln!(out, "}}");
 }
 
