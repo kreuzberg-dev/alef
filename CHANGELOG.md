@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.8] - 2026-06-11
+
 ### Fixed
 
 - **Java backend: emit App.config(String, int) method on service wrappers and call from e2e harness.** The Java service class now generates a `config(String host, int port)` method that creates a ServerConfig from JSON, applies it via C FFI (`{prefix}_server_config_from_json`, `{prefix}_{service}_config`, `{prefix}_server_config_free`), and uses the arena for temporary allocations. The e2e harness template calls `app.config(effectiveHost, effectivePort)` before `app.run()` to ensure the service binds to the dynamically discovered port. Replaces manual hardcoding of host/port in the generated App class with a template-driven solution. The arena was already using `Arena.ofShared()` for thread-safe upcall stub allocation across Tokio worker threads.
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.24.7] - 2026-06-11
 
 ### Fixed
+
+- **Swift backend: emit `App.config(host:port:)` bridge method and call it from the e2e harness.** The swift backend now generates a `config(host: String, port: UInt16) throws -> Self` method that constructs a `ServerConfig` from JSON, applies it via the configured FFI prefix (`{prefix}_server_config_from_json`, `{prefix}_app_config`, `{prefix}_server_config_free`), and properly frees the handle via `defer`. The e2e harness template now calls `try app.config(host:port:)` before `try app.run()`, so the swift server binds to the test-discovered host/port instead of falling back to the Rust default. All FFI symbols use a configurable `ffi_prefix` template variable, keeping the backend library-agnostic.
 
 - **Dart backend: scope-aware handler-executor rewriter checks method signature.** The FRB post-build rewriter now inspects only the method/function signature (up to opening brace) to detect callback-parameter declarations, rather than searching the entire block. The previous heuristic searched for the literal string `"Function("` anywhere in the block, including in type annotations and nested types within the method body, causing false positives in methods without callback parameters. Methods with callback parameters (`Function(...)` in signature) have their calls rewritten from `handler.executeSync(Task(...))` to `Task(...).executeSync()` as intended, while methods without callbacks (inheriting `BaseHandler.executeSync` directly) are left untouched. Resolves Dart FFI compilation failures when the generated bindings had ~62 methods incorrectly rewritten.
 
