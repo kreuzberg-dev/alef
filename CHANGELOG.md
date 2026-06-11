@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.7] - 2026-06-11
+
 ### Fixed
 
 - **Dart backend: scope-aware handler-executor rewriter checks method signature.** The FRB post-build rewriter now inspects only the method/function signature (up to opening brace) to detect callback-parameter declarations, rather than searching the entire block. The previous heuristic searched for the literal string `"Function("` anywhere in the block, including in type annotations and nested types within the method body, causing false positives in methods without callback parameters. Methods with callback parameters (`Function(...)` in signature) have their calls rewritten from `handler.executeSync(Task(...))` to `Task(...).executeSync()` as intended, while methods without callbacks (inheriting `BaseHandler.executeSync` directly) are left untouched. Resolves Dart FFI compilation failures when the generated bindings had ~62 methods incorrectly rewritten.
