@@ -195,16 +195,27 @@ impl Backend for SwiftBackend {
         {
             client::emit_doc_comment(&ty.doc, "", &mut body);
             if dto::can_emit_first_class_struct(ty, &mapper, &exclude_fields, &known_dto_names) {
-                // Mirror the rename in errors::emit_error: bare `Error` is renamed to
-                // `{module_name}Error` to avoid the Swift parser ambiguity of
-                // `public enum Error: Error`. DTO call sites must reference the
-                // emitted name, not the Rust-side `Error` type name.
-                let raw_error_name = config.error_type_name();
-                let dto_error_name = if raw_error_name == "Error" {
-                    format!("{module_name}Error")
-                } else {
-                    raw_error_name.to_string()
-                };
+                // Compute the Swift error enum name as emitted by `errors::emit_error`:
+                // it uses `error.name` directly, except bare `Error` is renamed to
+                // `{module_name}Error` to avoid the parser ambiguity of
+                // `public enum Error: Error`. DTO call sites must reference this
+                // emitted name, NOT `config.error_type_name()` (which defaults to
+                // "Error" when not configured even for crates whose actual Rust
+                // error type is named differently, e.g. `CrawlError`).
+                let dto_error_name = api
+                    .errors
+                    .first()
+                    .map(|e| {
+                        if e.name == "Error" {
+                            format!("{module_name}Error")
+                        } else {
+                            e.name.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| {
+                        let raw = config.error_type_name();
+                        if raw == "Error" { format!("{module_name}Error") } else { raw }
+                    });
                 dto::emit_first_class_struct(
                     ty,
                     &mapper,

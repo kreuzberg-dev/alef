@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.4] - 2026-06-11
+
+### Fixed
+
+- **Swift backend: DTO error-type name now derived from the actual emitted error enum, not `config.error_type_name()`.** The v0.24.3 fix used `config.error_type_name()` to compute the DTO-side error reference (and renamed bare "Error" to `{module_name}Error`). But `config.error_type_name()` returns the configured override OR the default `"Error"` — even for crates whose actual Rust error type is named differently (e.g. kreuzcrawl's `CrawlError`). The result was DTO references to a non-existent `{ModuleName}Error` Swift enum when no override was configured. Now reads from `api.errors.first()`: uses `error.name` directly, and only applies the `{module_name}Error` rename when `error.name == "Error"` (matching `errors::emit_error`'s rename rule exactly). Falls back to the previous config-based path when `api.errors` is empty.
+
 ## [0.24.3] - 2026-06-11
 
 ### Fixed
