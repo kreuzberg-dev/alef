@@ -373,6 +373,15 @@ pub fn gen_visitor_file(
     let bridge_rust_name = format!("{pascal_prefix}{vtable_trait_name}Bridge");
     let vtable_c_type = ffi_c_type_name(ffi_prefix, &vtable_rust_name);
     let bridge_c_type = ffi_c_type_name(ffi_prefix, &bridge_rust_name);
+    // {prefix}_options_set_{field} now accepts the {pascal_prefix}Visitor handle produced by
+    // gen_visitor (instead of the trait-bridge handle) so strict-typed C consumers such as Zig
+    // can pass `{prefix}_visitor_create` results directly. Go still constructs a bridge handle
+    // (its VTable shape differs from VisitorCallbacks), and casts the pointer at the call site.
+    // NOTE: at runtime, dispatching the trait through the visitor handle would interpret the
+    // bridge's memory layout under the visitor's layout, which is unsafe — Go visitor invocation
+    // remains a known follow-up (Go must switch to {prefix}_visitor_create + VisitorCallbacks).
+    let visitor_handle_rust_name = format!("{pascal_prefix}Visitor");
+    let visitor_handle_c_type = ffi_c_type_name(ffi_prefix, &visitor_handle_rust_name);
     let options_type = bridge_cfg
         .options_type
         .as_deref()
@@ -579,6 +588,7 @@ pub fn gen_visitor_file(
             fn_bridge_free => fn_bridge_free,
             fn_options_set_visitor => fn_options_set_visitor,
             bridge_c_type => bridge_c_type,
+            visitor_handle_c_type => visitor_handle_c_type.clone(),
             fn_convert => fn_convert,
             fn_result_to_json => fn_result_to_json,
             fn_result_free => fn_result_free,

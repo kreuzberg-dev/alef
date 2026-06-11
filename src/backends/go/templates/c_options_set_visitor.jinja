@@ -1,1 +1,1 @@
-	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ bridge_c_type }})(bridge))
+	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ visitor_handle_c_type }})(unsafe.Pointer(bridge)))

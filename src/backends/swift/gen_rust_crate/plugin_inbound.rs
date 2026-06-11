@@ -523,7 +523,7 @@ fn emit_inbound_method_impl(
                 other => inbound_native_ty(other, source_crate, type_paths),
             }
         } else {
-            inbound_native_ty(&p.ty, source_crate, type_paths)
+            inbound_native_ty_owned(&p.ty, source_crate, type_paths)
         };
         let full_ty = if p.optional {
             format!("Option<{prefix}{inner_ty}>")

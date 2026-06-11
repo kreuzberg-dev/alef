@@ -41,6 +41,11 @@ use crate::core::ir::{MethodDef, ReceiverKind};
 /// - `field_name`: the field on the options struct.
 /// - `options_type_name`: the IR type name of the options struct.
 /// - `type_paths`: map of IR type name → fully-qualified Rust path for signature generation.
+/// - `use_callbacks_visitor`: when true, accept the `{prefix}Visitor` handle produced by the
+///   visitor-callbacks path (gen_visitor) instead of the `{prefix}{trait}Bridge` produced by
+///   the trait-bridge path. Required so that strict-typed C consumers (Zig) can pass the
+///   handle returned by `{prefix}_visitor_create` directly. Both types implement the same
+///   trait so the wrapper body is identical.
 pub fn gen_options_set_bridge(
     prefix: &str,
     core_import: &str,
@@ -49,12 +54,28 @@ pub fn gen_options_set_bridge(
     field_name: &str,
     options_type_name: &str,
     type_paths: &HashMap<String, String>,
+    use_callbacks_visitor: bool,
 ) -> String {
     let pascal_prefix = to_class_name(prefix);
-    // Bridge handle type: {PascalPrefix}{TraitName}Bridge (produced by gen_trait_bridge)
-    let handle_type = format!("{pascal_prefix}{trait_name}Bridge");
+    // Bridge handle type: when visitor_callbacks is enabled we accept the {PascalPrefix}Visitor
+    // produced by gen_visitor (its `htm_visitor_create` returns *mut {PascalPrefix}Visitor and
+    // strict C consumers like Zig cannot implicitly cast between opaque pointer types).
+    // Otherwise we fall back to the trait-bridge handle {PascalPrefix}{TraitName}Bridge
+    // produced by gen_trait_bridge. Both types implement the configured trait.
+    let handle_type = if use_callbacks_visitor {
+        format!("{pascal_prefix}Visitor")
+    } else {
+        format!("{pascal_prefix}{trait_name}Bridge")
+    };
     let options_type_snake = ffi_symbol_component(options_type_name);
-    let handle_snake = ffi_symbol_component(&handle_type);
+    // The constructor symbol differs between the two handle types:
+    // - gen_visitor emits `{prefix}_visitor_create`
+    // - gen_trait_bridge emits `{prefix}_{bridge_snake}_new`
+    let handle_constructor = if use_callbacks_visitor {
+        format!("{prefix}_visitor_create")
+    } else {
+        format!("{prefix}_{}_new", ffi_symbol_component(&handle_type))
+    };
     let fn_name = format!("{prefix}_options_set_{field_name}");
     let trait_path = trait_def.rust_path.replace('-', "_");
 
@@ -76,7 +97,7 @@ pub fn gen_options_set_bridge(
 ///
 /// `options` must be a non-null pointer returned by `{prefix}_{options_type_snake}_new` (or
 /// equivalent), valid for write access.  `visitor` must be a non-null pointer returned by
-/// `{prefix}_{handle_snake}_new`, or null.  Both must remain valid for the duration of any
+/// `{handle_constructor}`, or null.  Both must remain valid for the duration of any
 /// subsequent options-field bridge wrapper call.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn {fn_name}(
@@ -119,7 +140,7 @@ pub unsafe extern "C" fn {fn_name}(
 }}"#,
         prefix = prefix,
         handle_type = handle_type,
-        handle_snake = handle_snake,
+        handle_constructor = handle_constructor,
         fn_name = fn_name,
         core_import = core_import,
         options_type_name = options_type_name,

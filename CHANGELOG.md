@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift backend: inbound plugin impl method signatures use owned types.** The Swift inbound plugin codegen was emitting `&str` and `&[u8]` instead of `String` and `Vec<u8>` for non-reference parameters in trait impl methods. The fix: call `inbound_native_ty_owned` instead of `inbound_native_ty` when `is_ref = false`, matching the pattern already used for `Vec<T>` parameters. This ensures impl method signatures match their trait declarations exactly. Fixes signature mismatch errors in `RerankerBackend::rerank` and other inbound plugin trait methods with String or Bytes parameters.
+
 ## [0.24.8] - 2026-06-11
 
 ### Fixed

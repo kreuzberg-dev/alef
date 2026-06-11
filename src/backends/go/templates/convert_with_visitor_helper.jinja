@@ -46,7 +46,7 @@ func {{ helper_name }}({{ helper_params }}) (*{{ result_type }}, error) {
 	defer C.{{ fn_bridge_free }}(bridge)
 
 	// Attach the bridge to the options struct so convert() picks it up.
-	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ bridge_c_type }})(bridge))
+	C.{{ fn_options_set_visitor }}(cOptions, (*C.{{ visitor_handle_c_type }})(unsafe.Pointer(bridge)))
 
 	ptr := C.{{ fn_convert }}({{ helper_call_args }})
 	if ptr == nil {

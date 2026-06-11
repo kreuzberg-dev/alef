@@ -614,6 +614,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 field_name,
                 options_type_name,
                 &type_paths,
+                visitor_callbacks_enabled,
             ));
         }
 

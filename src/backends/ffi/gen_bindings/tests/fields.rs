@@ -364,6 +364,19 @@ result_type = "WalkOutcome"
         !lib.content.contains("syn_parse_with_visitor"),
         "options-field mode must not emit the legacy with_visitor wrapper"
     );
+    // Regression for Zig (strict opaque pointer cast): when visitor_callbacks is enabled the
+    // options-field setter must accept the *mut SynVisitor handle produced by
+    // syn_visitor_create, NOT the *mut SynSyntaxWalkerBridge produced by the trait-bridge
+    // path. C and Zig consumers both call syn_visitor_create followed by
+    // syn_options_set_renderer; Zig refuses implicit casts between opaque pointer types.
+    assert!(
+        lib.content.contains("visitor: *mut SynVisitor"),
+        "options-field setter must accept *mut SynVisitor when visitor_callbacks is enabled"
+    );
+    assert!(
+        !lib.content.contains("visitor: *mut SynSyntaxWalkerBridge"),
+        "options-field setter must not require the trait-bridge handle when visitor_callbacks is enabled"
+    );
 }
 
 #[test]
