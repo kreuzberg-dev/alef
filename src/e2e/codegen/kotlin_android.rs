@@ -1316,10 +1316,14 @@ pub fn emit_test_backend(
         emitted_methods.insert("name".to_string());
     }
 
-    // All methods (including those with default impls). Kotlin interfaces require
-    // all abstract methods to be implemented in concrete classes, even if Rust traits
-    // provide default implementations. This mirrors the Java e2e stub generation.
+    // Emit all abstract methods (those without default implementations).
+    // Skip methods with default impls — they should inherit the interface default.
+    // This matches the Kotlin interface structure where some methods (initialize, shutdown,
+    // description, author) have empty default implementations.
     for method in methods {
+        if method.has_default_impl {
+            continue;
+        }
         // Skip if already emitted (e.g., super-trait name method).
         if emitted_methods.contains(&method.name) {
             continue;

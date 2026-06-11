@@ -402,6 +402,9 @@ pub(super) fn render_test_file_inner(
         for iface in sorted_interfaces {
             let _ = writeln!(out, "import {binding_pkg_for_imports}.{iface}");
         }
+        // Wildcard import to cover all plugin-related types (ExtractionResult, ExtractionConfig,
+        // OcrConfig, OcrBackendType, ProcessingStage, etc.) used by trait bridge test stubs.
+        let _ = writeln!(out, "import {binding_pkg_for_imports}.*");
     }
     let mut handle_config_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for f in fixtures.iter() {
