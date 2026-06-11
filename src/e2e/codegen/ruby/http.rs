@@ -256,13 +256,56 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
     let method_class = http_method_class(&method);
     let path = format!("/fixtures/{}{}", &fixture.id, &http.request.path);
 
+    // Detect content-type so the renderer can decide between JSON-encoded and
+    // raw (form-urlencoded / multipart / plain text) body emission.
+    let content_type_lower = http
+        .request
+        .headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.to_ascii_lowercase())
+        .unwrap_or_else(|| {
+            http.request
+                .content_type
+                .as_ref()
+                .map(|ct| ct.to_ascii_lowercase())
+                .unwrap_or_default()
+        });
+    let is_multipart = content_type_lower
+        .split(';')
+        .next()
+        .map(str::trim)
+        .is_some_and(|t| t.eq_ignore_ascii_case("multipart/form-data"));
+
+    // Synthesize multipart body if content-type is multipart/form-data and there is no explicit body
+    let multipart_body_ruby = if is_multipart && http.request.body.is_none() {
+        if let Some(schema) = &http.handler.body_schema {
+            if schema.get("type").and_then(|t| t.as_str()) == Some("object") {
+                if let Some(props) = schema.get("properties").and_then(|p| p.as_object()) {
+                    synthesize_multipart_body(props)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     // Determine request body.
     // When the fixture body is a JSON string (e.g. URL-encoded form data like
     // "a=1&b=2"), it must be sent as a raw string, NOT wrapped in JSON.dump().
     // Detect this by checking whether the body JSON value is a string.
+    // Synthesized multipart bodies are already emitted as raw string literals.
     let (has_body, body_ruby, is_raw_body) = if let Some(body) = &http.request.body {
         let is_raw = body.is_string();
         (true, json_to_ruby(body), is_raw)
+    } else if is_multipart && !multipart_body_ruby.is_empty() {
+        (true, multipart_body_ruby.clone(), true)
     } else {
         (false, String::new(), false)
     };
@@ -386,6 +429,46 @@ pub(super) fn render_http_example_sut(out: &mut String, fixture: &Fixture) {
         },
     );
     out.push_str(&rendered);
+}
+
+/// Synthesize a multipart body from the handler's body schema properties.
+///
+/// For each property, generate a form-data part with placeholder content.
+/// Binary (format="binary") properties get a filename and Content-Type header.
+/// Text properties are simple form fields.
+fn synthesize_multipart_body(props: &serde_json::Map<String, serde_json::Value>) -> String {
+    const BOUNDARY: &str = "alef-boundary";
+    let mut body = String::new();
+
+    for (prop_name, prop_schema) in props {
+        let is_binary = prop_schema
+            .get("format")
+            .and_then(|f| f.as_str())
+            .is_some_and(|f| f == "binary");
+
+        body.push_str(&format!(
+            "--{}\r\nContent-Disposition: form-data; name=\"{}\"",
+            BOUNDARY,
+            escape_ruby_single(prop_name)
+        ));
+
+        if is_binary {
+            body.push_str(&format!(
+                "; filename=\"{}.txt\"\r\nContent-Type: text/plain\r\n\r\n",
+                escape_ruby_single(prop_name)
+            ));
+            body.push_str("placeholder content");
+        } else {
+            body.push_str("\r\n\r\nsample");
+        }
+
+        body.push_str("\r\n");
+    }
+
+    body.push_str(&format!("--{}--\r\n", BOUNDARY));
+
+    // Escape as Ruby raw string literal
+    format!("\"{}\"", escape_ruby_single(&body))
 }
 
 /// Convert an uppercase HTTP method string to Ruby's Net::HTTP class name.

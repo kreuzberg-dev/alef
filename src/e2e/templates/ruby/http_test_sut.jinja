@@ -34,7 +34,11 @@
       http.use_ssl = uri.scheme == 'https'
 {% if has_body %}
       _headers = {{ headers_ruby }}.dup
+{% if is_raw_body %}
+      _headers['Content-Type'] ||= 'multipart/form-data; boundary=alef-boundary'
+{% else %}
       _headers['Content-Type'] ||= 'application/json'
+{% endif %}
       _req = Net::HTTP::{{ method_class }}.new(uri.request_uri, _headers)
 {% if is_raw_body %}
       _req.body = {{ body_ruby }}
