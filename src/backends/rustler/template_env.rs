@@ -206,35 +206,39 @@ match rx.await {
     (
         "trait_unregistration_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ unregister_fn }}(_env: rustler::Env<'_>, name: String) -> Result<rustler::Atom, rustler::Error> {
-    {{ host_path }}(&name)
-        .map_err(|e| rustler::Error::term(format!("{}", e)))
-        .map(|_| rustler::atoms::ok())
+pub fn {{ unregister_fn }}(_env: rustler::Env<'_>, name: String) -> rustler::Atom {
+    match {{ host_path }}(&name) {
+        Ok(_) => rustler::atoms::ok(),
+        Err(_) => rustler::atoms::error(),
+    }
 }
 "#,
     ),
     (
         "trait_clear_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> Result<rustler::Atom, rustler::Error> {
-    {{ host_path }}()
-        .map_err(|e| rustler::Error::term(format!("{}", e)))
-        .map(|_| rustler::atoms::ok())
+pub fn {{ clear_fn }}(_env: rustler::Env<'_>) -> rustler::Atom {
+    match {{ host_path }}() {
+        Ok(_) => rustler::atoms::ok(),
+        Err(_) => rustler::atoms::error(),
+    }
 }
 "#,
     ),
     (
         "trait_registration_fn.rs.jinja",
         r#"#[rustler::nif(schedule = "DirtyCpu")]
-pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> Result<rustler::Atom, rustler::Error> {
+pub fn {{ register_fn }}(_env: rustler::Env<'_>, genserver_pid: rustler::LocalPid, plugin_name: String) -> rustler::Atom {
     let wrapper = {{ wrapper_name }}::new(genserver_pid, plugin_name);
     let arc: std::sync::Arc<dyn {{ trait_path }}> = std::sync::Arc::new(wrapper);
 
-    {{ registry_getter }}()
+    match {{ registry_getter }}()
         .write()
         .register(arc{{ extra_args }})
-        .map_err(|e| rustler::Error::term(format!("Failed to register trait backend: {}", e)))
-        .map(|_| rustler::atoms::ok())
+    {
+        Ok(_) => rustler::atoms::ok(),
+        Err(_) => rustler::atoms::error(),
+    }
 }
 "#,
     ),
