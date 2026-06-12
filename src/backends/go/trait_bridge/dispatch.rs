@@ -162,7 +162,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
 /// are not double-encoded.
 fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_primitive: bool) {
     if is_simple_primitive {
-        // For simple primitives (bool, i32), cast and return directly
+        // For simple primitives (bool, i32, u64, etc.), cast and return directly
         match return_type {
             TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
                 out.push_str("\tif result {\n");
@@ -170,9 +170,25 @@ fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_prim
                 out.push_str("\t}\n");
                 out.push_str("\treturn 0\n");
             }
-            TypeRef::Primitive(_) => {
-                // For all other primitives, cast to int32_t and return
-                out.push_str("\treturn C.int32_t(result)\n");
+            TypeRef::Primitive(p) => {
+                // Map primitive type to correct C casting
+                use crate::core::ir::PrimitiveType::*;
+                let c_type = match p {
+                    Bool => "int32_t", // Handled above
+                    U8 => "uint8_t",
+                    U16 => "uint16_t",
+                    U32 => "uint32_t",
+                    U64 => "uint64_t",
+                    I8 => "int8_t",
+                    I16 => "int16_t",
+                    I32 => "int32_t",
+                    I64 => "int64_t",
+                    F32 => "float",
+                    F64 => "double",
+                    Usize => "uintptr_t",
+                    Isize => "intptr_t",
+                };
+                out.push_str(&format!("\treturn C.{}(result)\n", c_type));
             }
             _ => {
                 // Should not happen if is_simple_primitive is correctly set
