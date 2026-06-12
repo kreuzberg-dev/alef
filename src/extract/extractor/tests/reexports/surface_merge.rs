@@ -1,0 +1,383 @@
+use super::*;
+
+#[test]
+fn test_merge_surface_no_duplicates() {
+    let mut dst = ApiSurface {
+        crate_name: "test".into(),
+        version: "0.1.0".into(),
+        types: vec![TypeDef {
+            name: "Existing".into(),
+            rust_path: "test::Existing".into(),
+            original_rust_path: String::new(),
+            fields: vec![],
+            methods: vec![],
+            is_opaque: true,
+            is_clone: false,
+            is_copy: false,
+            is_trait: false,
+            has_default: false,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: false,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let src = ApiSurface {
+        crate_name: "test".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "Existing".into(),
+                rust_path: "test::Existing".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+            TypeDef {
+                name: "NewType".into(),
+                rust_path: "test::NewType".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    merge_surface(&mut dst, src, None);
+    assert_eq!(dst.types.len(), 2);
+    assert_eq!(dst.types[0].name, "Existing");
+    assert_eq!(dst.types[1].name, "NewType");
+}
+
+#[test]
+fn test_merge_surface_filtered() {
+    let mut dst = ApiSurface {
+        crate_name: "test".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let src = ApiSurface {
+        crate_name: "test".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            TypeDef {
+                name: "Wanted".into(),
+                rust_path: "test::Wanted".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+            TypeDef {
+                name: "NotWanted".into(),
+                rust_path: "test::NotWanted".into(),
+                original_rust_path: String::new(),
+                fields: vec![],
+                methods: vec![],
+                is_opaque: true,
+                is_clone: false,
+                is_copy: false,
+                is_trait: false,
+                has_default: false,
+                has_stripped_cfg_fields: false,
+                is_return_type: false,
+                serde_rename_all: None,
+                has_serde: false,
+                super_traits: vec![],
+                doc: String::new(),
+                cfg: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_variant_wrapper: false,
+                has_lifetime_params: false,
+                version: Default::default(),
+            },
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    merge_surface_filtered(&mut dst, src, &["Wanted".to_string()], None);
+    assert_eq!(dst.types.len(), 1);
+    assert_eq!(dst.types[0].name, "Wanted");
+}
+
+#[test]
+fn test_merge_surface_includes_functions_and_enums() {
+    // merge_surface should also merge functions and enums, not just types.
+    let mut dst = ApiSurface {
+        crate_name: "dst".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let src = ApiSurface {
+        crate_name: "src".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![crate::core::ir::FunctionDef {
+            name: "my_fn".into(),
+            rust_path: "src::my_fn".into(),
+            original_rust_path: String::new(),
+            params: vec![],
+            return_type: TypeRef::Unit,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![crate::core::ir::EnumDef {
+            name: "MyEnum".into(),
+            rust_path: "src::MyEnum".into(),
+            original_rust_path: String::new(),
+            variants: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: false,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    super::reexports::merge_surface(&mut dst, src, None);
+    assert_eq!(dst.functions.len(), 1);
+    assert_eq!(dst.functions[0].name, "my_fn");
+    assert_eq!(dst.enums.len(), 1);
+    assert_eq!(dst.enums[0].name, "MyEnum");
+}
+
+#[test]
+fn test_merge_surface_filtered_includes_functions_and_enums() {
+    // merge_surface_filtered should also filter and merge functions and enums.
+    let mut dst = ApiSurface {
+        crate_name: "dst".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let src = ApiSurface {
+        crate_name: "src".into(),
+        version: "0.1.0".into(),
+        types: vec![],
+        functions: vec![
+            crate::core::ir::FunctionDef {
+                name: "wanted_fn".into(),
+                rust_path: "src::wanted_fn".into(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+            crate::core::ir::FunctionDef {
+                name: "unwanted_fn".into(),
+                rust_path: "src::unwanted_fn".into(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: String::new(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+        ],
+        enums: vec![
+            crate::core::ir::EnumDef {
+                name: "WantedEnum".into(),
+                rust_path: "src::WantedEnum".into(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                excluded_variants: vec![],
+                version: Default::default(),
+            },
+            crate::core::ir::EnumDef {
+                name: "UnwantedEnum".into(),
+                rust_path: "src::UnwantedEnum".into(),
+                original_rust_path: String::new(),
+                variants: vec![],
+                doc: String::new(),
+                cfg: None,
+                is_copy: false,
+                has_serde: false,
+                serde_tag: None,
+                serde_untagged: false,
+                serde_rename_all: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                excluded_variants: vec![],
+                version: Default::default(),
+            },
+        ],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let names = vec!["wanted_fn".to_string(), "WantedEnum".to_string()];
+    super::reexports::merge_surface_filtered(&mut dst, src, &names, None);
+    assert_eq!(dst.functions.len(), 1);
+    assert_eq!(dst.functions[0].name, "wanted_fn");
+    assert_eq!(dst.enums.len(), 1);
+    assert_eq!(dst.enums[0].name, "WantedEnum");
+}
+
+// ---------------------------------------------------------------------------
+// defaults.rs coverage: Duration::from_secs/from_millis, vec![], None,
+// string literal direct, unary negation on non-numeric
+// ---------------------------------------------------------------------------

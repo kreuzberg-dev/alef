@@ -1,0 +1,133 @@
+//! Rendering for the generated Rust tests/common.rs module.
+
+use crate::core::hash::{self, CommentStyle};
+
+/// Generate the `tests/common.rs` module for Rust e2e tests.
+///
+/// The module spawns the standalone mock-server binary once per test process
+/// and exposes it via `mock_server_url()` which reads the `MOCK_SERVER_URL` env var.
+/// This allows tests that use mock_url arguments to access the server dynamically
+/// without panicking on unset env vars.
+///
+/// The module:
+/// - Spawns `target/release/mock-server` with the fixtures directory as an argument
+/// - Reads stdout lines looking for `MOCK_SERVER_URL=http://...` and `MOCK_SERVERS={...}`
+/// - Sets environment variables: `MOCK_SERVER_URL` and `MOCK_SERVER_<FIXTURE_ID>` for each entry
+/// - Drains remaining stdout in a background thread to prevent blocking
+/// - Uses `OnceLock` to ensure the server is spawned exactly once
+pub fn render_common_module() -> String {
+    // The module is included via `mod common;` in every integration-test
+    // binary, but only fixtures that resolve `mock_url` arguments actually
+    // call `mock_server_url()` / touch `MOCK_SERVER_URL`. Each integration
+    // test compiles as a separate binary, so the unused-in-some symbols
+    // would otherwise trip `-D dead_code` under `cargo test`/`cargo clippy`.
+    // The crate-level `#![allow(dead_code)]` mirrors the pattern used in
+    // `tests/mock_server.rs`.
+    hash::header(CommentStyle::DoubleSlash)
+        + r#"//
+// Auto-spawned mock server setup for e2e tests.
+// This module is auto-generated and should not be edited manually.
+
+#![allow(dead_code)]
+
+use std::sync::OnceLock;
+
+static MOCK_SERVER_URL: OnceLock<String> = OnceLock::new();
+
+/// Get the mock server URL, spawning the server if not already running.
+///
+/// The server is spawned once per test process and reused by all tests.
+/// On first call, this function:
+/// - Spawns the `target/release/mock-server` binary
+/// - Reads `MOCK_SERVER_URL=http://...` from its stdout
+/// - Parses `MOCK_SERVERS={...}` JSON and sets env vars for per-fixture servers
+/// - Sets `MOCK_SERVER_URL` env var globally
+/// - Drains remaining stdout in a background thread
+///
+/// Subsequent calls return the cached URL without spawning again.
+pub fn mock_server_url() -> &'static str {
+    MOCK_SERVER_URL.get_or_init(|| {
+        let mock_server_bin = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/target/release/mock-server"
+        );
+        let fixtures_dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../fixtures"
+        );
+
+        // Spawn the mock-server binary with fixtures directory as argument.
+        let mut child = std::process::Command::new(mock_server_bin)
+            .arg(fixtures_dir)
+            .stdout(std::process::Stdio::piped())
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .expect("Failed to spawn mock-server binary");
+
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+        let stdin = child.stdin.take().expect("Failed to get stdin");
+
+        let mut url = String::new();
+        let mut line_buffer = String::new();
+        let mut line_count = 0;
+
+        // Read startup lines from the mock server.
+        // Expected: MOCK_SERVER_URL=http://... then MOCK_SERVERS={...json...}
+        // The server prints one line per loaded fixture before the markers, so the
+        // ceiling has to be high enough to clear hundreds of "loaded route" lines.
+        // We bail on the first `MOCK_SERVERS=` line (always emitted last) rather than
+        // relying on the line cap.
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(stdout);
+
+        while line_count < 2048 {
+            line_buffer.clear();
+            match reader.read_line(&mut line_buffer) {
+                Ok(0) => break,  // EOF
+                Ok(_) => {
+                    let line = line_buffer.trim();
+                    if line.starts_with("MOCK_SERVER_URL=") {
+                        url = line.strip_prefix("MOCK_SERVER_URL=")
+                            .unwrap_or("")
+                            .to_string();
+                    } else if line.starts_with("MOCK_SERVERS=") {
+                        let json_str = line.strip_prefix("MOCK_SERVERS=")
+                            .unwrap_or("{}");
+                        // Parse the JSON map and set env vars for each entry.
+                        if let Ok(servers) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(json_str) {
+                            for (fid, furl) in servers {
+                                if let serde_json::Value::String(url_str) = furl {
+                                    let env_key = format!("MOCK_SERVER_{}", fid.to_uppercase());
+                                    std::env::set_var(&env_key, &url_str);
+                                }
+                            }
+                        }
+                        std::env::set_var("MOCK_SERVERS", json_str);
+                        // We have seen both lines; stop reading.
+                        break;
+                    }
+                    line_count += 1;
+                }
+                Err(_) => break,
+            }
+        }
+
+        // Set the main URL env var globally.
+        std::env::set_var("MOCK_SERVER_URL", &url);
+
+        // Drain remaining stdout in a background thread to prevent the server from blocking.
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut reader.into_inner(), &mut std::io::sink());
+        });
+
+        // Keep stdin alive for the test process lifetime — the mock-server treats
+        // stdin EOF as the parent's shutdown signal, so dropping the handle would
+        // make it exit before any test connects.
+        Box::leak(Box::new(stdin));
+
+        // Return the URL for this process.
+        url
+    }).as_str()
+}
+"#
+}

@@ -1,0 +1,201 @@
+//! R e2e project file rendering.
+
+use crate::core::hash::{self, CommentStyle};
+use crate::core::version::to_r_version;
+use std::fmt::Write as FmtWrite;
+
+pub(super) fn render_description(
+    pkg_name: &str,
+    pkg_version: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
+) -> String {
+    let dep_line = match dep_mode {
+        crate::e2e::config::DependencyMode::Registry => {
+            let r_version = to_r_version(pkg_version);
+            format!("Imports: {pkg_name} ({r_version})\n")
+        }
+        crate::e2e::config::DependencyMode::Local => String::new(),
+    };
+    format!(
+        r#"Package: e2e.r
+Title: E2E Tests for {pkg_name}
+Version: 0.1.0
+Description: End-to-end test suite.
+{dep_line}Suggests: testthat (>= 3.0.0)
+Config/testthat/edition: 3
+"#
+    )
+}
+
+pub(super) fn render_setup_fixtures(test_documents_path: &str) -> String {
+    let mut out = String::new();
+    out.push_str(&hash::header(CommentStyle::Hash));
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Resolve fixture paths against the repo's `test_documents/` directory."
+    );
+    let _ = writeln!(
+        out,
+        "# testthat sources setup-*.R with the working directory at tests/,"
+    );
+    let _ = writeln!(
+        out,
+        "# so test_documents lives three directories up: tests/ -> e2e/r/ -> e2e/ -> repo root."
+    );
+    let _ = writeln!(
+        out,
+        "# Each `test_that()` block has its working directory reset back to tests/, so"
+    );
+    let _ = writeln!(
+        out,
+        "# fixture lookups must be performed via this helper rather than relying on `setwd`."
+    );
+    let _ = writeln!(
+        out,
+        ".alef_test_documents <- normalizePath(\"{test_documents_path}\", mustWork = FALSE)"
+    );
+    let _ = writeln!(out, ".resolve_fixture <- function(path) {{");
+    let _ = writeln!(out, "  if (dir.exists(.alef_test_documents)) {{");
+    let _ = writeln!(out, "    file.path(.alef_test_documents, path)");
+    let _ = writeln!(out, "  }} else {{");
+    let _ = writeln!(out, "    path");
+    let _ = writeln!(out, "  }}");
+    let _ = writeln!(out, "}}");
+    let _ = writeln!(out);
+    // FormatMetadata is an internally-tagged enum (serde tag = "format_type")
+    // so the JSON shape varies. `simplifyVector = FALSE` hands us a per-variant
+    // list — keyed by the snake_case variant name (`image`, `excel`, ...) — that
+    // points at the inner metadata struct, with all other variants set to NULL.
+    // Collapse both shapes here so terminal `metadata$format` assertions see
+    // the human-readable format string (e.g. "PNG") instead of the wrapper list.
+    let _ = writeln!(
+        out,
+        ".alef_format_value <- function(x) {{
+  if (is.list(x)) {{
+    for (variant in names(x)) {{
+      v <- x[[variant]]
+      if (is.list(v) && !is.null(v[[\"format\"]]) && is.character(v[[\"format\"]])) {{
+        return(v[[\"format\"]])
+      }}
+    }}
+    if (!is.null(x[[\"format\"]]) && is.character(x[[\"format\"]])) {{
+      return(x[[\"format\"]])
+    }}
+    if (!is.null(x[[\"format_type\"]])) {{
+      return(x[[\"format_type\"]])
+    }}
+  }}
+  x
+}}"
+    );
+    out
+}
+
+pub(super) fn render_test_runner(
+    pkg_name: &str,
+    pkg_path: &str,
+    dep_mode: crate::e2e::config::DependencyMode,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&hash::header(CommentStyle::Hash));
+    let _ = writeln!(out, "library(testthat)");
+    match dep_mode {
+        crate::e2e::config::DependencyMode::Registry => {
+            // In registry mode, load the installed CRAN package. This must happen before
+            // test_dir() runs so that all package functions are available to the tests.
+            let _ = writeln!(out, "library({})", pkg_name);
+        }
+        crate::e2e::config::DependencyMode::Local => {
+            // Use devtools::load_all() to load the local R package without requiring
+            // a full install, matching the e2e test runner convention.
+            let _ = writeln!(out, "devtools::load_all(\"{pkg_path}\")");
+        }
+    }
+    let _ = writeln!(out);
+    // Surface every failure rather than aborting at the default max_fails=10 —
+    // partial pass counts are essential for triage during e2e bring-up.
+    let _ = writeln!(out, "testthat::set_max_fails(Inf)");
+    // Resolve the tests/ directory relative to this script. testthat reads
+    // setup-*.R from there before each file runs, where path resolution
+    // against test_documents/ is handled by the `.resolve_fixture` helper.
+    let _ = writeln!(
+        out,
+        ".script_dir <- tryCatch(dirname(normalizePath(sys.frame(1)$ofile)), error = function(e) getwd())"
+    );
+    let _ = writeln!(out, "test_dir(file.path(.script_dir, \"tests\"))");
+    out
+}
+
+pub(super) fn render_install_r(pkg_name: &str, pkg_version: &str, github_repo: &str) -> String {
+    let github_repo = github_repo.trim_end_matches('/');
+    let mut out = String::new();
+    let _ = writeln!(out, "# alef-generated installer for registry-mode R test_app.");
+    let _ = writeln!(out, "# Installs the configured R package from GitHub releases.");
+    let _ = writeln!(out, "# Requires `R` on PATH.");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Version override: pass as commandArgs()[6] to test an");
+    let _ = writeln!(out, "# arbitrary tag; defaults to the alef-pinned version from");
+    let _ = writeln!(out, "# [crates.e2e.registry.packages.r].version.");
+    let _ = writeln!(out, "args <- commandArgs(trailingOnly = TRUE)");
+    let _ = writeln!(out, "VERSION <- if (length(args) > 0) args[1] else \"{pkg_version}\"");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "# Construct the GitHub release tarball URL.");
+    let _ = writeln!(out, "url <- sprintf(");
+    let _ = writeln!(out, "  \"{github_repo}/releases/download/v%s/{pkg_name}_%s.tar.gz\",");
+    let _ = writeln!(out, "  VERSION,");
+    let _ = writeln!(out, "  VERSION");
+    let _ = writeln!(out, ")");
+    let _ = writeln!(out);
+    let _ = writeln!(
+        out,
+        "# Install from the release tarball without requiring devtools or remotes."
+    );
+    let _ = writeln!(out, "tryCatch({{",);
+    let _ = writeln!(
+        out,
+        "  install.packages(url, repos = NULL, type = \"source\", quiet = TRUE)"
+    );
+    let _ = writeln!(out, "  message(paste(\"Successfully installed {pkg_name}\", VERSION))");
+    let _ = writeln!(out, "}}, error = function(e) {{");
+    let _ = writeln!(out, "  message(paste(\"Error installing {pkg_name} from\", url))");
+    let _ = writeln!(out, "  message(conditionMessage(e))");
+    let _ = writeln!(out, "  quit(status = 1)");
+    let _ = writeln!(out, "}})");
+    out
+}
+
+#[cfg(test)]
+mod description_tests {
+    use super::render_description;
+    use crate::e2e::config::DependencyMode;
+
+    #[test]
+    fn render_description_registry_release_uses_plain_version() {
+        let out = render_description("mypkg", "1.2.3", DependencyMode::Registry);
+        assert!(out.contains("Imports: mypkg (1.2.3)"), "got: {out}");
+    }
+
+    #[test]
+    fn render_description_registry_prerelease_uses_r_version_form() {
+        // 3.6.0-rc.1 → 3.6.0.9001 (CRAN-compatible dev-pin form)
+        let out = render_description("mypkg", "3.6.0-rc.1", DependencyMode::Registry);
+        assert!(
+            out.contains("Imports: mypkg (3.6.0.9001)"),
+            "pre-release must use CRAN dev-pin form, got: {out}"
+        );
+        assert!(
+            !out.contains("3.6.0-rc.1"),
+            "raw semver dash form must not appear in DESCRIPTION, got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_description_local_omits_imports_line() {
+        let out = render_description("mypkg", "3.6.0-rc.1", DependencyMode::Local);
+        assert!(
+            !out.contains("Imports:"),
+            "local mode must not emit Imports line, got: {out}"
+        );
+    }
+}
