@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Rustler trait-bridge registration NIFs deadlock on BEAM scheduler.** The registration, unregistration, and clear functions for trait-bridge plugins (`register_*`, `unregister_*`, `clear_*`) were emitted without the `schedule = "DirtyCpu"` hint and used synchronous error handling with `match` blocks that unwrap `Atom` results. When called, these NIFs ran on the main BEAM scheduler thread and invoked `env.send_and_clear()` to dispatch messages to Elixir GenServers, then blocked on `blocking_recv()` waiting for replies. Since the scheduler thread was blocked, the GenServer could not receive or process messages — deadlock. The fix updates the Rustler trait-bridge NIF templates to mark all three as `schedule = "DirtyCpu"` (runs off the scheduler), return `Result<Atom, rustler::Error>` for proper error propagation, and use `.map_err()` patterns instead of match blocks. This ensures registration calls never block the BEAM and follow Rustler best practices for long-running operations.
+
 ## [0.24.13] - 2026-06-12
 
 ### Fixed
