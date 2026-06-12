@@ -22,6 +22,7 @@ pub(super) fn render_csproj(
         "csharp/csproj.jinja",
         minijinja::context! {
             pkg_ref => pkg_ref,
+            namespace => pkg_name,
             microsoft_net_test_sdk_version => tv::nuget::MICROSOFT_NET_TEST_SDK,
             xunit_version => tv::nuget::XUNIT,
             xunit_runner_version => tv::nuget::XUNIT_RUNNER_VISUALSTUDIO,
