@@ -243,18 +243,7 @@ fn emit_trait_bridge_shims(
     out.push_str("// Trait-bridge shims\n");
     out.push_str("// ---------------------------------------------------------------------------\n\n");
 
-    // First, emit adapter structs for all traits
-    for bridge_cfg in &bridges {
-        let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
-        let trait_def = api.types.iter().find(|t| t.is_trait && t.name == bridge_cfg.trait_name);
-        if let Some(trait_def) = trait_def {
-            emit_trait_adapter_struct(out, &trait_pascal, trait_def, &bridge_cfg.trait_name, bridge_cfg.super_trait.is_some());
-        }
-    }
-
-    out.push_str("\n");
-
-    // Then emit the registration functions
+    // Emit the registration functions
     for bridge_cfg in &bridges {
         let trait_pascal = internal_class_component(&bridge_cfg.trait_name);
 
@@ -278,40 +267,6 @@ fn emit_trait_bridge_shims(
             emit_trait_clear_shim(out, &symbol, clear_fn);
         }
     }
-}
-
-/// Emit a trait adapter struct that wraps a global JNI reference and implements
-/// the trait by calling back to Kotlin through JNI.
-///
-/// Generates:
-/// ```rust
-/// struct Jni{Trait}Adapter {
-///     impl_ref: jni::objects::GlobalRef,
-/// }
-/// ```
-///
-/// For now this is a minimal wrapper. Full trait method impls would require
-/// generating marshaling code for each trait method.
-fn emit_trait_adapter_struct(
-    out: &mut String,
-    trait_pascal: &str,
-    _trait_def: &TypeDef,
-    _trait_rust_name: &str,
-    _has_super_trait: bool,
-) {
-    let output = format!(
-        "/// JNI adapter for {trait_pascal} trait bridge.\n\
-         /// Wraps a Kotlin object reference and implements the trait by calling\n\
-         /// through JNI to the wrapped Kotlin implementation.\n\
-         pub struct Jni{trait_pascal}Adapter {{\n    impl_ref: jni::objects::GlobalRef,\n}}\n\n"
-    );
-    out.push_str(&output);
-
-    // For now, we don't generate the full trait impl. This requires marshaling
-    // every trait method, which is non-trivial. For the immediate goal (getting
-    // tests to load), this struct existing and being constructible is sufficient.
-    // When a method is called on the adapter, it will panic with a message
-    // indicating that this is a stub that needs implementation.
 }
 
 /// Emit `Java_*_nativeRegister<Trait>(impl: I<Trait>)` or
