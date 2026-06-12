@@ -509,6 +509,11 @@ pub(super) fn emit_module_kt(
         let returns_opaque =
             matches!(&f.return_type, crate::core::ir::TypeRef::Named(n) if opaque_type_names.contains(n.as_str()));
 
+        // Detect if the method name already indicates async (e.g. rerankAsync from
+        // Rust's rerank_async). Skip suspend wrapper generation in this case to avoid
+        // the awkward rerankAsyncAsync name and overload conflict with the sync version.
+        let method_name_already_async = method_name.ends_with("Async");
+
         if returns_dto || returns_generic_container || returns_opaque || needs_jackson {
             // Suppress unused-warning on the legacy DTO-list flag — it remains
             // a useful diagnostic name for downstream readers but the generic
@@ -530,17 +535,20 @@ pub(super) fn emit_module_kt(
                         return_class => return_class,
                     },
                 ));
-                // Emit the suspend companion variant.
-                emit_kdoc_pub(&mut body, &f.doc, "    ");
-                body.push_str(&template_env::render(
-                    "android_facade_async_method.jinja",
-                    minijinja::context! {
-                        method_name => method_name,
-                        params => params_str,
-                        return_type => return_ty,
-                        args => call_args,
-                    },
-                ));
+                // Emit the suspend companion variant only if the method name doesn't
+                // already indicate async (no rerankAsyncAsync).
+                if !method_name_already_async {
+                    emit_kdoc_pub(&mut body, &f.doc, "    ");
+                    body.push_str(&template_env::render(
+                        "android_facade_async_method.jinja",
+                        minijinja::context! {
+                            method_name => method_name,
+                            params => params_str,
+                            return_type => return_ty,
+                            args => call_args,
+                        },
+                    ));
+                }
             } else if returns_generic_container {
                 // Generic container return: Kotlin disallows generic type
                 // arguments on `::class.java`, so we route through Jackson's
@@ -559,17 +567,20 @@ pub(super) fn emit_module_kt(
                         type_ref_body => type_ref_body,
                     },
                 ));
-                // Emit the suspend companion variant.
-                emit_kdoc_pub(&mut body, &f.doc, "    ");
-                body.push_str(&template_env::render(
-                    "android_facade_async_method.jinja",
-                    minijinja::context! {
-                        method_name => method_name,
-                        params => params_str,
-                        return_type => return_ty,
-                        args => call_args,
-                    },
-                ));
+                // Emit the suspend companion variant only if the method name doesn't
+                // already indicate async.
+                if !method_name_already_async {
+                    emit_kdoc_pub(&mut body, &f.doc, "    ");
+                    body.push_str(&template_env::render(
+                        "android_facade_async_method.jinja",
+                        minijinja::context! {
+                            method_name => method_name,
+                            params => params_str,
+                            return_type => return_ty,
+                            args => call_args,
+                        },
+                    ));
+                }
             } else if returns_opaque {
                 let opaque_class = match &f.return_type {
                     crate::core::ir::TypeRef::Named(n) => n.clone(),
