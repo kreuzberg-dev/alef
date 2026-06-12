@@ -493,22 +493,50 @@ pub(super) fn render_test_file_inner(
     let _ = writeln!(out, "/** E2e tests for category: {category}. */");
     let _ = writeln!(out, "class {test_class_name} {{");
 
-    if needs_object_mapper {
+    // kotlin_android tests always need JNI library loading in a companion object.
+    // JVM-only (non-android) tests only create companion object if ObjectMapper is needed.
+    let needs_companion = needs_object_mapper || kotlin_android_style;
+
+    if needs_companion {
         let _ = writeln!(out);
         let _ = writeln!(out, "    companion object {{");
+
+        // Load native JNI library for kotlin_android tests.
+        // Library name derives from the crate name: {crate_name}_jni
+        if kotlin_android_style {
+            let jni_lib_name = format!("{}_jni", config.name);
+            let _ = writeln!(out, "        init {{");
+            let _ = writeln!(out, "            try {{");
+            let _ = writeln!(out, "                System.loadLibrary(\"{jni_lib_name}\")");
+            let _ = writeln!(out, "            }} catch (e: UnsatisfiedLinkError) {{");
+            let _ = writeln!(
+                out,
+                "                System.err.println(\"Failed to load {jni_lib_name} library: ${{e.message}}\")"
+            );
+            let _ = writeln!(
+                out,
+                "                System.err.println(\"java.library.path: ${{System.getProperty(\\\"java.library.path\\\")}}\")"
+            );
+            let _ = writeln!(out, "                throw e");
+            let _ = writeln!(out, "            }}");
+            let _ = writeln!(out, "        }}");
+        }
+
         // `kotlin_android_style` tests include Kotlin data classes (e.g. ChatCompletionRequest)
         // that have no default constructor. Jackson needs `registerKotlinModule()` to use the
         // primary constructor for deserialization. Non-android (JVM) targets use Java records
         // and builders, which Jackson handles without the extra module.
-        let kotlin_module_call = if kotlin_android_style {
-            ".registerKotlinModule()"
-        } else {
-            ""
-        };
-        let _ = writeln!(
-            out,
-            "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()){kotlin_module_call}.setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
-        );
+        if needs_object_mapper {
+            let kotlin_module_call = if kotlin_android_style {
+                ".registerKotlinModule()"
+            } else {
+                ""
+            };
+            let _ = writeln!(
+                out,
+                "        private val MAPPER = ObjectMapper().registerModule(Jdk8Module()){kotlin_module_call}.setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE)"
+            );
+        }
         let _ = writeln!(out, "    }}");
     }
 

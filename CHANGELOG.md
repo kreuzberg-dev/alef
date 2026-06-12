@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kotlin Android e2e codegen: add explicit JNI library loading in test companion objects.** Generated Kotlin Android unit tests were failing at runtime with `java.lang.UnsatisfiedLinkError: kreuzberg_jni` because the test classes never explicitly called `System.loadLibrary("kreuzberg_jni")`. The Gradle config set `java.library.path`, but without an explicit load call in the test itself, the JVM could not find or load the native library. The fix adds an `init` block in the companion object of all kotlin_android e2e test classes that calls `System.loadLibrary("kreuzberg_jni")` with proper error handling and diagnostic output (`java.library.path` dump on failure). Now kotlin_android e2e tests load the native JNI library at class initialization time, before any test runs. Fixes all ~110 Kotlin Android unit tests failing with `UnsatisfiedLinkError` in `task kotlin-android:e2e`.
+
 ## [0.24.11] - 2026-06-12
 
 ### Fixed
