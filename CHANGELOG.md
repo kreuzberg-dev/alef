@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kotlin Android: JNI bridge `ByteArray` parameter type corrected to `String`.** The bridge declaration was emitting `ByteArray` for binary params while the actual JNI implementation expects a base64-encoded `String`. This caused "Argument type mismatch" compile errors in the high-level wrapper when it tried to call the bridge with base64-encoded strings. The bridge emitter now correctly declares binary params as `String`, matching the JNI implementation which base64-decodes them back to bytes. The wrapper continues to base64-encode `ByteArray` params before calling the bridge, maintaining the expected round-trip encoding.
+
+- **NAPI scaffold: `index.js` re-exports the `service.cjs` wrapper so the wrapper class (with method shortcuts like `registerRoute` etc.) wins over the raw napi-rs binding.** Without the re-export, `require("<pkg>")` returned only the raw binding and consumers calling wrapper methods hit `TypeError: <method> is not a function`. When services are defined, the platform-dispatch `index.js` now requires `./service.cjs` and spreads both modules in the export: `module.exports = { ...nativeBinding, ..._service };` — order ensures wrapper symbols override native ones of the same name. When no services are defined, `index.js` exports only the raw binding as before.
+
+- **Java e2e harness: when `SUT_URL` is unset, fall back to the alef e2e default harness port (8000) instead of probing a random OS port via `ServerSocket(0)`.** The previous random-port fallback didn't match the test client's fallback (the alef e2e default port), so every test timed out with `Harness did not become reachable at http://127.0.0.1:8000 within 15s`. Aligning both sides on the same default unblocks the harness lifecycle when `SUT_URL` is not provided. The fix removes the `ServerSocket(0)` probe entirely and replaces it with a simple fallback to the alef e2e default harness port constant (8000), ensuring test clients and harness agree on the unset-SUT_URL behavior.
+
+- **Swift e2e harness template: Jinja whitespace control no longer collapses the `_FIXTURES_JSON` declaration into the preceding comment line.** The `app_harness.swift.jinja` template used `{%- set json = fixtures_json %}` and `{%- set chunk_size = 30000 %}` with trailing whitespace-trim markers (`-`). These markers ate the newline before `let _FIXTURES_JSON = """`, generating `// ...literals.let _FIXTURES_JSON = """` on one line. Swift parsed the `let` as part of the comment, leaving the constant undefined when referenced later, failing compilation with `cannot find '_FIXTURES_JSON' in scope`. The fix removes the trailing `-` from both set statements so the newline is preserved and `let _FIXTURES_JSON` starts on its own code line.
+
 ## [0.24.14] - 2026-06-12
 
 ### Fixed

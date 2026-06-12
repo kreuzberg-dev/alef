@@ -31,7 +31,9 @@ use alef::core::config::NewAlefConfig;
 use alef::core::ir::{CoreWrapper, FieldDef, PrimitiveType, TypeDef, TypeRef};
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::swift::SwiftE2eCodegen;
-use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
+use alef::e2e::fixture::{
+    Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest, MockResponse,
+};
 
 fn make_field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
@@ -148,6 +150,25 @@ fn render_with_config(config_toml: &str, fixture: Fixture, type_defs: Vec<TypeDe
         .iter()
         .find(|f| f.path.to_string_lossy().contains("SmokeTests.swift"))
         .expect("SmokeTests.swift is emitted")
+        .content
+        .clone()
+}
+
+fn render_harness(config_toml: &str, fixture: Fixture) -> String {
+    let cfg: NewAlefConfig = toml::from_str(config_toml).expect("config parses");
+    let resolved = cfg.clone().resolve().expect("config resolves").remove(0);
+    let e2e = cfg.crates[0].e2e.clone().expect("e2e config present");
+    let groups = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![fixture],
+    }];
+    let files = SwiftE2eCodegen
+        .generate(&groups, &e2e, &resolved, &vec![], &[])
+        .expect("generation succeeds");
+    files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("Sources/Harness/main.swift"))
+        .expect("Swift harness main is emitted")
         .content
         .clone()
 }
@@ -369,5 +390,95 @@ type = "string"
         !rendered.contains("$0.asStr().toString()"),
         "must not fall back to the default `.asStr()` accessor when an \
          override is configured. Rendered:\n{rendered}"
+    );
+}
+
+// -- Bug E: app harness Jinja whitespace control collapses _FIXTURES_JSON ----
+
+#[test]
+fn harness_fixtures_json_declaration_not_collapsed_into_comment() {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "sample_pack"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "process"
+module = "SampleLanguagePack"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "source"
+field = "source_code"
+type = "string"
+"#;
+    let mut fixture = make_fixture(
+        "harness_basic",
+        Assertion {
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        },
+    );
+    fixture.http = Some(HttpFixture {
+        handler: HttpHandler {
+            route: "/ping".to_string(),
+            method: "GET".to_string(),
+            body_schema: None,
+            parameters: Default::default(),
+            middleware: None,
+        },
+        request: HttpRequest {
+            method: "GET".to_string(),
+            path: "/ping".to_string(),
+            headers: Default::default(),
+            query_params: Default::default(),
+            cookies: Default::default(),
+            body: None,
+            form_data: None,
+            content_type: None,
+        },
+        expected_response: HttpExpectedResponse {
+            status_code: 200,
+            body: Some(serde_json::json!({"ok": true})),
+            body_partial: None,
+            headers: Default::default(),
+            validation_errors: None,
+        },
+    });
+    let harness = render_harness(toml, fixture);
+
+    // The bug signature: Jinja whitespace trim ate the newline, collapsing
+    // the comment and let declaration into one line.
+    assert!(
+        !harness.contains("literals.let _FIXTURES_JSON"),
+        "Jinja whitespace control must not collapse `let _FIXTURES_JSON` \
+         into the preceding comment. Generated harness contains: {harness}"
+    );
+
+    // Positive assertion: _FIXTURES_JSON must appear on its own line,
+    // not as part of a comment.
+    let lines: Vec<&str> = harness.lines().collect();
+    let fixtures_json_line = lines
+        .iter()
+        .find(|line| line.contains("let _FIXTURES_JSON"))
+        .expect("_FIXTURES_JSON declaration is present");
+    assert!(
+        fixtures_json_line.trim_start().starts_with("let _FIXTURES_JSON"),
+        "_FIXTURES_JSON must start at the beginning of a code line (not \
+         mid-line in a comment). Line content: {}",
+        fixtures_json_line
     );
 }

@@ -1,0 +1,34 @@
+// Async visitor variant: pops visitor from options, builds bridge, spawns thread.
+#[rustler::nif]
+pub fn {{ func_name }}_with_visitor({{ vis_params_str }}) -> Result<(), String> {
+    let pid = env.pid();
+    let mut visitor_owned_env = rustler::OwnedEnv::new();
+    let visitor_saved = visitor_owned_env.save(visitor);
+    {{ clone_stmts }}
+    std::thread::spawn(move || {
+        let _ = visitor_owned_env.send_and_clear(&pid, |env| {
+            let visitor_term = visitor_saved.load(env);
+            {{ deser_stmts }}
+            // Run conversion and return result term to send back to BEAM
+            let conversion_result: Result<{{ return_type }}, String> = match {{ core_fn_path }}({{ vis_call_args_str }}) {
+                Ok(val) => {
+                    let result: {{ return_type }} = val.into();
+                    Ok(result)
+                },
+                Err(e) => Err(e.to_string()),
+            };
+            match conversion_result {
+                Ok(result) => {
+                    let ok_atom = rustler::types::atom::Atom::from_str(env, "ok").unwrap().to_term(env);
+                    rustler::types::tuple::make_tuple(env, &[ok_atom, result.encode(env)])
+                },
+                Err(reason) => {
+                    let err_atom = rustler::types::atom::Atom::from_str(env, "error").unwrap().to_term(env);
+                    let reason_term = reason.encode(env);
+                    rustler::types::tuple::make_tuple(env, &[err_atom, reason_term])
+                },
+            }
+        });
+    });
+    Ok(())
+}

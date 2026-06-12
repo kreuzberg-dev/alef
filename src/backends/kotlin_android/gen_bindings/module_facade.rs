@@ -267,7 +267,8 @@ pub(super) fn emit_module_kt(
             return n.clone();
         }
         // Binary data (ByteArray/Vec<u8>) → ByteArray in the public API.
-        // The wrapper encodes to Base64 String before calling the JNI external fun.
+        // The wrapper base64-encodes to String before calling the JNI external fun,
+        // which then decodes it back to bytes.
         let is_binary = match inner {
             crate::core::ir::TypeRef::Bytes => true,
             crate::core::ir::TypeRef::Vec(iv) => {

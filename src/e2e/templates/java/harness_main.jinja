@@ -2,7 +2,7 @@
 
    This harness loads fixtures from classpath resources, registers HTTP handlers
    that return expected responses, and serves on a port from SUT_URL env var
-   (or a configured default). It mirrors the Python app_harness.py pattern.
+   (or falls back to the alef e2e default harness port). It mirrors the Python app_harness.py pattern.
 
    Context variables:
    - java_group_id: Java package (e.g., "dev.my_pkg")
@@ -12,7 +12,7 @@
    - register_method: app method to register routes (e.g., "registerAppRoute")
    - response_body_field: field name in Response for body (e.g., "body")
    - host: binding host (e.g., "127.0.0.1")
-   - port: default binding port (e.g., 8000) — overridden by SUT_URL env var
+   - default_port: alef e2e default harness port (e.g., 8000) — used when SUT_URL is unset
    - fixture_ids: list of fixture IDs to register handlers for
 #}
 package {{ java_group_id }}.e2e;
@@ -38,16 +38,14 @@ public class HarnessMain {
                 try {
                     URI uri = new URI(sutUrl);
                     effectiveHost = uri.getHost() != null ? uri.getHost() : effectiveHost;
-                    effectivePort = uri.getPort() > 0 ? uri.getPort() : {{ port }};
+                    effectivePort = uri.getPort() > 0 ? uri.getPort() : {{ default_port }};
                 } catch (Exception e) {
                     System.err.println("Warning: failed to parse SUT_URL: " + e.getMessage());
-                    effectivePort = {{ port }};
+                    effectivePort = {{ default_port }};
                 }
             } else {
-                // Discover an available port via ServerSocket probe
-                java.net.ServerSocket probe = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName(effectiveHost));
-                effectivePort = probe.getLocalPort();
-                probe.close();
+                // Fall back to the alef e2e default harness port
+                effectivePort = {{ default_port }};
             }
 
             // Create and configure the app

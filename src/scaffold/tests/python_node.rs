@@ -497,3 +497,109 @@ exclude_platforms = ["linux-x64-musl", "linux-arm64-musl"]
         "index.js dispatch table must still reference linux-x64-gnu"
     );
 }
+
+#[test]
+fn test_scaffold_node_index_js_re_exports_service_api() {
+    // When services are defined, `index.js` must re-export the service wrapper
+    // from `service.cjs` so that `require("<pkg>")` returns both the raw native
+    // binding and the wrapper class (with method shortcuts like registerRoute).
+    // Without the re-export, consumers calling wrapper methods hit `TypeError`.
+    let config = test_config();
+
+    let mut api = test_api();
+    // Add a service definition so api.services is non-empty.
+    // The exact structure doesn't matter for the scaffold test — we just need
+    // api.services to be non-empty, which triggers has_service_api = true.
+    api.services = vec![crate::core::ir::ServiceDef {
+        name: "App".to_string(),
+        rust_path: "my_lib::App".to_string(),
+        constructor: crate::core::ir::MethodDef {
+            name: "new".to_string(),
+            params: vec![],
+            return_type: crate::core::ir::TypeRef::Named("App".to_string()),
+            is_async: false,
+            is_static: true,
+            error_type: None,
+            doc: String::new(),
+            receiver: None,
+            sanitized: false,
+            trait_source: None,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            has_default_impl: false,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        },
+        configurators: vec![],
+        registrations: vec![],
+        entrypoints: vec![],
+        doc: String::new(),
+        cfg: None,
+    }];
+
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let index_js = files
+        .iter()
+        .find(|f| f.path.ends_with("index.js"))
+        .expect("crate index.js must be emitted");
+
+    // Verify the index.js contains the re-export pattern
+    assert!(
+        index_js
+            .content
+            .contains(r#"const _service = require("./service.cjs");"#),
+        "index.js must require service.cjs when services are defined, got:\n{}",
+        index_js.content
+    );
+    assert!(
+        index_js
+            .content
+            .contains("module.exports = { ...nativeBinding, ..._service };"),
+        "index.js must spread both nativeBinding and _service so wrapper methods override native, got:\n{}",
+        index_js.content
+    );
+
+    // Ensure the old single export line is not present
+    assert!(
+        !index_js
+            .content
+            .lines()
+            .any(|line| line.trim() == "module.exports = nativeBinding;"),
+        "index.js must not have bare nativeBinding export when services are defined, got:\n{}",
+        index_js.content
+    );
+}
+
+#[test]
+fn test_scaffold_node_index_js_single_export_without_services() {
+    // When no services are defined, `index.js` should export only nativeBinding.
+    let config = test_config();
+    let api = test_api(); // api.services is empty
+
+    let all_files = scaffold(&api, &config, &[Language::Node]).unwrap();
+    let files = language_files(&all_files);
+    let index_js = files
+        .iter()
+        .find(|f| f.path.ends_with("index.js"))
+        .expect("crate index.js must be emitted");
+
+    // Verify the index.js does NOT contain the re-export pattern
+    assert!(
+        !index_js.content.contains("_service"),
+        "index.js must not reference service.cjs when no services are defined, got:\n{}",
+        index_js.content
+    );
+
+    // Verify the simple export is present
+    assert!(
+        index_js
+            .content
+            .lines()
+            .any(|line| line.trim() == "module.exports = nativeBinding;"),
+        "index.js must have bare nativeBinding export when no services are defined, got:\n{}",
+        index_js.content
+    );
+}

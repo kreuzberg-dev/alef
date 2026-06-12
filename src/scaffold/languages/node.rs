@@ -285,7 +285,12 @@ napi-build = "{napi_build}"
     }])
 }
 
-fn generate_napi_platform_dispatch_index(binary_name: &str, package_name: &str, excluded: &[String]) -> String {
+fn generate_napi_platform_dispatch_index(
+    binary_name: &str,
+    package_name: &str,
+    excluded: &[String],
+    has_service_api: bool,
+) -> String {
     let rows = napi_dispatch_rows_filtered(excluded);
     let targets_lines = rows
         .iter()
@@ -300,6 +305,13 @@ fn generate_napi_platform_dispatch_index(binary_name: &str, package_name: &str, 
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    let export_statement = if has_service_api {
+        r#"const _service = require("./service.cjs");
+module.exports = { ...nativeBinding, ..._service };"#
+    } else {
+        "module.exports = nativeBinding;"
+    };
 
     format!(
         r#""use strict";
@@ -396,7 +408,7 @@ if (!nativeBinding) {{
   );
 }}
 
-module.exports = nativeBinding;
+{export_statement}
 "#,
     )
 }
@@ -542,8 +554,13 @@ pub(crate) fn scaffold_node(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         napi_rs_cli_crate = tv::npm::NAPI_RS_CLI_CRATE,
     );
 
-    let crate_index_js =
-        generate_napi_platform_dispatch_index(&format!("{}-node", crate_dir), &package_name, &excluded);
+    let has_service_api = !api.services.is_empty();
+    let crate_index_js = generate_napi_platform_dispatch_index(
+        &format!("{}-node", crate_dir),
+        &package_name,
+        &excluded,
+        has_service_api,
+    );
     let binary_name = format!("{crate_dir}-node");
 
     // The npm publish target lives at `crates/{crate_dir}-node/` and is built by

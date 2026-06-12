@@ -146,3 +146,49 @@ fn java_visitor_arg_uses_trait_bridge_options_metadata() {
     assert_eq!(args, "html, RenderOptions.builder().withCallback(visitor).build()");
     assert!(!args.contains("DefaultOptions"));
 }
+
+#[test]
+fn test_java_harness_main_uses_default_port_not_random_probe() {
+    use super::project::render_harness_main;
+    use crate::e2e::config::HarnessConfig;
+    use crate::e2e::fixture::FixtureGroup;
+
+    let e2e_config = E2eConfig {
+        harness: HarnessConfig {
+            host: "127.0.0.1".to_string(),
+            port: 8000,
+            app_class: Some("App".to_string()),
+            run_method: Some("run".to_string()),
+            register_method: Some("registerAppRoute".to_string()),
+            response_body_field: "body".to_string(),
+            ..Default::default()
+        },
+        call: CallConfig::default(),
+        ..E2eConfig::default()
+    };
+
+    let groups = vec![FixtureGroup {
+        category: "smoke".to_string(),
+        fixtures: vec![],
+    }];
+
+    let rendered = render_harness_main(&e2e_config, &groups, "dev.example", "dev.example.app");
+
+    // Verify that the rendered output does NOT contain ServerSocket(0) probe
+    assert!(
+        !rendered.contains("ServerSocket(0"),
+        "HarnessMain should not probe for random port via ServerSocket(0)"
+    );
+
+    // Verify that when SUT_URL is unset, it falls back to the default port
+    assert!(
+        rendered.contains("effectivePort = 8000"),
+        "HarnessMain should set effectivePort to 8000 (alef default) when SUT_URL is unset"
+    );
+
+    // Verify that the rendered output uses the default_port variable in the SUT_URL parsing fallback
+    assert!(
+        rendered.contains("effectivePort = uri.getPort() > 0 ? uri.getPort() : 8000"),
+        "HarnessMain should use default_port in SUT_URL URI parsing"
+    );
+}

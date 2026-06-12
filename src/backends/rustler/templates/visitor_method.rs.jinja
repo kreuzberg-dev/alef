@@ -1,0 +1,21 @@
+    fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
+        let {% if args %}mut {% endif %}args_map = serde_json::Map::new();
+{%- for arg in args %}
+        args_map.insert("{{ arg.key }}".to_string(), {{ arg.expr }});
+{%- endfor %}
+        let args_json = serde_json::Value::Object(args_map).to_string();
+        let result = visitor_send_and_wait(self, "{{ handle_name }}", args_json);
+        match result {
+            None => {{ default_result_expr }},
+            Some(s) => {
+                let lower = s.to_lowercase();
+                match lower.as_str() {
+{%- for variant in unit_result_variants %}
+                    "{{ variant.wire_name }}" => {{ ret_ty }}::{{ variant.name }},
+{%- endfor %}
+                    _ => {{ unknown_string_result_expr }},
+                }
+            }
+        }
+    }
+

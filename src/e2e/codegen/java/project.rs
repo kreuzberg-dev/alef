@@ -104,6 +104,8 @@ pub(super) fn render_harness_main(
         }
     }
 
+    let default_harness_port = E2eConfig::default().harness.port;
+
     let ctx = minijinja::context! {
         java_group_id => java_group_id,
         binding_pkg => binding_pkg,
@@ -113,6 +115,7 @@ pub(super) fn render_harness_main(
         response_body_field => body_field.as_str(),
         host => host,
         port => port,
+        default_port => default_harness_port,
         fixture_ids => fixture_ids,
     };
 

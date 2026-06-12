@@ -1,0 +1,12 @@
+impl {{ struct_name }} {
+    pub fn new(env: rustler::Env<'_>, caller_pid: rustler::types::LocalPid, visitor_term: rustler::Term<'_>) -> Self {
+        let owned = rustler::OwnedEnv::new();
+        let saved = owned.save(visitor_term);
+        Self { caller_pid, visitor_env: owned, visitor_saved: saved }
+    }
+
+    pub fn new_from_saved(caller_pid: rustler::types::LocalPid, visitor_env: rustler::OwnedEnv, visitor_saved: rustler::env::SavedTerm) -> Self {
+        Self { caller_pid, visitor_env, visitor_saved }
+    }
+}
+

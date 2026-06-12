@@ -1,0 +1,7 @@
+#[rustler::nif]
+pub fn visitor_reply(ref_id: u64, result: Option<String>) {
+    if let Some(tx) = VISITOR_CHANNELS.lock().unwrap().get(&ref_id) {
+        let _ = tx.send(result);
+    }
+}
+
