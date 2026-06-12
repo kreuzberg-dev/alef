@@ -23,6 +23,7 @@ expression: "&file.content"
     "CyclomaticComplexMethod",
     "LongMethod",
     "MagicNumber",
+    "NestedBlockDepth",
 )
 
 package dev.sample_crate
