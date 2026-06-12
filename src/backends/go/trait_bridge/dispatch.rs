@@ -17,16 +17,52 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
             params.push(format!("{}Len C.size_t", p.name));
         }
     }
-    if !matches!(method.return_type, TypeRef::Unit) {
+
+    // Determine the return type signature based on the method's return type.
+    // Simple primitives (bool, i32, u32, etc.) return directly and do NOT use out-result parameter.
+    // Complex types (String, Vec, struct, etc.) use out-result + out-error pattern.
+    let is_simple_primitive = matches!(
+        &method.return_type,
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+    );
+
+    if is_simple_primitive {
+        // Simple primitive: return the value directly, only out_error for error context.
+        // No out_result parameter needed.
+        params.push("outError **C.char".to_string());
+    } else if !matches!(method.return_type, TypeRef::Unit) {
+        // Complex return type: use out_result for the value
         params.push("outResult **C.char".to_string());
+        params.push("outError **C.char".to_string());
+    } else {
+        // Unit return: only out_error
+        params.push("outError **C.char".to_string());
     }
-    params.push("outError **C.char".to_string());
+
+    // Determine the Go C type for the return value
+    let go_return_type = if is_simple_primitive {
+        match &method.return_type {
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "int32_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "int32_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U32) => "uint32_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I64) => "int64_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "uint64_t",
+            _ => "int32_t",
+        }
+    } else {
+        "int32_t"
+    };
 
     out.push_str(&crate::backends::go::template_env::render(
         "trampoline_signature.jinja",
         minijinja::context! {
             name => export_name,
             params => params,
+            return_type => go_return_type,
         },
     ));
     out.push('\n');
@@ -91,7 +127,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            gen_result_conversion(out, &method.return_type);
+            gen_result_conversion(out, &method.return_type, is_simple_primitive);
         }
     } else {
         // Method returns only value (no error)
@@ -106,7 +142,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
 
         // Encode result if not Unit
         if !matches!(&method.return_type, TypeRef::Unit) {
-            gen_result_conversion(out, &method.return_type);
+            gen_result_conversion(out, &method.return_type, is_simple_primitive);
         }
     }
 
@@ -115,26 +151,50 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     out.push('\n');
 }
 
-/// Marshal a Go callback result into the C out-result slot.
+/// Marshal a Go callback result into the C out-result slot, or return it directly.
+///
+/// For simple primitives (bool, i32, etc.), return the value directly as a C type.
+/// For complex types (String, Path, Vec, struct, etc.), marshal into the out_result slot.
 ///
 /// The Rust FFI side decodes String/Path/Char callback returns as raw UTF-8 C strings,
 /// while Json/Named/Vec/Map returns are parsed as JSON payloads. Keep those contracts
 /// separate so string-like returns are not accidentally JSON-quoted and raw JSON payloads
 /// are not double-encoded.
-fn gen_result_conversion(out: &mut String, return_type: &TypeRef) {
-    match return_type {
-        TypeRef::String | TypeRef::Char | TypeRef::Path => {
-            out.push_str("\tcResult := C.CString(result)\n");
-            out.push_str("\t*outResult = cResult\n");
+fn gen_result_conversion(out: &mut String, return_type: &TypeRef, is_simple_primitive: bool) {
+    if is_simple_primitive {
+        // For simple primitives (bool, i32), cast and return directly
+        match return_type {
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => {
+                out.push_str("\tif result {\n");
+                out.push_str("\t\treturn 1\n");
+                out.push_str("\t}\n");
+                out.push_str("\treturn 0\n");
+            }
+            TypeRef::Primitive(_) => {
+                // For all other primitives, cast to int32_t and return
+                out.push_str("\treturn C.int32_t(result)\n");
+            }
+            _ => {
+                // Should not happen if is_simple_primitive is correctly set
+                out.push_str("\treturn 0  // error: unexpected type for simple primitive path\n");
+            }
         }
-        TypeRef::Json => {
-            out.push_str("\tcResult := C.CString(string(result))\n");
-            out.push_str("\t*outResult = cResult\n");
-        }
-        _ => {
-            out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
-            out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
-            out.push_str("\t*outResult = cResult\n");
+    } else {
+        // Complex type: marshal into out_result
+        match return_type {
+            TypeRef::String | TypeRef::Char | TypeRef::Path => {
+                out.push_str("\tcResult := C.CString(result)\n");
+                out.push_str("\t*outResult = cResult\n");
+            }
+            TypeRef::Json => {
+                out.push_str("\tcResult := C.CString(string(result))\n");
+                out.push_str("\t*outResult = cResult\n");
+            }
+            _ => {
+                out.push_str("\tjsonBytes, _ := json.Marshal(result)\n");
+                out.push_str("\tcResult := C.CString(string(jsonBytes))\n");
+                out.push_str("\t*outResult = cResult\n");
+            }
         }
     }
 }

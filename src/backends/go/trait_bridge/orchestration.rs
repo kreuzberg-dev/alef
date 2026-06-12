@@ -1,5 +1,5 @@
 use super::dispatch::{gen_plugin_trampolines, gen_trampoline};
-use super::helpers::{c_trampoline_signature, method_with_excluded_substituted};
+use super::helpers::{c_callback_return_type, c_trampoline_signature, method_with_excluded_substituted};
 use super::registration::{gen_clear_fn, gen_unregistration_fn};
 use super::wrapper::{gen_bridge_wrapper, gen_interface_method};
 use crate::core::config::{ResolvedCrateConfig, TraitBridgeConfig};
@@ -94,11 +94,13 @@ pub fn gen_trait_bridges_file(
                 let export_name = format!("go{}{}", &pascal, method.name.to_pascal_case());
                 let method_substituted = method_with_excluded_substituted(method, &excluded_named_types);
                 let c_sig = c_trampoline_signature(&export_name, &method_substituted);
+                let c_return_type = c_callback_return_type(&method_substituted);
                 out.push_str(&crate::backends::go::template_env::render(
                     "extern_trampoline_decl.jinja",
                     minijinja::context! {
                         export_name => export_name,
                         c_sig => c_sig,
+                        c_return_type => c_return_type,
                     },
                 ));
             }

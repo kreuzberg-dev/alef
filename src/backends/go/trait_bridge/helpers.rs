@@ -33,6 +33,9 @@ pub(super) fn method_with_excluded_substituted(method: &MethodDef, excluded: &Ha
 }
 /// Build the C trampoline function signature for extern declaration in the CGo preamble.
 /// Uses actual C types (not Go CGo types like `C.int32_t`).
+///
+/// For simple primitives (bool, i32, etc.), the function returns the value directly
+/// and does not use an out_result parameter. For complex types, uses the out_result + out_error pattern.
 #[allow(dead_code)]
 pub(super) fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> String {
     let mut params = vec!["void* user_data".to_string()];
@@ -45,11 +48,59 @@ pub(super) fn c_trampoline_signature(_export_name: &str, method: &MethodDef) -> 
             params.push(format!("size_t {}_len", p.name));
         }
     }
-    if !matches!(method.return_type, TypeRef::Unit) {
+
+    // Determine if this is a simple primitive return
+    let is_simple_primitive = matches!(
+        &method.return_type,
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+    );
+
+    if is_simple_primitive {
+        // Simple primitive: only out_error parameter, return the value directly
+        params.push("char** out_error".to_string());
+    } else if !matches!(method.return_type, TypeRef::Unit) {
+        // Complex return type: use out_result + out_error
         params.push("char** out_result".to_string());
+        params.push("char** out_error".to_string());
+    } else {
+        // Unit return: only out_error
+        params.push("char** out_error".to_string());
     }
-    params.push("char** out_error".to_string());
+
     params.join(", ")
+}
+
+/// Determine the C return type for a callback function.
+/// Simple primitives return their value directly. Complex types return int32_t (status code).
+#[allow(dead_code)]
+pub(super) fn c_callback_return_type(method: &MethodDef) -> String {
+    let is_simple_primitive = matches!(
+        &method.return_type,
+        TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+    );
+
+    if is_simple_primitive {
+        // Return the actual primitive type
+        match &method.return_type {
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool) => "int32_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I32) => "int32_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U32) => "uint32_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::I64) => "int64_t".to_string(),
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "uint64_t".to_string(),
+            _ => "int32_t".to_string(),
+        }
+    } else {
+        // All other types return int32_t status code (0 success, 1 error)
+        "int32_t".to_string()
+    }
 }
 
 /// Convert a Rust TypeRef to a plain C type string (for CGo preamble extern declarations).

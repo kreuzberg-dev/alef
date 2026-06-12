@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Go trait-bridge: generate correct callback signatures for simple-primitive-return methods.** Methods like `priority() -> i32` and `can_handle() -> bool` were generating Go callback trampolines with three parameters (`userData`, `outResult`, `outError`) and returning `int32_t`, but the C vtable declares these functions with only two parameters (`userData`, `outError`) and direct int32_t return values. The mismatch caused C to call Go stubs with incorrect register/stack layout, reading garbage pointers for the missing `outResult` parameter and crashing on dereference. The fix inspects the Rust trait method's return type: simple primitives (bool, i32, u32, i64, u64) now generate trampolines that return the value directly with no `outResult` parameter. Complex returns (String, Vec, struct, Result) continue to use the `outResult` + `outError` pattern. The C signature generator, Go callback template, and result-encoding path all now check `is_simple_primitive` and emit matching signatures. Fixes Go trait-bridge `register_document_extractor` crashes when the Go plugin's `Priority()` method is called.
+
 ### Added
 
 - **E2E fixture `setup:` array for pre-call initialization.** Fixtures can now declare a `setup: [{ call: "...", input: {...} }, ...]` array of mini-calls executed before the main fixture call. Used to establish stateful resources like registered backends (e.g., `register_reranker_backend` before `rerank`). Ruby codegen generates setup call invocations in test preamble with matching teardown to restore registry state between tests. Generalizes to all e2e backends that support trait-bridge plugins.
