@@ -19,7 +19,7 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
     }
 
     // Determine the return type signature based on the method's return type.
-    // Simple primitives (bool, i32, u32, etc.) return directly and do NOT use out-result parameter.
+    // Simple primitives (bool, i32, u32, usize, isize, etc.) return directly and do NOT use out-result parameter.
     // Complex types (String, Vec, struct, etc.) use out-result + out-error pattern.
     let is_simple_primitive = matches!(
         &method.return_type,
@@ -28,6 +28,8 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U32)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::I64)
             | TypeRef::Primitive(crate::core::ir::PrimitiveType::U64)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize)
+            | TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize)
     );
 
     if is_simple_primitive {
@@ -51,6 +53,8 @@ pub(super) fn gen_trampoline(out: &mut String, trait_name: &str, trait_pascal: &
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U32) => "uint32_t",
             TypeRef::Primitive(crate::core::ir::PrimitiveType::I64) => "int64_t",
             TypeRef::Primitive(crate::core::ir::PrimitiveType::U64) => "uint64_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Usize) => "uintptr_t",
+            TypeRef::Primitive(crate::core::ir::PrimitiveType::Isize) => "intptr_t",
             _ => "int32_t",
         }
     } else {
