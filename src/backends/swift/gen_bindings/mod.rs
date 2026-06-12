@@ -519,10 +519,13 @@ impl Backend for SwiftBackend {
                 }
                 collect_async_vec_named(&f.return_type, &mut referenced_async_named);
             }
+            // Note: deliberately do NOT skip `exclude_types` here — the whole point of
+            // this pass is to catch types whose canonical definition is shadowed by an
+            // `alef(skip)`-annotated cfg-gated stub (which lands them in `exclude_types`
+            // via `binding_excluded`). The swift-bridge extern still declares them as
+            // `type T;` because they appear in a public return signature, and the
+            // forwarder needs `T` to be Sendable to cross `Task.detached.value`.
             for name in referenced_async_named {
-                if exclude_types.contains(name) {
-                    continue;
-                }
                 if sendable_emitted.insert(name.to_string()) {
                     emit_sendable_conformance(
                         &mut body,
