@@ -197,9 +197,13 @@ fn snapshot_emit_test_backend_no_super_trait_no_name_method() {
     );
 }
 
-/// Verify that methods with default implementations are inherited from the interface.
+/// Verify that all methods — including those with default implementations — are overridden
+/// in the test stub to produce a concrete, instantiable class.
+///
+/// Kotlin interfaces may declare abstract methods that Rust metadata marks as having defaults;
+/// always overriding every method ensures the stub compiles without being abstract.
 #[test]
-fn snapshot_emit_test_backend_skips_default_impl_methods() {
+fn snapshot_emit_test_backend_overrides_all_methods_including_defaults() {
     let bridge = TraitBridgeConfig {
         trait_name: "MyBackend".to_string(),
         super_trait: Some("Plugin".to_string()),
@@ -209,7 +213,7 @@ fn snapshot_emit_test_backend_skips_default_impl_methods() {
     // fn required_method(&self) -> String — no default
     let required = make_method("required_method", vec![], TypeRef::String, false, false);
 
-    // fn optional_method(&self) — has default impl and should be inherited.
+    // fn optional_method(&self) — has default impl; still overridden in the test stub.
     let optional = make_method(
         "optional_method",
         vec![],
@@ -222,17 +226,16 @@ fn snapshot_emit_test_backend_skips_default_impl_methods() {
     let fixture = make_fixture("my_fixture");
     let emission = emit_test_backend(&bridge, &methods, &fixture);
 
-    // Must emit the required method.
+    // Both required and default-impl methods must be overridden so the stub is concrete.
     assert!(
         emission.setup_block.contains("override fun requiredMethod()"),
         "required method must be emitted, got:\n{}",
         emission.setup_block
     );
 
-    // Must not emit the optional method.
     assert!(
-        !emission.setup_block.contains("override fun optionalMethod()"),
-        "optional method must be inherited, got:\n{}",
+        emission.setup_block.contains("override fun optionalMethod()"),
+        "default-impl method must also be overridden in the test stub, got:\n{}",
         emission.setup_block
     );
 }
