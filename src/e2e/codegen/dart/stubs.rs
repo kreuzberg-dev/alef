@@ -204,6 +204,12 @@ pub(super) fn emit_dart_default_for_type(
                 return "[]".to_string(); // Dart infers as List<Float64List>
             }
         }
+        // Vec<f32>/Vec<f64> maps to Float64List in Dart — needs typed constructor for default
+        if let TypeRef::Primitive(crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64) =
+            inner.as_ref()
+        {
+            return "Float64List.fromList([])".to_string();
+        }
     }
     // When return type is Optional<Float64List>, unwrap and return Float64List.fromList([])
     if let TypeRef::Optional(inner) = ty {
