@@ -24,13 +24,13 @@ pub(crate) fn emit_type_with_imports(
         return;
     }
 
-    // Filter out fields marked as binding_excluded (e.g., #[cfg_attr(alef, alef(skip))]).
-    // These fields should not appear in the generated Kotlin data class.
+    // Include all fields, including those marked as binding_excluded.
+    // binding_excluded fields are generated as nullable with null defaults so JSON
+    // deserialization tolerates missing fields (Rust carries Default::skip for them).
     let visible_fields: Vec<(usize, &crate::core::ir::FieldDef)> = ty
         .fields
         .iter()
         .enumerate()
-        .filter(|(_, f)| !f.binding_excluded)
         .collect();
 
     // Pre-compute the per-field JsonSerialize annotation needed when the
@@ -83,7 +83,16 @@ pub(crate) fn emit_type_with_imports(
         // Kotlin-side default the Jackson Kotlin module fails the entire
         // deserialization with `MissingKotlinParameterException` whenever the
         // wire JSON omits the key — even if the Rust source carries `Default`.
-        let (effective_ty_str, default_suffix) = if field.serde_flatten {
+        let (effective_ty_str, default_suffix) = if field.binding_excluded {
+            // binding_excluded fields must be nullable with null default so JSON
+            // deserialization tolerates missing fields (Rust carries #[serde(skip)]).
+            let nullable_ty = if ty_str.ends_with('?') {
+                ty_str.clone()
+            } else {
+                format!("{ty_str}?")
+            };
+            (nullable_ty, " = null".to_string())
+        } else if field.serde_flatten {
             // Force `T?` + default null for flatten fields (see has_flatten_field above).
             let nullable_ty = if ty_str.ends_with('?') {
                 ty_str.clone()
