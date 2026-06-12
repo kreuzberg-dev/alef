@@ -11,6 +11,7 @@ use crate::core::ir::{MethodDef, TypeDef, TypeRef};
 use heck::ToLowerCamelCase;
 use std::collections::{HashMap, HashSet};
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::csharp::gen_bindings) fn gen_opaque_handle(
     typ: &TypeDef,
     types: &[TypeDef],

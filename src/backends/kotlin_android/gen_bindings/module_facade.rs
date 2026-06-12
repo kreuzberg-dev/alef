@@ -881,13 +881,7 @@ fn jni_param_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
         // The Kotlin wrapper Base64-encodes ByteArray to String before calling
         // the external fun; the FFI Rust side Base64-decodes the String.
         TypeRef::Bytes => "String",
-        TypeRef::Vec(inner) => {
-            if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) {
-                "String"
-            } else {
-                "String"
-            }
-        }
+        TypeRef::Vec(_) => "String",
         _ => "String",
     }
 }

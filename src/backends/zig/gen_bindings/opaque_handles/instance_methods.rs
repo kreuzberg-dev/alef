@@ -195,6 +195,7 @@ fn method_c_call(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn emit_method_body(
     method: &MethodDef,
     prefix: &str,

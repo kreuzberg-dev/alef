@@ -1,6 +1,7 @@
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
 
+#[allow(clippy::too_many_arguments)]
 pub fn gen_bridge_field_function(
     api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,

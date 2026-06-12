@@ -97,12 +97,12 @@ pub fn gen_trait_bridge(
     }
 }
 
-/// Generate a visitor-style bridge: thin wrapper over `Py<PyAny>` where every trait method
-/// tries to call the corresponding Python method, falling back to the default if absent.
-///
-/// This pattern is used for traits where:
-/// - All methods have default implementations
-/// - No registration function is needed (per-call construction via `type_alias`)
+// Generate a visitor-style bridge: thin wrapper over `Py<PyAny>` where every trait method
+// tries to call the corresponding Python method, falling back to the default if absent.
+//
+// This pattern is used for traits where:
+// - All methods have default implementations
+// - No registration function is needed (per-call construction via `type_alias`)
 
 mod tests {
     #[test]

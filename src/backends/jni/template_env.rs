@@ -92,6 +92,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/byte_array_unmarshal.rs.jinja"),
     ),
     (
+        "base64_bytes_unmarshal.rs.jinja",
+        include_str!("templates/base64_bytes_unmarshal.rs.jinja"),
+    ),
+    (
         "opaque_handle_unmarshal.rs.jinja",
         include_str!("templates/opaque_handle_unmarshal.rs.jinja"),
     ),

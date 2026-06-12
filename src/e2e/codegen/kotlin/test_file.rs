@@ -506,9 +506,9 @@ pub(super) fn render_test_file_inner(
         // when set, falling back to the crate name) so it stays in sync with
         // the cdylib name baked into the generated JNI Cargo.toml's
         // `[lib] name`. Hard-coding `{crate_name}_jni` here breaks for crates
-        // that override `[crates.ffi] prefix` (e.g. tslp uses `ts_pack`),
-        // causing tests to System.loadLibrary the wrong name and fail with
-        // UnsatisfiedLinkError at class init.
+        // that override `[crates.ffi] prefix`, causing tests to
+        // System.loadLibrary the wrong name and fail with UnsatisfiedLinkError
+        // at class init.
         if kotlin_android_style {
             let jni_lib_name = config.jni_lib_name();
             let _ = writeln!(out, "        init {{");

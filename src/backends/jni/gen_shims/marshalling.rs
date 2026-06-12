@@ -29,6 +29,17 @@ fn render_byte_array_unmarshal(name: &str, ret_null: &str, is_optional: bool) ->
     )
 }
 
+fn render_base64_bytes_unmarshal(name: &str, ret_null: &str, is_optional: bool) -> String {
+    template_env::render(
+        "base64_bytes_unmarshal.rs.jinja",
+        context! {
+            name => name,
+            ret_null => ret_null,
+            is_optional => is_optional,
+        },
+    )
+}
+
 fn render_complex_unmarshal(name: &str, type_path: &str, ret_null: &str, is_optional: bool) -> String {
     template_env::render(
         "complex_unmarshal.rs.jinja",

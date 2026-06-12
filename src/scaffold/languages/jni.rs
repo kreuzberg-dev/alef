@@ -55,6 +55,7 @@ pub(crate) fn scaffold_jni(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     // umbrella dep is named after `config.name` which is consumer-dependent,
     // so the sort must run at codegen time rather than baking a static order.
     let mut dep_lines: Vec<String> = vec![
+        "base64 = \"0.22\"".to_owned(),
         crate::scaffold::render_core_dep(
             umbrella_dep_name,
             &format!("../{core_crate_dir}"),
@@ -82,14 +83,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# `futures-util`, `serde_json`, and `tokio` are emitted unconditionally below
+# `base64`, `futures-util`, `serde_json`, and `tokio` are emitted unconditionally below
 # so the manifest is stable across regens (they are used when the umbrella
-# crate declares async fns, streaming adapters, or JSON-marshalled types),
+# crate declares binary top-level params, async fns, streaming adapters, or JSON-marshalled types),
 # but for an umbrella crate that has none of those they are genuinely unused.
 # List them here so `cargo machete` doesn't flag the no-async-no-streaming
 # case as a real finding.
 [package.metadata.cargo-machete]
-ignored = ["futures-util", "serde_json", "tokio"]
+ignored = ["base64", "futures-util", "serde_json", "tokio"]
 
 [lib]
 name = "{jni_lib_name}"

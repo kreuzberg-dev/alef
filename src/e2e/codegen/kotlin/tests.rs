@@ -784,8 +784,8 @@ fn kotlin_android_batch_bytes_item_wraps_paths() {
 /// `jni_lib_name()` (`{ffi_prefix}_jni`) so it stays in sync with the cdylib
 /// emitted by the generated JNI `Cargo.toml` `[lib] name`. Hard-coding
 /// `{crate_name}_jni` breaks for crates that override `[crates.ffi] prefix`
-/// (e.g. tslp: name `tree-sitter-language-pack`, prefix `ts_pack`, cdylib
-/// `ts_pack_jni`).
+/// (for example: name `custom-runtime-crate`, prefix `custom_runtime`, cdylib
+/// `custom_runtime_jni`).
 #[test]
 fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
     use crate::core::config::e2e::CallConfig;
@@ -820,11 +820,11 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
         ..E2eConfig::default()
     };
     let mut config = ResolvedCrateConfig {
-        name: "tree-sitter-language-pack".to_string(),
+        name: "custom-runtime-crate".to_string(),
         ..ResolvedCrateConfig::default()
     };
     config.ffi = Some(FfiConfig {
-        prefix: Some("ts_pack".to_string()),
+        prefix: Some("custom_runtime".to_string()),
         error_style: "last_error".to_string(),
         header_name: None,
         lib_name: None,
@@ -855,11 +855,11 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
         &type_defs,
     );
     assert!(
-        out.contains("System.loadLibrary(\"ts_pack_jni\")"),
-        "kotlin_android test must loadLibrary the resolved jni_lib_name (`ts_pack_jni`), got:\n{out}"
+        out.contains("System.loadLibrary(\"custom_runtime_jni\")"),
+        "kotlin_android test must loadLibrary the resolved jni_lib_name (`custom_runtime_jni`), got:\n{out}"
     );
     assert!(
-        !out.contains("tree-sitter-language-pack_jni"),
+        !out.contains("custom-runtime-crate_jni"),
         "kotlin_android test must NOT loadLibrary the raw crate name, got:\n{out}"
     );
 }

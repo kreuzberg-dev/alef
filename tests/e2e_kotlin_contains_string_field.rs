@@ -2,14 +2,11 @@
 //! check for `contains` / `contains_all` / `not_contains` assertions on
 //! string-typed fields, instead of casting to `List<String>`.
 //!
-//! Background: prior to this fix the Kotlin codegen unconditionally emitted
-//! `(field as List<String>).contains(value)` for collection-style assertions,
-//! to satisfy Kotlin's `@OnlyInputTypes` on `Collection.contains()`. This
-//! works for genuine `List<String>` fields, but for plain `String` fields
-//! (e.g. `result.text` on the demo-client transcribe endpoint) the runtime
-//! cast throws `ClassCastException: String cannot be cast to List`. The
-//! cast is now gated on `field_resolver.is_array(...)` / `is_collection_root`
-//! so non-collection fields fall through to `string.contains(substring)`.
+//! Background: older Kotlin codegen unconditionally emitted
+//! `(field as List<String>).contains(value)` for collection-style assertions.
+//! That crashed for plain `String` fields and always failed for complex list
+//! item types. The current renderer uses direct substring checks for strings
+//! and stringifies collection fields before the case-insensitive contains check.
 //!
 //! Regression originally reported via demo-client v1.4 CI run:
 //!   `TranscribeTest.test_transcribe_basic_audio`
@@ -164,10 +161,9 @@ fn contains_on_string_field_does_not_cast_to_list() {
 }
 
 #[test]
-fn contains_on_list_field_still_casts_to_list() {
-    // Confirm the cast is still emitted for genuine List<String> fields so the
-    // Kotlin @OnlyInputTypes inference works. Declare `tags` as an array field
-    // via `fields_array`.
+fn contains_on_list_field_stringifies_collection() {
+    // Confirm collection fields use the collection-safe stringification path.
+    // Declare `tags` as an array field via `fields_array`.
     let toml_src = r#"
 [workspace]
 languages = ["kotlin"]
@@ -252,8 +248,12 @@ type = "json_object"
         .join("\n");
 
     assert!(
-        combined.contains("as List<String>"),
-        "must keep the List<String> cast for genuine List<String> fields (assertion source: \
-         `contains` on field `tags` declared in `fields_array`). Rendered:\n{combined}"
+        !combined.contains("as List<String>"),
+        "must not use an unchecked List<String> cast for collection contains assertions. Rendered:\n{combined}"
+    );
+    assert!(
+        combined.contains(r#"result.tags().toString().lowercase().contains("python".toString().lowercase())"#),
+        "must stringify collection fields for contains assertions (assertion source: `contains` on field `tags` \
+         declared in `fields_array`). Rendered:\n{combined}"
     );
 }

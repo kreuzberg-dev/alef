@@ -101,8 +101,8 @@ fn emit_function_shim(
                 }
             }
             TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)) => {
-                param_sigs.push_str(&render_param_decl(&rust_name, "jbyteArray"));
-                unmarshal.push_str(&render_byte_array_unmarshal(&rust_name, err_null, p.optional));
+                param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
+                unmarshal.push_str(&render_base64_bytes_unmarshal(&rust_name, err_null, p.optional));
                 if p.optional {
                     call_args.push_str(&rust_name);
                 } else {
@@ -115,8 +115,8 @@ fn emit_function_shim(
                 }
             }
             TypeRef::Bytes => {
-                param_sigs.push_str(&render_param_decl(&rust_name, "jbyteArray"));
-                unmarshal.push_str(&render_byte_array_unmarshal(&rust_name, err_null, p.optional));
+                param_sigs.push_str(&render_param_decl(&rust_name, "JString"));
+                unmarshal.push_str(&render_base64_bytes_unmarshal(&rust_name, err_null, p.optional));
                 if p.optional {
                     call_args.push_str(&rust_name);
                 } else {

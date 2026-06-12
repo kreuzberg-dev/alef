@@ -31,6 +31,7 @@ pub(super) fn sanitize_doc_for_csharp(doc: &str) -> String {
 
 /// Generate a static wrapper method for a streaming method on an opaque type.
 /// Delegates to the instance method on the opaque handle class.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_wrapper_function(
     func: &FunctionDef,
     exception_name: &str,
@@ -411,6 +412,7 @@ pub(super) fn gen_wrapper_function(
 /// 3. Deserialize into a native options handle
 /// 4. If bridge present, create a bridge, inject into options, call convert, free bridge
 /// 5. Otherwise, just call convert directly
+#[allow(clippy::too_many_arguments)]
 pub(super) fn gen_wrapper_method(
     method: &MethodDef,
     exception_name: &str,

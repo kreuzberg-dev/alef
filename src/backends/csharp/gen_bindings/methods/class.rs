@@ -28,6 +28,7 @@ fn should_skip_ffi_method(func: &FunctionDef) -> bool {
     false
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::csharp::gen_bindings) fn gen_wrapper_class(
     api: &ApiSurface,
     namespace: &str,

@@ -302,7 +302,7 @@ fn snapshot_jni_bridge_object() {
 }
 
 #[test]
-fn kotlin_jni_top_level_byte_api_matches_rust_jbytearray() {
+fn kotlin_jni_top_level_byte_api_matches_string_encoded_rust_boundary() {
     let api = make_top_level_bytes_api();
     let config = make_pairing_config();
 
@@ -322,14 +322,18 @@ fn kotlin_jni_top_level_byte_api_matches_rust_jbytearray() {
     let rust_content = &rust_files[0].content;
 
     assert!(
-        bridge_content.contains("external fun nativeUpload(payload: ByteArray): ByteArray"),
-        "Kotlin JNI declaration must expose byte APIs as ByteArray: {bridge_content}"
+        bridge_content.contains("external fun nativeUpload(payload: String): ByteArray"),
+        "Kotlin JNI declaration must expose string-encoded byte params and ByteArray returns: {bridge_content}"
     );
     assert!(
         rust_content.contains(
-            "nativeUpload(\n    mut env: EnvUnowned,\n    _class: JClass,\n    payload: jbyteArray,\n) -> jbyteArray"
+            "nativeUpload(\n    mut env: EnvUnowned,\n    _class: JClass,\n    payload: JString,\n) -> jbyteArray"
         ),
-        "Rust JNI symbol must expose the matching jbyteArray signature: {rust_content}"
+        "Rust JNI symbol must expose the matching string-encoded byte param signature: {rust_content}"
+    );
+    assert!(
+        rust_content.contains("base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &payload_str)"),
+        "Rust JNI symbol must decode string-encoded byte params before invoking core: {rust_content}"
     );
 }
 

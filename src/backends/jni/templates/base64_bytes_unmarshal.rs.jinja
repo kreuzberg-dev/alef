@@ -1,0 +1,19 @@
+    let {{ name }}_str = match jstring_to_string(env, {{ name }}) {
+        Ok(s) => s,
+        Err(e) => { throw_jni_error(env, &format!("{e}")); return {{ ret_null }}; }
+    };
+{% if is_optional %}
+    let {{ name }}: Option<Vec<u8>> = if {{ name }}_str.is_empty() {
+        None
+    } else {
+        match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &{{ name }}_str) {
+            Ok(v) => Some(v),
+            Err(e) => { throw_jni_error(env, &format!("base64 decode: {e}")); return {{ ret_null }}; }
+        }
+    };
+{% else %}
+    let {{ name }}: Vec<u8> = match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, &{{ name }}_str) {
+        Ok(v) => v,
+        Err(e) => { throw_jni_error(env, &format!("base64 decode: {e}")); return {{ ret_null }}; }
+    };
+{% endif %}

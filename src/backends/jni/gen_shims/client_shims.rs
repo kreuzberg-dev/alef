@@ -1,3 +1,4 @@
+#[allow(clippy::too_many_arguments)]
 fn emit_client_shims(
     out: &mut String,
     ty: &TypeDef,

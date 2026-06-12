@@ -377,15 +377,16 @@ fn snapshot_method_with_param() {
         content.contains("request_json: JString"),
         "do_thing must accept request_json: JString; got:\n{content}"
     );
+    let do_thing = extract_fn_section(content, "nativeDemoClientDoThing");
     assert!(
-        content.contains("serde_json::to_string(&v)"),
-        "do_thing must serialize return value via serde_json; got:\n{content}"
+        !do_thing.contains("serde_json::to_string(&v)"),
+        "do_thing returns a plain String and must not JSON-serialize it; got:\n{content}"
     );
     // jni 0.22+: helpers take `&mut Env<'_>`, shim wraps body in
     // `env.with_env(|env| ...)`, so inner calls pass the already-mutable
     // reference `env` (no extra `&mut`).
     assert!(
-        content.contains("string_to_jstring(env, &s)"),
+        do_thing.contains("string_to_jstring(env, &v)"),
         "do_thing must return jstring; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_method_with_param", content);

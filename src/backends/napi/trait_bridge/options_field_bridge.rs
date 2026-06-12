@@ -1,6 +1,7 @@
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::ApiSurface;
 
+#[allow(clippy::too_many_arguments)]
 pub fn gen_options_field_bridge_function(
     api: &ApiSurface,
     func: &crate::core::ir::FunctionDef,

@@ -163,7 +163,7 @@ fn render_harness(config_toml: &str, fixture: Fixture) -> String {
         fixtures: vec![fixture],
     }];
     let files = SwiftE2eCodegen
-        .generate(&groups, &e2e, &resolved, &vec![], &[])
+        .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
     files
         .iter()

@@ -6,4 +6,3 @@ fn nodecontext_to_elixir_map<'a>(
 {{ context_field_lines }}
     rustler::Term::map_from_pairs(env, &pairs).unwrap_or_else(|_| rustler::types::atom::Atom::from_str(env, "nil").unwrap().to_term(env))
 }
-

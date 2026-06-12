@@ -16,4 +16,3 @@ fn visitor_send_and_wait(bridge: &{{ struct_name }}, callback_name: &str, args_j
     VISITOR_CHANNELS.lock().unwrap().remove(&ref_id);
     result
 }
-
