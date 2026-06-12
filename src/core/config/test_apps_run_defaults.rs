@@ -287,12 +287,27 @@ zig build test"#
             before: None,
             run: Some(StringOrVec::Single(format!("cd {test_apps_dir}/c && make test"))),
         },
-        // FFI is the shared native artifact, not a standalone test app; the JNI shim
-        // is exercised via the Kotlin/Android app. Neither has its own run command.
-        Language::Ffi | Language::Jni => TestAppRunConfig {
+        // FFI is the shared C ABI consumed by other bindings (Go/Swift/…); it has
+        // no standalone test app of its own — coverage comes from the bindings
+        // that link against it.
+        Language::Ffi => TestAppRunConfig {
             precondition: None,
             before: None,
             run: None,
+        },
+        // The JNI shim is exercised by the kotlin_android test app, which runs
+        // host-JVM JUnit tests loading the JNI cdylib via gradle's buildHostJni
+        // + copyHostJni tasks (no Android emulator). Routing `Language::Jni`'s
+        // run to the same command makes JNI a first-class test-apps target
+        // instead of misleading "⊘ skipped". The duplicate `gradle test` when a
+        // project enables both kotlin_android and jni is acceptable — the
+        // task graph is incremental and the second run is cache-hot.
+        Language::Jni => TestAppRunConfig {
+            precondition: Some(require_tool("gradle")),
+            before: None,
+            run: Some(StringOrVec::Single(format!(
+                "cd {test_apps_dir}/kotlin_android && gradle test --no-daemon"
+            ))),
         },
     }
 }
@@ -358,12 +373,23 @@ mod tests {
     }
 
     #[test]
-    fn ffi_and_jni_have_no_run_command() {
-        for lang in [Language::Ffi, Language::Jni] {
-            let c = cfg(lang, "test_apps");
-            assert!(c.run.is_none(), "{lang} should have no run command");
-            assert!(c.precondition.is_none(), "{lang} should have no precondition");
-        }
+    fn ffi_has_no_run_command() {
+        let c = cfg(Language::Ffi, "test_apps");
+        assert!(c.run.is_none(), "FFI should have no run command");
+        assert!(c.precondition.is_none(), "FFI should have no precondition");
+    }
+
+    #[test]
+    fn jni_runs_kotlin_android_host_jvm_tests() {
+        let c = cfg(Language::Jni, "test_apps");
+        let run = c.run.expect("JNI should have a run command");
+        let cmd = match run {
+            StringOrVec::Single(s) => s,
+            _ => panic!("JNI run should be a single command"),
+        };
+        assert!(cmd.contains("kotlin_android"), "JNI should run via kotlin_android: {cmd}");
+        assert!(cmd.contains("gradle test"), "JNI should run gradle test: {cmd}");
+        assert!(c.precondition.is_some(), "JNI should require gradle");
     }
 
     #[test]

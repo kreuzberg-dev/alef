@@ -128,7 +128,7 @@ commands to one configured crate.
 | Zig | Zig package over the generated C ABI |
 | Gleam | Gleam package backed by Rustler |
 | C FFI | C ABI, header, and shared-library glue |
-| JNI | Rust JNI shim crate for Android-facing APIs |
+| JNI | Rust JNI shim crate exercised by both kotlin_android (Android AAR) and host-JVM tests |
 
 Canonical language slugs are `python`, `node`, `wasm`, `ruby`, `php`, `elixir`, `r`, `go`,
 `java`, `csharp`, `kotlin`, `kotlin_android`, `swift`, `dart`, `gleam`, `zig`, `ffi`, and `jni`.
