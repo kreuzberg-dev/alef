@@ -40,8 +40,8 @@ fn visitor_bridge_for_trait_bridge(func: &FunctionDef, bridge: &TraitBridgeConfi
     let options_param_java = to_java_name(&options_param.name);
 
     Some(VisitorFunctionBridge {
-        options_param_java,
         options_param_c: format!("c{options_param_java}"),
+        options_param_java,
         options_type_handle: options_type.to_snake_case().to_uppercase(),
         options_field_java: safe_java_field_name(options_field),
         options_field_native: options_field.to_snake_case(),
