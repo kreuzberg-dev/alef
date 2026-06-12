@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.13] - 2026-06-12
+
 ### Fixed
+
+- **Python scaffold: `[crates.python] sdist_include` propagates to maturin `[tool.maturin] sdist-include`.** Without it, `maturin sdist` excludes workspace path-dependent crates from the tarball and downstream `pip install <pkg>` from PyPI fails on platforms without a precompiled wheel (e.g. Alpine/musl). Added an optional `sdist_include: Vec<String>` field to `PythonConfig`; when non-empty, scaffold emission renders `sdist-include = [ ... ]` after `python-packages` in the maturin block. Closes html-to-markdown#402.
+
+- **PyO3 stubs: emit user-facing `class HtmlVisitor(Protocol):` and use it as the visitor parameter type.** PyO3's `convert()` accepts `Option<Py<PyAny>>` and the alef-generated bridge wraps any object implementing the visitor methods, so the `.pyi` should advertise the protocol surface (`HtmlVisitor | None`) rather than the opaque `VisitorHandle` wrapper. Stub generator now resolves trait methods via `TraitBridgeConfig::resolve_methods` and emits a Protocol class listing each `visit_*` signature; the visitor kwarg type uses the trait name when present, falling back to `type_alias` for backward compatibility with legacy bridges. Closes html-to-markdown#403.
+
+- **Ruby publish: `generate_platform_gemspec` propagates `required_ruby_version` from the source gemspec into platform-specific gemspecs.** Without it, native gems install on incompatible Ruby ABIs (e.g. Ruby 4.1.0dev) and crash at load time. `package_ruby` scans `pkg_dir` for the source `.gemspec` (skipping the `*-platform.gemspec` decoy), regex-extracts `required_ruby_version`, and threads it into the platform gemspec emitter; absent values emit nothing (no hardcoded fallback). Closes html-to-markdown#405.
+
+- **C# readme: expose the actual wrapper class name via the `csharp_wrapper_class` minijinja context.** The default readme partials referenced a literal `HtmlToMarkdownConverter`; downstream crates now render `{{ csharp_wrapper_class }}.Convert(...)`, computed via `csharp_wrapper_class_name(crate_name, namespace)` — the same helper `gen_bindings` uses to name the static class (e.g. `HtmlToMarkdownRs` for `html-to-markdown-rs`). Closes html-to-markdown#408.
+
+- **NAPI codegen: `bind_via = "options_field"` trait-bridge handles carry through `JsConversionOptions::Into<ConversionOptions>` instead of being zeroed.** The post-process pass that rewrites the auto-derived `__result.<field> = Default::default()` required `f.cfg.is_none()` to consider the field present, which silently dropped cfg-gated bridge fields (e.g. h2m's `ConversionOptions.visitor` behind `#[cfg(feature = "visitor")]`). Predicate relaxed to accept cfg-gated fields whose names appear in `never_skip_cfg_field_names`, so the JS-side `options.visitor = new MyVisitor()` path is now wired through to the Rust side end-to-end. Closes html-to-markdown#395.
 
 - **Kotlin Android: map `Path`/`PathBuf` fields to `String` for Jackson deserialization compatibility.** The Kotlin type mapper was emitting `java.nio.file.Path` for `TypeRef::Path` fields, but Jackson cannot deserialize arbitrary JSON values into `java.nio.file.Path` without a custom deserializer. This caused deserialization failures with `MissingKotlinParameterException` on configs like `TreeSitterConfig` with optional path fields (e.g., `cache_dir`). The fix remaps `Path` → `String` in the Kotlin backend, allowing Jackson to deserialize path values directly as strings (which is semantically correct; file paths are always serialized as JSON strings). This approach maintains compatibility across JNI/FFI contexts and avoids needing a custom deserializer. Path fields are now Jackson-compatible in all Kotlin data classes.
 
