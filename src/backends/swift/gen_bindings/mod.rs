@@ -484,6 +484,57 @@ impl Backend for SwiftBackend {
                     );
                 }
             }
+
+            // Second pass: any Named type referenced as `Vec<Named>` (or bare Named) in
+            // an async forwarder return position also needs `@unchecked Sendable`.
+            // Such types may have been filtered out of `api.types` above (e.g. when an
+            // alef(skip)-annotated cfg-gated stub shadows the canonical) but still
+            // surface in the swift-bridge extern as `type T;` because they appear in a
+            // public return signature, and the forwarder body crosses the
+            // `Task.detached.value` boundary with `[T]`. Without this pass, Swift 6
+            // strict-concurrency rejects the closure return.
+            //
+            // Collects from `api.functions` only (async, free fns); methods are handled
+            // by their owner's client-class Sendable emission path.
+            fn collect_async_vec_named<'a>(
+                ty: &'a crate::core::ir::TypeRef,
+                names: &mut std::collections::HashSet<&'a str>,
+            ) {
+                use crate::core::ir::TypeRef;
+                match ty {
+                    TypeRef::Vec(inner) | TypeRef::Optional(inner) => {
+                        collect_async_vec_named(inner, names);
+                    }
+                    TypeRef::Named(n) => {
+                        names.insert(n.as_str());
+                    }
+                    _ => {}
+                }
+            }
+
+            let mut referenced_async_named: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for f in &api.functions {
+                if !f.is_async || f.binding_excluded {
+                    continue;
+                }
+                collect_async_vec_named(&f.return_type, &mut referenced_async_named);
+            }
+            for name in referenced_async_named {
+                if exclude_types.contains(name) {
+                    continue;
+                }
+                if sendable_emitted.insert(name.to_string()) {
+                    emit_sendable_conformance(
+                        &mut body,
+                        name,
+                        None,
+                        &[
+                            "swift-bridge opaque type referenced in async forwarder return — Rust type is Send + Sync.",
+                            "Auto-included even when the IR filter excluded it (e.g. cfg-gated alef(skip) stub).",
+                        ],
+                    );
+                }
+            }
         }
 
         // swift-format-ignore-file tells swift-format to skip this file entirely.
