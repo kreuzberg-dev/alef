@@ -567,10 +567,13 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                     if let serde_json::Value::Object(map) = &arg_value {
                         if !map.is_empty() {
                             // Round-trip object config JSON through a generated helper.
-                            // Require explicit type metadata; otherwise the fallback would
-                            // produce a `create<arg_name>FromJson` reference that doesn't
-                            // exist in the binding.
-                            let opts_type = options_type.unwrap_or(&arg_def.name);
+                            // Resolve config type from explicit element_type first, then fall back
+                            // to options_type from the call recipe, then to the arg name as a last resort.
+                            let opts_type = arg_def
+                                .element_type
+                                .as_deref()
+                                .or(options_type)
+                                .unwrap_or(&arg_def.name);
                             let json_str = serde_json::to_string(&arg_value).unwrap_or_default();
                             let escaped_json = escape_dart(&json_str);
                             let var_name = format!("_{}", arg_def.name);
@@ -588,7 +591,9 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                             // configured config types). This ensures the
                             // call signature matches the binding, which expects a required
                             // config parameter even when all fields use their defaults.
-                            if let Some(opts_type) = options_type {
+                            // Resolve config type from element_type, options_type, or arg name.
+                            let opts_type = arg_def.element_type.as_deref().or(options_type);
+                            if let Some(opts_type) = opts_type {
                                 let var_name = format!("_{}", arg_def.name);
                                 let dart_fn = type_name_to_create_from_json_dart(opts_type);
                                 setup_lines.push(format!("final {var_name} = await {dart_fn}(json: '{{}}');"));
@@ -607,7 +612,8 @@ pub(super) fn render_test_case(out: &mut String, fixture: &Fixture, context: Dar
                         // Construct a default instance via FRB's
                         // `create<Type>FromJson(json: '{}')` helper when IR metadata says
                         // the configured type has a default.
-                        if let Some(opts_type) = options_type.filter(|_| {
+                        let opts_type = arg_def.element_type.as_deref().or(options_type);
+                        if let Some(opts_type) = opts_type.filter(|_| {
                             call_recipe.json_object_arg_has_default(arg_def)
                                 || call_recipe.should_materialize_json_object(arg_def, arg_value)
                         }) {

@@ -1549,14 +1549,12 @@ pub fn emit_test_backend(
         emitted_methods.insert("name".to_string());
     }
 
-    // Emit all abstract methods (those without default implementations).
-    // Skip methods with default impls — they should inherit the interface default.
-    // This matches the Kotlin interface structure where some methods (initialize, shutdown,
-    // description, author) have empty default implementations.
+    // Emit all methods to ensure test stubs are concrete and non-abstract.
+    // Even methods marked with has_default_impl=true must be overridden in test stubs
+    // to ensure the stub class is not abstract and can be instantiated. The Kotlin
+    // interface may declare abstract methods without defaults that the Rust metadata
+    // incorrectly marks as having defaults.
     for method in methods {
-        if method.has_default_impl {
-            continue;
-        }
         // Skip if already emitted (e.g., super-trait name method).
         if emitted_methods.contains(&method.name) {
             continue;
@@ -1596,7 +1594,7 @@ pub fn emit_test_backend(
                 if let crate::core::ir::TypeRef::Named(name) = &method.return_type {
                     match name.as_str() {
                         "ProcessingStage" => "ProcessingStage.EARLY".to_string(),
-                        "OcrBackendType" => "OcrBackendType.UNKNOWN".to_string(),
+                        "OcrBackendType" => "OcrBackendType.TESSERACT".to_string(),
                         "OutputFormat" => "OutputFormat.TEXT".to_string(),
                         "ChunkingStrategy" => "ChunkingStrategy.NAIVE".to_string(),
                         "EmbeddingModelType" => "EmbeddingModelType.UNKNOWN".to_string(),
