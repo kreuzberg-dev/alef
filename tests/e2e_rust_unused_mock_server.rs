@@ -34,6 +34,7 @@ fn error_fixture_with_mock() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             // No `url` field that would reference the mock server URL — this fixture
             // exercises the error path triggered by the 500 response, not URL routing.

@@ -46,6 +46,7 @@ fn make_fixture(id: &str, input: serde_json::Value) -> Fixture {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input,
         mock_response: None,

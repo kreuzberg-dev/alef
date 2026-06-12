@@ -21,6 +21,7 @@ fn make_fixture(id: &str, assertion_type: &str, field: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({}),
         mock_response: Some(MockResponse {

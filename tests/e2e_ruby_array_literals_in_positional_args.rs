@@ -51,6 +51,7 @@ fn string_array_fixture_group() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "texts": ["First", "Second"],

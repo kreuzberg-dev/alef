@@ -21,6 +21,7 @@ fn make_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "request": { "model": "gpt-4o", "messages": [] } }),
         mock_response: Some(MockResponse {

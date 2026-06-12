@@ -14,6 +14,7 @@ fn make_fixture(id: &str) -> Fixture {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::Value::Null,
         mock_response: Some(crate::e2e::fixture::MockResponse {
@@ -99,6 +100,7 @@ fn handle_config_deserialization_uses_resolved_options_type() {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "config": { "limit": 3 } }),
         mock_response: None,
@@ -306,6 +308,7 @@ fn test_indexed_element_prefix_guard_uses_array_not_element() {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::Value::Null,
         mock_response: Some(crate::e2e::fixture::MockResponse {
@@ -407,6 +410,7 @@ fn test_result_is_simple_contains_binds_result_and_emits_imports() {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({"data": "pdf/fake_memo.pdf"}),
         mock_response: None,

@@ -21,6 +21,7 @@ fn make_http_fixture(id: &str, description: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({}),
         mock_response: None,

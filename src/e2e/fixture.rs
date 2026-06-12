@@ -85,8 +85,20 @@ pub struct FixtureEnv {
     pub api_key_var: Option<String>,
 }
 
+/// Setup call: a mini-call executed before the main fixture call.
+/// Used to establish stateful resources like registered backends.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SetupCall {
+    /// Named call config to use (references `[e2e.calls.<name>]`).
+    pub call: String,
+    /// Input data passed to the setup call.
+    #[serde(default)]
+    pub input: serde_json::Value,
+}
+
 /// A single e2e test fixture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Fixture {
     /// Unique identifier (used as test function name).
     pub id: String,
@@ -104,6 +116,9 @@ pub struct Fixture {
     /// Environment variable requirements (used by smoke/live tests).
     #[serde(default)]
     pub env: Option<FixtureEnv>,
+    /// Setup calls executed before the main call (used to register backends, etc).
+    #[serde(default)]
+    pub setup: Vec<SetupCall>,
     /// Named call config to use (references `[e2e.calls.<name>]`).
     /// When omitted, uses the default `[e2e.call]`.
     #[serde(default)]
@@ -321,6 +336,29 @@ const ORIGIN_ROOT_ROUTE_PREFIXES: [&str; 2] = ["/robots", "/sitemap"];
 /// mock-server binary (`codegen/rust/mock_server.rs`).
 fn is_host_root_path(path: &str) -> bool {
     ORIGIN_ROOT_ROUTE_PREFIXES.iter().any(|prefix| path.starts_with(prefix))
+}
+
+impl Default for Fixture {
+    fn default() -> Self {
+        Fixture {
+            id: String::new(),
+            category: None,
+            description: String::new(),
+            tags: Vec::new(),
+            skip: None,
+            env: None,
+            setup: Vec::new(),
+            call: None,
+            input: serde_json::Value::Null,
+            mock_response: None,
+            visitor: None,
+            args: Vec::new(),
+            assertion_recipes: Vec::new(),
+            assertions: Vec::new(),
+            source: String::new(),
+            http: None,
+        }
+    }
 }
 
 impl Fixture {

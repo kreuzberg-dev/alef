@@ -46,6 +46,7 @@ fn fixture(id: &str, language: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "language": language }),
         mock_response: None,

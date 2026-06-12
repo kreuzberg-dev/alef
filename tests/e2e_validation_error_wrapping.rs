@@ -85,6 +85,7 @@ fn build_validation_fixture() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "config": { "max_depth": 200 },

@@ -25,6 +25,7 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
         tags: vec!["value_type_default".to_string()],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("process_items_async".to_string()),
         input: serde_json::json!({
             "texts": ["sample text"]

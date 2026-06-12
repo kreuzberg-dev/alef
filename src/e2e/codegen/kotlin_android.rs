@@ -117,9 +117,7 @@ impl E2eCodegen for KotlinAndroidE2eCodegen {
         files.push(GeneratedFile {
             path: output_base.join("build.gradle.kts"),
             content: render_build_gradle_kotlin_android(
-                &pkg_name,
                 &kotlin_pkg_id,
-                &kotlin_android_version,
                 &maven_coordinate,
                 e2e_config.dep_mode,
                 needs_mock_server,
@@ -324,9 +322,7 @@ fn is_enum_typed(ty: &crate::core::ir::TypeRef, struct_names: &HashSet<&str>) ->
 /// Kotlin script compile time. The host-JVM test sources live in
 /// `src/test/kotlin/` and run against the shared native library via JNA.
 fn render_build_gradle_kotlin_android(
-    _pkg_name: &str,
     kotlin_pkg_id: &str,
-    _pkg_version: &str,
     maven_coordinate: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     needs_mock_server: bool,
@@ -1117,9 +1113,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_includes_jackson_module_kotlin() {
         let output = render_build_gradle_kotlin_android(
-            "demo-client",
             "dev.sample_crate.samplellm.android",
-            "1.0.0",
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
@@ -1141,9 +1135,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_registry_mode_emits_full_maven_coordinate() {
         let output = render_build_gradle_kotlin_android(
-            "sample_crate",
             "dev.sample_crate",
-            "5.0.0-rc.1",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
@@ -1212,9 +1204,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_registry_mode_includes_aar_verification_task() {
         let output = render_build_gradle_kotlin_android(
-            "sample_crate",
             "dev.sample_crate",
-            "5.0.0-rc.1",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
@@ -1251,9 +1241,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Local,
         ] {
             let output = render_build_gradle_kotlin_android(
-                "sample_crate",
                 "dev.sample_crate",
-                "5.0.0-rc.1",
                 "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
                 dep_mode,
                 false,
@@ -1272,9 +1260,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_local_mode_excludes_aar_verification_task() {
         let output = render_build_gradle_kotlin_android(
-            "demo-client",
             "dev.sample_crate.samplellm.android",
-            "1.0.0",
             "dev.sample_crate:demo-client-android:1.0.0",
             crate::e2e::config::DependencyMode::Local,
             false,
@@ -1366,9 +1352,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Local,
         ] {
             let output = render_build_gradle_kotlin_android(
-                "sample_crate",
                 "dev.sample_crate",
-                "5.0.0-rc.1",
                 "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
                 dep_mode,
                 false,
@@ -1400,9 +1384,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_build_host_jni_uses_parameterized_jni_crate_path() {
         let output = render_build_gradle_kotlin_android(
-            "sample_crate",
             "dev.sample_crate",
-            "5.0.0-rc.1",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Local,
             false,
@@ -1425,9 +1407,7 @@ mod tests {
     #[test]
     fn build_gradle_kotlin_android_copy_host_jni_uses_parameterized_jni_lib_name() {
         let output = render_build_gradle_kotlin_android(
-            "sample_crate",
             "dev.sample_crate",
-            "5.0.0-rc.1",
             "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
             crate::e2e::config::DependencyMode::Registry,
             false,
@@ -1706,6 +1686,7 @@ mod test_backend_tests {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::Value::Null,
             mock_response: None,

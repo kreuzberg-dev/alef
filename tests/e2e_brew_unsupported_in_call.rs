@@ -67,6 +67,7 @@ fn build_interact_fixture() -> FixtureGroup {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "url": "http://example.com",

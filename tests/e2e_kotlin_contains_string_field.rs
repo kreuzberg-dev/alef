@@ -31,6 +31,7 @@ fn make_fixture_with_contains_on_string() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "request": { "model": "whisper-1" } }),
             mock_response: Some(MockResponse {
@@ -211,6 +212,7 @@ type = "json_object"
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "request": {} }),
             mock_response: Some(MockResponse {

@@ -408,6 +408,7 @@ fn http_only_test_file_with_json_body_emits_decompress_helper() {
         tags: vec![],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::Value::Null,
         mock_response: None,

@@ -49,6 +49,7 @@ fn simple_fixture_group() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "html": "<p>Hello world</p>",

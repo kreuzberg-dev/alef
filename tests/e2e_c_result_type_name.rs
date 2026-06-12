@@ -65,6 +65,7 @@ fn build_simple_fixture() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "html": "<p>hi</p>" }),
             mock_response: None,

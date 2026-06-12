@@ -53,6 +53,7 @@ fn trait_bridge_tests_are_async_and_await_calls() {
         tags: vec!["trait-bridge".to_string()],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("register_my_backend".to_string()),
         input: serde_json::json!({
             "backend": {

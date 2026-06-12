@@ -153,6 +153,7 @@ fn make_fixture(id: &str, assertion_type: &str, field: &str, value: serde_json::
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "source_code": "fn main() {}" }),
         mock_response: Some(MockResponse {

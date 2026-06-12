@@ -20,6 +20,7 @@ fn make_chat_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("chat".to_string()),
         input: serde_json::json!({
             "model": "gpt-4o",
@@ -57,6 +58,7 @@ fn make_chat_fixture_with_field_assertion(id: &str, field: &str, expected: &str)
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("chat".to_string()),
         input: serde_json::json!({
             "model": "gpt-4o",
@@ -246,6 +248,7 @@ fn make_streaming_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("chat_stream".to_string()),
         input: serde_json::json!({
             "model": "gpt-4o",

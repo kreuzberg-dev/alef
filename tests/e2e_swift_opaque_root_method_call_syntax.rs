@@ -122,6 +122,7 @@ fn make_contains_fixture(id: &str, field: &str, value: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "file_path": "test.txt" }),
         mock_response: Some(MockResponse {

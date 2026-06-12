@@ -47,6 +47,7 @@ fn fixture_for(category: &str, id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({ "url": "https://example.com" }),
         mock_response: Some(MockResponse {

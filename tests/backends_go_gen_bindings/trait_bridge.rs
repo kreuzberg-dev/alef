@@ -798,12 +798,12 @@ fn test_gen_trait_bridges_file_uses_correct_vtable_struct_name() {
     );
 
     assert!(
-        code.contains("static SAMPLE_CRATESampleCrateOcrBackendVTable* sample_crate_ocr_backend_vtable_new("),
+        code.contains("static inline SAMPLE_CRATESampleCrateOcrBackendVTable* sample_crate_ocr_backend_vtable_new("),
         "must use correct cbindgen-generated VTable struct name format: {{CRATE_UPPER}}{{CratePascal}}{{TraitPascal}}VTable"
     );
     assert!(
         code.contains("vtable := C.sample_crate_ocr_backend_vtable_new("),
-        "registration must allocate the VTable through the crate-prefixed C helper"
+        "registration must allocate the VTable through the ffi-prefixed C helper"
     );
 }
 

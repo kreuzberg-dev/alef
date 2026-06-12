@@ -69,6 +69,7 @@ fn build_fixture_group() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "source": "int main() {}" }),
             mock_response: None,

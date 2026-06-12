@@ -56,6 +56,7 @@ fn build_fixture_with_http() -> FixtureGroup {
             tags: vec!["smoke".to_string()],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "messages": "hello" }),
             mock_response: Some(MockResponse {
@@ -228,6 +229,7 @@ prefix = "htm"
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "html": "<p>hi</p>" }),
             mock_response: None,

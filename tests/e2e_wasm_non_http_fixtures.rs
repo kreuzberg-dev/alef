@@ -57,6 +57,7 @@ fn smoke_fixture() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "path": "pdf/fake_memo.pdf" }),
             mock_response: None,

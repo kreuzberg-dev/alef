@@ -17,6 +17,7 @@ fn make_fixture(id: &str) -> Fixture {
         tags: vec!["document_structure".to_string()],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("extract_file_sync".to_string()),
         input: serde_json::json!({
             "path": "docx/fake.docx",

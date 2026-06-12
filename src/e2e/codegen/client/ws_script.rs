@@ -68,6 +68,7 @@ mod tests {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::Value::Null,
             mock_response: None,

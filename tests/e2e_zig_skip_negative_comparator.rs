@@ -67,6 +67,7 @@ fn greater_than_negative_one_is_skipped() {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: json!({
             "url": "http://example.com",
@@ -124,6 +125,7 @@ fn greater_than_or_equal_negative_one_is_skipped() {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: json!({
             "url": "http://example.com"
@@ -175,6 +177,7 @@ fn greater_than_positive_value_is_emitted() {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: json!({
             "url": "http://example.com"
@@ -228,6 +231,7 @@ fn less_than_negative_value_is_emitted() {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: json!({
             "url": "http://example.com"

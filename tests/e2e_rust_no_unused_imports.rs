@@ -26,6 +26,7 @@ fn fixture_without_config(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         // input.config is absent, so create_engine(None) needs no config type reference in the body.
         input: serde_json::json!({ "url": "https://example.com" }),

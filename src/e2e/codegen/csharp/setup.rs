@@ -421,12 +421,6 @@ fn resolve_json_object_default(
         return format_with_via(opts_type);
     }
 
-    // If we have candidates and couldn't verify constructibility in type_defs,
-    // use the first candidate anyway (assume C# binding has parameterless constructor)
-    if !candidates.is_empty() {
-        return format_with_via(&candidates[0]);
-    }
-
     // Cannot determine any type name; pass null
     // This will fail at runtime with ArgumentNullException on non-nullable params
     "null".to_string()

@@ -541,6 +541,7 @@ mod visitor_tests {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "html": "<p>Hello</p>",

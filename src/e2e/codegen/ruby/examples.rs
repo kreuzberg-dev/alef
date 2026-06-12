@@ -36,7 +36,7 @@ pub(super) fn render_chat_stream_example(
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
     let fixture_id = fixture.id.clone();
 
-    let (mut setup_lines, args_str, teardown_lines) = build_args_and_setup(
+    let (mut setup_lines, args_str, mut teardown_lines) = build_args_and_setup(
         &fixture.input,
         args,
         call_receiver,
@@ -49,6 +49,47 @@ pub(super) fn render_chat_stream_example(
         config,
         type_defs,
     );
+
+    // Emit setup calls (e.g., register_reranker_backend before calling rerank).
+    for setup_call in &fixture.setup {
+        let setup_call_config = e2e_config.resolve_call_for_fixture(
+            Some(&setup_call.call),
+            &fixture.id,
+            &fixture.resolved_category(),
+            &fixture.tags,
+            &setup_call.input,
+        );
+        let setup_args = &setup_call_config.args;
+        let (setup_setup_lines, setup_args_str, setup_teardown_lines) = build_args_and_setup(
+            &setup_call.input,
+            setup_args,
+            call_receiver,
+            module_name,
+            None,
+            enum_fields,
+            false,
+            fixture,
+            None,
+            config,
+            type_defs,
+        );
+
+        for line in setup_setup_lines {
+            setup_lines.push(line);
+        }
+
+        let setup_fn = &setup_call_config.function;
+        let setup_call_expr = if setup_args_str.is_empty() {
+            format!("{}.{}()", call_receiver, setup_fn)
+        } else {
+            format!("{}.{}({})", call_receiver, setup_fn, setup_args_str)
+        };
+        setup_lines.push(setup_call_expr);
+
+        for line in setup_teardown_lines {
+            teardown_lines.push(line);
+        }
+    }
 
     let mut final_args = args_str;
     if !extra_args.is_empty() {

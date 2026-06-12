@@ -20,6 +20,7 @@ fn make_smoke_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({
             "request": {

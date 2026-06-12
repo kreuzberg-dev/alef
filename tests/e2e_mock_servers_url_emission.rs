@@ -27,6 +27,7 @@ fn make_host_root_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({
             "url": "http://example.com/",
@@ -62,6 +63,7 @@ fn make_plain_fixture(id: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({"url": "http://example.com/page"}),
         mock_response: None,

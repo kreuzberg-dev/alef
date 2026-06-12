@@ -48,32 +48,23 @@ package_name = "test-lib"
 }
 
 #[test]
-fn build_config_service_wrapper_patch_overrides_app_after_native_export() {
+fn build_config_patches_const_enum_declarations() {
     let backend = NapiBackend;
     let build_config = backend.build_config().expect("NAPI backend should have build config");
-    let service_patch = build_config
+    let enum_patch = build_config
         .post_build
         .iter()
         .find_map(|step| match step {
             PostBuildStep::PatchFile { path, find, replace }
-                if *path == "index.js" && find.trim_end() == "module.exports = nativeBinding;" =>
+                if *path == "index.d.ts" && *find == "export declare const enum" =>
             {
                 Some(*replace)
             }
             _ => None,
         })
-        .expect("index.js service wrapper patch should be configured");
+        .expect("index.d.ts const enum patch should be configured");
 
-    let export_pos = service_patch
-        .find("module.exports = nativeBinding;")
-        .expect("patch should preserve native export");
-    let override_pos = service_patch
-        .find("module.exports.App = _service.App;")
-        .expect("patch should override App with service wrapper");
-    assert!(
-        export_pos < override_pos,
-        "service wrapper override must happen after native export:\n{service_patch}"
-    );
+    assert_eq!(enum_patch, "export declare enum");
 }
 
 #[test]

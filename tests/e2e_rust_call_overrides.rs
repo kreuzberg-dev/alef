@@ -69,6 +69,7 @@ fn build_fixture_with_assertions(id: &str, assertions: Vec<Assertion>) -> Fixtur
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({ "path": "test.pdf" }),
             mock_response: Some(alef::e2e::fixture::MockResponse {
@@ -141,6 +142,7 @@ fn build_fixture() -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({
                 "html": "<p>hi</p>",

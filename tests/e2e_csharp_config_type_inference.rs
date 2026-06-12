@@ -23,6 +23,7 @@ fn make_fixture_omit_config(id: &str) -> Fixture {
         tags: vec!["config_inference".to_string()],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("process_with_config".to_string()),
         input: serde_json::json!({
             "data": "test data"

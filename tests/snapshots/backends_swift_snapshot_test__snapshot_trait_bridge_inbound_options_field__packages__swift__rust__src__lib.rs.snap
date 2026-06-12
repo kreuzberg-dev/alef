@@ -188,7 +188,7 @@ impl SwiftMarkupVisitorWrapper {
     }
 }
 impl demo::visitor::MarkupVisitor for SwiftMarkupVisitorWrapper {
-    fn visit_node(&self, tag: str) -> demo::visitor::FlowDecision {
+    fn visit_node(&self, tag: String) -> demo::visitor::FlowDecision {
         let json = self.inner.alef_visit_node(tag);
         ::serde_json::from_str::<demo::visitor::FlowDecision>(&json).expect("swift markup_visitor.visit_node returned invalid JSON")
     }

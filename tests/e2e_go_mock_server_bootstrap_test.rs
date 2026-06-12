@@ -51,6 +51,7 @@ fn make_mock_server_fixture() -> FixtureGroup {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({}),
             mock_response: Some(MockResponse {
@@ -150,6 +151,7 @@ fn test_go_main_test_fixture_has_http_fixtures_not_mock_server() {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::json!({}),
             mock_response: None,

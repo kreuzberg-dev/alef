@@ -75,6 +75,7 @@ mod plugin_trait_stub_generation {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: input_json,
             mock_response: None,

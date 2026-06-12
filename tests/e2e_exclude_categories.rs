@@ -20,6 +20,7 @@ fn make_fixture(id: &str, category: Option<&str>, source: &str) -> Fixture {
         tags: Vec::new(),
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: None,
         input: serde_json::json!({}),
         mock_response: None,

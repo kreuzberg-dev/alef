@@ -479,6 +479,7 @@ mod trait_bridge_tests {
             tags: vec![],
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input: serde_json::Value::Null,
             mock_response: Some(crate::e2e::fixture::MockResponse {

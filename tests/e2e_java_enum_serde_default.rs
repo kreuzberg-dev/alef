@@ -22,6 +22,7 @@ fn make_keyword_fixture() -> Fixture {
         tags: vec!["keywords".to_string(), "config".to_string()],
         skip: None,
         env: None,
+        setup: Vec::new(),
         call: Some("extract_file_sync".to_string()),
         input: serde_json::json!({
             "path": "pdf/fake_memo.pdf",

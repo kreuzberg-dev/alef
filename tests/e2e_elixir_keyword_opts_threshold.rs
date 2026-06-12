@@ -51,6 +51,7 @@ fn fixture_with_input(input: serde_json::Value) -> FixtureGroup {
             tags: Vec::new(),
             skip: None,
             env: None,
+            setup: Vec::new(),
             call: None,
             input,
             mock_response: None,
