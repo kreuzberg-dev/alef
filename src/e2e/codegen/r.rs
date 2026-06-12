@@ -633,15 +633,13 @@ fn build_args_string(
                 let r_value = r_default_for_config_arg(arg_name, options_type);
                 return Some(format!("{arg_name} = {r_value}"));
             }
-            // Non-empty json_object for typed config args (those whose default is a
-            // `$default()` constructor): use `TypeName$from_json(jsonlite::toJSON(...))`
+            // Non-empty json_object for typed config args: use `TypeName$from_json(jsonlite::toJSON(...))`
             // so the Rust function receives a proper ExternalPtr, not a list.
-            // For `options`-style args (default = NULL) emit as a plain R list.
+            // When options_type is set, always wrap; when not set, emit as plain R list.
             if arg.arg_type == "json_object" && val.is_object() {
-                let default_expr = r_default_for_config_arg(arg_name, options_type);
-                if default_expr.ends_with("$default()") {
-                    // Extract the type name from "TypeName$default()"
-                    let type_name = default_expr.trim_end_matches("$default()");
+                // If options_type is provided, wrap the object with TypeName$from_json(...)
+                // regardless of whether this is an optional or required config parameter.
+                if let Some(type_name) = options_type {
                     // Use the `I(...)` (AsIs) wrapper for array-valued fields so
                     // `jsonlite::toJSON(..., auto_unbox = TRUE)` preserves them as
                     // JSON arrays. Without this, single-element vectors get
@@ -651,6 +649,7 @@ fn build_args_string(
                     let r_value = format!("{type_name}$from_json(jsonlite::toJSON({r_list}, auto_unbox = TRUE))");
                     return Some(format!("{arg_name} = {r_value}"));
                 }
+                // No options_type: emit as plain R list (backward compat for optional-style args).
                 let r_value = json_to_r(val, true);
                 return Some(format!("{arg_name} = {r_value}"));
             }
