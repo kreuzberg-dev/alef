@@ -185,11 +185,7 @@ crate-type = ["staticlib", "lib"]
         .as_ref()
         .map(|r| r.extra_makevars_prelude.clone())
         .unwrap_or_default();
-    let extra_libs = config
-        .r
-        .as_ref()
-        .map(|r| r.extra_pkg_libs.clone())
-        .unwrap_or_default();
+    let extra_libs = config.r.as_ref().map(|r| r.extra_pkg_libs.clone()).unwrap_or_default();
     let prelude_block = if prelude.is_empty() {
         String::new()
     } else {

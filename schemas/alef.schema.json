@@ -4247,6 +4247,14 @@
             "null"
           ]
         },
+        "sdist_include": {
+          "default": [],
+          "description": "Extra paths to include in the maturin source distribution (sdist), emitted\nas `sdist-include` under `[tool.maturin]` in the scaffold-generated\n`pyproject.toml`. Entries are workspace-relative glob patterns such as\n`\"../../crates/sample-markdown/**/*\"` and pass through verbatim. Use this\nto bundle path-dependent workspace crates into the sdist so source builds\n(e.g. Alpine/musl PyPI installs) can compile from the published archive.\nEmpty by default.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "serde_rename_all": {
           "default": null,
           "description": "Override the serde rename_all strategy for JSON field names (e.g. \"camelCase\", \"snake_case\").\nWhen set, this takes priority over the IR type-level serde_rename_all.",
@@ -6823,7 +6831,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.12/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.24.13/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6933,6 +6941,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.24.12",
-  "x-alef-version": "0.24.12"
+  "version": "0.24.13",
+  "x-alef-version": "0.24.13"
 }

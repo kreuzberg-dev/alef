@@ -802,7 +802,10 @@ impl Backend for NapiBackend {
                 continue;
             }
             if let Some(field_name) = bridge.resolved_options_field() {
-                // Verify the field is present in the binding struct (not cfg-gated away)
+                // Verify the field is present in the binding struct. The NAPI backend keeps
+                // cfg-gated fields in the binding (decorated with `#[cfg(...)]`) when their
+                // names are in `never_skip_cfg_field_names` — every trait-bridge OptionsField
+                // is registered there above (line 114-125), so accept cfg-gated fields too.
                 let Some(options_type) = bridge.options_type.as_deref() else {
                     continue;
                 };
@@ -811,7 +814,10 @@ impl Backend for NapiBackend {
                     .iter()
                     .filter(|t| t.name == options_type)
                     .flat_map(|t| t.fields.iter())
-                    .any(|f| f.cfg.is_none() && f.name == field_name);
+                    .any(|f| {
+                        f.name == field_name
+                            && (f.cfg.is_none() || never_skip_cfg_field_names.iter().any(|n| n == field_name))
+                    });
                 if !field_in_binding {
                     continue;
                 }

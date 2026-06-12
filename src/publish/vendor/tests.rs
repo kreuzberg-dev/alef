@@ -1,0 +1,467 @@
+use super::*;
+use std::fs;
+use tempfile::TempDir;
+
+fn setup_workspace(root: &Path) {
+    fs::write(
+        root.join("Cargo.toml"),
+        r#"
+[workspace]
+resolver = "2"
+members = ["crates/my-lib", "crates/my-lib-py"]
+
+[workspace.package]
+version = "1.2.3"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT"
+authors = ["Test Author"]
+repository = "https://github.com/test/my-lib"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+anyhow = "1"
+my-lib = { version = "1.2.3", path = "crates/my-lib" }
+tokio = { version = "1", features = ["full"] }
+"#,
+    )
+    .unwrap();
+
+    let core_dir = root.join("crates/my-lib/src");
+    fs::create_dir_all(&core_dir).unwrap();
+    fs::write(core_dir.join("lib.rs"), "pub fn hello() {}").unwrap();
+    fs::write(
+        root.join("crates/my-lib/Cargo.toml"),
+        r#"
+[package]
+name = "my-lib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+anyhow = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lints]
+workspace = true
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn vendor_core_only_copies_and_rewrites() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    setup_workspace(root);
+
+    let dest = root.join("vendor");
+    fs::create_dir_all(&dest).unwrap();
+
+    let result = vendor_core_only(root, &root.join("crates/my-lib"), &dest, true).unwrap();
+
+    // Check crate was copied.
+    assert!(result.vendor_dir.join("src/lib.rs").exists());
+
+    // Check vendored Cargo.toml was rewritten.
+    let vendored = fs::read_to_string(result.vendor_dir.join("Cargo.toml")).unwrap();
+    let doc: DocumentMut = vendored.parse().unwrap();
+
+    // Package fields should be inlined.
+    let pkg = doc["package"].as_table().unwrap();
+    assert_eq!(pkg["version"].as_str(), Some("1.2.3"));
+    assert_eq!(pkg["edition"].as_str(), Some("2024"));
+    assert_eq!(pkg["license"].as_str(), Some("MIT"));
+
+    // Dependencies should be inlined.
+    let deps = doc["dependencies"].as_table().unwrap();
+    let serde = deps["serde"].as_inline_table().unwrap();
+    assert_eq!(serde.get("version").and_then(|v| v.as_str()), Some("1"));
+    assert!(serde.get("features").is_some());
+    assert!(serde.get("workspace").is_none()); // workspace key removed
+
+    // anyhow should have version + optional.
+    let anyhow = deps["anyhow"].as_inline_table().unwrap();
+    assert_eq!(anyhow.get("version").and_then(|v| v.as_str()), Some("1"));
+    assert_eq!(anyhow.get("optional").and_then(|v| v.as_bool()), Some(true));
+
+    // [lints] should be removed.
+    assert!(doc.get("lints").is_none());
+
+    // Workspace manifest should be generated.
+    let ws_manifest = result.workspace_manifest.unwrap();
+    assert!(ws_manifest.exists());
+    let ws_content = fs::read_to_string(&ws_manifest).unwrap();
+    assert!(ws_content.contains("[workspace]"));
+    assert!(ws_content.contains("\"my-lib\""));
+    // Path-only dep (my-lib) should be excluded.
+    assert!(!ws_content.contains("my-lib = { version"));
+    // Non-path deps should be included.
+    assert!(ws_content.contains("serde"));
+    assert!(ws_content.contains("anyhow"));
+}
+
+#[test]
+fn vendor_core_only_cleans_target_dir() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    setup_workspace(root);
+
+    // Create a fake target/ dir in the core crate.
+    let target = root.join("crates/my-lib/target");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("debug.txt"), "fake").unwrap();
+
+    let dest = root.join("vendor");
+    fs::create_dir_all(&dest).unwrap();
+    let result = vendor_core_only(root, &root.join("crates/my-lib"), &dest, false).unwrap();
+
+    // target/ should NOT be copied.
+    assert!(!result.vendor_dir.join("target").exists());
+}
+
+#[test]
+fn vendor_core_only_without_workspace_manifest() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    setup_workspace(root);
+
+    let dest = root.join("vendor");
+    fs::create_dir_all(&dest).unwrap();
+    let result = vendor_core_only(root, &root.join("crates/my-lib"), &dest, false).unwrap();
+
+    assert!(result.workspace_manifest.is_none());
+    assert!(!dest.join("Cargo.toml").exists());
+}
+
+#[test]
+fn vendor_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path();
+    setup_workspace(root);
+
+    let dest = root.join("vendor");
+    fs::create_dir_all(&dest).unwrap();
+
+    // Vendor twice — second call should succeed and overwrite.
+    vendor_core_only(root, &root.join("crates/my-lib"), &dest, true).unwrap();
+    let result = vendor_core_only(root, &root.join("crates/my-lib"), &dest, true).unwrap();
+    assert!(result.vendor_dir.join("src/lib.rs").exists());
+}
+
+// ---------------------------------------------------------------------
+// S3: rewrite_path_deps_to_registry + Cargo.lock
+// ---------------------------------------------------------------------
+
+use crate::publish::workspace::WorkspaceMembers;
+use std::collections::{BTreeMap, BTreeSet};
+
+fn members_with(names: &[&str]) -> WorkspaceMembers {
+    WorkspaceMembers {
+        names: names.iter().map(|s| s.to_string()).collect::<BTreeSet<_>>(),
+        versions: BTreeMap::new(),
+    }
+}
+
+/// Write a binding manifest with four workspace-member path-deps (one with
+/// `features`, one in `[dev-dependencies]`, one under a `[target.*]` table,
+/// one plain table) plus a normal registry dep.
+fn write_binding_manifest(path: &Path) {
+    fs::write(
+        path,
+        r#"
+[package]
+name = "my-lib-py"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+my-lib = { path = "../my-lib", features = ["serde"] }
+my-lib-core = { path = "../my-lib-core" }
+anyhow = "1"
+
+[dev-dependencies]
+my-lib-testkit = { path = "../my-lib-testkit", default-features = false }
+
+[target.'cfg(unix)'.dependencies]
+my-lib-unix = { path = "../my-lib-unix", optional = true }
+"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn rewrite_path_deps_replaces_members_keeps_others() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("Cargo.toml");
+    write_binding_manifest(&manifest);
+
+    let members = members_with(&["my-lib", "my-lib-core", "my-lib-testkit", "my-lib-unix"]);
+    rewrite_path_deps_to_registry(&manifest, &members, "1.2.3").unwrap();
+
+    let doc: DocumentMut = fs::read_to_string(&manifest).unwrap().parse().unwrap();
+
+    // [dependencies]: my-lib rewritten with version + features, no path.
+    let deps = doc["dependencies"].as_table().unwrap();
+    let my_lib = deps["my-lib"].as_inline_table().unwrap();
+    assert_eq!(my_lib.get("version").and_then(|v| v.as_str()), Some("1.2.3"));
+    assert!(my_lib.get("path").is_none(), "path must be stripped");
+    assert!(my_lib.get("features").is_some(), "features preserved");
+
+    // my-lib-core: table without extras → version-only table.
+    let core = deps["my-lib-core"].as_inline_table().unwrap();
+    assert_eq!(core.get("version").and_then(|v| v.as_str()), Some("1.2.3"));
+    assert!(core.get("path").is_none());
+
+    // Normal registry dep untouched (still a plain string).
+    assert_eq!(deps["anyhow"].as_str(), Some("1"));
+
+    // [dev-dependencies]: default-features preserved.
+    let dev = doc["dev-dependencies"].as_table().unwrap();
+    let testkit = dev["my-lib-testkit"].as_inline_table().unwrap();
+    assert_eq!(testkit.get("version").and_then(|v| v.as_str()), Some("1.2.3"));
+    assert!(testkit.get("path").is_none());
+    assert_eq!(testkit.get("default-features").and_then(|v| v.as_bool()), Some(false));
+
+    // [target.'cfg(unix)'.dependencies]: optional preserved.
+    let target = doc["target"].as_table().unwrap();
+    let cfg = target["cfg(unix)"].as_table().unwrap();
+    let unix_deps = cfg["dependencies"].as_table().unwrap();
+    let unix = unix_deps["my-lib-unix"].as_inline_table().unwrap();
+    assert_eq!(unix.get("version").and_then(|v| v.as_str()), Some("1.2.3"));
+    assert!(unix.get("path").is_none());
+    assert_eq!(unix.get("optional").and_then(|v| v.as_bool()), Some(true));
+}
+
+#[test]
+fn rewrite_path_deps_is_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("Cargo.toml");
+    write_binding_manifest(&manifest);
+
+    let members = members_with(&["my-lib", "my-lib-core", "my-lib-testkit", "my-lib-unix"]);
+    rewrite_path_deps_to_registry(&manifest, &members, "1.2.3").unwrap();
+    let once = fs::read_to_string(&manifest).unwrap();
+    rewrite_path_deps_to_registry(&manifest, &members, "1.2.3").unwrap();
+    let twice = fs::read_to_string(&manifest).unwrap();
+
+    assert_eq!(once, twice, "second rewrite must be a no-op");
+}
+
+#[test]
+fn rewrite_path_deps_dual_form_strips_path_and_sets_version() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("Cargo.toml");
+    // Dual-form: has BOTH version and path — version must be overwritten
+    // with the passed value and path removed.
+    fs::write(
+        &manifest,
+        r#"
+[package]
+name = "b"
+version = "0.1.0"
+
+[dependencies]
+my-lib = { version = "0.1", path = "../my-lib" }
+"#,
+    )
+    .unwrap();
+
+    let members = members_with(&["my-lib"]);
+    rewrite_path_deps_to_registry(&manifest, &members, "9.9.9").unwrap();
+
+    let doc: DocumentMut = fs::read_to_string(&manifest).unwrap().parse().unwrap();
+    let my_lib = doc["dependencies"]["my-lib"].as_inline_table().unwrap();
+    assert_eq!(my_lib.get("version").and_then(|v| v.as_str()), Some("9.9.9"));
+    assert!(my_lib.get("path").is_none());
+}
+
+#[test]
+fn rewrite_path_deps_leaves_non_members_and_plain_strings() {
+    let tmp = TempDir::new().unwrap();
+    let manifest = tmp.path().join("Cargo.toml");
+    fs::write(
+        &manifest,
+        r#"
+[package]
+name = "b"
+version = "0.1.0"
+
+[dependencies]
+# A path dep that is NOT a workspace member — left untouched.
+external = { path = "../external" }
+# A plain version string member — left untouched (no path key).
+my-lib = "1"
+"#,
+    )
+    .unwrap();
+
+    let members = members_with(&["my-lib"]);
+    rewrite_path_deps_to_registry(&manifest, &members, "2.0.0").unwrap();
+
+    let doc: DocumentMut = fs::read_to_string(&manifest).unwrap().parse().unwrap();
+    let deps = doc["dependencies"].as_table().unwrap();
+    // Non-member path dep retains its path.
+    assert_eq!(
+        deps["external"]
+            .as_inline_table()
+            .unwrap()
+            .get("path")
+            .and_then(|v| v.as_str()),
+        Some("../external")
+    );
+    // Plain-string member is unchanged.
+    assert_eq!(deps["my-lib"].as_str(), Some("1"));
+}
+
+#[test]
+fn scrub_lock_deletes_existing_when_not_regenerating() {
+    let tmp = TempDir::new().unwrap();
+    let lock = tmp.path().join("Cargo.lock");
+    fs::write(&lock, "# lock").unwrap();
+
+    scrub_or_regenerate_lock(tmp.path(), false, false).unwrap();
+    assert!(!lock.exists(), "Cargo.lock must be deleted on the offline path");
+}
+
+#[test]
+fn scrub_lock_no_lock_is_noop() {
+    let tmp = TempDir::new().unwrap();
+    // No Cargo.lock present — must not error.
+    scrub_or_regenerate_lock(tmp.path(), false, false).unwrap();
+}
+
+// ---------------------------------------------------------------------
+// S7: clean-room source-install smoke test
+//
+// Proves a rewritten binding manifest (member deps now registry
+// version-deps) resolves with NO workspace present. The positive control
+// touches the network (cargo generate-lockfile fetches the index) and is
+// gated behind `ALEF_SMOKE_REGISTRY=1`. The negative control (a bad path
+// dep) fails fully offline and always runs.
+// ---------------------------------------------------------------------
+
+fn write_clean_room_crate(dir: &Path, deps_body: &str) {
+    fs::create_dir_all(dir.join("src")).unwrap();
+    fs::write(dir.join("src/lib.rs"), "pub fn smoke() {}\n").unwrap();
+    fs::write(
+        dir.join("Cargo.toml"),
+        format!(
+            "[package]\nname = \"clean-room\"\nversion = \"0.0.0\"\nedition = \"2021\"\n\n[dependencies]\n{deps_body}\n"
+        ),
+    )
+    .unwrap();
+}
+
+#[test]
+fn clean_room_registry_dep_resolves_without_workspace() {
+    // Network-touching positive control — gated so it doesn't run on every
+    // `cargo test`. Enable with `ALEF_SMOKE_REGISTRY=1`.
+    if std::env::var("ALEF_SMOKE_REGISTRY").is_err() {
+        eprintln!("skipping clean_room_registry_dep_resolves_without_workspace (set ALEF_SMOKE_REGISTRY=1)");
+        return;
+    }
+    let tmp = TempDir::new().unwrap();
+    let crate_dir = tmp.path().join("clean-room");
+    // A tiny well-known registry crate stands in for a (post-rewrite) member
+    // version-dep: it proves resolution works with no workspace path.
+    write_clean_room_crate(&crate_dir, "anyhow = \"1\"");
+
+    let status = std::process::Command::new("cargo")
+        .arg("generate-lockfile")
+        .arg("--manifest-path")
+        .arg(crate_dir.join("Cargo.toml"))
+        .status()
+        .expect("running cargo generate-lockfile");
+    assert!(
+        status.success(),
+        "registry version-dep must resolve without a workspace"
+    );
+    assert!(crate_dir.join("Cargo.lock").exists(), "lockfile should be produced");
+}
+
+#[test]
+fn clean_room_bad_path_dep_fails_offline() {
+    // Negative control: a path dep pointing at a nonexistent crate fails
+    // resolution without any network access — always runs.
+    let tmp = TempDir::new().unwrap();
+    let crate_dir = tmp.path().join("clean-room");
+    write_clean_room_crate(&crate_dir, "ghost = { path = \"../does-not-exist\" }");
+
+    // NOTE: must NOT pass `--no-deps` — that skips dependency-graph
+    // resolution and would mask the broken path dep.
+    let output = std::process::Command::new("cargo")
+        .arg("metadata")
+        .arg("--format-version")
+        .arg("1")
+        .arg("--manifest-path")
+        .arg(crate_dir.join("Cargo.toml"))
+        .env("CARGO_NET_OFFLINE", "true")
+        .output()
+        .expect("running cargo metadata");
+    assert!(
+        !output.status.success(),
+        "a path dep to a nonexistent crate must fail resolution"
+    );
+}
+
+// ---------------------------------------------------------------------
+// S6: strict release-ordering precondition on lock regeneration
+//
+// Reuse the bad-path setup: a manifest with a path dep to a nonexistent
+// crate makes `cargo generate-lockfile` fail locally (missing path, no
+// network). In strict mode that failure is a hard, actionable error; in
+// lenient mode it falls back to deleting the lock and returns Ok.
+// ---------------------------------------------------------------------
+
+/// Build a crate whose single dependency is an unresolvable path dep, so
+/// `cargo generate-lockfile` fails offline.
+fn write_unresolvable_crate(dir: &Path) {
+    write_clean_room_crate(dir, "ghost = { path = \"../does-not-exist\" }");
+}
+
+/// Run `scrub_or_regenerate_lock` in regenerate mode. The crate's single
+/// dependency is an unresolvable path dep, so `cargo generate-lockfile`
+/// fails locally on the missing path with no network access — no process-wide
+/// `CARGO_NET_OFFLINE` mutation (which is racy under parallel tests) is needed.
+fn scrub_regenerate(crate_dir: &Path, strict: bool) -> Result<()> {
+    scrub_or_regenerate_lock(crate_dir, true, strict)
+}
+
+#[test]
+fn scrub_lock_strict_errors_when_lockfile_cannot_resolve() {
+    let tmp = TempDir::new().unwrap();
+    let crate_dir = tmp.path().join("clean-room");
+    write_unresolvable_crate(&crate_dir);
+
+    let err =
+        scrub_regenerate(&crate_dir, true).expect_err("strict mode must return Err when the lockfile cannot resolve");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("not yet published to the registry"),
+        "error must be actionable about unpublished member versions; got: {msg}"
+    );
+    assert!(
+        msg.contains(&crate_dir.join("Cargo.toml").display().to_string()),
+        "error must name the manifest; got: {msg}"
+    );
+}
+
+#[test]
+fn scrub_lock_lenient_falls_back_to_delete_when_lockfile_cannot_resolve() {
+    let tmp = TempDir::new().unwrap();
+    let crate_dir = tmp.path().join("clean-room");
+    write_unresolvable_crate(&crate_dir);
+
+    // Pre-seed a lock — lenient mode deletes it on regenerate failure.
+    let lock = crate_dir.join("Cargo.lock");
+    fs::write(&lock, "# stale lock").unwrap();
+
+    scrub_regenerate(&crate_dir, false).expect("lenient mode must return Ok and fall back to deleting the lock");
+    assert!(!lock.exists(), "lenient fallback must delete the unresolved Cargo.lock");
+}

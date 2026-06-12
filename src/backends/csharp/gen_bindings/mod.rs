@@ -1,4 +1,4 @@
-use crate::codegen::naming::{csharp_type_name, to_csharp_name};
+use crate::codegen::naming::{csharp_type_name, csharp_wrapper_class_name, to_csharp_name};
 use crate::codegen::shared::binding_fields;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig, resolve_output_dir};
@@ -307,12 +307,7 @@ impl Backend for CsharpBackend {
             .collect();
 
         // 3. Generate main wrapper class
-        let base_class_name = to_csharp_name(&api.crate_name);
-        let wrapper_class_name = if namespace == base_class_name {
-            format!("{}Lib", base_class_name)
-        } else {
-            base_class_name
-        };
+        let wrapper_class_name = csharp_wrapper_class_name(&api.crate_name, &namespace);
         files.push(GeneratedFile {
             path: base_path.join(format!("{}.cs", wrapper_class_name)),
             content: strip_trailing_whitespace(&methods::gen_wrapper_class(

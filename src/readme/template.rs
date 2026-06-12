@@ -147,6 +147,18 @@ pub(super) fn try_template_readme(
     ctx.insert("banner_url", Value::from(banner_url));
     ctx.insert("language", Value::from(lang_code.to_string()));
 
+    // Expose the C# wrapper class name so templates can reference the actual class emitted
+    // by the C# backend (e.g. `HtmlToMarkdownRs.Convert(...)`) instead of hardcoding a
+    // crate-specific guess that drifts away from the generated bindings. Computed for every
+    // language so multi-language templates that include C# examples work uniformly.
+    ctx.insert(
+        "csharp_wrapper_class",
+        Value::from(crate::codegen::naming::csharp_wrapper_class_name(
+            &api.crate_name,
+            &config.csharp_namespace(),
+        )),
+    );
+
     // Flatten per-language config fields into top-level context
     // (templates expect snippets, features, performance, etc. at top level)
     //

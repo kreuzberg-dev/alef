@@ -134,7 +134,17 @@ pub(super) fn generate_readme_hardcoded(
         }
         Language::Csharp => {
             let ns = config.csharp_namespace();
-            let example_body = format!("// {example_pointer}");
+            let wrapper_class = crate::codegen::naming::csharp_wrapper_class_name(&api.crate_name, &ns);
+            let example_body = api
+                .functions
+                .first()
+                .map(|f| {
+                    format!(
+                        "// var result = {wrapper_class}.{method}(...);\n// See the main repository's docs for full usage.",
+                        method = crate::codegen::naming::to_csharp_name(&f.name),
+                    )
+                })
+                .unwrap_or_else(|| format!("// {example_pointer}"));
             (
                 "C#",
                 format!("```bash\ndotnet add package {ns}\n```"),

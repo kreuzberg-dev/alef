@@ -54,10 +54,7 @@ pub(crate) fn kotlin_type_with_string_imports(ty: &TypeRef, optional: bool, impo
 fn render_type_ref_with_string_imports(ty: &TypeRef, imports: &mut BTreeSet<String>) -> String {
     let mapper = KotlinMapper;
     match ty {
-        TypeRef::Path => {
-            imports.insert("import java.nio.file.Path".to_string());
-            mapper.map_type(ty)
-        }
+        TypeRef::Path => mapper.map_type(ty),
         TypeRef::Duration => {
             imports.insert("import kotlin.time.Duration".to_string());
             mapper.map_type(ty)
@@ -333,10 +330,7 @@ fn render_type_ref_disambiguated(
 fn render_type_ref_with_imports(ty: &TypeRef, imports: &mut BTreeSet<&'static str>) -> String {
     let mapper = KotlinMapper;
     match ty {
-        TypeRef::Path => {
-            imports.insert("import java.nio.file.Path");
-            mapper.map_type(ty)
-        }
+        TypeRef::Path => mapper.map_type(ty),
         TypeRef::Duration => {
             imports.insert("import kotlin.time.Duration");
             mapper.map_type(ty)

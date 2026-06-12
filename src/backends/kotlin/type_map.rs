@@ -35,7 +35,12 @@ impl TypeMapper for KotlinMapper {
     }
 
     fn path(&self) -> Cow<'static, str> {
-        Cow::Borrowed("java.nio.file.Path")
+        // Use String instead of java.nio.file.Path for Android JNI compatibility.
+        // Jackson can deserialize String fields directly from JSON. Path values
+        // are effectively serialized as strings in JSON anyway (file paths).
+        // This avoids needing a custom Jackson deserializer and keeps the
+        // binding portable across JNI/FFI contexts.
+        Cow::Borrowed("String")
     }
 
     fn json(&self) -> Cow<'static, str> {
@@ -116,7 +121,7 @@ mod tests {
 
     #[test]
     fn test_path() {
-        assert_eq!(KotlinMapper.path(), "java.nio.file.Path");
+        assert_eq!(KotlinMapper.path(), "String");
     }
 
     #[test]

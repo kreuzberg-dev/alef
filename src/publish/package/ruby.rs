@@ -65,10 +65,20 @@ pub fn package_ruby(
         rb_files.push(native_lib_path);
     }
 
+    // Propagate `required_ruby_version` from the source gemspec so platform
+    // gems refuse to install on incompatible Ruby ABIs.
+    let required_ruby_version = read_required_ruby_version(&pkg_dir);
+
     // Write a platform-specific gemspec.
     let gemspec_name = format!("{gem_name}-platform.gemspec");
     let gemspec_path = pkg_dir.join(&gemspec_name);
-    let platform_gemspec = generate_platform_gemspec(&gem_name, version, &platform, &rb_files)?;
+    let platform_gemspec = generate_platform_gemspec(
+        &gem_name,
+        version,
+        &platform,
+        &rb_files,
+        required_ruby_version.as_deref(),
+    )?;
     fs::write(&gemspec_path, platform_gemspec)?;
 
     // Run gem build.
@@ -161,7 +171,13 @@ fn scan_rb_files(lib_dir: &Path) -> Result<Vec<PathBuf>> {
     Ok(found)
 }
 
-fn generate_platform_gemspec(gem_name: &str, version: &str, platform: &str, files: &[String]) -> Result<String> {
+fn generate_platform_gemspec(
+    gem_name: &str,
+    version: &str,
+    platform: &str,
+    files: &[String],
+    required_ruby_version: Option<&str>,
+) -> Result<String> {
     // Generate a minimal gemspec that references the pre-compiled native library
     // AND all Ruby wrapper files required to satisfy the gem's require paths.
     let files_ruby = files
@@ -169,13 +185,16 @@ fn generate_platform_gemspec(gem_name: &str, version: &str, platform: &str, file
         .map(|f| format!("    {f:?}"))
         .collect::<Vec<_>>()
         .join(",\n");
+    let required_ruby_line = required_ruby_version
+        .map(|v| format!("  spec.required_ruby_version = {v:?}\n"))
+        .unwrap_or_default();
     Ok(format!(
         r#"# frozen_string_literal: true
 Gem::Specification.new do |spec|
   spec.name          = {gem_name:?}
   spec.version       = {version:?}
   spec.platform      = {platform:?}
-  spec.summary       = "{gem_name} native extension"
+{required_ruby_line}  spec.summary       = "{gem_name} native extension"
   spec.files         = [
 {files_ruby}
   ]
@@ -183,6 +202,34 @@ Gem::Specification.new do |spec|
 end
 "#
     ))
+}
+
+/// Scan `pkg_dir` for the source `.gemspec` and extract `required_ruby_version`.
+///
+/// Returns `None` when no source gemspec exists, no field is set, or the
+/// regex fails — callers should treat absence as "no constraint".
+fn read_required_ruby_version(pkg_dir: &Path) -> Option<String> {
+    let entries = fs::read_dir(pkg_dir).ok()?;
+    let re = regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*['"]([^'"]+)['"]"#).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "gemspec") {
+            continue;
+        }
+        // Skip the platform-specific gemspec we ourselves emit.
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.ends_with("-platform.gemspec"))
+        {
+            continue;
+        }
+        let content = fs::read_to_string(&path).ok()?;
+        if let Some(caps) = re.captures(&content) {
+            return Some(caps[1].to_string());
+        }
+    }
+    None
 }
 
 fn find_gem_file(dir: &Path, gem_name: &str, version: &str, platform: &str) -> Result<PathBuf> {
@@ -218,7 +265,7 @@ mod tests {
             "lib/mylib/native.rb".to_string(),
             "lib/mylib/libmylib_rb.so".to_string(),
         ];
-        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files).unwrap();
+        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, None).unwrap();
         assert!(spec.contains("mylib"), "gem name present");
         assert!(spec.contains("1.0.0"), "version present");
         assert!(spec.contains("x86_64-linux"), "platform present");
@@ -226,6 +273,49 @@ mod tests {
         assert!(spec.contains("lib/mylib.rb"), "top-level wrapper present");
         assert!(spec.contains("lib/mylib/version.rb"), "version wrapper present");
         assert!(spec.contains("lib/mylib/native.rb"), "native wrapper present");
+        assert!(
+            !spec.contains("required_ruby_version"),
+            "no required_ruby_version emitted when None",
+        );
+    }
+
+    #[test]
+    fn generate_platform_gemspec_includes_required_ruby_version_when_some() {
+        let files = vec!["lib/mylib.rb".to_string()];
+        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(">= 3.2.0")).unwrap();
+        assert!(
+            spec.contains(r#"spec.required_ruby_version = ">= 3.2.0""#),
+            "required_ruby_version line present: {spec}",
+        );
+    }
+
+    #[test]
+    fn read_required_ruby_version_extracts_from_source_gemspec() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Decoy: platform gemspec must be skipped.
+        std::fs::write(
+            tmp.path().join("mylib-platform.gemspec"),
+            r#"spec.required_ruby_version = ">= 99.0""#,
+        )
+        .unwrap();
+        // Real source gemspec.
+        std::fs::write(
+            tmp.path().join("mylib.gemspec"),
+            "# frozen_string_literal: true\nGem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
+        )
+        .unwrap();
+        assert_eq!(read_required_ruby_version(tmp.path()), Some(">= 3.2.0".to_string()));
+    }
+
+    #[test]
+    fn read_required_ruby_version_returns_none_when_absent() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("mylib.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.name = \"mylib\"\nend\n",
+        )
+        .unwrap();
+        assert_eq!(read_required_ruby_version(tmp.path()), None);
     }
 
     #[test]

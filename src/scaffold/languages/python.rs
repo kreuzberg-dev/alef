@@ -269,6 +269,17 @@ pub(crate) fn scaffold_python(api: &ApiSurface, config: &ResolvedCrateConfig) ->
         _ => String::new(),
     };
 
+    let sdist_include_toml = match config.python.as_ref().map(|p| &p.sdist_include) {
+        Some(patterns) if !patterns.is_empty() => {
+            let entries: Vec<String> = patterns.iter().map(|p| format!("\"{}\"", p)).collect();
+            format!(
+                "sdist-include = {}\n",
+                format_toml_array_with_prefix(&entries, "sdist-include = ".len())
+            )
+        }
+        _ => String::new(),
+    };
+
     let urls_line = meta
         .configured_repository
         .as_deref()
@@ -326,7 +337,7 @@ manifest-path = "../../crates/{crate_dir}-py/Cargo.toml"
 # avoiding a per-Python-version build matrix.
 features = [ "pyo3/extension-module", "pyo3/abi3-py310" ]
 python-packages = [ "{python_package}" ]
-
+{sdist_include}
 [tool.ruff]
 target-version = "py310"
 line-length = 120
@@ -399,6 +410,7 @@ overrides = [
         keywords = keywords_toml,
         homepage = homepage_toml,
         dependencies = dependencies_toml,
+        sdist_include = sdist_include_toml,
         urls_line = urls_line,
         python_package = python_package,
         module_name = module_name,

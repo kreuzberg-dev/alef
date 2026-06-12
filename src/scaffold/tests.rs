@@ -2000,6 +2000,7 @@ fn test_scaffold_language_level_extra_deps_override_crate_level() {
         exclude_types: vec![],
         extra_dependencies: python_extra,
         pip_dependencies: Vec::new(),
+        sdist_include: Vec::new(),
         scaffold_output: None,
         rename_fields: Default::default(),
         run_wrapper: None,
