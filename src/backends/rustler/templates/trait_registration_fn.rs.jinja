@@ -7,7 +7,7 @@ pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid
         .write()
         .register(arc{{ extra_args }})
     {
-        Ok(_) => rustler::atoms::ok(),
-        Err(_) => rustler::atoms::error(),
+        Ok(_) => rustler::types::atom::Atom::from_str(env, "ok").unwrap(),
+        Err(_) => rustler::types::atom::Atom::from_str(env, "error").unwrap(),
     }
 }

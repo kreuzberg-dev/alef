@@ -208,8 +208,8 @@ match rx.await {
         r#"#[rustler::nif(schedule = "DirtyCpu")]
 pub fn {{ unregister_fn }}(env: rustler::Env<'_>, name: String) -> rustler::Atom {
     match {{ host_path }}(&name) {
-        Ok(_) => rustler::atoms::ok(),
-        Err(_) => rustler::atoms::error(),
+        Ok(_) => rustler::types::atom::Atom::from_str(env, "ok").unwrap(),
+        Err(_) => rustler::types::atom::Atom::from_str(env, "error").unwrap(),
     }
 }
 "#,
@@ -219,8 +219,8 @@ pub fn {{ unregister_fn }}(env: rustler::Env<'_>, name: String) -> rustler::Atom
         r#"#[rustler::nif(schedule = "DirtyCpu")]
 pub fn {{ clear_fn }}(env: rustler::Env<'_>) -> rustler::Atom {
     match {{ host_path }}() {
-        Ok(_) => rustler::atoms::ok(),
-        Err(_) => rustler::atoms::error(),
+        Ok(_) => rustler::types::atom::Atom::from_str(env, "ok").unwrap(),
+        Err(_) => rustler::types::atom::Atom::from_str(env, "error").unwrap(),
     }
 }
 "#,
@@ -236,8 +236,8 @@ pub fn {{ register_fn }}(env: rustler::Env<'_>, genserver_pid: rustler::LocalPid
         .write()
         .register(arc{{ extra_args }})
     {
-        Ok(_) => rustler::atoms::ok(),
-        Err(_) => rustler::atoms::error(),
+        Ok(_) => rustler::types::atom::Atom::from_str(env, "ok").unwrap(),
+        Err(_) => rustler::types::atom::Atom::from_str(env, "error").unwrap(),
     }
 }
 "#,
