@@ -346,8 +346,8 @@ fn test_plugin_bridge_generates_registration_fn() {
         "registration fn must be generated with the configured name"
     );
     assert!(
-        code.code.contains("#[rustler::nif]"),
-        "registration fn must carry #[rustler::nif] attribute"
+        code.code.contains(r#"#[rustler::nif(schedule = "DirtyCpu")]"#),
+        "registration fn must carry #[rustler::nif(schedule = \"DirtyCpu\")] to prevent BEAM scheduler deadlock"
     );
     assert!(
         code.code.contains("my_lib::get_registry"),
