@@ -43,8 +43,8 @@ pub fn gen_options_field_bridge_function(
         });
     let options_path = format!("{core_import}::{options_type}");
 
-    // Build parameter list; force the options param to Option<T> if the IR didn't already,
-    // and append the visitor parameter.
+    // Build parameter list; force the options param to Option<T> if the IR didn't already.
+    // DO NOT append a separate visitor parameter — the visitor is extracted from options.visitor.
     let params_str = {
         let mut sig_parts = vec![];
         for (i, p) in func.params.iter().enumerate() {
@@ -55,8 +55,6 @@ pub fn gen_options_field_bridge_function(
                 sig_parts.push(format!("{}: {ty}", p.name));
             }
         }
-        // Append visitor parameter (always optional for JS compatibility)
-        sig_parts.push(format!("{visitor_kwarg}: Option<napi::bindgen_prelude::Object>"));
         sig_parts.join(", ")
     };
 
