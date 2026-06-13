@@ -62,12 +62,13 @@ pub(crate) fn emit_lib_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> Str
         emit_function_shim(
             &mut out,
             &symbol,
-            &f.name,
+            &f.rust_path,
             &f.params,
             &f.return_type,
             f.is_async,
             f.error_type.is_some(),
             &opaque_type_names,
+            &config.name,
         );
     }
 

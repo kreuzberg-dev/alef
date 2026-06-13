@@ -9,14 +9,24 @@
 fn emit_function_shim(
     out: &mut String,
     symbol: &str,
-    rust_fn_name: &str,
+    rust_path: &str,
     params: &[ParamDef],
     return_type: &TypeRef,
     is_async: bool,
     has_error: bool,
     opaque_type_names: &std::collections::HashSet<&str>,
+    core_crate_prefix: &str,
 ) {
-    let core_fn = format!("core_crate::{}", rust_fn_name.replace('-', "_"));
+    // The rust_path from the IR already includes the crate prefix (e.g., "{name}::extract_bytes").
+    // Replace the core crate name with "core_crate::" since the generated code imports the crate as core_crate.
+    let path = rust_path.replace('-', "_");
+    let from_prefix = format!("{core_crate_prefix}::");
+    let core_fn = if path.starts_with(&from_prefix) {
+        path.replacen(&from_prefix, "core_crate::", 1)
+    } else {
+        // Path doesn't start with the crate name, prepend core_crate for bare function names
+        format!("core_crate::{path}")
+    };
 
     // Determine whether the return type is an opaque handle up-front so we can
     // use the correct null/zero sentinel in unmarshal error paths.
