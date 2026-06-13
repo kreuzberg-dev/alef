@@ -3839,7 +3839,7 @@
         },
         "namespace": {
           "default": null,
-          "description": "Override the PHP namespace used for class registration and PSR-4 autoloading.\n\nWhen set, this value is used verbatim as the PHP namespace (e.g. `\"SampleMarkdown\"`).\nWhen absent, the namespace is derived from `extension_name` by splitting on `_` and\nconverting each segment to PascalCase (e.g. `sample_markdown` → `Html\\To\\Markdown`).",
+          "description": "Override the PHP namespace used for class registration and PSR-4 autoloading.\n\nWhen set, this value is used verbatim as the PHP namespace (e.g. `\"SampleMarkdown\"`).\nWhen absent, the namespace is derived from `extension_name` by splitting on `_` and\nconverting each segment to PascalCase (e.g. `sample_markup` → `Sample\\Markup`).",
           "type": [
             "string",
             "null"
@@ -5762,8 +5762,41 @@
             "string",
             "null"
           ]
+        },
+        "target_dep_overrides": {
+          "default": [],
+          "description": "Per-target overrides for the core Cargo dependency. Each entry replaces\nthe default `[dependencies]` entry with a `[target.'cfg(...)'.dependencies]`\nblock scoped to the cfg predicate. When non-empty, the default entry is\ngated on `cfg(not(any(<override cfgs>)))` so exactly one branch matches\nper build target.\n\nMirrors `DartTargetDepOverride`. Needed because `libheif-sys` (pulled in\nvia the `heic` feature) cannot cross-compile to iOS or Android NDK\ntargets and is not on the Windows runner image's library path.",
+          "items": {
+            "$ref": "#/$defs/SwiftTargetDepOverride"
+          },
+          "type": "array"
         }
       },
+      "type": "object"
+    },
+    "SwiftTargetDepOverride": {
+      "properties": {
+        "cfg": {
+          "description": "Cargo `cfg(...)` predicate (without the `cfg(...)` wrapper). Example:\n`target_os = \"ios\"`.",
+          "type": "string"
+        },
+        "default_features": {
+          "default": false,
+          "description": "When false (default), emit `default-features = false` for this target.\nWhen true, allow the core dep's default features through.",
+          "type": "boolean"
+        },
+        "features": {
+          "default": [],
+          "description": "Features to enable on the core dependency for this target.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "cfg"
+      ],
       "type": "object"
     },
     "SyncConfig": {

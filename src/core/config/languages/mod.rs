@@ -36,6 +36,6 @@ pub use php::PhpConfig;
 pub use python::{CapsuleTypeConfig, PythonConfig};
 pub use r::RConfig;
 pub use ruby::RubyConfig;
-pub use swift::SwiftConfig;
+pub use swift::{SwiftConfig, SwiftTargetDepOverride};
 pub use wasm::WasmConfig;
 pub use zig::ZigConfig;

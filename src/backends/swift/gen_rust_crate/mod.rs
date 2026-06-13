@@ -115,6 +115,11 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .iter()
         .any(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming));
     let extra_deps = crate::scaffold::render_extra_deps(config, Language::Swift);
+    let target_overrides = config
+        .swift
+        .as_ref()
+        .map(|c| c.target_dep_overrides.as_slice())
+        .unwrap_or(&[]);
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
@@ -127,6 +132,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         &extra_deps,
         license,
         has_streaming_adapters,
+        target_overrides,
     );
     let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(

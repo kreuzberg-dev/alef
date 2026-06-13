@@ -73,4 +73,29 @@ pub struct SwiftConfig {
     /// already in scope. It must return `Result<{type_name}, String>`.
     #[serde(default)]
     pub client_constructor_body: HashMap<String, String>,
+    /// Per-target overrides for the core Cargo dependency. Each entry replaces
+    /// the default `[dependencies]` entry with a `[target.'cfg(...)'.dependencies]`
+    /// block scoped to the cfg predicate. When non-empty, the default entry is
+    /// gated on `cfg(not(any(<override cfgs>)))` so exactly one branch matches
+    /// per build target.
+    ///
+    /// Mirrors `DartTargetDepOverride`. Needed because `libheif-sys` (pulled in
+    /// via the `heic` feature) cannot cross-compile to iOS or Android NDK
+    /// targets and is not on the Windows runner image's library path.
+    #[serde(default)]
+    pub target_dep_overrides: Vec<SwiftTargetDepOverride>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct SwiftTargetDepOverride {
+    /// Cargo `cfg(...)` predicate (without the `cfg(...)` wrapper). Example:
+    /// `target_os = "ios"`.
+    pub cfg: String,
+    /// Features to enable on the core dependency for this target.
+    #[serde(default)]
+    pub features: Vec<String>,
+    /// When false (default), emit `default-features = false` for this target.
+    /// When true, allow the core dep's default features through.
+    #[serde(default)]
+    pub default_features: bool,
 }

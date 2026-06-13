@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   files before they are written to disk. (`src/core/extension.rs`,
   `src/cli/pipeline/extract.rs`, `src/cli/pipeline/generate/generation.rs`)
 
+- **Swift target-specific core dependency overrides.** The Swift Rust bridge
+  crate now supports `[[crates.swift.target_dep_overrides]]`, matching the Dart
+  and FFI override shape, so generated Swift Cargo.toml files can use a reduced
+  core feature set for targets such as iOS while keeping the default branch for
+  other platforms.
+
 ### Fixed
 
 - **Dart pubspec.yaml pub.dev validation errors.** Fixed two pub.dev publishing validation failures:

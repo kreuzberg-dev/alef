@@ -41,6 +41,7 @@ pub(crate) fn emit_cargo_toml(
     extra_deps: &str,
     license: &str,
     has_streaming_adapters: bool,
+    target_overrides: &[crate::core::config::languages::SwiftTargetDepOverride],
 ) -> String {
     let source_crate_name = core_dep_key;
     let features_block = if features.is_empty() {
@@ -76,12 +77,64 @@ pub(crate) fn emit_cargo_toml(
     // so in-repo dev path builds keep working while cargo-package flows can
     // strip the path to a registry version-dep. Features + the optional
     // `package = "..."` rename are appended as the inline-table suffix.
-    let core_dep = crate::scaffold::render_core_dep(
+    //
+    // When `target_overrides` is non-empty, the unconditional core dep is
+    // gated on `cfg(not(any(<override cfgs>)))` and each override emits its own
+    // `[target.'cfg(...)'.dependencies]` block (similar to the FFI and Dart
+    // backends). This lets the Swift crate ship a reduced feature set on iOS,
+    // Android, and Windows where libheif-sys / ORT cannot be linked.
+    let core_dep_for_block = crate::scaffold::render_core_dep(
         source_crate_name,
         core_path,
         &format!("{features_block}{package_rename_block}"),
         version,
     );
+    let target_override_blocks = if target_overrides.is_empty() {
+        String::new()
+    } else {
+        let mut blocks = String::new();
+        // Gate the default dep on cfg(not(any(<overrides>))) to keep one and only
+        // one branch active per target.
+        let neg_cfg = if target_overrides.len() == 1 {
+            target_overrides[0].cfg.clone()
+        } else {
+            let any = target_overrides
+                .iter()
+                .map(|o| o.cfg.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("any({any})")
+        };
+        blocks.push_str(&format!(
+            "\n[target.'cfg(not({neg_cfg}))'.dependencies]\n{core_dep_for_block}\n"
+        ));
+        for entry in target_overrides {
+            let feat_list = entry
+                .features
+                .iter()
+                .map(|f| format!("\"{f}\""))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let feats_block = if feat_list.is_empty() {
+                String::new()
+            } else {
+                format!(", features = [{feat_list}]")
+            };
+            let default_block = if entry.default_features {
+                String::new()
+            } else {
+                ", default-features = false".to_string()
+            };
+            let entry_dep = crate::scaffold::render_core_dep(
+                source_crate_name,
+                core_path,
+                &format!("{feats_block}{default_block}{package_rename_block}"),
+                version,
+            );
+            blocks.push_str(&format!("\n[target.'cfg({})'.dependencies]\n{entry_dep}\n", entry.cfg));
+        }
+        blocks
+    };
     // Build [dependencies] block alphabetically sorted to match cargo-sort.
     // Order: ahash, async-trait, futures-util?, <core-crate>,
     // libc, serde, serde_json, swift-bridge, tokio.
@@ -94,8 +147,11 @@ pub(crate) fn emit_cargo_toml(
         format!("swift-bridge = \"{swift_bridge_ver}\""),
         "tokio = { version = \"1\", features = [\"rt\", \"rt-multi-thread\", \"macros\"] }".to_string(),
     ];
-    if !core_dep.is_empty() {
-        dep_entries.push(core_dep.clone());
+    // Only include the core dep in the unconditional `[dependencies]` block when
+    // there are no target overrides — otherwise it lives in the per-target blocks
+    // emitted via `target_override_blocks` to avoid double-declaration.
+    if !core_dep_for_block.is_empty() && target_overrides.is_empty() {
+        dep_entries.push(core_dep_for_block.clone());
     }
     if has_streaming_adapters {
         dep_entries.push("futures-util = \"0.3\"".to_string());
@@ -144,7 +200,7 @@ bench = false
 
 [dependencies]
 {dep_block}
-
+{target_override_blocks}
 [build-dependencies]
 swift-bridge-build = "{swift_bridge_build_ver}"
 "#

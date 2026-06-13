@@ -19,7 +19,7 @@
       for (final dir in searchDirs) {
         for (final name in libNames) {
           final libPath = dir.resolve(name).toFilePath();
-          if (File(libPath).existsSync()) {
+          if (File(libPath).existsSync() || Directory(libPath).existsSync()) {
             return ExternalLibrary.open(libPath);
           }
         }
@@ -51,7 +51,7 @@
     // — list that first so the loader finds it before the bare dylib.
     if (Platform.isMacOS)
       return const [
-        '{{ stem }}_dart.framework/{{ stem }}_dart',
+        '{{ stem }}_dart.framework',
         'lib{{ stem }}_dart.dylib',
       ];
     if (Platform.isWindows) return const ['{{ stem }}_dart.dll'];

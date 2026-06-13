@@ -16,7 +16,7 @@ using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using Xunit;
 using TestCrate;
-using static TestCrate.TestCrateLib;
+using static TestCrate.TestCrateConverter;
 
 namespace TestCrate
 {
@@ -29,7 +29,7 @@ namespace TestCrate
         public async Task Test_ProcessItemsAsyncValueTypeDefault()
         {
             // Batch test with omitted config parameter
-            var result = await TestCrateLib.ProcessItemsAsync(new List<string>() { "sample text" }, new BatchConfig());
+            var result = await TestCrateConverter.ProcessItemsAsync(new List<string>() { "sample text" }, new BatchConfig());
 
         }
 

@@ -238,8 +238,12 @@ fn loader_rewrite_injecsample_package_relative_resolution() {
         "loader must target the bridge-generated dir, got:\n{out}"
     );
     assert!(
-        out.contains("'sample_router_dart.framework/sample_router_dart'"),
+        out.contains("'sample_router_dart.framework'"),
         "missing macOS framework candidate, got:\n{out}"
+    );
+    assert!(
+        out.contains("Directory(libPath).existsSync()"),
+        "framework bundle candidates must use directory-aware existence checks, got:\n{out}"
     );
     assert!(
         out.contains("'libsample_router_dart.dylib'"),
