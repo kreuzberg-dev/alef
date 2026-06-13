@@ -1,7 +1,11 @@
 use super::{DocTarget, utf8::advance_char};
 
 /// Replace `` [`Type::method()`] `` and `` [`Foo`] `` intra-doc links with
-/// backtick-wrapped identifiers, converting `::` to `.`.
+/// backtick-wrapped identifiers, converting `::` to `.`. Also strips an
+/// optional explicit-link target `(url)` suffix — e.g.
+/// `` [`DataNode`](crate::DataNode) `` → `` `DataNode` `` — so docs that
+/// reference items in the originating crate do not leak `crate::` paths
+/// into foreign bindings where those paths are unresolvable.
 pub(super) fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
     let mut out = String::with_capacity(s.len());
     let bytes = s.as_bytes();
@@ -22,6 +26,23 @@ pub(super) fn replace_intradoc_links(s: &str, _target: DocTarget) -> String {
                     out.push_str(&converted);
                     out.push('`');
                     i = j + 2;
+                    // Strip an optional explicit-link target `(url)` so
+                    // `[`X`](crate::X)` collapses to `` `X` ``.
+                    if i < bytes.len() && bytes[i] == b'(' {
+                        let mut depth = 1usize;
+                        let mut k = i + 1;
+                        while k < bytes.len() && depth > 0 {
+                            match bytes[k] {
+                                b'(' => depth += 1,
+                                b')' => depth -= 1,
+                                _ => {}
+                            }
+                            k += 1;
+                        }
+                        if depth == 0 {
+                            i = k;
+                        }
+                    }
                     found = true;
                     break;
                 }
