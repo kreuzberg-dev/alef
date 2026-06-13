@@ -38,6 +38,15 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                     return format!("{}: Option<{}>", p.name, n);
                 }
             }
+            // Vec<Named> parameters (batch items like Vec<BatchBytesItem>) are marshalled via JSON
+            // to avoid Rustler's limitation on decoding complex struct lists.
+            if let TypeRef::Vec(inner) = &p.ty {
+                if let TypeRef::Named(inner_name) = inner.as_ref() {
+                    if !opaque_types.contains(inner_name.as_str()) {
+                        return format!("{}: Option<String>", p.name);
+                    }
+                }
+            }
             // Rustler 0.37 cannot marshal Vec<u8> from Erlang binaries;
             // use rustler::Binary for NIF function parameters.
             if matches!(&p.ty, TypeRef::Bytes) {
@@ -62,14 +71,24 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
     let return_annotation = mapper.wrap_return(&return_type, func.error_type.is_some());
 
     // A function can be auto-delegated when all params (after JSON deserialization)
-    // map cleanly to core types.  We treat default-typed params as delegatable by
-    // building the JSON deserialization preamble ourselves.
+    // map cleanly to core types.  We treat default-typed params and batch Vec params
+    // as delegatable by building the JSON deserialization preamble ourselves.
     let has_default_params = func
         .params
         .iter()
         .any(|p| matches!(&p.ty, TypeRef::Named(n) if default_types.contains(n)));
 
-    let can_delegate = shared::can_auto_delegate_function(func, opaque_types) || has_default_params;
+    let has_batch_vec_params = func.params.iter().any(|p| {
+        if let TypeRef::Vec(inner) = &p.ty {
+            if let TypeRef::Named(inner_name) = inner.as_ref() {
+                return !opaque_types.contains(inner_name.as_str());
+            }
+        }
+        false
+    });
+
+    let can_delegate =
+        shared::can_auto_delegate_function(func, opaque_types) || has_default_params || has_batch_vec_params;
 
     let body = if can_delegate {
         // Build per-param deserialization lines and call-arg expressions.
@@ -107,6 +126,28 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_nif_function(
                         } else {
                             // Core expects T → unwrap or use default
                             return format!("{}_core.unwrap_or_default()", p.name);
+                        }
+                    }
+                }
+                // Vec<Named> parameters (batch items): deserialize from JSON string.
+                // Batch functions receive Vec<BatchBytesItem> or Vec<BatchFileItem> as JSON strings
+                // to avoid Rustler's limitation on decoding complex struct lists.
+                if let TypeRef::Vec(inner) = &p.ty {
+                    if let TypeRef::Named(inner_name) = inner.as_ref() {
+                        if !opaque_types.contains(inner_name.as_str()) {
+                            let core_ty = resolve_core_type_path(&format!("Vec<{}>", inner_name), types_by_name, core_import);
+                            let deser_line = if func.error_type.is_some() {
+                                render_deser_line("default_deser_with_error.rs.jinja", &p.name, &core_ty)
+                            } else {
+                                render_deser_line("default_deser_without_error.rs.jinja", &p.name, &core_ty)
+                            };
+                            deser_lines.push(deser_line);
+                            // Batch parameters are always required (not optional); pass the deserialized vec
+                            return if p.is_ref {
+                                format!("&{}_core", p.name)
+                            } else {
+                                format!("{}_core", p.name)
+                            };
                         }
                     }
                 }
