@@ -1,6 +1,8 @@
 //! Verifies that Java e2e test_app codegen emits mvnw wrapper scripts
 //! (mvnw, mvnw.cmd, .mvn/wrapper/maven-wrapper.properties).
 
+use std::path::Path;
+
 use alef::core::config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::java::JavaCodegen;
@@ -63,26 +65,24 @@ fn test_java_mvnw_wrapper_files_emitted() {
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generate failed");
 
-    let paths: Vec<&str> = generated.iter().map(|f| f.path.to_str().unwrap()).collect();
-
     assert!(
-        paths.iter().any(|p| p.ends_with("mvnw")),
+        generated.iter().any(|file| file.path.ends_with("mvnw")),
         "mvnw not found in generated files"
     );
     assert!(
-        paths.iter().any(|p| p.ends_with("mvnw.cmd")),
+        generated.iter().any(|file| file.path.ends_with("mvnw.cmd")),
         "mvnw.cmd not found in generated files"
     );
+    let maven_wrapper_properties = Path::new(".mvn").join("wrapper").join("maven-wrapper.properties");
     assert!(
-        paths
+        generated
             .iter()
-            .any(|p| p.ends_with(".mvn/wrapper/maven-wrapper.properties")),
+            .any(|file| file.path.ends_with(&maven_wrapper_properties)),
         "maven-wrapper.properties not found in generated files"
     );
 
     for file in &generated {
-        let path_str = file.path.to_str().unwrap();
-        if path_str.ends_with("mvnw") {
+        if file.path.ends_with("mvnw") {
             assert!(
                 file.content.contains("Apache Maven Wrapper"),
                 "mvnw should contain Apache Maven Wrapper text"
@@ -92,13 +92,13 @@ fn test_java_mvnw_wrapper_files_emitted() {
                 "mvnw should contain distributionUrl reference"
             );
         }
-        if path_str.ends_with("mvnw.cmd") {
+        if file.path.ends_with("mvnw.cmd") {
             assert!(
                 file.content.contains("Apache Maven Wrapper"),
                 "mvnw.cmd should contain Apache Maven Wrapper text"
             );
         }
-        if path_str.ends_with("maven-wrapper.properties") {
+        if file.path.ends_with("maven-wrapper.properties") {
             assert!(
                 file.content.contains("wrapperVersion=3.3.4"),
                 "maven-wrapper.properties should contain wrapperVersion"
