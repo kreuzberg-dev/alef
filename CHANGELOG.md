@@ -46,6 +46,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ExternalLibrary.open`, avoiding hardened-runtime failures from relative
   paths while preserving the fallback search order.
 
+- **Zig error messages are now logged on FFI failure.** Generated Zig bindings now call
+  `_error_with_message()` which captures and logs the error context from
+  `_last_error()` via `std.debug.print` before returning the typed error. Previously,
+  error messages set by the C FFI were silently discarded.
+
 ### Breaking Changes
 
 - **HTTP-domain IR removed from alef core.** The following types are no longer

@@ -62,6 +62,15 @@ pub(crate) fn emit_helpers(prefix: &str, out: &mut String) {
     out.push_str("    const fields = @typeInfo(E).error_set orelse unreachable;\n");
     out.push_str("    if (fields.len == 0) unreachable;\n");
     out.push_str("    return @field(E, fields[0].name);\n");
+    out.push_str("}\n\n");
+
+    out.push_str("/// Map the last FFI error to a typed error, logging the error message.\n");
+    out.push_str("/// Captures context from `_last_error()` before returning the first variant.\n");
+    out.push_str("inline fn _error_with_message(comptime E: type) E {\n");
+    out.push_str("    if (_last_error()) |msg| {\n");
+    out.push_str("        std.debug.print(\"FFI error: {s}\\n\", .{msg});\n");
+    out.push_str("    }\n");
+    out.push_str("    return _first_error(E);\n");
     out.push_str("}\n");
 }
 

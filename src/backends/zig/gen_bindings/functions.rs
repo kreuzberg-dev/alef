@@ -172,7 +172,7 @@ pub(crate) fn emit_function(
     let json_error_return = zig_error_type
         .as_ref()
         .map_or("return error.InvalidJson;".to_string(), |err| {
-            format!("return _first_error({err});")
+            format!("return _error_with_message({err});")
         });
     for p in &f.params {
         emit_param_conversion(p, prefix, struct_names, opaque_creator_map, &json_error_return, out);
