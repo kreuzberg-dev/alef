@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Magnus Ruby gemspec: `required_ruby_version` now emits the array form `[">= 3.2.0", "< 4.0"]` instead of the comma-joined single string `">= 3.2.0, < 4.0"`.** RubyGems' `Gem::Requirement.parse` treats a single requirement string as one expression and rejects embedded commas with `Gem::Requirement::BadRequirementError: Illformed requirement [">= 3.2.0, < 4.0"]`, so `bundle install` / `gem build` against the v0.24.16-generated gemspec failed before reaching any source. The array form is the canonical RubyGems syntax for multiple bounds and parses cleanly on Ruby 3.2–3.5 as well as 4.x preview builds. The platform-gemspec propagation path (`read_required_ruby_version` + `generate_platform_gemspec`) was rewritten to capture the raw RHS (single-string or array literal) and re-emit it verbatim, so the upper-bound constraint is preserved on cross-compiled platform gems. Closes liter-llm v1.5.1 prek failure. (`src/scaffold/languages/ruby.rs`, `src/publish/package/ruby.rs`)
+
 ## [0.24.16] - 2026-06-13
 
 ### Added

@@ -186,7 +186,7 @@ fn generate_platform_gemspec(
         .collect::<Vec<_>>()
         .join(",\n");
     let required_ruby_line = required_ruby_version
-        .map(|v| format!("  spec.required_ruby_version = {v:?}\n"))
+        .map(|v| format!("  spec.required_ruby_version = {v}\n"))
         .unwrap_or_default();
     Ok(format!(
         r#"# frozen_string_literal: true
@@ -204,13 +204,22 @@ end
     ))
 }
 
-/// Scan `pkg_dir` for the source `.gemspec` and extract `required_ruby_version`.
+/// Scan `pkg_dir` for the source `.gemspec` and extract the raw right-hand-side
+/// expression assigned to `required_ruby_version`.
+///
+/// Captures either form RubyGems accepts:
+///   - single string:  `spec.required_ruby_version = ">= 3.2.0"`
+///   - array literal:  `spec.required_ruby_version = [">= 3.2.0", "< 4.0"]`
+///
+/// The returned value is the verbatim RHS (including surrounding quotes or
+/// brackets) so the platform gemspec emitter can re-emit it unchanged.
 ///
 /// Returns `None` when no source gemspec exists, no field is set, or the
 /// regex fails — callers should treat absence as "no constraint".
 fn read_required_ruby_version(pkg_dir: &Path) -> Option<String> {
     let entries = fs::read_dir(pkg_dir).ok()?;
-    let re = regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*['"]([^'"]+)['"]"#).ok()?;
+    let re =
+        regex::Regex::new(r#"(?m)^\s*\w+\.required_ruby_version\s*=\s*(\[[^\]]+\]|['"][^'"]+['"])"#).ok()?;
     for entry in entries.flatten() {
         let path = entry.path();
         if path.extension().is_none_or(|e| e != "gemspec") {
@@ -282,10 +291,28 @@ mod tests {
     #[test]
     fn generate_platform_gemspec_includes_required_ruby_version_when_some() {
         let files = vec!["lib/mylib.rb".to_string()];
-        let spec = generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(">= 3.2.0")).unwrap();
+        let spec =
+            generate_platform_gemspec("mylib", "1.0.0", "x86_64-linux", &files, Some(r#"">= 3.2.0""#)).unwrap();
         assert!(
             spec.contains(r#"spec.required_ruby_version = ">= 3.2.0""#),
             "required_ruby_version line present: {spec}",
+        );
+    }
+
+    #[test]
+    fn generate_platform_gemspec_emits_array_form_verbatim() {
+        let files = vec!["lib/mylib.rb".to_string()];
+        let spec = generate_platform_gemspec(
+            "mylib",
+            "1.0.0",
+            "x86_64-linux",
+            &files,
+            Some(r#"[">= 3.2.0", "< 4.0"]"#),
+        )
+        .unwrap();
+        assert!(
+            spec.contains(r#"spec.required_ruby_version = [">= 3.2.0", "< 4.0"]"#),
+            "array-form required_ruby_version preserved verbatim: {spec}",
         );
     }
 
@@ -304,7 +331,21 @@ mod tests {
             "# frozen_string_literal: true\nGem::Specification.new do |spec|\n  spec.required_ruby_version = \">= 3.2.0\"\nend\n",
         )
         .unwrap();
-        assert_eq!(read_required_ruby_version(tmp.path()), Some(">= 3.2.0".to_string()));
+        assert_eq!(read_required_ruby_version(tmp.path()), Some(r#"">= 3.2.0""#.to_string()));
+    }
+
+    #[test]
+    fn read_required_ruby_version_extracts_array_form() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("mylib.gemspec"),
+            "Gem::Specification.new do |spec|\n  spec.required_ruby_version = [\">= 3.2.0\", \"< 4.0\"]\nend\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_required_ruby_version(tmp.path()),
+            Some(r#"[">= 3.2.0", "< 4.0"]"#.to_string())
+        );
     }
 
     #[test]

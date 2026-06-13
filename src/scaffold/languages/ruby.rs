@@ -188,7 +188,7 @@ Gem::Specification.new do |spec|
   spec.description   = "{description}"
 {homepage}
 {license}
-  spec.required_ruby_version = ">= 3.2.0, < 4.0"
+  spec.required_ruby_version = [">= 3.2.0", "< 4.0"]
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
   candidate_files    = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
