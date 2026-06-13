@@ -60,14 +60,12 @@ pub fn generate(
                 let env = crate::core::template_env::TemplateEnv::new();
                 let mut all = Vec::new();
                 for ext in exts {
-                    let cfg = ext.parse_config(None).with_context(|| {
-                        format!("extension `{}`: failed to parse config", ext.name())
-                    })?;
+                    let cfg = ext
+                        .parse_config(None)
+                        .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
                     let extra = ext
                         .emit_for_language(validated_api.api(), &cfg, *lang, &env)
-                        .with_context(|| {
-                            format!("extension `{}`: emit_for_language({lang_str}) failed", ext.name())
-                        })?;
+                        .with_context(|| format!("extension `{}`: emit_for_language({lang_str}) failed", ext.name()))?;
                     all.extend(extra);
                 }
                 Ok::<Vec<GeneratedFile>, anyhow::Error>(all)

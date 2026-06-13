@@ -101,12 +101,11 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
         for ext in exts {
             // Extensions receive None config here; per-extension TOML sections
             // are a future enhancement (tracked in CHANGELOG [Unreleased]).
-            let cfg = ext.parse_config(None).with_context(|| {
-                format!("extension `{}`: failed to parse config", ext.name())
-            })?;
-            ext.augment_surface(&mut api, &cfg).with_context(|| {
-                format!("extension `{}`: augment_surface failed", ext.name())
-            })?;
+            let cfg = ext
+                .parse_config(None)
+                .with_context(|| format!("extension `{}`: failed to parse config", ext.name()))?;
+            ext.augment_surface(&mut api, &cfg)
+                .with_context(|| format!("extension `{}`: augment_surface failed", ext.name()))?;
         }
         Ok::<(), anyhow::Error>(())
     })?;
