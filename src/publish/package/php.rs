@@ -4,7 +4,12 @@
 //! named according to the PIE convention so that `pie install <vendor>/<pkg>`
 //! resolves to a pre-built binary instead of compiling from source.
 //!
-//! **Unix archive** (`{ext}.so` at archive root, `.tgz`):
+//! **Unix archive — Linux** (`{ext}.so` at archive root, `.tgz`):
+//! ```text
+//! php_{ext}-{ver}_php{phpVer}-{arch}-{os}-{libc}-{ts}.tgz
+//! ```
+//!
+//! **Unix archive — macOS** (`{ext}.dylib` at archive root, `.tgz`):
 //! ```text
 //! php_{ext}-{ver}_php{phpVer}-{arch}-{os}-{libc}-{ts}.tgz
 //! ```
@@ -141,15 +146,19 @@ pub fn package_php(
         fs::copy(&dll_src, staging.join(&staged_name))?;
         create_zip(&staging, &archive_path)?;
     } else {
-        // Locate cargo's .so/.dylib and rename to {ext_name}.so inside the archive.
-        // PIE always looks for {ext_name}.so on Unix — even on macOS where cargo emits .dylib.
+        // Locate cargo's .so/.dylib and rename appropriately for the archive.
+        // PIE on macOS probes for {ext_name}.dylib, while on Linux it probes for {ext_name}.so.
         let cargo_lib_file = target.shared_lib_name(&cargo_lib_stem);
         let lib_src = find_php_ext(workspace_root, target, &cargo_lib_file)?;
-        let staged_name = format!("{ext_name}.so");
+        let staged_name = if target.os == Os::MacOs {
+            format!("{ext_name}.dylib")
+        } else {
+            format!("{ext_name}.so")
+        };
         fs::copy(&lib_src, staging.join(&staged_name))?;
-        // PIE's UnixBuild probes the extracted-source root for `{ext}.so` and
+        // PIE's UnixBuild probes the extracted-source root for the extension binary and
         // only unfolds a single subdirectory if it contains `config.m4` /
-        // `config.w32` — our prebuilt archive has neither, so the `.so` must
+        // `config.w32` — our prebuilt archive has neither, so the binary must
         // sit at the archive root, not nested under the staging-dir name.
         super::create_tar_gz_flat(&staging, &archive_path)?;
     }
@@ -522,5 +531,46 @@ sources = ["src/lib.rs"]
         // Sidecar must exist.
         let sidecar = output_dir.join(format!("{}.sha256", artifact.name));
         assert!(sidecar.exists(), "SHA-256 sidecar must be written");
+    }
+
+    #[test]
+    fn pie_archive_macos_uses_dylib_extension() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path().join("workspace");
+        let output_dir = tmp.path().join("dist");
+        fs::create_dir_all(&output_dir).unwrap();
+
+        // Create a fake .dylib in the expected location (cargo emits .dylib on macOS).
+        let target = RustTarget::parse("aarch64-apple-darwin").unwrap();
+        let release_dir = workspace.join("target/aarch64-apple-darwin/release");
+        fs::create_dir_all(&release_dir).unwrap();
+        fs::write(release_dir.join("libdemo_render.dylib"), b"Mach-O fake dylib content").unwrap();
+
+        let config = make_config("demo-render");
+        let opts = nts_options("8.4");
+        let artifact = package_php(&config, &target, &workspace, &output_dir, "3.4.0", &opts).unwrap();
+
+        // Verify the archive exists.
+        assert!(artifact.path.exists(), "archive file must exist");
+
+        // Untar and check the single entry is .dylib at root (for PIE macOS discovery).
+        let output = std::process::Command::new("tar")
+            .arg("-tzf")
+            .arg(&artifact.path)
+            .output()
+            .expect("tar must be available");
+        let listing = String::from_utf8_lossy(&output.stdout);
+        let entries: Vec<&str> = listing.lines().filter(|l| !l.ends_with('/')).collect();
+
+        assert_eq!(
+            entries.len(),
+            1,
+            "expected exactly one file in macOS archive, got: {entries:?}"
+        );
+        assert!(
+            entries[0].ends_with("demo_render.dylib"),
+            "expected demo_render.dylib on macOS at archive root, got: {}",
+            entries[0]
+        );
     }
 }
