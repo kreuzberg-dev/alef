@@ -127,6 +127,16 @@ pub(crate) enum Commands {
         /// placeholder in Package.swift is acceptable.
         #[arg(long)]
         skip_swift_checksum: bool,
+        /// Stamp CITATION.cff `date-released:` with this value (YYYY-MM-DD).
+        ///
+        /// When passed, overrides any `[workspace.citation].date-released`
+        /// configured in `alef.toml` and the default of "today's system date".
+        /// Intended for release engineers cutting a release on a date other
+        /// than the current system date (e.g. backports, replayed releases).
+        /// Default: unset — behaviour matches the pre-flag policy
+        /// (configured `date-released` if any, else today's date).
+        #[arg(long, value_name = "YYYY-MM-DD")]
+        release_date: Option<String>,
     },
     /// Run format commands on generated output.
     Fmt {

@@ -38,6 +38,7 @@ pub fn sync_versions(
     bump: Option<&str>,
     no_regen: bool,
     skip_swift_checksum: bool,
+    release_date_override: Option<&str>,
 ) -> anyhow::Result<()> {
     // If bump is requested, read current version, bump it, and write it back to Cargo.toml.
     if let Some(component) = bump {
@@ -544,8 +545,24 @@ pub fn sync_versions(
     //      top-level `version:` scalar.
     if let Some(citation_config) = config.citation.as_ref() {
         let fallback_license = read_workspace_license(&config.version_from);
+        // Date precedence: `--release-date` CLI flag (release_date_override) wins
+        // unconditionally; otherwise the renderer applies its own policy
+        // (configured `[workspace.citation].date-released` if set, else today's
+        // system date). The override is materialised here by transiently cloning
+        // the config and overwriting `date_released`, so the renderer's existing
+        // precedence rules continue to drive emission.
         let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-        let rendered = render_citation_cff(citation_config, &version, fallback_license.as_deref(), &today);
+        let owned_config_with_override;
+        let effective_citation = if let Some(date) = release_date_override {
+            owned_config_with_override = crate::core::config::CitationConfig {
+                date_released: Some(date.to_string()),
+                ..citation_config.clone()
+            };
+            &owned_config_with_override
+        } else {
+            citation_config
+        };
+        let rendered = render_citation_cff(effective_citation, &version, fallback_license.as_deref(), &today);
         let needs_write = match std::fs::read_to_string("CITATION.cff") {
             Ok(current) => current != rendered,
             Err(_) => true,

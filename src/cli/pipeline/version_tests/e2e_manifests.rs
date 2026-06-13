@@ -251,7 +251,7 @@ fn sync_versions_regenerates_test_apps_pins() {
 
     std::env::set_current_dir(root).expect("set_current_dir");
     // no_regen=false: auto-regen must fire and update test_apps/.
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -342,7 +342,7 @@ fn sync_versions_updates_go_module_version_in_download_ffi() {
 
     std::env::set_current_dir(root).expect("set_current_dir");
     // no_regen=true to skip scaffold/test_apps regen — testing text replacement only.
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -422,7 +422,7 @@ fn sync_versions_regenerates_scaffold_version_fields() {
 
     std::env::set_current_dir(root).expect("set_current_dir");
     // no_regen=false: scaffold regen must fire and update packages/r/DESCRIPTION.
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -494,7 +494,7 @@ fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -556,7 +556,7 @@ fn sync_versions_bumps_nested_python_init_version() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -616,7 +616,7 @@ fn sync_versions_bumps_swift_package_from_version() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -691,7 +691,7 @@ fn sync_versions_root_package_swift_placeholder_survives_scaffold_regen() {
     std::env::set_current_dir(root).expect("set_current_dir");
     // no_regen=false → scaffold regen runs and would clobber the substitution
     // without the second-pass fix.
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, false, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -760,7 +760,7 @@ fn sync_versions_bumps_c_download_ffi_sh_version() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 

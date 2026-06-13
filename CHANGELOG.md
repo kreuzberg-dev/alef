@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`alef sync-versions` and `alef all` accept an optional `--release-date YYYY-MM-DD` flag that overrides the `[workspace.citation].date-released` value when emitting `CITATION.cff`.** Release engineers can stamp the release date from a release script or CI matrix without hand-editing `alef.toml` first. Default behavior is unchanged: when the flag is absent, the renderer continues to honour the configured `date-released` (or `chrono::Local::now()` as a last-resort fallback). The flag plumbs through `Commands::SyncVersions`, the version-sync pipeline, and a transient `CitationConfig` clone so the existing precedence rules stay intact; the `Commands::Generate` auto-sync call passes `None`, so `alef all`/`alef generate` are unaffected. (`src/bin_cli/args.rs`, `src/bin_cli/core_commands.rs`, `src/cli/pipeline/version.rs`)
+
 ### Changed
 
 - **PyO3 backend pinned to `pyo3 = "0.29"` / `pyo3-async-runtimes = "0.29"`.** `src/core/template_versions.rs` bumps both `PYO3` and `PYO3_ASYNC_RUNTIMES` from `0.28` to `0.29` so every alef-emitted `Cargo.toml` in the pyo3 backend (and the matching dev-deps in service-API scaffolds) tracks the upstream 0.29 line. (`src/core/template_versions.rs`)

@@ -48,7 +48,7 @@ fn sync_versions_writes_root_and_node_crate_package_json() {
     // Switch into the tempdir for the duration of the call — sync_versions
     // resolves relative paths against CWD.
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     // Always restore the CWD before unwrapping, so a panic doesn't leave
     // the test runner in a broken directory.
     let _ = std::env::set_current_dir(&original_cwd);
@@ -126,7 +126,7 @@ fn sync_versions_bumps_napi_platform_pins_and_manifests() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -212,7 +212,7 @@ fn sync_versions_bumps_both_python_pyprojects_to_pep440_prerelease() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -432,7 +432,7 @@ fn sync_versions_patches_dep_tables_on_version_change() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 
@@ -507,3 +507,96 @@ fn run_optional_succeeds_for_simple_command() {
 }
 
 // --- Kotlin Gradle project version ------------------------------------
+
+/// `sync_versions` must stamp the `--release-date` override into the
+/// `date-released:` line of CITATION.cff verbatim, taking precedence over
+/// any `[workspace.citation].date-released` configured in alef.toml.
+///
+/// Regression test for bug #327: release engineers had to hand-edit
+/// alef.toml before every release. With the override, CI can pass
+/// `--release-date $(date +%F)` and the stamped date wins.
+#[test]
+fn sync_versions_release_date_override_wins_over_configured_date() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"2.0.0\"\nlicense = \"MIT\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    // alef.toml with a [workspace.citation] block AND an explicit
+    // date-released. Without the override we'd expect "2020-01-01" stamped.
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n\n[workspace.citation]\ntitle = \"Tiny\"\nabstract = \"x.\"\nrepository-code = \"https://example.com/tiny\"\ndate-released = \"2020-01-01\"\n[[workspace.citation.authors]]\nname = \"Acme, Inc.\"\n\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, Some("2099-12-31"));
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let citation = std::fs::read_to_string(root.join("CITATION.cff")).expect("CITATION.cff written");
+    assert!(
+        citation.contains("date-released: 2099-12-31\n"),
+        "override date must win over configured date, got:\n{citation}"
+    );
+    assert!(
+        !citation.contains("date-released: 2020-01-01"),
+        "configured date must be suppressed by override, got:\n{citation}"
+    );
+}
+
+/// When no `--release-date` flag is supplied, `sync_versions` must preserve
+/// the pre-flag behaviour: configured `[workspace.citation].date-released`
+/// wins, falling back to the system date when unset. This guards against
+/// accidental regression of the override plumbing.
+#[test]
+fn sync_versions_without_release_date_override_preserves_configured_date() {
+    use crate::core::config::NewAlefConfig;
+    let _guard = CWD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let original_cwd = std::env::current_dir().expect("cwd");
+
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let root = tmp.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[workspace.package]\nversion = \"2.0.0\"\nlicense = \"MIT\"\n\n[workspace]\nresolver = \"2\"\nmembers = []\n",
+    )
+    .expect("write Cargo.toml");
+
+    let alef_toml = format!(
+        "[workspace]\nlanguages = [\"node\"]\n\n[workspace.citation]\ntitle = \"Tiny\"\nabstract = \"x.\"\nrepository-code = \"https://example.com/tiny\"\ndate-released = \"2020-01-01\"\n[[workspace.citation.authors]]\nname = \"Acme, Inc.\"\n\n[[crates]]\nname = \"mylib\"\nsources = []\nversion_from = \"{}\"\n",
+        root.join("Cargo.toml").display().to_string().replace('\\', "/")
+    );
+    let alef_toml_path = root.join("alef.toml");
+    std::fs::write(&alef_toml_path, &alef_toml).expect("write alef.toml");
+
+    let cfg: NewAlefConfig = toml::from_str(&alef_toml).expect("parse alef.toml");
+    let mut resolved = cfg.resolve().expect("resolve config");
+    let resolved_cfg = resolved.remove(0);
+
+    std::env::set_current_dir(root).expect("set_current_dir");
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
+    let _ = std::env::set_current_dir(&original_cwd);
+    sync_result.expect("sync_versions ok");
+
+    let citation = std::fs::read_to_string(root.join("CITATION.cff")).expect("CITATION.cff written");
+    assert!(
+        citation.contains("date-released: 2020-01-01\n"),
+        "configured date must be preserved when no override is supplied, got:\n{citation}"
+    );
+}

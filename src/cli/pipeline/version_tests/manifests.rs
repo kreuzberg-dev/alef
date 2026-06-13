@@ -257,7 +257,7 @@ fn sync_versions_bumps_kotlin_gradle_nif_lock_and_docs_badges() {
     let resolved_cfg = resolved.remove(0);
 
     std::env::set_current_dir(root).expect("set_current_dir");
-    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true);
+    let sync_result = sync_versions(&resolved_cfg, &alef_toml_path, None, true, true, None);
     let _ = std::env::set_current_dir(&original_cwd);
     sync_result.expect("sync_versions ok");
 

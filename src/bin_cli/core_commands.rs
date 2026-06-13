@@ -326,7 +326,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // Always re-sync versions across user-owned manifests.
                 // Pass no_regen=true: alef generate owns the test_apps/ stage
                 // itself and will regenerate them in its own pass below.
-                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true, true) {
+                if let Err(e) = pipeline::sync_versions(resolved_cfg, config_path, None, true, true, None) {
                     tracing::warn!("version sync failed: {e}");
                 }
 
@@ -558,6 +558,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             set,
             no_regen,
             skip_swift_checksum,
+            release_date,
         } => {
             let (_workspace, resolved) = load_config(config_path)?;
             let crates_to_process = dispatch::select_crates(&resolved, &context.crate_filter)?;
@@ -582,6 +583,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     bump.as_deref(),
                     no_regen,
                     skip_swift_checksum,
+                    release_date.as_deref(),
                 )?;
             }
             println!("Version sync complete");
