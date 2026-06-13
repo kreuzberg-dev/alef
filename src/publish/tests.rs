@@ -11,6 +11,15 @@ fn make_temp_marker_file() -> (TempDir, PathBuf) {
     (temp_dir, marker)
 }
 
+fn toml_basic_string(value: &str) -> String {
+    let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn toml_path(path: &Path) -> String {
+    toml_basic_string(path.to_string_lossy().as_ref())
+}
+
 #[test]
 #[cfg(not(target_os = "windows"))] // sh + > redirect doesn't work portably on Windows CI runners
 fn test_run_publish_hooks_runs_before_only() {
@@ -84,13 +93,13 @@ languages = ["ruby"]
 [[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-version_from = "{}"
+version_from = {}
 
 [crates.ruby]
-scaffold_output = "{}"
+scaffold_output = {}
 "#,
-        version_manifest.display(),
-        package_dir.display(),
+        toml_path(version_manifest),
+        toml_path(package_dir),
     ))
     .unwrap();
     cfg.resolve().unwrap().remove(0)
@@ -155,7 +164,7 @@ languages = ["{language}"]
 [[crates]]
 name = "my-lib"
 sources = ["src/lib.rs"]
-version_from = "{}"
+version_from = {}
 
 [crates.scaffold]
 repository = "https://github.com/acme/my-lib"
@@ -164,7 +173,7 @@ license = "MIT"
 
 {extra}
 "#,
-        root.join("Cargo.toml").display(),
+        toml_path(&root.join("Cargo.toml")),
     ))
     .unwrap();
     let mut config = cfg.resolve().unwrap().remove(0);

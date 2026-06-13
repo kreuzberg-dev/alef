@@ -439,7 +439,10 @@ result_var = "result"
         // (NO root __init__.py — would shadow the published `demo_client` package
         // during `uv sync`'s editable install of the e2e project.)
         assert_eq!(files.len(), 3, "expected 3 config files, got: {}", files.len());
-        let paths: Vec<_> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
+        let paths: Vec<_> = files
+            .iter()
+            .map(|f| f.path.to_string_lossy().replace('\\', "/"))
+            .collect();
         assert!(paths.iter().any(|p| p.ends_with("conftest.py")));
         assert!(paths.iter().any(|p| p.ends_with("pyproject.toml")));
         // tests/__init__.py is kept so pytest can resolve `from tests.X import …` if used
