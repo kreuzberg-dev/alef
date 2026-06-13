@@ -4,5 +4,8 @@
 {% endif %}
    */
   {{ method_name }}({{ param_sig }}): this {
+{% if store_block %}
+{{ store_block }}
+{% endif %}
     return this;
   }

@@ -5,3 +5,6 @@
 {% endif %}
 export class {{ class_name }} {
   private readonly _app: {{ native_class_name }};
+{% if config_fields %}
+{{ config_fields }}
+{% endif %}

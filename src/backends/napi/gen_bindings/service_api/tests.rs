@@ -208,13 +208,24 @@ fn typescript_output_contains_configurator() {
     let surface = make_fixture_surface();
     let config = make_test_config();
     let output = gen_service_ts(&surface, "my_crate", &config);
+    // Configurator now persists the argument on `this._<param>` so a future
+    // entrypoint emission can consume it. The signature drops the leading
+    // `_` prefix from the parameter name (the body uses it as `this._x = x`).
     assert!(
-        output.contains("with_timeout(_timeout_ms: number)"),
-        "expected `with_timeout` configurator (param prefixed with _ because configurators are no-op chain methods):\n{output}"
+        output.contains("with_timeout(timeout_ms: number)"),
+        "expected `with_timeout` configurator with non-prefixed param (the body now uses the name to persist on `this`):\n{output}"
+    );
+    assert!(
+        output.contains("private _timeout_ms: number | undefined;"),
+        "expected configurator field declaration for persisted arg:\n{output}"
+    );
+    assert!(
+        output.contains("this._timeout_ms = timeout_ms;"),
+        "expected configurator body to persist arg on `this._<param>`:\n{output}"
     );
     assert!(
         output.contains("return this;"),
-        "expected `return this;` in configurator:\n{output}"
+        "expected configurator to still return `this` for chaining:\n{output}"
     );
 }
 

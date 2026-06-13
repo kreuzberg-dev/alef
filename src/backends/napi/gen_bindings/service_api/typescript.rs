@@ -160,6 +160,7 @@ fn gen_service_class_ts(
             class_doc,
             class_name,
             native_class_name => native_class_name.as_str(),
+            config_fields => render_configurator_fields(service),
         },
     ));
 
@@ -230,19 +231,27 @@ fn gen_service_class_ts(
         let mut params = Vec::new();
         for p in &method.params {
             let ty = typescript_type_annotation(&p.ty);
-            // Configurator body is a stub `return this;` — params are
-            // intentionally unused until alef supports persisting config
-            // through the binding. TypeScript convention: prefix with `_` so
-            // `noUnusedParameters` accepts the declaration.
-            let display_name = format!("_{}", p.name);
             if p.optional {
-                params.push(format!("{}: {} = undefined", display_name, ty));
+                params.push(format!("{}: {} = undefined", p.name, ty));
             } else {
-                params.push(format!("{}: {}", display_name, ty));
+                params.push(format!("{}: {}", p.name, ty));
             }
         }
 
         let param_sig = params.join(", ");
+        let store_block = method
+            .params
+            .iter()
+            .map(|p| {
+                render(
+                    "service_ts_configurator_store.jinja",
+                    context! {
+                        field_name => &p.name,
+                        param_name => &p.name,
+                    },
+                )
+            })
+            .collect::<String>();
         let method_name = &method.name;
         let doc = method.doc.trim().replace('\n', "\n   * ");
         out.push_str(&render(
@@ -251,6 +260,7 @@ fn gen_service_class_ts(
                 doc,
                 method_name,
                 param_sig,
+                store_block,
             },
         ));
     }
@@ -325,6 +335,34 @@ fn gen_service_class_ts(
         out.pop();
     }
     out.push_str("}\n");
+}
+
+fn render_configurator_fields(service: &ServiceDef) -> String {
+    let mut fields = Vec::new();
+    for method in &service.configurators {
+        for param in &method.params {
+            if fields
+                .iter()
+                .any(|(field_name, _): &(String, String)| field_name == &param.name)
+            {
+                continue;
+            }
+            fields.push((param.name.clone(), typescript_type_annotation(&param.ty)));
+        }
+    }
+
+    fields
+        .into_iter()
+        .map(|(field_name, field_type)| {
+            render(
+                "service_ts_config_field.jinja",
+                context! {
+                    field_name,
+                    field_type,
+                },
+            )
+        })
+        .collect()
 }
 
 fn gen_registration_method_ts(out: &mut String, reg: &RegistrationDef, service: &ServiceDef, _api: &ApiSurface) {
