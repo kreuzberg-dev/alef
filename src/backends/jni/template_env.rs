@@ -169,6 +169,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/return_optional_string.rs.jinja"),
     ),
     ("return_json.rs.jinja", include_str!("templates/return_json.rs.jinja")),
+    (
+        "lifecycle_hook_registration.rs.jinja",
+        include_str!("templates/lifecycle_hook_registration.rs.jinja"),
+    ),
+    (
+        "error_type_constructor.rs.jinja",
+        include_str!("templates/error_type_constructor.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn render(name: &str, context: minijinja::Value) -> String {

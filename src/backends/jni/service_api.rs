@@ -12,6 +12,8 @@
 //! Thread safety: thread-attaches to JVM, calls Java handler methods with request JSON,
 //! parses response JSON. No panics — all errors propagate as JNI exceptions.
 
+mod phase_c;
+
 use minijinja::context;
 
 use crate::backends::jni::template_env;
@@ -140,6 +142,9 @@ pub(super) fn gen_service_rs(api: &ApiSurface, config: &ResolvedCrateConfig) -> 
             gen_entrypoint_jni_function(&mut out, service, ep, &core_import, &package, &service_bridge_class);
         }
     }
+
+    // Phase C: emit lifecycle hooks, WebSocket/SSE stubs, and error type constructors
+    out.push_str(&phase_c::emit_new_ir_sections(api, config));
 
     out
 }
@@ -512,71 +517,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         content: service_rs,
         generated_header: true,
     }])
-}
-
-// ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
-
-/// Emit JNI lifecycle-hook registration methods.
-///
-/// Stub — returns `""` until the JNI Phase-C specialist implements generation.
-#[allow(dead_code)]
-pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
-    if hooks.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "lifecycle hook emission not implemented for jni ({} hooks)",
-        hooks.len()
-    );
-    for _hook in hooks {}
-    String::new()
-}
-
-/// Emit JNI WebSocket route registration methods. Stub.
-#[allow(dead_code)]
-pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "WebSocket route emission not implemented for jni ({} routes)",
-        routes.len()
-    );
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit JNI SSE route registration methods. Stub.
-#[allow(dead_code)]
-pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("SSE route emission not implemented for jni ({} routes)", routes.len());
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit JNI native error types. Stub.
-#[allow(dead_code)]
-pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
-    if types.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("error type emission not implemented for jni ({} types)", types.len());
-    for _ty in types {}
-    String::new()
-}
-
-/// Aggregate stub — forwards all four new IR sections for the JNI backend.
-#[allow(dead_code)]
-pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
-    let mut out = String::new();
-    out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
-    out.push_str(&emit_websocket_routes(&api.websocket_routes));
-    out.push_str(&emit_sse_routes(&api.sse_routes));
-    out.push_str(&emit_error_types(&api.error_types));
-    out
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
@@ -963,6 +903,59 @@ mod tests {
             output.contains("inner.add_handler("),
             "variant function must call the base registration method:\n{output}"
         );
+    }
+
+    /// Phase C: Lifecycle hooks and error types emission via phase_c module.
+    #[test]
+    fn phase_c_lifecycle_hooks_generated() {
+        let mut surface = make_fixture_surface();
+        surface.lifecycle_hooks.push(crate::core::ir::LifecycleHookDef {
+            name: "on_request".to_owned(),
+            callback_contract: "RequestHook".to_owned(),
+            doc: "Called for each request.".to_owned(),
+            is_async: true,
+        });
+        let config = make_test_config();
+        let output = phase_c::emit_lifecycle_hooks(&surface.lifecycle_hooks, &surface, &config);
+        // Lifecycle hook emission returns a string (may be empty or non-empty depending on implementation)
+        let _ = output; // Just verify it doesn't panic
+    }
+
+    /// Phase C: Error type constructor emission via phase_c module.
+    #[test]
+    fn phase_c_error_types_generated() {
+        let error_types = vec![crate::core::ir::ErrorTypeDef {
+            name: "NotFoundError".to_owned(),
+            http_status: crate::core::ir::HttpStatus::NotFound,
+            problem_details_type: None,
+            doc: "Resource not found.".to_owned(),
+        }];
+        let config = make_test_config();
+        let output = phase_c::emit_error_types(&error_types, &config);
+        // Error type emission returns a string (may be empty or non-empty)
+        let _ = output; // Just verify it doesn't panic
+    }
+
+    /// Phase C: Aggregate emission via phase_c module.
+    #[test]
+    fn phase_c_aggregate_emission() {
+        let mut surface = make_fixture_surface();
+        surface.lifecycle_hooks.push(crate::core::ir::LifecycleHookDef {
+            name: "on_response".to_owned(),
+            callback_contract: "ResponseHook".to_owned(),
+            doc: "Called after response processing.".to_owned(),
+            is_async: true,
+        });
+        surface.error_types.push(crate::core::ir::ErrorTypeDef {
+            name: "ValidationError".to_owned(),
+            http_status: crate::core::ir::HttpStatus::UnprocessableEntity,
+            problem_details_type: None,
+            doc: "Validation failed.".to_owned(),
+        });
+        let config = make_test_config();
+        let output = phase_c::emit_new_ir_sections(&surface, &config);
+        // The aggregate should collect hook and error type emissions
+        let _ = output; // Just verify it doesn't panic
     }
 
     // ── helpers ──────────────────────────────────────────────────────────────

@@ -12,10 +12,11 @@
 
     def handle_cast({:trait_call, _method, args_json, reply_id}, handler_fn) do
       case Jason.decode(args_json) do
-        {:ok, _args} ->
-          # Call the wrapped closure
+        {:ok, args} ->
+          # Build Spikard.Conn from RequestData fields in args
           try do
-            response = handler_fn.(nil)
+            conn = build_conn(args)
+            response = handler_fn.(conn)
             response_json = Jason.encode!(response)
             Native.complete_trait_call(reply_id, response_json)
           rescue
@@ -27,5 +28,19 @@
       end
 
       {:noreply, handler_fn}
+    end
+
+    # Convert RequestData JSON to Spikard.Conn struct
+    defp build_conn(args) do
+      %Spikard.Conn{
+        path_params: args["path_params"] || %{},
+        query_params: args["query_params"] || %{},
+        headers: args["headers"] || %{},
+        cookies: args["cookies"] || %{},
+        body: args["body"],
+        raw_body: args["raw_body"],
+        method: args["method"] || "GET",
+        path: args["path"] || "/"
+      }
     end
   end

@@ -1,6 +1,7 @@
 //! Elixir service module generation for Rustler service APIs.
 
 use crate::backends::rustler::gen_bindings::service_api::helpers::{elixir_heredoc_body, push_elixir_doc};
+use crate::backends::rustler::gen_bindings::service_api::new_ir_stubs;
 use crate::backends::rustler::gen_bindings::service_api::registration::gen_registration_method;
 use crate::backends::rustler::template_env::render;
 use crate::core::ir::{ApiSurface, EntrypointKind, ServiceDef};
@@ -21,11 +22,21 @@ pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
 
     out.push_str("# This file is generated. Do not edit.\n\n");
 
+    // Emit error types and lifecycle hooks (Phase C IR sections)
+    out.push_str(&new_ir_stubs::emit_new_ir_sections(api));
+
+    // Emit Spikard.Conn struct for handler request data
+    emit_conn_struct(&mut out);
+
     for service in &api.services {
         gen_service_module(&mut out, service, api, module_prefix);
     }
 
     out
+}
+
+fn emit_conn_struct(out: &mut String) {
+    out.push_str(&render("service_api_conn_struct.ex.jinja", context! {}));
 }
 
 fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_prefix: &str) {

@@ -2,6 +2,7 @@ mod binding_file;
 mod constructors;
 mod functions;
 mod methods;
+mod phase_c;
 mod service_api;
 pub(super) mod types;
 

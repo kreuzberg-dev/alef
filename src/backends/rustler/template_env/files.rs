@@ -316,6 +316,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/service_api_handler_wrapper.ex.jinja"),
     ),
     (
+        "service_api_conn_struct.ex.jinja",
+        include_str!("../templates/service_api_conn_struct.ex.jinja"),
+    ),
+    (
         "service_api_verb_decorator.ex.jinja",
         include_str!("../templates/service_api_verb_decorator.ex.jinja"),
     ),

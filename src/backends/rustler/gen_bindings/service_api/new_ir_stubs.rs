@@ -2,18 +2,34 @@
 
 use crate::core::ir::{ApiSurface, ErrorTypeDef, LifecycleHookDef, SseRouteDef, WebSocketRouteDef};
 
-/// Emit Rustler lifecycle-hook registration methods. Stub.
-#[allow(dead_code)]
+/// Emit Rustler lifecycle-hook registration methods.
+///
+/// Generates `App.on_request(app, fn)`, `App.pre_validation(app, fn)`, etc.
+/// for each hook type in the IR.
 pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
     }
-    tracing::debug!(
-        "lifecycle hook emission not implemented for rustler ({} hooks)",
-        hooks.len()
-    );
-    for _hook in hooks {}
-    String::new()
+
+    let mut out = String::new();
+    for hook in hooks {
+        let method_name = hook.name.clone();
+        let doc = if hook.doc.is_empty() {
+            format!(
+                "Register a {} lifecycle hook.\n\nThe hook receives a request context and must return the context (possibly modified).",
+                hook.name.to_lowercase()
+            )
+        } else {
+            hook.doc.clone()
+        };
+        out.push_str(&format!(
+            "  @doc {}\n  def {}(app, handler_fn) when is_function(handler_fn, 1) do\n    %__MODULE__{{app | {}: handler_fn}}\n  end\n\n",
+            format!("\"{}\"", doc.replace("\"", "\\\"")),
+            method_name,
+            method_name
+        ));
+    }
+    out
 }
 
 /// Emit Rustler WebSocket route registration methods. Stub.
@@ -44,18 +60,48 @@ pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
     String::new()
 }
 
-/// Emit Rustler native error types. Stub.
-#[allow(dead_code)]
+/// Emit Rustler native error types.
+///
+/// Generates exception defexception definitions under Spikard.Errors for each
+/// ErrorTypeDef in the IR (NotFoundError, ValidationError, etc.).
 pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
     }
-    tracing::debug!(
-        "error type emission not implemented for rustler ({} types)",
-        types.len()
-    );
-    for _ty in types {}
-    String::new()
+
+    let mut out = String::new();
+    out.push_str("defmodule Spikard.Errors do\n");
+    out.push_str("  @moduledoc \"\"\"\n");
+    out.push_str("  Spikard exception types.\n");
+    out.push_str("  \"\"\"\n\n");
+
+    for error_type in types {
+        let exception_name = &error_type.name;
+        let status_code = error_type.http_status.as_u16();
+        let doc = if error_type.doc.is_empty() {
+            format!("Exception for {}.", error_type.name.to_lowercase())
+        } else {
+            error_type.doc.clone()
+        };
+
+        out.push_str(&format!("  @doc \"{}\"\n", doc.replace("\"", "\\\"")));
+        out.push_str(&format!("  defmodule {} do\n", exception_name));
+        out.push_str("    defexception [:message, :status_code, :problem_details]\n\n");
+        out.push_str(&format!(
+            "    def new(message, status_code \\\\ {}, problem_details \\\\ nil) do\n",
+            status_code
+        ));
+        out.push_str("      %__MODULE__{\n");
+        out.push_str("        message: message,\n");
+        out.push_str("        status_code: status_code,\n");
+        out.push_str("        problem_details: problem_details\n");
+        out.push_str("      }\n");
+        out.push_str("    end\n");
+        out.push_str("  end\n\n");
+    }
+
+    out.push_str("end\n\n");
+    out
 }
 
 /// Aggregate stub — forwards all four new IR sections for the Rustler/Elixir backend.

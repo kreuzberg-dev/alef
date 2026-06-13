@@ -84,6 +84,7 @@ fn entrypoint_return_representable(ep: &crate::core::ir::EntrypointDef, api: &Ap
 /// - A handler registry map keyed by context index.
 /// - A cgo trampoline function matching the C callback typedef signature.
 /// - A Go struct mirroring the service (constructor, registration methods, entrypoints).
+/// - Phase C: Config struct, error types, lifecycle hooks, WebSocket/SSE methods, Run() method, helpers.
 fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str, ffi_prefix: &str) -> String {
     let mut out = String::new();
     let ffi_header = config.ffi_header_name();
@@ -110,6 +111,12 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
     out.push_str("// ──────────────────────────────────────────── Go Service API ──\n\n");
     for service in &api.services {
         gen_service_struct(&mut out, service, api, ffi_prefix, api);
+    }
+
+    // Phase C: Emit new IR sections (Config, error types, lifecycle hooks, WebSocket/SSE, Run, helpers)
+    if let Some(service) = api.services.first() {
+        out.push_str("// ──────────────────────────────────────────── Phase C Additions ──\n\n");
+        out.push_str(&super::phase_c::emit_all(api, &service.name, ffi_prefix));
     }
 
     out
@@ -883,78 +890,6 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
             service_name => service_name,
         },
     ));
-}
-
-// ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
-
-/// Emit Go lifecycle-hook registration methods.
-///
-/// Stub — returns `""` until the Go Phase-C specialist implements
-/// `app.OnRequest(fn)` / `app.PreHandler(fn)` / … generation.
-#[allow(dead_code)]
-pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
-    if hooks.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("lifecycle hook emission not implemented for go ({} hooks)", hooks.len());
-    for _hook in hooks {}
-    String::new()
-}
-
-/// Emit Go WebSocket route registration methods.
-///
-/// Stub — returns `""` until the Go Phase-C specialist implements
-/// `app.WebSocket(path, handler)` generation.
-#[allow(dead_code)]
-pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "WebSocket route emission not implemented for go ({} routes)",
-        routes.len()
-    );
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit Go SSE route registration methods.
-///
-/// Stub — returns `""` until the Go Phase-C specialist implements
-/// `app.SSE(path, producer)` generation.
-#[allow(dead_code)]
-pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("SSE route emission not implemented for go ({} routes)", routes.len());
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit Go native error types.
-///
-/// Stub — returns `""` until the Go Phase-C specialist implements
-/// typed `error` struct generation.
-#[allow(dead_code)]
-pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
-    if types.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("error type emission not implemented for go ({} types)", types.len());
-    for _ty in types {}
-    String::new()
-}
-
-/// Aggregate stub — forwards all four new IR sections for the Go backend.
-#[allow(dead_code)]
-pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
-    let mut out = String::new();
-    out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
-    out.push_str(&emit_websocket_routes(&api.websocket_routes));
-    out.push_str(&emit_sse_routes(&api.sse_routes));
-    out.push_str(&emit_error_types(&api.error_types));
-    out
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──
