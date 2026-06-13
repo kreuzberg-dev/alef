@@ -19,8 +19,13 @@ fn emit_function_shim(
 ) {
     // The rust_path from the IR already includes the crate prefix (e.g., "{name}::extract_bytes").
     // Replace the core crate name with "core_crate::" since the generated code imports the crate as core_crate.
+    // Both sides are normalised dash→underscore: rust_path uses underscores (Rust path syntax),
+    // while core_crate_prefix is the cargo crate name which may contain dashes (for example
+    // "sample-parser-core"). Without normalisation, starts_with would miss and the
+    // emitter would prepend "core_crate::" on top of the already-qualified path, producing
+    // double-qualified call sites that fail E0433 ("cannot find X in core_crate").
     let path = rust_path.replace('-', "_");
-    let from_prefix = format!("{core_crate_prefix}::");
+    let from_prefix = format!("{}::", core_crate_prefix.replace('-', "_"));
     let core_fn = if path.starts_with(&from_prefix) {
         path.replacen(&from_prefix, "core_crate::", 1)
     } else {
