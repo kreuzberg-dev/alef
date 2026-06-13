@@ -22,8 +22,8 @@ pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
 
     out.push_str("# This file is generated. Do not edit.\n\n");
 
-    // Emit error types and lifecycle hooks (Phase C IR sections)
-    out.push_str(&new_ir_stubs::emit_new_ir_sections(api));
+    // Emit error types (Phase C IR sections)
+    out.push_str(&new_ir_stubs::emit_error_types(&api.error_types));
 
     // Emit Spikard.Conn struct for handler request data
     emit_conn_struct(&mut out);
@@ -194,6 +194,9 @@ fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, 
             }
         }
     }
+
+    // Emit lifecycle hooks inside the App module
+    out.push_str(&new_ir_stubs::emit_lifecycle_hooks(&api.lifecycle_hooks));
 
     out.push_str("end\n\n");
 }
