@@ -106,11 +106,18 @@ fn emit_method_shim(
         // Vec<String> method call we currently emit. The previous special-case
         // that converted to `Vec<&str>` produced `&[&str]` which is incompatible
         // with core methods that take `&[String]` (e.g. `LlmBackend::detect_with_custom`).
+        // Exception: core methods declared as `&[&str]` (IR `vec_inner_is_ref = true`
+        // on a `Vec<String>` slot) need a materialised `Vec<&str>` borrow.
         if unmarshal_produces_option {
             // Binding is already `Option<T>` — pass through.
             rust_name
         } else if p.optional {
             format!("Some({rust_name})")
+        } else if p.is_ref
+            && p.vec_inner_is_ref
+            && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+        {
+            format!("&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
         } else if p.is_ref {
             format!("&{rust_name}")
         } else {
@@ -144,8 +151,15 @@ fn emit_method_shim(
             // `&Vec<String>` coerces to `&[String]`; the previous Vec<&str>
             // special-case produced `&[&str]` incompatible with `&[String]` core
             // method signatures. See the matching branch above.
+            // Exception: when the core method declares `&[&str]` (IR
+            // `vec_inner_is_ref = true`), materialise a `Vec<&str>` and borrow.
             let call_arg = if p.optional {
                 format!("Some({rust_name})")
+            } else if p.is_ref
+                && p.vec_inner_is_ref
+                && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+            {
+                format!("&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
             } else if p.is_ref {
                 format!("&{rust_name}")
             } else {

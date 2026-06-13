@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.18] - 2026-06-13
+
+### Fixed
+
+- **JNI codegen: `Vec<String>` parameters now respect `vec_inner_is_ref` and emit a `Vec<&str>` materialisation when the core function takes `&[&str]`.** Previously the JNI function/method shims unconditionally emitted `&{name}` for `Vec<String>` slots, which coerces to `&[String]` but not `&[&str]`. Core fns declared as `download(names: &[&str])` failed to compile with E0308 `expected reference &[&str], found reference &Vec<String>`. The shim now checks `p.vec_inner_is_ref && Vec<String>` and emits `&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()`, mirroring the existing Dart codegen branch. (`src/backends/jni/gen_shims/function_shims.rs`, `src/backends/jni/gen_shims/method_shims.rs`)
+
 ### Added
 
 - **Phase C cross-cutting plumbing: per-language override resolution, surface scan helpers, emitter traits, and backend stubs.** Four items land together as the seam framework that wave-2 per-backend specialists drop real Jinja-template work into:

@@ -218,7 +218,19 @@ fn emit_function_shim(
                     // special-case that converted to `Vec<&str>` would have produced
                     // `&[&str]` which is incompatible with core fns that take `&[String]`
                     // (e.g. `LlmBackend::detect_with_custom`).
-                    if p.is_ref {
+                    //
+                    // Exception: when the core fn explicitly takes `&[&str]` (captured in
+                    // the IR as `vec_inner_is_ref = true` on a `Vec<String>` param), emit
+                    // a materialised `Vec<&str>` and borrow it. Without this branch the
+                    // call fails E0308 expected `&[&str]`, found `&Vec<String>`.
+                    if p.is_ref
+                        && p.vec_inner_is_ref
+                        && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+                    {
+                        call_args.push_str(&format!(
+                            "&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()"
+                        ));
+                    } else if p.is_ref {
                         // Match the borrow mode declared by the core function: `&mut T`
                         // params receive an exclusive borrow, plain `&T` an immutable one.
                         // Without this distinction the JNI shim emits `&result` for a
