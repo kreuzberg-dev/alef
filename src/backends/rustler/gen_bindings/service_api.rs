@@ -20,7 +20,6 @@
 
 mod elixir;
 mod helpers;
-mod new_ir_stubs;
 mod orchestration;
 mod registration;
 mod registration_nif;

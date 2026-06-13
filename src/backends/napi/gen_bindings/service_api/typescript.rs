@@ -349,12 +349,6 @@ fn gen_service_class_ts(
         }
     }
 
-    // Lifecycle hook registration methods
-    for hook in &api.lifecycle_hooks {
-        let hook_ts = gen_lifecycle_hook_ts(hook);
-        out.push_str(&hook_ts);
-    }
-
     while out.ends_with("\n\n") {
         out.pop();
     }
@@ -735,25 +729,6 @@ fn emit_variant_hybrid_overloaded(
             native_args,
         },
     ));
-}
-
-/// Emit a lifecycle hook registration method.
-/// Hook name is converted to camelCase for TypeScript idiom.
-fn gen_lifecycle_hook_ts(hook: &crate::core::ir::LifecycleHookDef) -> String {
-    let method_name = hook.name.to_lower_camel_case();
-    let doc = hook.doc.trim().replace('\n', "\n   * ");
-    let callback_contract = &hook.callback_contract;
-    let is_async = hook.is_async;
-
-    render(
-        "service_ts_lifecycle_hook.jinja",
-        context! {
-            doc,
-            method_name,
-            callback_contract,
-            is_async,
-        },
-    )
 }
 
 #[cfg(test)]

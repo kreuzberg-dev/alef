@@ -16,7 +16,6 @@
 //! or domain-specific assumptions are made anywhere in this module.
 
 mod helpers;
-mod new_ir_stubs;
 mod python_service;
 mod registration_variants;
 mod rust_service;

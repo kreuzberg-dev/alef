@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-use alef::cli::{cache, dispatch, pipeline, registry, version_pin};
+use crate::cli::{cache, dispatch, pipeline, registry, version_pin};
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -74,7 +74,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                 // Collect all files generated in this run for cleanup pass
                 let mut current_gen_paths = std::collections::HashSet::new();
-                let mut changed_languages: std::collections::HashSet<alef::core::config::Language> =
+                let mut changed_languages: std::collections::HashSet<crate::core::config::Language> =
                     std::collections::HashSet::new();
 
                 eprintln!("Generating bindings...");
@@ -269,16 +269,16 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         // replace hyphens with underscores to match rust_path convention.
                         let module_path = call_config.module.replace('-', "_");
                         let function_name = &call_config.function;
-                        match alef::extract::validate_call_export(&api, &module_path, function_name) {
-                            alef::extract::ExportValidation::Ok => {}
-                            alef::extract::ExportValidation::NotFound { function } => {
+                        match crate::extract::validate_call_export(&api, &module_path, function_name) {
+                            crate::extract::ExportValidation::Ok => {}
+                            crate::extract::ExportValidation::NotFound { function } => {
                                 anyhow::bail!(
                                     "e2e call '{call_name}': function '{function}' was not found in the extracted API surface. \
                                  Check that it is declared `pub` and that its source file is listed in \
                                  [[crate.sources]] or [[crate.source_crates]]."
                                 );
                             }
-                            alef::extract::ExportValidation::WrongPath {
+                            crate::extract::ExportValidation::WrongPath {
                                 function,
                                 declared_module,
                                 actual_paths,
@@ -312,10 +312,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         }
                     } else {
                         eprintln!("Generating e2e test suites...");
-                        let files = alef::e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types, &api.enums)?;
+                        let files = crate::e2e::generate_e2e(resolved_cfg, e2e_config, None, &api.types, &api.enums)?;
                         e2e_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                         if format {
-                            alef::e2e::format::run_formatters(&files, e2e_config);
+                            crate::e2e::format::run_formatters(&files, e2e_config);
                         }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -346,15 +346,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     } else {
                         eprintln!("Generating registry-mode test apps...");
                         let mut registry_e2e_config = e2e_config.clone();
-                        registry_e2e_config.dep_mode = alef::core::config::e2e::DependencyMode::Registry;
+                        registry_e2e_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
                         let registry_e2e_ref = &registry_e2e_config;
 
                         let files =
-                            alef::e2e::generate_e2e(resolved_cfg, registry_e2e_ref, None, &api.types, &api.enums)?;
+                            crate::e2e::generate_e2e(resolved_cfg, registry_e2e_ref, None, &api.types, &api.enums)?;
                         let test_apps_count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
                         e2e_count += test_apps_count;
                         if format {
-                            alef::e2e::format::run_formatters(&files, registry_e2e_ref);
+                            crate::e2e::format::run_formatters(&files, registry_e2e_ref);
                         }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -375,7 +375,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 eprintln!("Generating API docs...");
                 let docs_api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let doc_languages = resolve_doc_languages(resolved_cfg, None)?;
-                let doc_files = alef::docs::generate_docs(&docs_api, resolved_cfg, &doc_languages, "docs/reference")?;
+                let doc_files = crate::docs::generate_docs(&docs_api, resolved_cfg, &doc_languages, "docs/reference")?;
                 let doc_count = pipeline::write_scaffold_files_with_overwrite(&doc_files, &base_dir, clean)?;
                 for file in &doc_files {
                     current_gen_paths.insert(base_dir.join(&file.path));
@@ -428,7 +428,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
 
                     eprintln!("Running formatters...");
-                    let changed_list: Vec<alef::core::config::Language> = changed_languages.iter().copied().collect();
+                    let changed_list: Vec<crate::core::config::Language> = changed_languages.iter().copied().collect();
                     pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 

@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::process;
 
-use alef::cli::{cache, commands, dispatch};
+use crate::cli::{cache, commands, dispatch};
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -58,7 +58,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             // For release metadata, use the first crate matching the filter (or first crate overall).
             // This command emits a single JSON object per invocation; multi-crate is an
             // unusual case. If the user needs per-crate metadata they can filter with --crate.
-            let resolved_cfg_opt: Option<&alef::core::config::ResolvedCrateConfig> =
+            let resolved_cfg_opt: Option<&crate::core::config::ResolvedCrateConfig> =
                 resolved_opt.as_ref().and_then(|r| {
                     dispatch::select_crates(r, &context.crate_filter)
                         .ok()

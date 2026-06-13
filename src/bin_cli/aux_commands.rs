@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::process;
 
-use alef::cli::{cache, commands, dispatch, pipeline};
+use crate::cli::{cache, commands, dispatch, pipeline};
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -70,10 +70,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
         } => {
             let version = schema_version.as_deref().unwrap_or(env!("CARGO_PKG_VERSION"));
             if check {
-                alef::core::config::check_alef_config_schema(&output, version)?;
+                crate::core::config::check_alef_config_schema(&output, version)?;
                 println!("Schema is up to date: {}", output.display());
             } else {
-                alef::core::config::write_alef_config_schema(&output, version)?;
+                crate::core::config::write_alef_config_schema(&output, version)?;
                 println!("Wrote schema to {}", output.display());
             }
             Ok(None)
@@ -133,7 +133,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         let effective_e2e_config;
                         let e2e_ref = if registry {
                             let mut cloned = this_e2e_config.clone();
-                            cloned.dep_mode = alef::core::config::e2e::DependencyMode::Registry;
+                            cloned.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
                             effective_e2e_config = cloned;
                             eprintln!("Generating e2e test apps (registry mode)...");
                             &effective_e2e_config
@@ -142,13 +142,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             this_e2e_config
                         };
                         let languages = lang.as_deref();
-                        let files = alef::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
+                        let files = crate::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                         if format {
-                            alef::e2e::format::run_formatters(&files, e2e_ref);
+                            crate::e2e::format::run_formatters(&files, e2e_ref);
                         }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -188,7 +188,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
                 E2eAction::Init => {
                     eprintln!("Initializing e2e fixtures directory...");
-                    let created = alef::e2e::scaffold::init_fixtures(e2e_config, resolved_cfg)?;
+                    let created = crate::e2e::scaffold::init_fixtures(e2e_config, resolved_cfg)?;
                     for path in &created {
                         println!("  created {path}");
                     }
@@ -201,15 +201,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     description,
                 } => {
                     let path =
-                        alef::e2e::scaffold::scaffold_fixture(e2e_config, resolved_cfg, &id, &category, &description)?;
+                        crate::e2e::scaffold::scaffold_fixture(e2e_config, resolved_cfg, &id, &category, &description)?;
                     println!("Created {path}");
                     Ok(None)
                 }
                 E2eAction::List => {
                     let fixtures_dir = std::path::Path::new(&e2e_config.fixtures);
-                    let fixtures = alef::e2e::fixture::load_fixtures(fixtures_dir)
+                    let fixtures = crate::e2e::fixture::load_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
-                    let groups = alef::e2e::fixture::group_fixtures(&fixtures);
+                    let groups = crate::e2e::fixture::group_fixtures(&fixtures);
 
                     println!("Fixtures: {} total", fixtures.len());
                     for group in &groups {
@@ -222,21 +222,21 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     eprintln!("Validating fixtures in {}...", fixtures_dir.display());
 
                     // Schema validation
-                    let mut all_errors = alef::e2e::validate::validate_fixtures(fixtures_dir)
+                    let mut all_errors = crate::e2e::validate::validate_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to validate fixtures from {}", fixtures_dir.display()))?;
 
                     // Semantic validation
-                    let fixtures = alef::e2e::fixture::load_fixtures(fixtures_dir)
+                    let fixtures = crate::e2e::fixture::load_fixtures(fixtures_dir)
                         .with_context(|| format!("failed to load fixtures from {}", fixtures_dir.display()))?;
                     let semantic_errors =
-                        alef::e2e::validate::validate_fixtures_semantic(&fixtures, e2e_config, &e2e_config.languages);
+                        crate::e2e::validate::validate_fixtures_semantic(&fixtures, e2e_config, &e2e_config.languages);
                     all_errors.extend(semantic_errors);
 
                     if all_errors.is_empty() {
                         println!("All fixtures are valid.");
                         Ok(None)
                     } else {
-                        use alef::e2e::validate::Severity;
+                        use crate::e2e::validate::Severity;
                         let error_count = all_errors.iter().filter(|e| e.severity == Severity::Error).count();
                         let warning_count = all_errors.iter().filter(|e| e.severity == Severity::Warning).count();
                         println!("Found {} error(s) and {} warning(s):", error_count, warning_count);
@@ -278,7 +278,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                         // Build a registry-mode clone of the e2e config.
                         let mut registry_config = this_e2e_config.clone();
-                        registry_config.dep_mode = alef::core::config::e2e::DependencyMode::Registry;
+                        registry_config.dep_mode = crate::core::config::e2e::DependencyMode::Registry;
                         let e2e_ref = &registry_config;
                         let output_root = base_dir.join(e2e_ref.effective_output());
 
@@ -343,13 +343,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                         eprintln!("Generating registry-mode test apps...");
                         let languages = lang.as_deref();
-                        let files = alef::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
+                        let files = crate::e2e::generate_e2e(e2e_crate, e2e_ref, languages, &api.types, &api.enums)?;
                         let sources_hash = cache::sources_hash(&e2e_crate.sources)?;
                         let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                         let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
 
                         if format {
-                            alef::e2e::format::run_formatters(&files, e2e_ref);
+                            crate::e2e::format::run_formatters(&files, e2e_ref);
                         }
 
                         let output_paths: Vec<PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
@@ -384,7 +384,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             continue;
                         };
                         let all_names: Vec<String> = if this_e2e_config.languages.is_empty() {
-                            alef::e2e::default_e2e_languages(&e2e_crate.languages)
+                            crate::e2e::default_e2e_languages(&e2e_crate.languages)
                         } else {
                             this_e2e_config.languages.clone()
                         };

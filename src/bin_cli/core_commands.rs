@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 use std::process;
 
-use alef::cli::{cache, dispatch, pipeline, version_pin};
+use crate::cli::{cache, dispatch, pipeline, version_pin};
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -99,7 +99,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                 // Collect all files generated in this run for cleanup pass
                 let mut current_gen_paths = std::collections::HashSet::new();
-                let mut changed_languages: std::collections::HashSet<alef::core::config::Language> =
+                let mut changed_languages: std::collections::HashSet<crate::core::config::Language> =
                     std::collections::HashSet::new();
 
                 let mut total_written: usize = 0;
@@ -312,7 +312,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let mut files_to_format = files.clone();
                     files_to_format.extend(stub_files.clone());
                     pipeline::format_generated(&files_to_format, resolved_cfg, &base_dir, Some(&changed_languages));
-                    let changed_list: Vec<alef::core::config::Language> = changed_languages.iter().copied().collect();
+                    let changed_list: Vec<crate::core::config::Language> = changed_languages.iter().copied().collect();
                     pipeline::fmt_post_generate(resolved_cfg, &changed_list);
                 }
 
@@ -398,7 +398,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 // mix format, …) reformat those files the hash no longer matches and
                 // `alef verify` reports them as stale.  Formatter failures are warnings —
                 // they must not abort the stubs command.
-                let stub_langs: Vec<alef::core::config::Language> = files.iter().map(|(lang, _)| *lang).collect();
+                let stub_langs: Vec<crate::core::config::Language> = files.iter().map(|(lang, _)| *lang).collect();
                 pipeline::format_generated(&files, resolved_cfg, &base_dir, None);
                 pipeline::fmt_post_generate(resolved_cfg, &stub_langs);
 
@@ -540,7 +540,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } else {
                     eprintln!("Generating API docs for: {}", format_languages(&languages));
                 }
-                let files = alef::docs::generate_docs(&api, resolved_cfg, &languages, &output)?;
+                let files = crate::docs::generate_docs(&api, resolved_cfg, &languages, &output)?;
                 let sources_hash = cache::sources_hash(&resolved_cfg.sources)?;
                 let alef_toml_bytes = cache::read_alef_toml_bytes(config_path);
                 let count = pipeline::write_scaffold_files_with_overwrite(&files, &base_dir, true)?;
@@ -769,7 +769,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let all_inputs_hashes: Vec<String> = crates_to_process
                 .iter()
                 .filter_map(|c| cache::sources_hash(&c.sources).ok())
-                .map(|sh| alef::core::hash::compute_inputs_hash(&sh, &alef_toml_bytes))
+                .map(|sh| crate::core::hash::compute_inputs_hash(&sh, &alef_toml_bytes))
                 .collect();
 
             let stale = verify_walk_multi(&base_dir, &all_inputs_hashes)?;

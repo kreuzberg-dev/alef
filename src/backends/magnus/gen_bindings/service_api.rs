@@ -3,14 +3,11 @@
 //! Emits `service.rb` wrappers and `service.rs` Magnus glue from the
 //! [`ApiSurface`] IR without transport- or domain-specific assumptions.
 
-use super::lifecycle_error_ws_sse;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
-
-mod phase_c;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
@@ -88,7 +85,6 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         minijinja::context! {
             gem_require_name => gem_require_name,
             has_services => !api.services.is_empty(),
-            has_error_types => !api.error_types.is_empty(),
             native_module_name => native_module_name,
         },
     ));
@@ -184,15 +180,6 @@ fn gen_service_class(out: &mut String, service: &ServiceDef, api: &ApiSurface, n
     for reg in &service.registrations {
         gen_registration_method(out, reg, service, api, native_module_name);
     }
-
-    // Lifecycle hook registration methods
-    lifecycle_error_ws_sse::gen_lifecycle_hooks_for_class(out, &api.lifecycle_hooks);
-
-    // WebSocket registration
-    lifecycle_error_ws_sse::gen_websocket_methods_for_class(out, &api.websocket_routes);
-
-    // SSE registration
-    lifecycle_error_ws_sse::gen_sse_methods_for_class(out, &api.sse_routes);
 
     // Entrypoint methods — positional params for direct invocation.
     for ep in &service.entrypoints {
@@ -964,7 +951,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let lib_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
     let output_base = PathBuf::from(&lib_dir).join(&gem_name_snake);
 
-    let mut files = vec![
+    let files = vec![
         GeneratedFile {
             path: PathBuf::from(&output_dir).join("service.rs"),
             content: service_rs,
@@ -976,17 +963,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
             generated_header: true,
         },
     ];
-
-    // Emit the error exception hierarchy in its own file so the generated
-    // service.rb stays single-class (satisfies Style/OneClassPerFile).
-    let errors_rb = lifecycle_error_ws_sse::gen_error_classes(api);
-    if !errors_rb.is_empty() {
-        files.push(GeneratedFile {
-            path: output_base.join("errors.rb"),
-            content: errors_rb,
-            generated_header: true,
-        });
-    }
 
     Ok(files)
 }

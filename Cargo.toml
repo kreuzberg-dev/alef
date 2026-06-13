@@ -1,3 +1,4 @@
+
 [package]
 name = "alef"
 version = "0.24.17"
@@ -22,6 +23,8 @@ pkg-fmt = "zip"
 [package.metadata.cargo-machete]
 ignored = ["tracing"]
 
+[features]
+dylib-loader = []
 [lib]
 name = "alef"
 path = "src/lib.rs"
