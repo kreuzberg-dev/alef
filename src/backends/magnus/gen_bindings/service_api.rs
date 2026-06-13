@@ -99,6 +99,7 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         minijinja::context! {
             gem_require_name => gem_require_name,
             has_services => !api.services.is_empty(),
+            has_error_types => !api.error_types.is_empty(),
             native_module_name => native_module_name,
         },
     ));
@@ -109,10 +110,6 @@ pub(super) fn gen_service_rb(api: &ApiSurface, native_module_name: &str, gem_req
         }
         out.push_str("end\n");
     }
-
-    // Emit error classes
-    out.push('\n');
-    out.push_str(&lifecycle_error_ws_sse::gen_error_classes(api));
 
     out
 }
@@ -968,7 +965,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     let lib_dir = resolve_output_dir(config.output_paths.get("ruby_lib"), &config.name, "packages/ruby/lib/");
     let output_base = PathBuf::from(&lib_dir).join(&gem_name_snake);
 
-    Ok(vec![
+    let mut files = vec![
         GeneratedFile {
             path: PathBuf::from(&output_dir).join("service.rs"),
             content: service_rs,
@@ -979,7 +976,20 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
             content: service_rb,
             generated_header: true,
         },
-    ])
+    ];
+
+    // Emit Spikard::Errors exception hierarchy in its own file so the generated
+    // service.rb stays single-class (satisfies Style/OneClassPerFile).
+    let errors_rb = lifecycle_error_ws_sse::gen_error_classes(api);
+    if !errors_rb.is_empty() {
+        files.push(GeneratedFile {
+            path: output_base.join("errors.rb"),
+            content: errors_rb,
+            generated_header: true,
+        });
+    }
+
+    Ok(files)
 }
 
 // ───────────────────────── Phase-C emission stubs (new IR sections) ──────────

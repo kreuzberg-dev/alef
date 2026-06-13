@@ -1,7 +1,9 @@
 # frozen_string_literal: true
 
 require "{{ gem_require_name }}"
-
+{% if has_error_types -%}
+require_relative "errors"
+{% endif %}
 {% if has_services -%}
 module {{ native_module_name }}
 {% endif -%}

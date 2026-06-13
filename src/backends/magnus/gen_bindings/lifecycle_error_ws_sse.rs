@@ -73,8 +73,11 @@ pub(super) fn gen_sse_methods_for_class(out: &mut String, routes: &[SseRouteDef]
     }
 }
 
-/// Emit the error module with exception class hierarchy.
+/// Emit the error module with exception class hierarchy as a standalone Ruby file.
+///
 /// The module name and nesting are derived from the crate name and can be configured per-project.
+/// Emitted at the top level (not nested in the service.rb file) so the generated file
+/// satisfies Style/OneClassPerFile.
 pub(super) fn gen_error_classes(api: &ApiSurface) -> String {
     let mut out = String::new();
 
@@ -85,6 +88,7 @@ pub(super) fn gen_error_classes(api: &ApiSurface) -> String {
     // Use crate name to derive module names; this keeps alef generic across consumers.
     let crate_module = api.crate_name.to_upper_camel_case();
 
+    out.push_str("# frozen_string_literal: true\n\n");
     out.push_str(&format!("module {crate_module}\n"));
     out.push_str("  module Errors\n");
 
