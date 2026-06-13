@@ -51,7 +51,7 @@ pub struct ServiceDef {
 /// Backends that do not support a particular constraint may ignore `type_constraint`
 /// and emit a plain parameter binding; validation then happens in the Rust core layer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct PathConstraint {
+pub struct ParameterConstraint {
     /// The path-parameter name after normalization (e.g. `"id"`, `"slug"`).
     pub name: String,
     /// Optional type constraint for this parameter (e.g. `"int"`, `"uuid"`).
@@ -60,7 +60,7 @@ pub struct PathConstraint {
     pub type_constraint: Option<String>,
 }
 
-impl PathConstraint {
+impl ParameterConstraint {
     /// Parse path-parameter constraints from a route path string.
     ///
     /// Accepts three input syntaxes and normalizes to the canonical axum form in the
@@ -75,16 +75,16 @@ impl PathConstraint {
     /// # Examples
     ///
     /// ```
-    /// use alef::core::ir::PathConstraint;
+    /// use alef::core::ir::ParameterConstraint;
     ///
-    /// let (path, constraints) = PathConstraint::parse_path("/users/{id:int}/posts/{slug}");
+    /// let (path, constraints) = ParameterConstraint::parse_parameters("/users/{id:int}/posts/{slug}");
     /// assert_eq!(path, "/users/{id}/posts/{slug}");
     /// assert_eq!(constraints[0].name, "id");
     /// assert_eq!(constraints[0].type_constraint.as_deref(), Some("int"));
     /// assert_eq!(constraints[1].name, "slug");
     /// assert!(constraints[1].type_constraint.is_none());
     /// ```
-    pub fn parse_path(path: &str) -> (String, Vec<PathConstraint>) {
+    pub fn parse_parameters(path: &str) -> (String, Vec<ParameterConstraint>) {
         let mut constraints = Vec::new();
         let mut normalized = String::with_capacity(path.len());
         let mut chars = path.chars().peekable();
@@ -108,7 +108,7 @@ impl PathConstraint {
                     (inner.trim().to_owned(), None)
                 };
                 if !name.is_empty() {
-                    constraints.push(PathConstraint {
+                    constraints.push(ParameterConstraint {
                         name: name.clone(),
                         type_constraint,
                     });
@@ -123,7 +123,7 @@ impl PathConstraint {
                     name.push(chars.next().unwrap());
                 }
                 if !name.is_empty() {
-                    constraints.push(PathConstraint {
+                    constraints.push(ParameterConstraint {
                         name: name.clone(),
                         type_constraint: None,
                     });
@@ -213,7 +213,7 @@ pub struct RegistrationDef {
     /// emit typed path-parameter bindings and router-level validation annotations.
     /// Empty when no path string is associated with this registration base.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub path_param_constraints: Vec<PathConstraint>,
+    pub path_param_constraints: Vec<ParameterConstraint>,
     /// How the handler callable receives the incoming request in generated code.
     ///
     /// Backends dispatch on this value to select the appropriate emission template.

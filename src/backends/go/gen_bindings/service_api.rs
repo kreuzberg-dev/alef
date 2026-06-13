@@ -113,12 +113,6 @@ fn gen_service_go(api: &ApiSurface, config: &ResolvedCrateConfig, pkg_name: &str
         gen_service_struct(&mut out, service, api, ffi_prefix, api);
     }
 
-    // Phase C: Emit new IR sections (Config, error types, lifecycle hooks, WebSocket/SSE, Run, helpers)
-    if let Some(service) = api.services.first() {
-        out.push_str("// ──────────────────────────────────────────── Phase C Additions ──\n\n");
-        out.push_str(&super::phase_c::emit_all(api, &service.name, ffi_prefix));
-    }
-
     out
 }
 

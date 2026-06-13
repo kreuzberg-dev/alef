@@ -277,10 +277,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/trampoline_raw_message_decode.jinja"),
     ),
     (
-        "plugin_trampoline_lifecycle.jinja",
-        include_str!("templates/plugin_trampoline_lifecycle.jinja"),
-    ),
-    (
         "trait_interface_method.jinja",
         include_str!("templates/trait_interface_method.jinja"),
     ),
@@ -843,27 +839,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/cmd_download_ffi_main.go.jinja"),
     ),
     ("embed_ffi.go.jinja", include_str!("templates/embed_ffi.go.jinja")),
-    (
-        "service_config_struct.jinja",
-        include_str!("templates/service_config_struct.jinja"),
-    ),
-    (
-        "service_error_types.jinja",
-        include_str!("templates/service_error_types.jinja"),
-    ),
-    (
-        "service_lifecycle_hooks.jinja",
-        include_str!("templates/service_lifecycle_hooks.jinja"),
-    ),
-    ("service_helpers.jinja", include_str!("templates/service_helpers.jinja")),
-    (
-        "service_run_method.jinja",
-        include_str!("templates/service_run_method.jinja"),
-    ),
-    (
-        "service_config_struct.jinja",
-        include_str!("templates/service_config_struct.jinja"),
-    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {
