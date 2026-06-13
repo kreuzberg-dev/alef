@@ -107,7 +107,23 @@ pub(super) fn gen_type_stub(
     // it as `obj.class_` (the escaped name), NOT as `obj.class`, because `class` is a
     // syntax error in a Python attribute access expression.  The stub must match.
     for field in binding_fields(&typ.fields) {
-        let type_str = python_type(&field.ty);
+        // Check if this field is a trait bridge marker (e.g., visitor field on ConversionOptions).
+        // When it is, prefer the trait Protocol class name (e.g., HtmlVisitor) over the
+        // binding-internal opaque handle (e.g., VisitorHandle), matching the __init__ signature logic.
+        let type_str = if let Some((_, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
+            if let Some(alias) = type_alias {
+                if field.name == *alias {
+                    // This field is the bridge marker; use the trait Protocol name if available
+                    trait_name.or(*type_alias).unwrap_or("object").to_string()
+                } else {
+                    python_type(&field.ty)
+                }
+            } else {
+                python_type(&field.ty)
+            }
+        } else {
+            python_type(&field.ty)
+        };
         // Duration fields on has_default types are Option<u64> in PyO3, so annotate as int | None
         let is_optional_duration = typ.has_default && matches!(field.ty, TypeRef::Duration) && !field.optional;
         let field_type = if (is_optional_duration || field.optional) && !type_str.contains("| None") {
