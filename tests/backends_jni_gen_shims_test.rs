@@ -1418,7 +1418,7 @@ fn method_slice_str_param_coerces_to_str_refs() {
             original_type: None,
             map_is_ahash: false,
             map_key_is_cow: false,
-            vec_inner_is_ref: false,
+            vec_inner_is_ref: true,
             map_is_btree: false,
             core_wrapper: alef::core::ir::CoreWrapper::None,
         }],

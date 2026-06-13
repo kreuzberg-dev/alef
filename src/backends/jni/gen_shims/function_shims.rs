@@ -223,13 +223,9 @@ fn emit_function_shim(
                     // the IR as `vec_inner_is_ref = true` on a `Vec<String>` param), emit
                     // a materialised `Vec<&str>` and borrow it. Without this branch the
                     // call fails E0308 expected `&[&str]`, found `&Vec<String>`.
-                    if p.is_ref
-                        && p.vec_inner_is_ref
-                        && matches!(&p.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
-                    {
-                        call_args.push_str(&format!(
-                            "&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()"
-                        ));
+                    if needs_vec_string_refs(p, base_ty) {
+                        unmarshal.push_str(&render_vec_string_refs_binding(&rust_name));
+                        call_args.push_str(&vec_string_refs_arg(&rust_name));
                     } else if p.is_ref {
                         // Match the borrow mode declared by the core function: `&mut T`
                         // params receive an exclusive borrow, plain `&T` an immutable one.

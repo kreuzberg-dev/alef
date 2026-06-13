@@ -17,6 +17,7 @@ expression: content
 #![allow(clippy::let_unit_value)]
 #![allow(clippy::unused_unit)]
 #![allow(clippy::let_and_return)]
+#![allow(missing_docs)]
 
 use std::sync::OnceLock;
 use std::sync::Mutex;

@@ -113,11 +113,9 @@ fn emit_method_shim(
             rust_name
         } else if p.optional {
             format!("Some({rust_name})")
-        } else if p.is_ref
-            && p.vec_inner_is_ref
-            && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
-        {
-            format!("&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+        } else if needs_vec_string_refs(p, base_ty) {
+            out.push_str(&render_vec_string_refs_binding(&rust_name));
+            vec_string_refs_arg(&rust_name)
         } else if p.is_ref {
             format!("&{rust_name}")
         } else {
@@ -155,11 +153,9 @@ fn emit_method_shim(
             // `vec_inner_is_ref = true`), materialise a `Vec<&str>` and borrow.
             let call_arg = if p.optional {
                 format!("Some({rust_name})")
-            } else if p.is_ref
-                && p.vec_inner_is_ref
-                && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
-            {
-                format!("&{rust_name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()")
+            } else if needs_vec_string_refs(p, base_ty) {
+                out.push_str(&render_vec_string_refs_binding(&rust_name));
+                vec_string_refs_arg(&rust_name)
             } else if p.is_ref {
                 format!("&{rust_name}")
             } else {

@@ -137,6 +137,27 @@ fn type_ref_to_core_path(ty: &TypeRef, core_prefix: &str) -> String {
     }
 }
 
+fn needs_vec_string_refs(param: &ParamDef, ty: &TypeRef) -> bool {
+    param.is_ref
+        && param.vec_inner_is_ref
+        && matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String))
+}
+
+fn render_vec_string_refs_binding(name: &str) -> String {
+    let refs_name = format!("{name}_refs");
+    template_env::render(
+        "vec_string_refs.rs.jinja",
+        context! {
+            refs_name => refs_name,
+            source_name => name,
+        },
+    )
+}
+
+fn vec_string_refs_arg(name: &str) -> String {
+    format!("&{name}_refs")
+}
+
 fn primitive_rust_type(p: &PrimitiveType) -> &'static str {
     match p {
         PrimitiveType::Bool => "bool",
