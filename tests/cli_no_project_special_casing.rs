@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Output};
 
 use walkdir::WalkDir;
+
+const PROJECT_MENTION_HOOK_CHUNK_SIZE: usize = 64;
 
 const SNAPSHOT_FORBIDDEN_MARKERS: &[&str] = &[
     "kreuzberg",
@@ -35,17 +37,9 @@ fn no_project_name_special_casing_in_enforced_files() {
     let hook = workspace_root.join("hooks/check_project_mentions.py");
     let files = enforced_files(&workspace_root);
 
-    let output = Command::new("python3")
-        .arg(hook)
-        .args(&files)
-        .output()
-        .expect("project mention hook must run");
-
-    assert!(
-        output.status.success(),
-        "project mention hook failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    if let Err(error) = run_project_mention_hook(&hook, false, &files) {
+        panic!("project mention hook failed:\n{error}");
+    }
 }
 
 #[test]
@@ -54,18 +48,9 @@ fn strict_hook_scans_snapshots_docs_and_generated_guidance() {
     let hook = workspace_root.join("hooks/check_project_mentions.py");
     let files = strict_enforced_files(&workspace_root);
 
-    let output = Command::new("python3")
-        .arg(hook)
-        .arg("--strict")
-        .args(&files)
-        .output()
-        .expect("strict project mention hook must run");
-
-    assert!(
-        output.status.success(),
-        "strict project mention hook failed:\n{}",
-        String::from_utf8_lossy(&output.stderr)
-    );
+    if let Err(error) = run_project_mention_hook(&hook, true, &files) {
+        panic!("strict project mention hook failed:\n{error}");
+    }
 }
 
 #[test]
@@ -161,6 +146,33 @@ fn enforced_files(workspace_root: &Path) -> Vec<PathBuf> {
         }
     })
     .collect()
+}
+
+fn run_project_mention_hook(hook: &Path, strict: bool, files: &[PathBuf]) -> Result<(), String> {
+    for chunk in files.chunks(PROJECT_MENTION_HOOK_CHUNK_SIZE) {
+        let mut command = Command::new("python3");
+        command.arg(hook);
+        if strict {
+            command.arg("--strict");
+        }
+        let output = command
+            .args(chunk)
+            .output()
+            .map_err(|error| format!("running {}: {error}", hook.display()))?;
+        if !output.status.success() {
+            return Err(project_mention_hook_failure(&output));
+        }
+    }
+    Ok(())
+}
+
+fn project_mention_hook_failure(output: &Output) -> String {
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.trim().is_empty() {
+        String::from_utf8_lossy(&output.stdout).into_owned()
+    } else {
+        stderr.into_owned()
+    }
 }
 
 fn strict_enforced_files(workspace_root: &Path) -> Vec<PathBuf> {
