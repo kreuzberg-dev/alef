@@ -3,6 +3,7 @@ use std::path::Path;
 
 use crate::backends::kotlin::{emit_kdoc_pub, to_pascal_case};
 use crate::backends::kotlin_android::template_env;
+use crate::codegen::naming::kotlin_android_wrapper_object_name;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
@@ -41,7 +42,7 @@ pub(super) fn emit_module_kt(
 ) {
     use crate::backends::kotlin::to_lower_camel;
 
-    let module_name = to_pascal_case(&config.name);
+    let module_name = kotlin_android_wrapper_object_name(&config.name);
     let bridge_name = format!("{module_name}Bridge");
 
     // Set of all opaque (non-trait) type names.

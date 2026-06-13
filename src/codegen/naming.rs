@@ -674,13 +674,32 @@ pub fn to_csharp_name(name: &str) -> String {
 
 /// Derive the C# wrapper class name emitted by [`crate::backends::csharp::CsharpBackend`].
 ///
-/// Mirrors the logic in `gen_bindings::mod.rs`: the wrapper class is the PascalCased crate
-/// name, with a `Lib` suffix appended when that name would otherwise collide with the
-/// surrounding namespace. The README generator uses this helper so the generated C# usage
-/// example references the same class name that the bindings actually emit.
-pub fn csharp_wrapper_class_name(crate_name: &str, namespace: &str) -> String {
+/// Converts the crate name to PascalCase, strips the Rust binding crate suffix "-rs",
+/// and appends the idiomatic C# "Converter" suffix. For example:
+/// - `sample-parser-rs` -> `SampleParser` -> `SampleParserConverter`
+/// - `document_tools` -> `DocumentTools` -> `DocumentToolsConverter`
+///
+/// The README generator uses this helper so the generated C# usage example references
+/// the same class name that the bindings actually emit.
+pub fn csharp_wrapper_class_name(crate_name: &str, _namespace: &str) -> String {
     let base = to_csharp_name(crate_name);
-    if namespace == base { format!("{base}Lib") } else { base }
+    // Strip Rust-binding "Rs" suffix (from "-rs" crate suffix) and append idiomatic Converter suffix.
+    let stem = base.strip_suffix("Rs").unwrap_or(&base);
+    format!("{stem}Converter")
+}
+
+/// Derive the Kotlin Android wrapper object name emitted by the `KotlinAndroidBackend`.
+///
+/// Converts the crate name to PascalCase, strips the Rust binding crate suffix "-rs",
+/// and appends the idiomatic Kotlin "Converter" suffix. For example:
+/// - `sample-parser-rs` -> `SampleParser` -> `SampleParserConverter`
+/// - `document_tools` -> `DocumentTools` -> `DocumentToolsConverter`
+pub fn kotlin_android_wrapper_object_name(crate_name: &str) -> String {
+    // Convert to PascalCase via the standard public type naming function.
+    let base = public_type_name(Language::KotlinAndroid, crate_name);
+    // Strip Rust-binding "Rs" suffix (from "-rs" crate suffix) and append idiomatic Converter suffix.
+    let stem = base.strip_suffix("Rs").unwrap_or(&base);
+    format!("{stem}Converter")
 }
 
 /// Normalize 3+ letter acronyms at the start of a name to PascalCase.
