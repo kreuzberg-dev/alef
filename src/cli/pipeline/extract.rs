@@ -96,6 +96,21 @@ pub fn extract(config: &ResolvedCrateConfig, config_path: &Path, clean: bool) ->
     // must stop extraction instead of leaving lossy generic fallback bindings.
     run_service_extraction(&mut api, config)?;
 
+    // Let registered extensions augment the API surface (e.g. inject HTTP-domain IR).
+    crate::with_extensions(|exts| {
+        for ext in exts {
+            // Extensions receive None config here; per-extension TOML sections
+            // are a future enhancement (tracked in CHANGELOG [Unreleased]).
+            let cfg = ext.parse_config(None).with_context(|| {
+                format!("extension `{}`: failed to parse config", ext.name())
+            })?;
+            ext.augment_surface(&mut api, &cfg).with_context(|| {
+                format!("extension `{}`: augment_surface failed", ext.name())
+            })?;
+        }
+        Ok::<(), anyhow::Error>(())
+    })?;
+
     // Methods declared as [[crates.adapters]].core_path are emitted via adapter
     // codegen which handles lossy types (BoxStream, BoxFuture). Mark them as
     // binding_excluded so the public-API validator skips them, but keep them in

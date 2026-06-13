@@ -1,9 +1,9 @@
 //! Extension trait and supporting types for alef.
 
-use crate::template_env::TemplateEnv;
-use alef::core::backend::GeneratedFile;
-use alef::core::config::Language;
-use alef::core::ir::ApiSurface;
+use crate::core::backend::GeneratedFile;
+use crate::core::config::Language;
+use crate::core::ir::ApiSurface;
+use crate::core::template_env::TemplateEnv;
 use anyhow::Result;
 use std::any::Any;
 

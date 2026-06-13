@@ -7,6 +7,86 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes
+
+- **HTTP-domain IR removed from alef core.** The following types are no longer
+  part of alef's public surface:
+  - `LifecycleHookDef`, `WebSocketRouteDef`, `SseRouteDef`, `ErrorTypeDef`,
+    `HttpStatus` (from `src/core/ir/application.rs`)
+  - `LifecycleHookConfig`, `WebSocketRouteConfig`, `SseRouteConfig`,
+    `ErrorTypeConfig` (from `src/core/config/service.rs`)
+  - `LifecycleHookEmitter`, `WebSocketRouteEmitter`, `SseRouteEmitter`,
+    `ErrorTypeEmitter` (from `src/core/ir/codegen_hooks.rs`)
+  - `ApiSurface` fields: `lifecycle_hooks`, `websocket_routes`, `sse_routes`,
+    `error_types`; predicates: `has_lifecycle_hooks`, `has_websocket_routes`,
+    `has_sse_routes`, `has_error_types`
+  - Per-backend HTTP emission modules: go/phase_c, jni/phase_c,
+    magnus/lifecycle_error_ws_sse, and `new_ir_stubs.rs` stubs across napi,
+    php, csharp, dart, kotlin, kotlin_android, rustler, swift, zig
+  Consumers who need these types should implement `Extension` and supply
+  domain-specific codegen from their own `spikard-alef` thin CLI.
+
+- **`alef-core` workspace crate collapsed into `alef`.** The separate
+  `alef-core` crate is removed. All extension types are now inlined directly
+  into `alef` and re-exported from the `alef` crate root. Consumers who
+  depended on `alef-core` should switch to `alef` and use the re-exports:
+  `alef::{Extension, ExtensionConfig, TemplateEnv, TemplateExtension}`.
+
+- **`fn main()` replaced by `run_with_extensions`.** Consumers who ship a
+  thin CLI bin should call `alef::run_with_extensions(vec![...])` instead of
+  duplicating the CLI init code.
+
+### Added
+
+- **`Extension` trait** (`src/core/extension.rs`): single contract for all
+  extension modes with three default-impl methods:
+  - `fn name(&self) -> &str` — stable slug used as the TOML config key.
+  - `fn parse_config(&self, raw: Option<&toml::Value>) -> Result<ExtensionConfig>` — parse extension's TOML section.
+  - `fn augment_surface(&self, api: &mut ApiSurface, cfg: &ExtensionConfig) -> Result<()>` — mutate the API surface after extraction.
+  - `fn emit_for_language(&self, api: &ApiSurface, cfg: &ExtensionConfig, language: Language, env: &TemplateEnv) -> Result<Vec<GeneratedFile>>` — emit extra files for one language.
+
+- **`ExtensionConfig`** (`src/core/extension.rs`): opaque typed config + raw
+  `toml::Value`. Methods: `empty()`, `from_raw()`, `with_typed()`,
+  `downcast::<T>()`.
+
+- **`TemplateEnv`** (`src/core/template_env.rs`): thin `minijinja::Environment`
+  wrapper for use in extensions. Methods: `new()`, `register_template()`,
+  `render()`.
+
+- **`TemplateExtension`** (`src/extensions/template.rs`): built-in extension
+  that renders `[[extensions.template]]` TOML blocks; always auto-prepended by
+  `run_with_extensions`.
+
+- **`DylibBlock` / `load_dylib_extensions`** (`src/extensions/dylib.rs`,
+  feature `dylib-loader`): stub surface for future dynamic plugin loading.
+  Returns an empty list; full libloading implementation deferred.
+
+- **`pub fn run_with_extensions(extensions: Vec<Box<dyn Extension>>) -> std::process::ExitCode`**
+  (`src/lib.rs`): public entry point replacing `main()`. Always prepends
+  `TemplateExtension` to the extension list. Stores extensions in a
+  thread-local for access by pipeline stages.
+
+- **Pipeline hooks wired**:
+  - `augment_surface` called in `src/cli/pipeline/extract.rs` after
+    `run_service_extraction` and before `mark_adapter_handled_methods`.
+  - `emit_for_language` called in
+    `src/cli/pipeline/generate/generation.rs` after each backend's
+    `generate_bindings_checked`, with extension files appended to the
+    per-language output vec.
+
+- **`[features] dylib-loader = []`** in `Cargo.toml` — optional feature flag
+  for future dynamic extension loading.
+
+### Deferred
+
+- Per-extension TOML section parsing: extensions currently receive `None` as
+  their raw config. Full `[extensions.<name>]` TOML section support is tracked
+  as a follow-up.
+- Concrete `libloading`-based dylib loader implementation.
+- `docs/extending.md` and README "Extending alef" section: documentation
+  deferred to a follow-up docs PR.
+
+
 ## [0.24.17] - 2026-06-13
 
 ### Added

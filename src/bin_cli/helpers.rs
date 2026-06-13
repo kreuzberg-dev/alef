@@ -28,42 +28,42 @@ pub(crate) fn init_tracing(verbose: u8, quiet: bool, no_color: bool) {
 pub(crate) fn load_config(
     path: &std::path::Path,
 ) -> Result<(
-    alef::core::config::WorkspaceConfig,
-    Vec<alef::core::config::ResolvedCrateConfig>,
+    crate::core::config::WorkspaceConfig,
+    Vec<crate::core::config::ResolvedCrateConfig>,
 )> {
     let content =
         std::fs::read_to_string(path).with_context(|| format!("Failed to read config: {}", path.display()))?;
-    alef::core::config::detect_legacy_keys(&content).with_context(|| {
+    crate::core::config::detect_legacy_keys(&content).with_context(|| {
         format!(
             "legacy schema detected in {} — run `alef migrate` to update automatically",
             path.display()
         )
     })?;
-    let cfg: alef::core::config::NewAlefConfig =
+    let cfg: crate::core::config::NewAlefConfig =
         toml::from_str(&content).with_context(|| format!("Failed to parse alef.toml ({})", path.display()))?;
     let resolved = cfg
         .resolve()
         .with_context(|| format!("failed to resolve crates in {}", path.display()))?;
     for resolved_cfg in &resolved {
-        alef::core::config::validation::validate_resolved(resolved_cfg)
+        crate::core::config::validation::validate_resolved(resolved_cfg)
             .with_context(|| format!("invalid resolved config for crate `{}`", resolved_cfg.name))?;
     }
     Ok((cfg.workspace, resolved))
 }
 
 pub(crate) fn resolve_languages(
-    config: &alef::core::config::ResolvedCrateConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
-) -> Result<Vec<alef::core::config::Language>> {
+) -> Result<Vec<crate::core::config::Language>> {
     resolve_languages_inner(config, filter, false)
 }
 
 /// Like `resolve_languages` but also allows `rust` regardless of the config languages list.
 /// Docs can always be generated for Rust since it's the source language.
 pub(crate) fn resolve_doc_languages(
-    config: &alef::core::config::ResolvedCrateConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
-) -> Result<Vec<alef::core::config::Language>> {
+) -> Result<Vec<crate::core::config::Language>> {
     resolve_languages_inner(config, filter, true)
 }
 
@@ -74,9 +74,9 @@ pub(crate) fn resolve_doc_languages(
 /// the per-binding READMEs. Configure with `[crates.readme.languages.rust]` in
 /// `alef.toml` to opt in.
 pub(crate) fn resolve_readme_languages(
-    config: &alef::core::config::ResolvedCrateConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
-) -> Result<Vec<alef::core::config::Language>> {
+) -> Result<Vec<crate::core::config::Language>> {
     resolve_languages_inner(config, filter, true)
 }
 
@@ -87,10 +87,10 @@ pub(crate) fn resolve_readme_languages(
 /// strict for generation/build commands, but allow explicit test targets and
 /// include e2e-only entries when `alef test --e2e` runs without a filter.
 pub(crate) fn resolve_test_languages(
-    config: &alef::core::config::ResolvedCrateConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
     include_e2e: bool,
-) -> Result<Vec<alef::core::config::Language>> {
+) -> Result<Vec<crate::core::config::Language>> {
     match filter {
         Some(langs) => {
             let mut result = vec![];
@@ -131,16 +131,16 @@ pub(crate) fn resolve_test_languages(
 }
 
 pub(crate) fn resolve_languages_inner(
-    config: &alef::core::config::ResolvedCrateConfig,
+    config: &crate::core::config::ResolvedCrateConfig,
     filter: Option<&[String]>,
     allow_rust: bool,
-) -> Result<Vec<alef::core::config::Language>> {
+) -> Result<Vec<crate::core::config::Language>> {
     match filter {
         Some(langs) => {
             let mut result = vec![];
             for lang_str in langs {
                 let lang = parse_language(lang_str)?;
-                if config.languages.contains(&lang) || (allow_rust && lang == alef::core::config::Language::Rust) {
+                if config.languages.contains(&lang) || (allow_rust && lang == crate::core::config::Language::Rust) {
                     result.push(lang);
                 } else {
                     anyhow::bail!("Language '{lang_str}' not in config languages list");
@@ -150,21 +150,21 @@ pub(crate) fn resolve_languages_inner(
         }
         None => {
             let mut langs = config.languages.clone();
-            if allow_rust && !langs.contains(&alef::core::config::Language::Rust) {
-                langs.push(alef::core::config::Language::Rust);
+            if allow_rust && !langs.contains(&crate::core::config::Language::Rust) {
+                langs.push(crate::core::config::Language::Rust);
             }
             Ok(langs)
         }
     }
 }
 
-pub(crate) fn parse_language(lang_str: &str) -> Result<alef::core::config::Language> {
+pub(crate) fn parse_language(lang_str: &str) -> Result<crate::core::config::Language> {
     toml::Value::String(lang_str.to_string())
         .try_into()
         .with_context(|| format!("Unknown language: {lang_str}"))
 }
 
-pub(crate) fn format_languages(languages: &[alef::core::config::Language]) -> String {
+pub(crate) fn format_languages(languages: &[crate::core::config::Language]) -> String {
     languages.iter().map(|l| l.to_string()).collect::<Vec<_>>().join(", ")
 }
 
@@ -247,7 +247,7 @@ pub(crate) fn verify_walk_multi(base_dir: &std::path::Path, inputs_hashes: &[Str
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            let Some(disk_hash) = alef::core::hash::extract_hash(&content) else {
+            let Some(disk_hash) = crate::core::hash::extract_hash(&content) else {
                 continue;
             };
             // A file is valid if its embedded hash matches ANY crate's inputs hash.
@@ -344,7 +344,7 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path, inputs_hash: &str) -> anyh
                 Ok(c) => c,
                 Err(_) => continue,
             };
-            let Some(disk_hash) = alef::core::hash::extract_hash(&content) else {
+            let Some(disk_hash) = crate::core::hash::extract_hash(&content) else {
                 continue;
             };
             // Direct string comparison: the embedded hash is an inputs fingerprint,
@@ -362,10 +362,10 @@ pub(crate) fn verify_walk(base_dir: &std::path::Path, inputs_hash: &str) -> anyh
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alef::core::config::Language;
+    use crate::core::config::Language;
 
-    fn resolved_test_config() -> alef::core::config::ResolvedCrateConfig {
-        let cfg: alef::core::config::NewAlefConfig = toml::from_str(
+    fn resolved_test_config() -> crate::core::config::ResolvedCrateConfig {
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
             r#"
 [workspace]
 languages = ["python"]

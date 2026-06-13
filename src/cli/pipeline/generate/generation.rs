@@ -51,9 +51,29 @@ pub fn generate(
             let backend = registry::get_backend(*lang);
             info!("  {}: generating...", lang_str);
 
-            let files = backend
+            let mut files = backend
                 .generate_bindings_checked(validated_api, config)
                 .with_context(|| format!("failed to generate bindings for {lang_str}"))?;
+
+            // Collect additional files from registered extensions for this language.
+            let ext_files = crate::with_extensions(|exts| {
+                let env = crate::core::template_env::TemplateEnv::new();
+                let mut all = Vec::new();
+                for ext in exts {
+                    let cfg = ext.parse_config(None).with_context(|| {
+                        format!("extension `{}`: failed to parse config", ext.name())
+                    })?;
+                    let extra = ext
+                        .emit_for_language(validated_api.api(), &cfg, *lang, &env)
+                        .with_context(|| {
+                            format!("extension `{}`: emit_for_language({lang_str}) failed", ext.name())
+                        })?;
+                    all.extend(extra);
+                }
+                Ok::<Vec<GeneratedFile>, anyhow::Error>(all)
+            })?;
+            files.extend(ext_files);
+
             let base_dir = std::env::current_dir().unwrap_or_default();
             let output_paths: Vec<std::path::PathBuf> = files.iter().map(|f| base_dir.join(&f.path)).collect();
             cache::write_lang_hash(&config.name, lang_str, lang_hash, &output_paths)

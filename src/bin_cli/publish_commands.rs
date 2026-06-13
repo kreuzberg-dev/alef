@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 
-use alef::cli::dispatch;
+use crate::cli::dispatch;
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -22,7 +22,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } => {
                     let rust_target = target
                         .as_deref()
-                        .map(alef::publish::platform::RustTarget::parse)
+                        .map(crate::publish::platform::RustTarget::parse)
                         .transpose()?;
                     for resolved_cfg in &crates_to_process {
                         let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
@@ -35,7 +35,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         } else {
                             eprintln!("Preparing publish for: {}", format_languages(&languages));
                         }
-                        alef::publish::prepare(
+                        crate::publish::prepare(
                             resolved_cfg,
                             &languages,
                             rust_target.as_ref(),
@@ -53,7 +53,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } => {
                     let rust_target = target
                         .as_deref()
-                        .map(alef::publish::platform::RustTarget::parse)
+                        .map(crate::publish::platform::RustTarget::parse)
                         .transpose()?;
                     for resolved_cfg in &crates_to_process {
                         let languages = resolve_languages(resolved_cfg, lang.as_deref())?;
@@ -66,7 +66,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                         } else {
                             eprintln!("Building publish artifacts for: {}", format_languages(&languages));
                         }
-                        alef::publish::build(resolved_cfg, &languages, rust_target.as_ref(), use_cross)?;
+                        crate::publish::build(resolved_cfg, &languages, rust_target.as_ref(), use_cross)?;
                     }
                     println!("Build complete");
                     Ok(None)
@@ -84,7 +84,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 } => {
                     let rust_target = target
                         .as_deref()
-                        .map(alef::publish::platform::RustTarget::parse)
+                        .map(crate::publish::platform::RustTarget::parse)
                         .transpose()?;
                     let output_dir = std::path::Path::new(&output);
                     for resolved_cfg in &crates_to_process {
@@ -95,24 +95,24 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             .context("could not determine version — set --version or version_from in alef.toml")?;
 
                         // Build PHP-specific options when any PHP language is in the list.
-                        let needs_php = languages.contains(&alef::core::config::Language::Php);
-                        let pie_opts: Option<alef::publish::package::php::PiePackageOptions<'_>> = if needs_php {
+                        let needs_php = languages.contains(&crate::core::config::Language::Php);
+                        let pie_opts: Option<crate::publish::package::php::PiePackageOptions<'_>> = if needs_php {
                             let php_ver = php_version
                                 .as_deref()
                                 .context("--php-version is required when packaging --lang php")?;
-                            let ts_mode = alef::publish::package::php::TsMode::parse(&php_ts)?;
+                            let ts_mode = crate::publish::package::php::TsMode::parse(&php_ts)?;
                             // Validate: Windows target requires --windows-compiler.
                             if let Some(ref rt) = rust_target {
-                                if rt.os == alef::publish::platform::Os::Windows && windows_compiler.is_none() {
+                                if rt.os == crate::publish::platform::Os::Windows && windows_compiler.is_none() {
                                     anyhow::bail!(
                                         "--windows-compiler is required when packaging PHP for a Windows target"
                                     );
                                 }
                             }
-                            Some(alef::publish::package::php::PiePackageOptions {
+                            Some(crate::publish::package::php::PiePackageOptions {
                                 php_version: php_ver,
                                 ts_mode,
-                                debug_mode: alef::publish::package::php::DebugMode::NoDebug,
+                                debug_mode: crate::publish::package::php::DebugMode::NoDebug,
                                 libc_override: php_libc.as_deref(),
                                 windows_compiler: windows_compiler.as_deref(),
                             })
@@ -120,7 +120,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             None
                         };
 
-                        let pkg_options = alef::publish::PackageOptions { php: pie_opts };
+                        let pkg_options = crate::publish::PackageOptions { php: pie_opts };
 
                         if multi {
                             eprintln!(
@@ -136,7 +136,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                 format_languages(&languages)
                             );
                         }
-                        alef::publish::package(
+                        crate::publish::package(
                             resolved_cfg,
                             &languages,
                             rust_target.as_ref(),
@@ -153,7 +153,7 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     let mut all_issues: Vec<String> = Vec::new();
                     for resolved_cfg in &crates_to_process {
                         let languages = resolve_languages(resolved_cfg, None)?;
-                        let issues = alef::publish::validate(resolved_cfg, &languages)?;
+                        let issues = crate::publish::validate(resolved_cfg, &languages)?;
                         all_issues.extend(issues);
                     }
                     if all_issues.is_empty() {

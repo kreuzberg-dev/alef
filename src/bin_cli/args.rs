@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
 
-use alef::cli::commands;
+use crate::cli::commands;
 
 #[derive(Parser)]
 #[command(
@@ -258,7 +258,7 @@ pub(crate) enum Commands {
     /// Generate or check the versioned alef.toml JSON Schema.
     Schema {
         /// Output JSON Schema file.
-        #[arg(long, short, default_value = alef::core::config::DEFAULT_SCHEMA_PATH)]
+        #[arg(long, short, default_value = crate::core::config::DEFAULT_SCHEMA_PATH)]
         output: PathBuf,
         /// Schema version to embed. Defaults to the compiled alef package version.
         #[arg(long)]

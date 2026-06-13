@@ -5,7 +5,7 @@
 //! The public surface (config block, feature flag) is stable.
 //! The concrete loader is deferred — see CHANGELOG.md [Unreleased].
 
-use crate::Extension;
+use crate::core::extension::Extension;
 use anyhow::Result;
 use serde::Deserialize;
 use std::path::PathBuf;

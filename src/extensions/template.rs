@@ -1,9 +1,10 @@
 //! Built-in `TemplateExtension` — consumes `[[extensions.template]]` blocks.
 
-use crate::{Extension, ExtensionConfig, TemplateEnv};
-use alef::core::backend::GeneratedFile;
-use alef::core::config::Language;
-use alef::core::ir::ApiSurface;
+use crate::core::backend::GeneratedFile;
+use crate::core::config::Language;
+use crate::core::extension::{Extension, ExtensionConfig};
+use crate::core::ir::ApiSurface;
+use crate::core::template_env::TemplateEnv;
 use anyhow::{Context as _, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
