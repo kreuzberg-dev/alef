@@ -403,6 +403,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 // ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
 
 /// Emit Kotlin lifecycle-hook registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -416,6 +417,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) 
 }
 
 /// Emit Kotlin WebSocket route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -429,6 +431,7 @@ pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef
 }
 
 /// Emit Kotlin SSE route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -442,6 +445,7 @@ pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String
 }
 
 /// Emit Kotlin native error types. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -452,6 +456,7 @@ pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> Strin
 }
 
 /// Aggregate stub — forwards all four new IR sections for the Kotlin backend.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));

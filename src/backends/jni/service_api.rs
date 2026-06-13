@@ -519,6 +519,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 /// Emit JNI lifecycle-hook registration methods.
 ///
 /// Stub — returns `""` until the JNI Phase-C specialist implements generation.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -532,6 +533,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) 
 }
 
 /// Emit JNI WebSocket route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -545,6 +547,7 @@ pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef
 }
 
 /// Emit JNI SSE route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -555,6 +558,7 @@ pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String
 }
 
 /// Emit JNI native error types. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -565,6 +569,7 @@ pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> Strin
 }
 
 /// Aggregate stub — forwards all four new IR sections for the JNI backend.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));

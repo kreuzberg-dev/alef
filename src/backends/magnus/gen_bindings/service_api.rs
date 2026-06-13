@@ -988,6 +988,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
 ///
 /// Stub: walks the collection, logs once when non-empty, returns `""`.
 /// Replace this body with Jinja-driven generation in the Magnus Phase-C pass.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -1004,6 +1005,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) 
 ///
 /// Stub — returns `""` until the Magnus Phase-C specialist implements
 /// `app.websocket(path) { |socket| … }` generation.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -1020,6 +1022,7 @@ pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef
 ///
 /// Stub — returns `""` until the Magnus Phase-C specialist implements
 /// `app.sse(path) { … }` generation.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -1036,6 +1039,7 @@ pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String
 ///
 /// Stub — returns `""` until the Magnus Phase-C specialist implements
 /// Ruby `StandardError` subclass generation.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -1046,6 +1050,7 @@ pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> Strin
 }
 
 /// Aggregate stub — forwards all four new IR sections for the Magnus backend.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));

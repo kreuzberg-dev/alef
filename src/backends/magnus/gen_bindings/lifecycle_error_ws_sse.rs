@@ -1,6 +1,7 @@
 //! Lifecycle hooks, error classes, WebSocket and SSE emission for magnus (Ruby) backend.
 
 use crate::core::ir::{ApiSurface, HttpStatus, LifecycleHookDef, SseRouteDef, WebSocketRouteDef};
+use heck::ToUpperCamelCase;
 use minijinja::context;
 
 fn render(template_name: &str, ctx: minijinja::Value) -> String {
@@ -72,7 +73,8 @@ pub(super) fn gen_sse_methods_for_class(out: &mut String, routes: &[SseRouteDef]
     }
 }
 
-/// Emit the Spikard::Errors module with exception class hierarchy.
+/// Emit the error module with exception class hierarchy.
+/// The module name and nesting are derived from the crate name and can be configured per-project.
 pub(super) fn gen_error_classes(api: &ApiSurface) -> String {
     let mut out = String::new();
 
@@ -80,7 +82,10 @@ pub(super) fn gen_error_classes(api: &ApiSurface) -> String {
         return out;
     }
 
-    out.push_str("module Spikard\n");
+    // Use crate name to derive module names; this keeps alef generic across consumers.
+    let crate_module = api.crate_name.to_upper_camel_case();
+
+    out.push_str(&format!("module {crate_module}\n"));
     out.push_str("  module Errors\n");
 
     // Emit base Error class

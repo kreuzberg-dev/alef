@@ -11,6 +11,7 @@ use crate::core::ir::{ApiSurface, ErrorTypeDef, SseRouteDef, WebSocketRouteDef};
 ///
 /// Stub: logs a debug message and returns `""` until the napi Phase-C specialist
 /// implements `app.websocket(path, handler)` TypeScript generation.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -27,6 +28,7 @@ pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
 ///
 /// Stub: logs a debug message and returns `""` until the napi Phase-C specialist
 /// implements `app.sse(path, producer)` TypeScript generation.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -40,6 +42,7 @@ pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
 ///
 /// Stub: logs a debug message and returns `""` until the napi Phase-C specialist
 /// implements TypeScript error class generation.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -53,6 +56,7 @@ pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
 ///
 /// Lifecycle hooks are already handled in `typescript.rs` via `gen_lifecycle_hook_ts`.
 /// This function covers the remaining three new IR sections.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_websocket_routes(&api.websocket_routes));

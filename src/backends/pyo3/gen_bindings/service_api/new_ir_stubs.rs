@@ -13,6 +13,7 @@ use crate::core::ir::{ApiSurface, ErrorTypeDef, LifecycleHookDef, SseRouteDef, W
 /// Stub: logs a debug message and returns `""` until the pyo3 Phase-C specialist
 /// implements `app.on_request(fn)` / `app.pre_handler(fn)` / … generation via
 /// Jinja templates.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -30,6 +31,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
 ///
 /// Stub: logs a debug message and returns `""` until the pyo3 Phase-C specialist
 /// implements `app.websocket(path, handler_fn)` generation.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -46,6 +48,7 @@ pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
 ///
 /// Stub: logs a debug message and returns `""` until the pyo3 Phase-C specialist
 /// implements `app.sse(path, producer_fn)` generation.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -59,6 +62,7 @@ pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
 ///
 /// Stub: logs a debug message and returns `""` until the pyo3 Phase-C specialist
 /// implements native Python exception class generation.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -73,6 +77,7 @@ pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
 /// Returns a concatenation of the four stubs (all empty until Phase-C work
 /// lands). Called from the service-API generator so the stubs are exercised
 /// even when no lifecycle hooks / WebSocket / SSE / error types are configured.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));

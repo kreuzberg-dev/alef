@@ -891,6 +891,7 @@ fn gen_start_background_method(out: &mut String, service: &ServiceDef, _ffi_pref
 ///
 /// Stub — returns `""` until the Go Phase-C specialist implements
 /// `app.OnRequest(fn)` / `app.PreHandler(fn)` / … generation.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -904,6 +905,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) 
 ///
 /// Stub — returns `""` until the Go Phase-C specialist implements
 /// `app.WebSocket(path, handler)` generation.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -920,6 +922,7 @@ pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef
 ///
 /// Stub — returns `""` until the Go Phase-C specialist implements
 /// `app.SSE(path, producer)` generation.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -933,6 +936,7 @@ pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String
 ///
 /// Stub — returns `""` until the Go Phase-C specialist implements
 /// typed `error` struct generation.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -943,6 +947,7 @@ pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> Strin
 }
 
 /// Aggregate stub — forwards all four new IR sections for the Go backend.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));

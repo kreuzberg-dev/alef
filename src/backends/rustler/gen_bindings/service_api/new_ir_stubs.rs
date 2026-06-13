@@ -3,6 +3,7 @@
 use crate::core::ir::{ApiSurface, ErrorTypeDef, LifecycleHookDef, SseRouteDef, WebSocketRouteDef};
 
 /// Emit Rustler lifecycle-hook registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
     if hooks.is_empty() {
         return String::new();
@@ -16,6 +17,7 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
 }
 
 /// Emit Rustler WebSocket route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -29,6 +31,7 @@ pub(super) fn emit_websocket_routes(routes: &[WebSocketRouteDef]) -> String {
 }
 
 /// Emit Rustler SSE route registration methods. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
     if routes.is_empty() {
         return String::new();
@@ -42,6 +45,7 @@ pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
 }
 
 /// Emit Rustler native error types. Stub.
+#[allow(dead_code)]
 pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
     if types.is_empty() {
         return String::new();
@@ -55,6 +59,7 @@ pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
 }
 
 /// Aggregate stub — forwards all four new IR sections for the Rustler/Elixir backend.
+#[allow(dead_code)]
 pub(super) fn emit_new_ir_sections(api: &ApiSurface) -> String {
     let mut out = String::new();
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
