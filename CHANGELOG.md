@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.16] - 2026-06-13
+
 ### Added
 
 - **`alef sync-versions` and `alef all` accept an optional `--release-date YYYY-MM-DD` flag that overrides the `[workspace.citation].date-released` value when emitting `CITATION.cff`.** Release engineers can stamp the release date from a release script or CI matrix without hand-editing `alef.toml` first. Default behavior is unchanged: when the flag is absent, the renderer continues to honour the configured `date-released` (or `chrono::Local::now()` as a last-resort fallback). The flag plumbs through `Commands::SyncVersions`, the version-sync pipeline, and a transient `CitationConfig` clone so the existing precedence rules stay intact; the `Commands::Generate` auto-sync call passes `None`, so `alef all`/`alef generate` are unaffected. (`src/bin_cli/args.rs`, `src/bin_cli/core_commands.rs`, `src/cli/pipeline/version.rs`)
