@@ -102,17 +102,11 @@ fn emit_method_shim(
                 || matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(PrimitiveType::U8)))
                 || !matches!(base_ty, TypeRef::Vec(_) | TypeRef::Path | TypeRef::String));
         emit_single_param_unmarshal(out, &rust_name, base_ty, ret_null, unmarshal_produces_option);
-        // Apply optional/is_ref at the call site.
-        // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
-        // emit_single_param_unmarshal already bound `<name>_vec: Vec<String>`.
-        // We need to collect `Vec<&str>` refs and pass `&<name>_refs`.
-        let is_vec_string_ref =
-            p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
-        if is_vec_string_ref {
-            let refs_name = format!("{rust_name}_refs");
-            out.push_str(&render_vec_string_refs(&refs_name, &format!("{rust_name}_vec")));
-            format!("&{refs_name}")
-        } else if unmarshal_produces_option {
+        // `&Vec<String>` coerces to `&[String]` so plain `&<name>` covers every
+        // Vec<String> method call we currently emit. The previous special-case
+        // that converted to `Vec<&str>` produced `&[&str]` which is incompatible
+        // with core methods that take `&[String]` (e.g. `LlmBackend::detect_with_custom`).
+        if unmarshal_produces_option {
             // Binding is already `Option<T>` — pass through.
             rust_name
         } else if p.optional {
@@ -147,14 +141,10 @@ fn emit_method_shim(
                     ret_null => ret_null,
                 },
             ));
-            // Special case: Vec<String> with is_ref means the core expects `&[&str]`.
-            let is_vec_string_ref =
-                p.is_ref && matches!(base_ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::String));
-            let call_arg = if is_vec_string_ref {
-                let refs_name = format!("{rust_name}_refs");
-                out.push_str(&render_vec_string_refs(&refs_name, &rust_name));
-                format!("&{refs_name}")
-            } else if p.optional {
+            // `&Vec<String>` coerces to `&[String]`; the previous Vec<&str>
+            // special-case produced `&[&str]` incompatible with `&[String]` core
+            // method signatures. See the matching branch above.
+            let call_arg = if p.optional {
                 format!("Some({rust_name})")
             } else if p.is_ref {
                 format!("&{rust_name}")

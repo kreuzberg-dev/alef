@@ -135,8 +135,8 @@ pub(in crate::backends::napi::gen_bindings) fn gen_service_ts(
         out.push_str(&format!("\nexport {{ {} }};\n", service_names.join(", ")));
     }
 
-    // Framework alias export is configured via alef.toml service.framework_alias
-    // or deferred to Phase C per-backend emission. Skipped for now.
+    // Framework-specific aliases (e.g., export const MyFramework = App) are emitted
+    // per-project in alef.toml post-generation or via a separate preamble template
 
     out
 }
