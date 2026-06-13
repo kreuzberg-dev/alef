@@ -97,33 +97,15 @@ pub(super) fn render_test_case(
     let lang = "elixir";
     let call_overrides = call_config.overrides.get(lang);
 
-    // Check if the function is excluded from the Elixir binding (e.g., batch functions
-    // that require unsafe NIF tuple marshalling). Emit a skipped test with rationale.
+    // Batch-fn skip removed: the rustler backend now supports `batch_extract_*` via JSON
+    // parameter marshalling (Vec<Named> → Option<String> JSON, deserialized in the NIF
+    // preamble) and the auto-encoded `Vec<ExtractionResult>` return.  Tests are emitted
+    // normally; if a downstream still has a real NIF-side gap the call will fail at
+    // runtime with a real error rather than being silently skipped.
     let base_fn = call_overrides
         .and_then(|o| o.function.as_ref())
         .cloned()
         .unwrap_or_else(|| call_config.function.clone());
-    if base_fn.starts_with("batch_extract_") {
-        let _ = writeln!(
-            out,
-            "  describe \"{test_name}\" do",
-            test_name = sanitize_ident(&fixture.id)
-        );
-        let _ = writeln!(out, "    @tag :skip");
-        let _ = writeln!(
-            out,
-            "    test \"{test_label}\" do",
-            test_label = fixture.id.replace('"', "\\\"")
-        );
-        let _ = writeln!(
-            out,
-            "      # batch functions excluded from Elixir binding: unsafe NIF tuple marshalling"
-        );
-        let _ = writeln!(out, "      :ok");
-        let _ = writeln!(out, "    end");
-        let _ = writeln!(out, "  end");
-        return;
-    }
 
     // Compute module_path and function_name from the resolved call config.
     // call_config is resolved via resolve_call_for_fixture which applies select_when auto-routing,

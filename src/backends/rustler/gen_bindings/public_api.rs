@@ -1,6 +1,8 @@
 use crate::backends::rustler::gen_bindings::helpers::{
     elixir_return_typespec, elixir_safe_param_name, elixir_typespec,
 };
+use crate::backends::rustler::gen_bindings::public_api_args::{json_encode_param_indices, keyword_nif_arg, nif_arg};
+use crate::backends::rustler::gen_bindings::public_api_delegates::append_trait_bridge_delegates;
 use crate::backends::rustler::gen_bindings::public_files::{self, PublicFileContext};
 use crate::backends::rustler::template_env;
 use crate::core::backend::GeneratedFile;
@@ -126,6 +128,8 @@ pub(super) fn generate_public_api(
             .take_while(|(p, type_str)| p.optional || type_str.contains("| nil"))
             .count();
 
+        let json_encode_params = json_encode_param_indices(&func.params, &default_types);
+
         // Detect if this function has a visitor bridge param.
         let visitor_bridge_param_idx: Option<usize> = func.params.iter().position(|p| {
             config.trait_bridges.iter().any(|b| {
@@ -249,12 +253,17 @@ pub(super) fn generate_public_api(
             def_parts.push("opts \\\\ []".to_string());
             let def_params = def_parts.join(", ");
 
-            // NIF call args: required positionally, optional via Keyword.get
-            let mut nif_call_parts: Vec<String> = required_params.to_vec();
-            for opt_p in optional_ir_params {
+            // NIF call args: required positionally, optional via Keyword.get.
+            let mut nif_call_parts: Vec<String> = required_params
+                .iter()
+                .enumerate()
+                .map(|(idx, req_param)| nif_arg(idx, req_param, &json_encode_params))
+                .collect();
+            nif_call_parts.extend(optional_ir_params.iter().enumerate().map(|(param_offset, opt_p)| {
+                let opt_idx = required_count + param_offset;
                 let safe_name = elixir_safe_param_name(&opt_p.name);
-                nif_call_parts.push(format!("Keyword.get(opts, :{safe_name})"));
-            }
+                keyword_nif_arg(opt_idx, &safe_name, &json_encode_params)
+            }));
             let nif_call_str = nif_call_parts.join(",\n      ");
             content.push_str(&template_env::render(
                 "elixir_keyword_opts_wrapper.ex.jinja",
@@ -320,12 +329,18 @@ pub(super) fn generate_public_api(
                     params => &param_with_defaults.join(", "),
                 },
             ));
+            // JSON-encode any batch parameters in the single-arity non-visitor path.
+            let single_arity_nif_args: Vec<String> = all_params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| nif_arg(i, p, &json_encode_params))
+                .collect();
             content.push_str(&template_env::render(
                 "elixir_def_nif_call.jinja",
                 minijinja::context! {
                     native_mod => &native_mod,
                     func_name => &nif_fn_name,
-                    args => &all_params.join(", "),
+                    args => &single_arity_nif_args.join(", "),
                 },
             ));
             content.push_str("  end\n\n");
@@ -394,11 +409,18 @@ pub(super) fn generate_public_api(
                 content.push('\n');
             }
 
-            // Build the call: fill missing optional params with nil
+            // Build the call: fill missing optional params with nil.
+            // JSON-encode parameters that are Vec<Named> with has_default=true.
             let nif_call_args: Vec<String> = all_params
                 .iter()
                 .enumerate()
-                .map(|(i, p)| if i < *arity { p.clone() } else { "nil".to_string() })
+                .map(|(i, p)| {
+                    if i < *arity {
+                        nif_arg(i, p, &json_encode_params)
+                    } else {
+                        "nil".to_string()
+                    }
+                })
                 .collect();
 
             // options_field bridge: visitor is embedded in the options map.
@@ -915,66 +937,10 @@ pub(super) fn generate_public_api(
         }
     }
 
-    // Emit register_*, unregister_*, and clear_* delegates for every trait bridge.
-    // These are excluded from the main function loop (via exclude_functions) because
-    // the trait bridge generator handles them, but they must also be surfaced in the
-    // public module so e2e tests can call them. However, if a clear_fn is already in
-    // api.functions (emitted above with the correct Result return type), skip it here
-    // to avoid duplicate clauses with conflicting specs.
+    // Trait bridge lifecycle functions are emitted by the native codegen but must
+    // also be surfaced in the public module for e2e and user code.
     let api_fn_names: AHashSet<String> = api.functions.iter().map(|f| f.name.clone()).collect();
-    for bridge_cfg in &config.trait_bridges {
-        if bridge_cfg
-            .exclude_languages
-            .iter()
-            .any(|l| l == "elixir" || l == "rustler")
-        {
-            continue;
-        }
-
-        // Emit register_* delegate
-        if let Some(register_fn) = bridge_cfg.register_fn.as_deref() {
-            let fn_name = register_fn.to_snake_case();
-            content.push_str(&template_env::render(
-                "elixir_trait_register_delegate.ex.jinja",
-                minijinja::context! {
-                    trait_name => &bridge_cfg.trait_name,
-                    func_name => &fn_name,
-                    native_mod => &native_mod,
-                },
-            ));
-        }
-
-        // Emit unregister_* delegate
-        if let Some(unregister_fn) = bridge_cfg.unregister_fn.as_deref() {
-            let fn_name = unregister_fn.to_snake_case();
-            content.push_str(&template_env::render(
-                "elixir_trait_unregister_delegate.ex.jinja",
-                minijinja::context! {
-                    trait_name => &bridge_cfg.trait_name,
-                    func_name => &fn_name,
-                    native_mod => &native_mod,
-                },
-            ));
-        }
-
-        // Emit clear_* delegate only if not already in api.functions.
-        // If the function is in api.functions, it's already emitted above with the
-        // correct Result return type. Emitting again here with :: :ok | :error would
-        // create duplicate clauses with incompatible specs, triggering a compile error.
-        if let Some(clear_fn) = bridge_cfg.clear_fn.as_deref() {
-            let fn_name = clear_fn.to_snake_case();
-            if !api_fn_names.contains(fn_name.as_str()) {
-                content.push_str(&template_env::render(
-                    "elixir_trait_clear_delegate.ex.jinja",
-                    minijinja::context! {
-                        trait_name => &bridge_cfg.trait_name,
-                        func_name => &fn_name,
-                        native_mod => &native_mod,
-                    },
-                ));
-            }
-        }
-    }
+    append_trait_bridge_delegates(&mut content, config, &api_fn_names, &native_mod);
 
     // Trim trailing blank lines so `mix format` doesn't see an extra blank before `end`.
     let trimmed = content.trim_end_matches('\n');
