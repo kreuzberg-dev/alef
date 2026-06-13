@@ -121,21 +121,22 @@ fn struct_with_primitive_fields_emits_public_struct() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // generate_bindings returns the main Swift file, the Rust bridge crate files,
-    // a RustBridgeC placeholder header when swift-bridge build output is absent,
+    // a RustBridgeC header when swift-bridge build output is absent,
     // and `ZSwiftPluginHelpers.swift` (unconditional shared helpers for
     // FunctionParam bridges — see commit 12362ba09).
     assert_eq!(files.len(), 6);
+    let rust_bridge_c_header = std::path::Path::new("Sources")
+        .join("RustBridgeC")
+        .join("RustBridgeC.h");
     assert!(
-        files
-            .iter()
-            .any(|f| f.path.to_string_lossy().ends_with("Sources/RustBridgeC/RustBridgeC.h")),
-        "missing RustBridgeC placeholder header"
+        files.iter().any(|f| f.path.ends_with(&rust_bridge_c_header)),
+        "missing RustBridgeC header"
     );
+    let swift_plugin_helpers = std::path::Path::new("Sources")
+        .join("RustBridge")
+        .join("ZSwiftPluginHelpers.swift");
     assert!(
-        files.iter().any(|f| f
-            .path
-            .to_string_lossy()
-            .ends_with("Sources/RustBridge/ZSwiftPluginHelpers.swift")),
+        files.iter().any(|f| f.path.ends_with(&swift_plugin_helpers)),
         "missing ZSwiftPluginHelpers.swift"
     );
     let content = &files[0].content;
@@ -1676,7 +1677,7 @@ fn output_path_uses_pascal_case_module_name() {
 
     let files = SwiftBackend.generate_bindings(&api, &make_config()).unwrap();
     // Six files: main Swift wrapper, Rust bridge crate files, RustBridgeC
-    // placeholder header, and the unconditional `ZSwiftPluginHelpers.swift`
+    // header, and the unconditional `ZSwiftPluginHelpers.swift`
     // (commit 12362ba09 — FunctionParam Box generation helpers).
     assert_eq!(files.len(), 6);
 
