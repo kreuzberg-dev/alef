@@ -11,6 +11,7 @@ use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::kotlin_android::KotlinAndroidE2eCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 fn make_chat_fixture(id: &str) -> Fixture {
     Fixture {
@@ -474,6 +475,18 @@ fn generate_kotlin_android_files(toml: &str, fixture: Fixture) -> Vec<alef::core
         .expect("generation succeeds")
 }
 
+fn kotlin_android_chat_test_path() -> PathBuf {
+    Path::new("src")
+        .join("test")
+        .join("kotlin")
+        .join("dev")
+        .join("sample_crate")
+        .join("democlient")
+        .join("android")
+        .join("e2e")
+        .join("ChatTest.kt")
+}
+
 /// Regression for D: `kotlin_android` codegen must emit a host-JVM
 /// `src/test/` source set so tests can run without an Android emulator.
 #[test]
@@ -482,10 +495,8 @@ fn kotlin_android_emits_host_jvm_test_source_set() {
     let files = generate_kotlin_android_files(TOML_WITH_JAVA_CLIENT_FACTORY, fixture);
 
     let all_paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().to_string()).collect();
-    let test_file = files.iter().find(|f| {
-        let p = f.path.to_string_lossy();
-        p.contains("src/test/kotlin") && p.contains("ChatTest.kt")
-    });
+    let chat_test_path = kotlin_android_chat_test_path();
+    let test_file = files.iter().find(|f| f.path.ends_with(&chat_test_path));
     let file = test_file.unwrap_or_else(|| {
         panic!(
             "src/test/.../ChatTest.kt must be emitted; got files:\n{}",
