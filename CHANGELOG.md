@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Dart framework loading on hardened runtime:** Fix `dlopen() relative path rejected` error on
+  macOS by loading framework bundles by directory only (`{stem}.framework`) instead of
+  full binary path, and normalizing all native library file paths to absolute before
+  `ExternalLibrary.open()` to prevent hardened-runtime symlink resolution issues.
+
+- **C# AssemblyVersion sync:** Remove
+  `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>` from generated C# csproj
+  files and hand-authored Properties/AssemblyInfo.cs. The SDK now
+  auto-generates AssemblyInfo from the `<Version>` property, which alef syncs
+  automatically, ensuring AssemblyVersion stays in sync with published package
+  versions across all releases.
+
+- **C# e2e tests use canonical wrapper class naming.** The generated C# e2e
+  harness now derives its default class name from `csharp_wrapper_class_name`
+  instead of the older `{Crate}Lib` convention, so fixtures call the same
+  `...Converter` wrapper class emitted by the C# backend.
+
+- **Rust e2e `not_empty` assertions handle concrete leaves below optional
+  parents.** Paths such as `summary.text` now fall through to an `is_empty()`
+  assertion after the optional parent is unwrapped, instead of emitting
+  `.is_some()` against a concrete `String` and failing to compile.
+
+- **PIE flat archives omit the leading `./` entry.** Flat tarball packaging now
+  enumerates top-level staging entries explicitly, producing archives accepted
+  by PIE's Phar downloader and refusing to publish an empty staging directory.
+
+- **Dart pub.dev archives stage prebuilt native libraries generically.** Dart
+  packaging now looks for platform-specific native library names derived from
+  the package stem and copies matches into `lib/src/native/{rid}/`, avoiding
+  consumer-specific library names while supporting macOS, Linux, and Windows
+  targets.
+
+- **Dart FRB runtime opens native libraries by absolute path.** Generated Dart
+  loader code now normalizes discovered native library paths before calling
+  `ExternalLibrary.open`, avoiding hardened-runtime failures from relative
+  paths while preserving the fallback search order.
+
 ### Breaking Changes
 
 - **HTTP-domain IR removed from alef core.** The following types are no longer
@@ -77,14 +116,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`[features] dylib-loader = []`** in `Cargo.toml` — optional feature flag
   for future dynamic extension loading.
 
+- **Extension documentation** in `docs/extending.md`, `docs/backends.md`, and
+  the README "Extending Alef" section describes extension modes, backend
+  responsibilities, and template-only extension usage.
+
 ### Deferred
 
 - Per-extension TOML section parsing: extensions currently receive `None` as
   their raw config. Full `[extensions.<name>]` TOML section support is tracked
   as a follow-up.
 - Concrete `libloading`-based dylib loader implementation.
-- `docs/extending.md` and README "Extending alef" section: documentation
-  deferred to a follow-up docs PR.
 
 
 ## [0.24.17] - 2026-06-13

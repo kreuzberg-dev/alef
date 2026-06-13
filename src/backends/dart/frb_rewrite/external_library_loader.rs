@@ -110,7 +110,7 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
     try {{
       const candidates = <String>[
         // macOS: framework bundle (preferred modern packaging)
-        '{stem}.framework/{stem}',
+        '{stem}.framework',
         // macOS: bare dylib fallback
         'lib{stem}.dylib',
         // Linux
@@ -118,6 +118,17 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
         // Windows
         '{stem}.dll',
       ];
+
+      // Helper to open a native library by absolute path.
+      // Normalizes path to absolute to avoid hardened-runtime "relative path rejected" errors.
+      ExternalLibrary? tryOpenAbsolute(String libPath) {{
+        try {{
+          final absPath = File(libPath).absolute.path;
+          return ExternalLibrary.open(absPath);
+        }} catch (_) {{
+          return null;
+        }}
+      }}
 
       // Check FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR env var first.
       // This allows test harnesses to override library location for development.
@@ -128,7 +139,8 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
           for (final candidate in candidates) {{
             final libPath = '$envDir/$candidate';
             if (File(libPath).existsSync()) {{
-              return ExternalLibrary.open(libPath);
+              final result = tryOpenAbsolute(libPath);
+              if (result != null) return result;
             }}
           }}
         }}
@@ -167,7 +179,8 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
           for (final candidate in candidates) {{
             final libPath = ridDir.resolve(candidate).toFilePath();
             if (File(libPath).existsSync()) {{
-              return ExternalLibrary.open(libPath);
+              final result = tryOpenAbsolute(libPath);
+              if (result != null) return result;
             }}
           }}
         }}
@@ -181,7 +194,8 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
         for (final candidate in candidates) {{
           final libPath = libDir.resolve(candidate).toFilePath();
           if (File(libPath).existsSync()) {{
-            return ExternalLibrary.open(libPath);
+            final result = tryOpenAbsolute(libPath);
+            if (result != null) return result;
           }}
         }}
       }}
@@ -215,7 +229,8 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
             for (final candidate in candidates) {{
               final libPath = '$root/$candidate';
               if (File(libPath).existsSync()) {{
-                return ExternalLibrary.open(libPath);
+                final result = tryOpenAbsolute(libPath);
+                if (result != null) return result;
               }}
             }}
           }}

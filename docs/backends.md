@@ -12,10 +12,10 @@ Backends are part of alef itself. Extensions are authored by consumers.
 
 Each backend implements:
 
-- `name()` — identifier string (e.g., `"pyo3"`)
+- `name()` — identifier string (for example, `"pyo3"`)
 - `language()` — `Language` enum variant
 - `capabilities()` — what the backend supports (async, classes, enums, options, results, callbacks, streaming)
-- `generate_bindings()` — Rust binding source code via `#[pyclass]`, `#[napi]`, Magnus, etc.
+- `generate_bindings()` — Rust binding source code via `#[pyclass]`, `#[napi]`, Magnus, and so on.
 - `generate_type_stubs()` — language-specific `.pyi`, `.d.ts`, `.rbs` type definitions
 - `generate_scaffold()` — package manifests (`pyproject.toml`, `package.json`, `Gemfile`, etc.)
 - `generate_public_api()` — optional idiomatic wrappers

@@ -112,7 +112,7 @@ Consumer crate depends on alef (not alef), implements the trait, ships a CLI bin
 
 ### Directory Layout
 
-```
+```text
 crates/
   my-alef-ext/          # Library crate
     src/
@@ -202,7 +202,7 @@ Loaded dylibs run with full process privileges. Only load from trusted sources.
 
 Declare `[[extensions.template]]` blocks in `alef.toml`. Alef's built-in `TemplateExtension` renders them — no custom Rust code required.
 
-### alef.toml
+### Alef.toml
 
 ```toml
 [[extensions.template]]
