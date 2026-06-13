@@ -13,7 +13,7 @@
     def handle_cast({:trait_call, _method, args_json, reply_id}, handler_fn) do
       case Jason.decode(args_json) do
         {:ok, args} ->
-          # Build Spikard.Conn from RequestData fields in args
+          # Build request context from RequestData fields in args
           try do
             conn = build_conn(args)
             response = handler_fn.(conn)
@@ -30,9 +30,9 @@
       {:noreply, handler_fn}
     end
 
-    # Convert RequestData JSON to Spikard.Conn struct
+    # Convert RequestData JSON to request context struct
     defp build_conn(args) do
-      %Spikard.Conn{
+      %{{ conn_module }}{
         path_params: args["path_params"] || %{},
         query_params: args["query_params"] || %{},
         headers: args["headers"] || %{},

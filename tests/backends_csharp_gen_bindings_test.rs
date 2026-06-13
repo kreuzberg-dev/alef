@@ -207,7 +207,7 @@ fn test_basic_generation() {
         "Should generate exception class"
     );
     assert!(
-        file_names.iter().any(|f| f.contains("SampleCrateLib.cs")),
+        file_names.iter().any(|f| f.contains("SampleCrateConverter.cs")),
         "Should generate wrapper class"
     );
     assert!(
@@ -236,10 +236,10 @@ fn test_basic_generation() {
 
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateConverter.cs"))
         .unwrap();
     assert!(
-        wrapper.content.contains("public static class SampleCrateLib"),
+        wrapper.content.contains("public static class SampleCrateConverter"),
         "Should define wrapper class"
     );
     assert!(
@@ -825,7 +825,10 @@ fn test_error_helper_preserves_base_error_acronym_class_name() {
     };
 
     let files = backend.generate_bindings(&api, &config).unwrap();
-    let wrapper = files.iter().find(|file| file.path.ends_with("TestLib.cs")).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|file| file.path.ends_with("TestConverter.cs"))
+        .unwrap();
 
     assert!(
         wrapper
@@ -1636,7 +1639,7 @@ fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let lib = files
         .iter()
-        .find(|file| file.path.to_string_lossy().ends_with("TestLib.cs"))
+        .find(|file| file.path.to_string_lossy().ends_with("TestConverter.cs"))
         .expect("wrapper class should be generated");
 
     assert_eq!(
@@ -2048,8 +2051,8 @@ fn test_bytes_result_func_emits_out_param_pinvoke_and_wrapper() {
 
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
-        .expect("SampleCrateLib.cs must be generated");
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateConverter.cs"))
+        .expect("SampleCrateConverter.cs must be generated");
 
     // Wrapper: return type must be byte[].
     assert!(
@@ -2775,7 +2778,7 @@ fn test_required_config_param_stays_required() {
     let files = backend.generate_bindings(&api, &config).unwrap();
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("TestLib.cs"))
+        .find(|f| f.path.to_string_lossy().contains("TestConverter.cs"))
         .expect("wrapper should be generated");
     assert!(
         wrapper.content.contains("public static void Run(Config config)"),
@@ -3675,7 +3678,7 @@ fn test_trait_bridge_clear_method_uses_clear_fn_name_not_trait_name() {
         .iter()
         .find(|f| {
             let path_str = f.path.to_string_lossy();
-            path_str.ends_with("SampleCrateLib.cs")
+            path_str.ends_with("SampleCrateConverter.cs")
                 || (path_str.ends_with(".cs") && f.content.contains("public static void Clear"))
         })
         .unwrap_or_else(|| {

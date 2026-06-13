@@ -233,10 +233,10 @@ fn test_generated_code_example() {
     // Wrapper class should have extraction methods
     let wrapper = files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("SampleCrateLib.cs"))
+        .find(|f| f.path.to_string_lossy().contains("SampleCrateConverter.cs"))
         .unwrap();
 
-    assert!(wrapper.content.contains("public static class SampleCrateLib"));
+    assert!(wrapper.content.contains("public static class SampleCrateConverter"));
     assert!(wrapper.content.contains("public static string ExtractFileSync"));
     assert!(wrapper.content.contains("NativeMethods."));
     assert!(wrapper.content.contains("GetLastError()"));

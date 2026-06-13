@@ -40,12 +40,26 @@ pub(super) fn gen_registration_method(
 
     // Emit a simple HandlerWrapper GenServer if this is the route registration
     if method_name == "route" {
-        out.push_str(&render("service_api_handler_wrapper.ex.jinja", context! {}));
+        let conn_module = prefixed_module(module_prefix, "Conn");
+        out.push_str(&render(
+            "service_api_handler_wrapper.ex.jinja",
+            context! {
+                conn_module => conn_module,
+            },
+        ));
     }
 
     // Emit registration variants (decorator-style shortcuts)
     for variant in &reg.variants {
         gen_registration_variant_method(out, variant, reg, module_prefix);
+    }
+}
+
+fn prefixed_module(module_prefix: &str, module: &str) -> String {
+    if module_prefix.is_empty() {
+        module.to_owned()
+    } else {
+        format!("{module_prefix}.{module}")
     }
 }
 

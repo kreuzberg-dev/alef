@@ -62,15 +62,6 @@ fn render_request_string_unmarshal(ret_null: &str, error_prefix: &str) -> String
     )
 }
 
-fn render_vec_string_refs(refs_name: &str, source_name: &str) -> String {
-    template_env::render(
-        "vec_string_refs.rs.jinja",
-        context! {
-            refs_name => refs_name,
-            source_name => source_name,
-        },
-    )
-}
 /// Emit unmarshal code for a single param.
 ///
 /// Special cases:

@@ -23,10 +23,10 @@ pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
     out.push_str("# This file is generated. Do not edit.\n\n");
 
     // Emit error types (Phase C IR sections)
-    out.push_str(&new_ir_stubs::emit_error_types(&api.error_types));
+    out.push_str(&new_ir_stubs::emit_error_types(&api.error_types, module_prefix));
 
-    // Emit Spikard.Conn struct for handler request data
-    emit_conn_struct(&mut out);
+    // Emit the request context struct for handler request data.
+    emit_conn_struct(&mut out, module_prefix);
 
     for service in &api.services {
         gen_service_module(&mut out, service, api, module_prefix);
@@ -35,8 +35,22 @@ pub(super) fn gen_service_ex(api: &ApiSurface, module_prefix: &str) -> String {
     out
 }
 
-fn emit_conn_struct(out: &mut String) {
-    out.push_str(&render("service_api_conn_struct.ex.jinja", context! {}));
+fn emit_conn_struct(out: &mut String, module_prefix: &str) {
+    let conn_module = prefixed_module(module_prefix, "Conn");
+    out.push_str(&render(
+        "service_api_conn_struct.ex.jinja",
+        context! {
+            conn_module => conn_module,
+        },
+    ));
+}
+
+fn prefixed_module(module_prefix: &str, module: &str) -> String {
+    if module_prefix.is_empty() {
+        module.to_owned()
+    } else {
+        format!("{module_prefix}.{module}")
+    }
 }
 
 fn gen_service_module(out: &mut String, service: &ServiceDef, api: &ApiSurface, module_prefix: &str) {

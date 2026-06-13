@@ -13,7 +13,7 @@ pub unsafe extern "system" fn {{ symbol }}(
         // Create the exception instance on the Java side
         // The Java class {{ error_name }} is expected to have a constructor
         // accepting (String message, int statusCode, String problemDetailsType)
-        let error_class = env.find_class("dev/spikard/errors/{{ error_pascal }}")?;
+        let error_class = env.find_class("{{ error_class_path }}")?;
 
         let constructor_sig = "(Ljava/lang/String;ILjava/lang/String;)V";
         let constructor_id = env.get_method_id(&error_class, "<init>", constructor_sig)?;

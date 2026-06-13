@@ -22,11 +22,9 @@ pub(super) fn emit_lifecycle_hooks(hooks: &[LifecycleHookDef]) -> String {
         } else {
             hook.doc.clone()
         };
+        let doc = doc.replace("\"", "\\\"");
         out.push_str(&format!(
-            "  @doc {}\n  def {}(app, handler_fn) when is_function(handler_fn, 1) do\n    %__MODULE__{{app | {}: handler_fn}}\n  end\n\n",
-            format!("\"{}\"", doc.replace("\"", "\\\"")),
-            method_name,
-            method_name
+            "  @doc \"{doc}\"\n  def {method_name}(app, handler_fn) when is_function(handler_fn, 1) do\n    %__MODULE__{{app | {method_name}: handler_fn}}\n  end\n\n"
         ));
     }
     out
@@ -62,17 +60,18 @@ pub(super) fn emit_sse_routes(routes: &[SseRouteDef]) -> String {
 
 /// Emit Rustler native error types.
 ///
-/// Generates exception defexception definitions under Spikard.Errors for each
-/// ErrorTypeDef in the IR (NotFoundError, ValidationError, etc.).
-pub(super) fn emit_error_types(types: &[ErrorTypeDef]) -> String {
+/// Generates exception defexception definitions under the configured error module
+/// for each ErrorTypeDef in the IR (NotFoundError, ValidationError, etc.).
+pub(super) fn emit_error_types(types: &[ErrorTypeDef], module_prefix: &str) -> String {
     if types.is_empty() {
         return String::new();
     }
 
+    let error_module = prefixed_module(module_prefix, "Errors");
     let mut out = String::new();
-    out.push_str("defmodule Spikard.Errors do\n");
+    out.push_str(&format!("defmodule {error_module} do\n"));
     out.push_str("  @moduledoc \"\"\"\n");
-    out.push_str("  Spikard exception types.\n");
+    out.push_str("  Generated exception types.\n");
     out.push_str("  \"\"\"\n\n");
 
     for error_type in types {
@@ -111,6 +110,14 @@ pub(super) fn emit_new_ir_sections(api: &ApiSurface) -> String {
     out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
     out.push_str(&emit_websocket_routes(&api.websocket_routes));
     out.push_str(&emit_sse_routes(&api.sse_routes));
-    out.push_str(&emit_error_types(&api.error_types));
+    out.push_str(&emit_error_types(&api.error_types, ""));
     out
+}
+
+fn prefixed_module(module_prefix: &str, module: &str) -> String {
+    if module_prefix.is_empty() {
+        module.to_owned()
+    } else {
+        format!("{module_prefix}.{module}")
+    }
 }

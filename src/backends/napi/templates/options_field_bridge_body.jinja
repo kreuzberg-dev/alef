@@ -3,7 +3,7 @@ let {{ visitor_kwarg }}_handle: Option<{{ handle_path }}> = {{ options_name }}.a
             std::sync::Arc::new(std::sync::Mutex::new(bridge)) as {{ handle_path }}
         })
     });
-    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|mut o| {
+    let {{ options_name }}_core: Option<{{ options_path }}> = {{ options_name }}.map(|o| {
         let mut result: {{ options_path }} = o.into();
         if {{ visitor_kwarg }}_handle.is_some() {
             result.{{ field_name }} = {{ visitor_kwarg }}_handle.clone();

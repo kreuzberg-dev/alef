@@ -1,7 +1,7 @@
 //! Backend-agnostic emission hook traits for the new IR sections.
 //!
 //! Each trait declares the seam where a backend drops in its Jinja-template-driven
-//! emission for one of the four new IR collections on [`ApiSurface`]:
+//! emission for one of the four new IR collections on [`crate::core::ir::ApiSurface`]:
 //!
 //! | Trait | IR collection | Gating predicate |
 //! |---|---|---|

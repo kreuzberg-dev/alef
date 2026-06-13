@@ -178,8 +178,8 @@ fn test_opaque_streaming_static_wrapper() {
     // Find the wrapper class file
     let wrapper_file = files
         .iter()
-        .find(|f| f.path.ends_with("SampleCrateLib.cs"))
-        .expect("should generate SampleCrateLib.cs");
+        .find(|f| f.path.ends_with("SampleCrateConverter.cs"))
+        .expect("should generate SampleCrateConverter.cs");
 
     let content = &wrapper_file.content;
 

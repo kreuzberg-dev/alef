@@ -1,20 +1,7 @@
 //! Service-API codegen for the Magnus (Ruby) backend.
 //!
-//! Generates two outputs per [`ServiceDef`]:
-//!
-//! 1. **`service.rb`** — An idiomatic Ruby class mirroring the service's constructor,
-//!    configurator methods, registration methods accepting blocks/procs, and a `run`
-//!    entrypoint that delegates to the native extension.
-//!
-//! 2. **`service.rs`** — Magnus glue that wraps each registered Ruby proc as
-//!    `Arc<dyn <HandlerContractDef::trait_name>>` via an async callback bridge.
-//!    The bridge acquires the GVL (Global VM Lock) to call the proc with request
-//!    DTO and interprets the response. Also defines native `#[magnus::function]` for
-//!    the run entrypoint that collects registrations, builds the core service,
-//!    and drives it.
-//!
-//! All names are derived entirely from the [`ApiSurface`] IR — no transport-
-//! or domain-specific assumptions are made anywhere in this module.
+//! Emits `service.rb` wrappers and `service.rs` Magnus glue from the
+//! [`ApiSurface`] IR without transport- or domain-specific assumptions.
 
 use super::lifecycle_error_ws_sse;
 use crate::core::backend::GeneratedFile;
@@ -22,6 +9,8 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, EntrypointKind, HandlerContractDef, RegistrationDef, ServiceDef, TypeRef};
 use heck::{ToSnakeCase, ToUpperCamelCase};
 use std::path::PathBuf;
+
+mod phase_c;
 
 // ───────────────────────────────────────────────────────────────── helpers ──
 
@@ -988,7 +977,7 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
         },
     ];
 
-    // Emit Spikard::Errors exception hierarchy in its own file so the generated
+    // Emit the error exception hierarchy in its own file so the generated
     // service.rb stays single-class (satisfies Style/OneClassPerFile).
     let errors_rb = lifecycle_error_ws_sse::gen_error_classes(api);
     if !errors_rb.is_empty() {
@@ -1000,84 +989,6 @@ pub fn generate(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
     }
 
     Ok(files)
-}
-
-// ───────────────────────── Phase-C emission stubs (new IR sections) ──────────
-
-/// Emit Magnus/Ruby lifecycle-hook registration methods.
-///
-/// Stub: walks the collection, logs once when non-empty, returns `""`.
-/// Replace this body with Jinja-driven generation in the Magnus Phase-C pass.
-#[allow(dead_code)]
-pub(super) fn emit_lifecycle_hooks(hooks: &[crate::core::ir::LifecycleHookDef]) -> String {
-    if hooks.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "lifecycle hook emission not implemented for magnus ({} hooks)",
-        hooks.len()
-    );
-    for _hook in hooks {}
-    String::new()
-}
-
-/// Emit Magnus/Ruby WebSocket route registration methods.
-///
-/// Stub — returns `""` until the Magnus Phase-C specialist implements
-/// `app.websocket(path) { |socket| … }` generation.
-#[allow(dead_code)]
-pub(super) fn emit_websocket_routes(routes: &[crate::core::ir::WebSocketRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "WebSocket route emission not implemented for magnus ({} routes)",
-        routes.len()
-    );
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit Magnus/Ruby SSE route registration methods.
-///
-/// Stub — returns `""` until the Magnus Phase-C specialist implements
-/// `app.sse(path) { … }` generation.
-#[allow(dead_code)]
-pub(super) fn emit_sse_routes(routes: &[crate::core::ir::SseRouteDef]) -> String {
-    if routes.is_empty() {
-        return String::new();
-    }
-    tracing::debug!(
-        "SSE route emission not implemented for magnus ({} routes)",
-        routes.len()
-    );
-    for _route in routes {}
-    String::new()
-}
-
-/// Emit Magnus/Ruby native error classes.
-///
-/// Stub — returns `""` until the Magnus Phase-C specialist implements
-/// Ruby `StandardError` subclass generation.
-#[allow(dead_code)]
-pub(super) fn emit_error_types(types: &[crate::core::ir::ErrorTypeDef]) -> String {
-    if types.is_empty() {
-        return String::new();
-    }
-    tracing::debug!("error type emission not implemented for magnus ({} types)", types.len());
-    for _ty in types {}
-    String::new()
-}
-
-/// Aggregate stub — forwards all four new IR sections for the Magnus backend.
-#[allow(dead_code)]
-pub(super) fn emit_new_ir_sections(api: &crate::core::ir::ApiSurface) -> String {
-    let mut out = String::new();
-    out.push_str(&emit_lifecycle_hooks(&api.lifecycle_hooks));
-    out.push_str(&emit_websocket_routes(&api.websocket_routes));
-    out.push_str(&emit_sse_routes(&api.sse_routes));
-    out.push_str(&emit_error_types(&api.error_types));
-    out
 }
 
 // ───────────────────────────────────────────────────────────────────── tests ──

@@ -7,11 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.24.18] - 2026-06-13
-
-### Fixed
-
-- **JNI codegen: `Vec<String>` parameters now respect `vec_inner_is_ref` and emit a `Vec<&str>` materialisation when the core function takes `&[&str]`.** Previously the JNI function/method shims unconditionally emitted `&{name}` for `Vec<String>` slots, which coerces to `&[String]` but not `&[&str]`. Core fns declared as `download(names: &[&str])` failed to compile with E0308 `expected reference &[&str], found reference &Vec<String>`. The shim now checks `p.vec_inner_is_ref && Vec<String>` and emits `&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()`, mirroring the existing Dart codegen branch. (`src/backends/jni/gen_shims/function_shims.rs`, `src/backends/jni/gen_shims/method_shims.rs`)
+## [0.24.17] - 2026-06-13
 
 ### Added
 
@@ -34,6 +30,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JNI codegen: `Vec<String>` parameters now respect `vec_inner_is_ref` and emit a `Vec<&str>` materialisation when the core function takes `&[&str]`.** Previously the JNI function/method shims unconditionally emitted `&{name}` for `Vec<String>` slots, which coerces to `&[String]` but not `&[&str]`. Core fns declared as `download(names: &[&str])` failed to compile with E0308 `expected reference &[&str], found reference &Vec<String>`. The shim now checks `p.vec_inner_is_ref && Vec<String>` and emits `&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()`, mirroring the existing Dart codegen branch. (`src/backends/jni/gen_shims/function_shims.rs`, `src/backends/jni/gen_shims/method_shims.rs`)
+
 - **JNI return-marshal: `Option<T>` for any inner type now short-circuits `None` to a null `jstring`.** Previously only `Option<String>` had a dedicated `return_optional_string.rs.jinja` branch; every other `Option<T>` (e.g. `Option<EmbeddingPreset>` from `get_embedding_preset`) fell through to the generic `return_json.rs.jinja` arm, which serialises `None` to the four-character JSON literal `"null"`. Kotlin then saw a non-null `String` containing those four characters, so consumer tests like `assertTrue(result == null)` failed even when the Rust side returned `None`. The new `TypeRef::Optional(_)` arm in `emit_return_marshal_with_indent` wraps the serialise step in a `match v { None => std::ptr::null_mut(), Some(inner) => /* serialise inner */ }`, so any `Option<T>` return now produces a real null at the JVM boundary. (`src/backends/jni/gen_shims/marshalling.rs`)
 
 - **Kotlin-Android wrapper object name drops the appended `Converter` suffix.** `kotlin_android_wrapper_object_name` used to return `<Crate>Converter` (so `kreuzberg` → `KreuzbergConverter`), but the bridge file emitted by the JNI scaffold is `<Crate>Bridge` (`KreuzbergBridge`) and every e2e test calls the wrapper as `<Crate>.method(...)` (`Kreuzberg.extractFile(...)`). The mismatch produced `Unresolved reference 'KreuzbergConverterBridge'` in every wrapper that delegated to the bridge, and `Unresolved reference 'Kreuzberg'` in every alef-emitted test that used the public surface. Return the bare PascalCase stem (still stripping the `Rs` binding-crate suffix) so the wrapper and bridge file names line up. (`src/codegen/naming.rs`)
@@ -54,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **IR module split.** The previously monolithic `src/core/ir.rs` is reorganized into a module: `application.rs` (lifecycle hooks, WebSocket/SSE, error types), `service.rs` (service definitions, registrations, handler shapes, path constraints), `items.rs` (the pre-existing TypeDef/EnumDef/FunctionDef/MethodDef/etc.), `metadata.rs` (deprecation, version, default-value annotations), `surface.rs` (ApiSurface), `type_ref.rs` (TypeRef + PrimitiveType). Re-exports in `mod.rs` preserve the existing public API exactly — no consumer touch required. (`src/core/ir/`)
 
 ### Fixed
+
+- **NAPI options-field bridge: drop unused `mut` on the `Option<JsOptions>.map(|o| …)` closure binding.** The generated `convert(html, options)` shim moved `o` straight into `o.into()` without mutating the binding, so the `mut` keyword in the template triggered `warn(unused_mut)` on the consumer crate (e.g. `crates/html-to-markdown-node/src/lib.rs:1775`). The `mut` was a copy-paste from the wasm-side template, where the closure does mutate `o.<field>` before the `into()` call. Template: drop `mut` from the napi closure binding; the wasm template is unchanged. (`src/backends/napi/templates/options_field_bridge_body.jinja`)
 
 - **Magnus Ruby gemspec: `required_ruby_version` now emits the array form `[">= 3.2.0", "< 4.0"]` instead of the comma-joined single string `">= 3.2.0, < 4.0"`.** RubyGems' `Gem::Requirement.parse` treats a single requirement string as one expression and rejects embedded commas with `Gem::Requirement::BadRequirementError: Illformed requirement [">= 3.2.0, < 4.0"]`, so `bundle install` / `gem build` against the v0.24.16-generated gemspec failed before reaching any source. The array form is the canonical RubyGems syntax for multiple bounds and parses cleanly on Ruby 3.2–3.5 as well as 4.x preview builds. The platform-gemspec propagation path (`read_required_ruby_version` + `generate_platform_gemspec`) was rewritten to capture the raw RHS (single-string or array literal) and re-emit it verbatim, so the upper-bound constraint is preserved on cross-compiled platform gems. Closes liter-llm v1.5.1 prek failure. (`src/scaffold/languages/ruby.rs`, `src/publish/package/ruby.rs`)
 

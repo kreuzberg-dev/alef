@@ -154,12 +154,14 @@ fn gen_error_type_constructor(out: &mut String, error_type: &crate::core::ir::Er
     let problem_details_type = error_type.problem_details_type.as_deref().unwrap_or("");
     let method = format!("create{error_pascal}");
     let symbol = jni_symbol(package, "Errors", &method);
+    let error_class_path = format!("{}/errors/{error_pascal}", package.replace('.', "/"));
 
     out.push_str(&template_env::render(
         "error_type_constructor.rs.jinja",
         context! {
             error_pascal => error_pascal,
             error_name => error_type.name,
+            error_class_path => error_class_path,
             symbol => symbol,
             status_code => status_code,
             problem_details_type => problem_details_type,
