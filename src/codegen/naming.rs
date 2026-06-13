@@ -692,7 +692,7 @@ pub fn csharp_wrapper_class_name(crate_name: &str, _namespace: &str) -> String {
 ///
 /// Converts the crate name to PascalCase and strips the Rust binding crate
 /// suffix "-rs".  The bare PascalCase name keeps the call site idiomatic
-/// (`Kreuzberg.extractFile(...)` rather than `KreuzbergConverter.extractFile(...)`)
+/// (`SampleParser.extractFile(...)` rather than `SampleParserConverter.extractFile(...)`)
 /// and matches the bridge object emitted at `<Crate>Bridge` by
 /// `crate::core::jni::bridge_class_name`.  For example:
 /// - `sample-parser-rs` -> `SampleParser`

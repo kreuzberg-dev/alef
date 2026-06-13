@@ -245,6 +245,25 @@ fn emit_return_marshal_with_indent(out: &mut String, return_type: &TypeRef, inde
                 context! { indent => indent },
             ));
         }
+        // Optional<T> for any other inner type: serialise to JSON but short-circuit
+        // on None to a null jstring so Kotlin sees a real `null` rather than the
+        // four-character JSON literal `"null"`. Without this branch the fallback
+        // `serde_json::to_string(&None)` produces `"null"` which Kotlin/Jackson
+        // round-trip as the non-null string.
+        TypeRef::Optional(_) => {
+            out.push_str(&format!("{indent}match v {{\n"));
+            out.push_str(&format!("{indent}    None => std::ptr::null_mut(),\n"));
+            out.push_str(&format!("{indent}    Some(inner) => {{\n"));
+            out.push_str(&format!("{indent}        let s = match serde_json::to_string(&inner) {{\n"));
+            out.push_str(&format!("{indent}            Ok(s) => s,\n"));
+            out.push_str(&format!(
+                "{indent}            Err(e) => {{ throw_jni_error(env, &format!(\"serialize: {{e}}\")); return {ret_null}; }}\n"
+            ));
+            out.push_str(&format!("{indent}        }};\n"));
+            out.push_str(&format!("{indent}        string_to_jstring(env, &s)\n"));
+            out.push_str(&format!("{indent}    }}\n"));
+            out.push_str(&format!("{indent}}}\n"));
+        }
         _ => {
             out.push_str(&template_env::render(
                 "return_json.rs.jinja",
