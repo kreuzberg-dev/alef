@@ -34,6 +34,7 @@ use alef::e2e::codegen::swift::SwiftE2eCodegen;
 use alef::e2e::fixture::{
     Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest, MockResponse,
 };
+use std::path::{Path, PathBuf};
 
 fn make_field(name: &str, ty: TypeRef) -> FieldDef {
     FieldDef {
@@ -165,12 +166,17 @@ fn render_harness(config_toml: &str, fixture: Fixture) -> String {
     let files = SwiftE2eCodegen
         .generate(&groups, &e2e, &resolved, &[], &[])
         .expect("generation succeeds");
+    let harness_main_path = swift_harness_main_path();
     files
         .iter()
-        .find(|f| f.path.to_string_lossy().contains("Sources/Harness/main.swift"))
+        .find(|f| f.path.ends_with(&harness_main_path))
         .expect("Swift harness main is emitted")
         .content
         .clone()
+}
+
+fn swift_harness_main_path() -> PathBuf {
+    Path::new("Sources").join("Harness").join("main.swift")
 }
 
 // -- Bug A: function name `init` becomes `init_` (swift_ident escape) --------
