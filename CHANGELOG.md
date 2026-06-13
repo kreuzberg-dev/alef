@@ -5,9 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.24.15] - 2026-06-13
 
 ### Fixed
+
+- **Java NativeLib RID alignment with publish-workflow classifier names.** `resolveNativesRid()` was emitting `macos-arm64`/`linux-arm64`/`windows-arm64` (.NET RID-style), but the standard Java/Maven Central native-bundling convention (and every consumer's publish workflow matrix) uses `osx-aarch64`/`linux-aarch64`/`windows-aarch64`. The mismatch meant JARs shipped on every platform except `linux-x86_64` and `windows-x86_64` failed at runtime with `UnsatisfiedLinkError`. Switches the emitter to the conventional Java native classifier names (`osx`/`linux`/`windows` × `aarch64`/`x86_64`), matching JNA / LWJGL / snappy-java. Downstream consumers' publish workflows continue to stage natives under the same classifier names — no workflow-side change required. Closes html-to-markdown#XXX.
+
+- **extendr visitor result decoder: use `&str` match arm directly.** The `visitor_method.jinja` template emitted `if let Some(s) = val.as_str() { match s.as_str() { ... } }` — but `Robj::as_str()` already returns `Option<&str>`, so `s` is `&str` and calling `.as_str()` on `&str` is the unstable nightly feature `str_as_str` (E0658). Generated R Rust crates failed `cargo build` on stable. Fix: drop the redundant `.as_str()` and `match s { ... }` directly. Closes html-to-markdown#XXX.
+
+- **Zig + C e2e visitor result-code emission updated to current FFI contract.** `src/e2e/codegen/zig_visitors.rs` and `src/e2e/codegen/c/visitor.rs` were returning the pre-`html-to-markdown@d26469ca3` codes `Skip=1, PreserveHtml=2, Custom=3`. The FFI side (`html_to_markdown_ffi::decode_visit_result`) was updated to the canonical mapping `Continue=0, Custom=1, Skip=2, PreserveHtml=3, Error=4`, but the alef test codegen was never bumped. Every generated visitor that returned `Custom` was decoded as `PreserveHtml`, breaking ~30 Zig + C e2e tests (`visitor_*_custom`, `visitor_custom_element_with_nesting`, `visitor_unknown_tag_preservation`). Swap the emitted codes to match the FFI contract.
 
 - **Kotlin e2e codegen: sealed class (discriminated union) navigation and nullable receiver handling.** The Kotlin e2e generator was emitting property-access syntax for sealed-class navigation (e.g., `result.metadata.format?.excel?.sheetCount`) when the actual generated types (e.g., `FormatMetadata`) are sealed classes requiring pattern matching. The fix detects sealed-class variants in field paths (e.g., `metadata.format.excel.sheet_count`) and emits Kotlin `when` expressions with `is` pattern matching instead of direct property access: `when (result.metadata.format) { is FormatMetadata.Excel -> { ... } else -> {} }`. Additionally, nullable intermediate fields (e.g., `summary.text` where `summary` is optional) now correctly emit safe-call chains (`?.`) or use the existing `.orEmpty()` coalescing pattern for string operations, avoiding "Only safe (?.) or non-null asserted (!!.) calls are allowed on a nullable receiver" compile errors. This fix applies to the Kotlin-Android binding's data-class-based result types.
 
@@ -22,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Java e2e harness: when `SUT_URL` is unset, fall back to the alef e2e default harness port (8000) instead of probing a random OS port via `ServerSocket(0)`.** The previous random-port fallback didn't match the test client's fallback (the alef e2e default port), so every test timed out with `Harness did not become reachable at http://127.0.0.1:8000 within 15s`. Aligning both sides on the same default unblocks the harness lifecycle when `SUT_URL` is not provided. The fix removes the `ServerSocket(0)` probe entirely and replaces it with a simple fallback to the alef e2e default harness port constant (8000), ensuring test clients and harness agree on the unset-SUT_URL behavior.
 
 - **Swift e2e harness template: Jinja whitespace control no longer collapses the `_FIXTURES_JSON` declaration into the preceding comment line.** The `app_harness.swift.jinja` template used `{%- set json = fixtures_json %}` and `{%- set chunk_size = 30000 %}` with trailing whitespace-trim markers (`-`). These markers ate the newline before `let _FIXTURES_JSON = """`, generating `// ...literals.let _FIXTURES_JSON = """` on one line. Swift parsed the `let` as part of the comment, leaving the constant undefined when referenced later, failing compilation with `cannot find '_FIXTURES_JSON' in scope`. The fix removes the trailing `-` from both set statements so the newline is preserved and `let _FIXTURES_JSON` starts on its own code line.
+
+- **Native package classifier and visitor callback codegen aligned with runtime ABI.** Java native library resolution now uses the classifier names published by the release matrix (`osx-aarch64`, `linux-aarch64`, `windows-x86_64`, etc.), and C/Zig e2e visitor callbacks now return the discriminants expected by the FFI visitor ABI (`Custom = 1`, `Skip = 2`, `PreserveHtml = 3`). The extendr visitor template also avoids a redundant string conversion when matching visitor result tags.
 
 ## [0.24.14] - 2026-06-12
 
@@ -274,7 +282,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Kotlin E2E: typed string arrays stay string literals.** `element_type = "String"` arrays now emit
   `listOf("...")` values instead of treating each string as a file path for an element constructor.
 - **Swift trait-bridge: adapter delegates SwiftPluginBridge lifecycle to the wrapped impl.** The generated `Swift{Trait}Adapter` now exposes `name`, `version()`, `initialize()`, and `shutdown()` by delegating to `bridge`. Previously the adapter only exposed FFI marshalling entry points (the `*Call` methods) and required callers to re-implement the lifecycle on the FFI side. The adapter remains an internal wrapper — it does not conform to `Swift{Trait}Bridge` itself — but it can now serve plugin-lifecycle calls without per-trait shim code. The `adapter_class` Jinja variable is now passed by the Rust codegen so the template uses one canonical name.
+
+## [0.23.76] - 2026-06-10
+
+### Fixed
+
 - **php: exclude opaque types from `no_arg_constructor_types` so facade signatures don't mark required handle parameters as nullable.** The PHP `public_api` codegen built a set of types whose PHP constructors can be called with zero arguments via `t.fields.iter().all(|f| f.optional)`. Opaque types (e.g., `CrawlEngineHandle`) have an empty `fields` vector — no fields are exposed to bindings — and the `all()` predicate is vacuously true for empty iterators. They were therefore added to `no_arg_constructor_types`, which downstream caused facade methods like `Kreuzcrawl::batchCrawl(?CrawlEngineHandle $engine, ...)` to emit `?Type` while the matching native stub `KreuzcrawlApi::batchCrawl(CrawlEngineHandle $engine, ...)` (generated from `ext-php-rs`) was non-nullable. PHPStan correctly flagged this as `argument.type` failures on every static method that takes an opaque handle. The fix adds a `!t.is_opaque` guard to the filter so opaque types are never treated as no-arg constructible.
+
 - **napi-rs: emit base registration methods on JsApp and dispatch variant/decorator calls directly instead of via a registrations array.** The previous design had TS accumulate `[method_name, [metadata...], handler]` tuples in a `_registrations` array, then pass them to a Rust free function that replayed them. This pattern failed when metadata contained opaque JS-class instances or when handlers were JS callbacks — `serde_json::Value` cannot represent these types. The fix: (1) emit a base registration method on JsApp for each registration that accepts already-constructed wrappers; (2) emit variant methods on JsApp that construct the wrapper in Rust and delegate to the base method; (3) update TS variant/decorator methods to call `this._app.methodName(...)` directly instead of accumulating `_registrations`; (4) drop the free-function entrypoint and call variant/entrypoint methods directly on `_app`. TS wrappers now hold `_app: JsApp` (read-only) and delegate all registration to Rust methods at the FFI boundary, eliminating type-representation issues.
 
 ## [0.23.75] - 2026-06-10
@@ -572,6 +586,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Regression test
   `facade_emits_nullable_marker_for_non_tail_optional_param` pins the
   behaviour against the canonical 3-arg shape.
+
+## [0.23.43] - 2026-06-08
+
+### Added
+
+- **Release metadata: emit `release_kotlin_android` for Kotlin Android publish workflows.** `alef release-metadata --json` now reports a distinct `release_kotlin_android` boolean alongside `release_kotlin`, and target normalization accepts `android` / `kotlin_android` aliases. This lets workflows publish Android AAR artifacts independently from JVM Kotlin artifacts instead of silently skipping Kotlin Android jobs.
 
 ## [0.23.42] - 2026-06-08
 
@@ -1142,6 +1162,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **elixir (rustler)**: fix `mix format --check-formatted` compliance by adding blank lines between case clauses and defp pattern-match variants in GenServer handler templates. The `service_api_genserver.ex.jinja` template now emits `\n` separators between case statement alternatives and between `defp find_handler` clauses; the `service_api_handler_wrapper.ex.jinja` template also adds blank lines between case clauses in `handle_cast`. Elixir formatter requires blank lines between adjacent case/rescue branches and between multi-clause functions to maintain readability. (`src/backends/rustler/templates/service_api_genserver.ex.jinja`, `src/backends/rustler/templates/service_api_handler_wrapper.ex.jinja`) <!-- N+15-elixir-format-v4 -->
 
 - **java (panama)**: fix unreported exception in opaque-handle methods and error checking. `MethodHandle.invoke()` is declared `throws Throwable`, which includes checked exceptions not covered by `catch (RuntimeException e)` alone. The catch blocks in `stream_method_catch.jinja` and `streaming_helpers.jinja` now catch `Throwable` to correctly handle all possible exceptions from MethodHandle invocation. The broader catch is intentional as all exceptions during FFI calls are converted into the binding's exception class. (`src/backends/java/templates/stream_method_catch.jinja`, `src/backends/java/templates/streaming_helpers.jinja`) <!-- N+15-java-throwable -->
+
+## [0.23.27] - 2026-06-07
+
+### Changed
+
+- **Codegen modularization pass.** Split large backend and support modules across Swift, extendr, FFI, Dart, PHP, Rustler, PyO3, Go, C#, extract, core validation, publishing, README generation, and shared conversions so remediated files stay within the repository line-count limits.
+
+### Fixed
+
+- **Service API and e2e cleanup across generated bindings.** Fixed Go service configurator argument emission and DTO marshalling, Elixir formatting and unused options parameters, Python generated-test imports, C# default construction for omitted fixture params, Zig trait-bridge diagnostics, Java struct/enum coverage and native-library bundling, and NAPI/Magnus/PHP finalize entrypoint `unused_must_use` warnings.
+- **Snippet runner timeout increased.** The default snippet validation timeout was raised from 30s to 120s to avoid false failures on slower toolchains.
 
 ## [0.23.26] - 2026-06-07
 
@@ -2114,7 +2145,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/csharp/gen_bindings`)
 - fix(e2e/java): correct the default register_method from `registerRoute` to `registerAppRoute` in the harness codegen. The Java binding's route-registration method is `registerAppRoute()`, not the generic `registerRoute()`, causing generated HarnessMain to fail compilation with a symbol-not-found error.
 
-## [0.22.28] - 2026-06-04
 
 ### Fixed
 
@@ -2367,6 +2397,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(extract): read binding-exclusion attrs on tuple-variant fields of thiserror enums. `extract_error_enum` hardcoded `binding_excluded: false` for `syn::Fields::Unnamed` variant fields, so `#[cfg_attr(alef, alef(skip))]` / `#[doc(hidden)]` on those fields had no effect — the validator still rejected variants like `Io(#[from] std::io::Error)` with `lossy_sanitized_surface`. Now mirrors the named-variant path: calls `extract_field_binding_exclusion_reason(&f.attrs, &f.ty)` and propagates the result. (`src/extract/extractor/types.rs`)
 - fix(napi, wasm): emit `pub mod service;` in generated `lib.rs` when the surface declares a service. Without this declaration, the generated `service.rs` (containing `#[napi]`/`#[wasm_bindgen]` `app_run` and `app_into_router` entrypoints) is never compiled, so the host language's `App.run()` wrapper fails with "is not a function" at runtime. Mirrors the existing pyo3 behavior. (`src/backends/napi/gen_bindings/mod.rs`, `src/backends/wasm/gen_bindings/mod.rs`)
 
+## [0.22.5] - 2026-06-03
+
+### Fixed
+
+- fix(codegen): remove additional downstream-specific generation behavior in R/extendr, PHP, Kotlin Android, C#/NAPI/WASM/FFI visitor bridges, Swift/Zig scaffold metadata, and generated-header defaults. These paths now derive options, serde defaults, carrier projection, and registry metadata from IR/config instead of product-shaped type names, with central validation diagnostics added for future generation checks. (`src/backends/extendr`, `src/backends/php`, `src/backends/kotlin_android`, `src/backends/{csharp,napi,wasm,ffi}`, `src/core/validation`, `src/scaffold`, `src/e2e/codegen/zig.rs`)
+- fix(ffi): emit inline temporary `Vec<&str>` for `&[&str]` params instead of let-binding inside a block. The previous `{ let _refs: Vec<&str> = ...; &_refs }` form dropped `_refs` at the inner block's end, producing E0597 (borrow does not live long enough) at the outer call. Switched to `&rs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()` so Rust extends the temporary to the enclosing statement. (`src/backends/ffi/gen_bindings/functions.rs`)
+- chore: includes the `src/core/validation/` module that was orphaned out of the v0.22.4 release commit; this version restores `cargo build` against a clean checkout of the tag.
+
 ## [0.22.4] - 2026-06-03
 
 ### Fixed
@@ -2398,13 +2436,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix(swift): substitute `__ALEF_SWIFT_VERSION__` in root `Package.swift` during `alef sync-versions`. The version sync pipeline had no handler for the root `Package.swift` seed file, which uses a binary URL placeholder instead of a `from:` bound. Added explicit sync logic and drift verification. (`src/cli/pipeline/version.rs`)
 - fix(ruby): drop comma-joined upper bound from `RB_SYS` gem constraint and from the scaffolded Cargo dep. Bundler's gemspec DSL rejects comma-joined requirements ("Illformed requirement"), and the Cargo dep no longer pins an upper bound either. The 0.9.128 mingw sysroot issue is enforced at the cross-compile layer (downstream `gem install rb_sys -v '< 0.9.128'` in publish workflows), not in published constraints. (`src/core/template_versions.rs`, `src/scaffold/languages/ruby.rs`)
 
-## [0.22.5] - 2026-06-03
+## [0.22.3] - 2026-06-03
 
 ### Fixed
 
-- fix(codegen): remove additional downstream-specific generation behavior in R/extendr, PHP, Kotlin Android, C#/NAPI/WASM/FFI visitor bridges, Swift/Zig scaffold metadata, and generated-header defaults. These paths now derive options, serde defaults, carrier projection, and registry metadata from IR/config instead of product-shaped type names, with central validation diagnostics added for future generation checks. (`src/backends/extendr`, `src/backends/php`, `src/backends/kotlin_android`, `src/backends/{csharp,napi,wasm,ffi}`, `src/core/validation`, `src/scaffold`, `src/e2e/codegen/zig.rs`)
-- fix(ffi): emit inline temporary `Vec<&str>` for `&[&str]` params instead of let-binding inside a block. The previous `{ let _refs: Vec<&str> = ...; &_refs }` form dropped `_refs` at the inner block's end, producing E0597 (borrow does not live long enough) at the outer call. Switched to `&rs.iter().map(|s| s.as_str()).collect::<Vec<&str>>()` so Rust extends the temporary to the enclosing statement. (`src/backends/ffi/gen_bindings/functions.rs`)
-- chore: includes the `src/core/validation/` module that was orphaned out of the v0.22.4 release commit; this version restores `cargo build` against a clean checkout of the tag.
+- **E2E scaffold writer decodes base64 `.jar` files.** Binary Gradle wrapper artifacts are decoded when writing scaffold files, matching the Kotlin Android wrapper fix and preventing corrupt placeholder JAR output.
+- **Python e2e CORS preflight handler coverage.** Generated Python harnesses register `OPTIONS` handlers for CORS-enabled routes so preflight requests match the TypeScript harness behavior.
+
+## [0.22.2] - 2026-06-03
+
+### Fixed
+
+- **Kreuzberg v5 binding compilation repairs.** Fixed Dart syntax, Swift package naming, C Makefile orchestration, Zig stale-hash comments, Go server-ready races, Ruby lowercase gem requires with harness bind retries, and Kotlin Android Gradle wrapper bytes.
 
 ## [0.22.1] - 2026-06-03
 
@@ -4678,6 +4721,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **alef elixir: emit mix.exs rustler_crates in multi-line pre-formatted shape.** The Elixir scaffold was emitting `rustler_crates` as a single line, which exceeded mix format's default 98-character line limit when there were 4+ target triples. This caused mix format to reflow the line into multi-line form during CI, making the committed mix.exs drift from alef's emission, which triggered "Versions are out of sync" failures in downstream polyglot repos. The fix emits the `rustler_crates` block pre-formatted to match mix format's canonical multi-line shape, preventing format drift. (`src/scaffold/languages/elixir.rs`)
 
+## [0.20.9] - 2026-05-29
+
+### Fixed
+
+- **alef swift: emit `Package.swift` `target`/`testTarget` blocks in multi-line shape** so `swift format` does not reflow the committed manifest. (`src/backends/swift/gen_bindings`)
+- **alef php, ruby: drop the unused `unsafe` block in visitor-bridge `new()`; ruby scaffold uses `RbSys::ExtensionTask`.** (`src/backends/php`, `src/scaffold/languages/ruby.rs`)
+
+### Chore
+
+- Add the missing `NodeConfig.exclude_platforms` field in the napi gen test; `clippy --fix` on `frb_rewrite`.
+
+## [0.20.8] - 2026-05-28
+
+No user-facing changes; release bump only.
+
+## [0.20.7] - 2026-05-28
+
+### Fixed
+
+- **alef swift trait-bridge: use JSON for excluded return types and fix the generated syntax.** (`src/backends/swift/gen_bindings/trait_bridge.rs`)
+
 ## [0.20.6] - 2026-05-28
 
 ### Fixed
@@ -4689,27 +4753,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **alef go: collapse the blank line between `//export` and its `func` so cgo recognizes the directive.** (`src/backends/go/gen_bindings/mod.rs`)
 - **alef java e2e: emit a fixture `name()` for traits without a super-trait.** (`src/e2e/codegen/java.rs`)
 - **alef php trait-bridge: drop the arity-blind `try_call_method` validation in the register fn.** (`src/backends/php/trait_bridge.rs`)
-
-## [0.20.7] - 2026-05-28
-
-### Fixed
-
-- **alef swift trait-bridge: use JSON for excluded return types and fix the generated syntax.** (`src/backends/swift/gen_bindings/trait_bridge.rs`)
-
-## [0.20.8] - 2026-05-28
-
-No user-facing changes; release bump only.
-
-## [0.20.9] - 2026-05-29
-
-### Fixed
-
-- **alef swift: emit `Package.swift` `target`/`testTarget` blocks in multi-line shape** so `swift format` does not reflow the committed manifest. (`src/backends/swift/gen_bindings`)
-- **alef php, ruby: drop the unused `unsafe` block in visitor-bridge `new()`; ruby scaffold uses `RbSys::ExtensionTask`.** (`src/backends/php`, `src/scaffold/languages/ruby.rs`)
-
-### Chore
-
-- Add the missing `NodeConfig.exclude_platforms` field in the napi gen test; `clippy --fix` on `frb_rewrite`.
 
 ## [0.20.5] - 2026-05-28
 
@@ -5468,7 +5511,6 @@ No user-facing changes; release bump only.
 
 - **alef-codegen-conversions: fix `binding -> core` reconstruction for sanitized `Vec<Vec<String>>` fields in enum variants (representing core `Vec<(String, String)>`, e.g. `NodeContent::MetadataBlock { entries }` in html-to-markdown).** The shared helpers used by every backend's enum-variant match-arm codegen emitted `entries.iter().filter_map(|s| serde_json::from_str(s).ok()).collect()` for sanitized `Vec<_>` fields. That works when the sanitized form is `Vec<String>` (each element is a JSON-serialized payload, the `Vec<Json>` shape), but `parse_homogeneous_tuple` lifts `Vec<(String, String)>` into the IR as `Vec<Vec<String>>` — each inner Vec holds the two tuple components as separate strings, not a JSON encoding. `serde_json::from_str(&Vec<String>)` doesn't compile (`error[E0308]: expected '&str', found '&Vec<String>'`), breaking magnus regen for html-to-markdown's Ruby binding (`packages/ruby/ext/html_to_markdown_rb/src/lib.rs:6196` on every macOS/Ubuntu/Windows × Ruby 3.2/3.3 build). Introduce `sanitized_vec_field_to_core_expr` in `src/codegen/conversions/helpers.rs` that detects `Vec<Vec<String>>` and reconstructs the 2-tuples via `.iter().filter_map(|inner| { let mut it = inner.iter().cloned(); Some((it.next()?, it.next()?)) }).collect()`; falls back to the prior `serde_json::from_str` path for the `Vec<Json>` shape. Applied to both `is_tuple_variant` and the struct-variant codegen branches in `binding_to_core_match_arm_ext_cfg`. (`src/codegen/conversions/helpers.rs`)
 
-## [0.19.1] - 2026-05-24
 
 ### Fixed
 
@@ -6671,6 +6713,12 @@ No user-facing changes; release bump only.
 - **alef-backend-pyo3: emit `def __init__(self, ...) -> None: ...` stub for opaque types that have a `[workspace.client_constructors.TypeName]` entry.** The `.pyi` stub generator for opaque types (`gen_opaque_type_stub`) iterated `typ.methods` for instance and static method stubs but never emitted `__init__`, so mypy inferred `def __init__(self) -> None` (no args) for every opaque handle class. Every `DefaultClient(api_key=..., base_url=...)` call site in downstream `api.py` was rejected with "Too many arguments for `DefaultClient`". The fix passes `config.client_constructors.get(&typ.name)` to `gen_opaque_type_stub`; when a constructor config is present the stub emits `def __init__(self, param: PythonType, ...) -> None: ...` immediately after the class header. Raw Rust param types (`&str`, `String`, primitive integers, `()`) map to Python equivalents via a new `constructor_rust_type_to_python` helper; unknown types fall back to `Any`. Two regression tests in `src/backends/pyo3/tests/gen_stubs_test.rs` pin both the positive and negative cases. (`src/backends/pyo3/gen_stubs.rs`, `src/backends/pyo3/tests/gen_stubs_test.rs`)
 
 - **alef-backend-pyo3: known regression — api.py adapter wrapper params and return values not converted between `options.*` layer types and `_internal_bindings.*` opaque types.** `emit_adapter_wrapper` passes `options.ChatCompletionRequest` directly to `engine.chat()` (which expects `_bindings.ChatCompletionRequest`) and returns `_bindings.ChatCompletionResponse` where the signature promises `options.ChatCompletionResponse`. `_to_rust_*` converters exist for input types but no `from_rust_*` converters exist for return types; adding return-type converters requires a new class of generated helpers out of scope for this patch. Fix tracked for follow-up; downstream mypy errors on adapter wrappers remain. (`src/backends/pyo3/gen_bindings/functions.rs`)
+
+## [0.17.4] - 2026-05-20
+
+### Fixed
+
+- **Backend codegen consumer blockers.** Unblocked generated C#, Elixir, Kotlin, and Swift consumers with targeted backend fixes.
 
 ## [0.17.3] - 2026-05-20
 
@@ -9542,6 +9590,13 @@ Version bump only — no functional changes.
   `git diff --exit-code` README freshness check in CI then fails. Reported
   via kreuzberg-dev/html-to-markdown CI Lint.
 
+## [0.15.65] - 2026-05-14
+
+### Fixed
+
+- **Rust e2e unwrap-binding locals and mock server module cleanup.** Collapsed double underscores in unwrap-binding variable names and emitted `#![allow(dead_code)]` in generated `tests/mock_server.rs`.
+- **C# and Go e2e fixture discovery fallback.** Generated e2e apps fall back to repository-root markers such as `alef.toml` and `fixtures/` when `test_documents/` is absent, and Go skips `os.Chdir` in that case.
+
 ## [0.15.64] - 2026-05-14
 
 ### Fixed
@@ -10219,6 +10274,10 @@ argument type 'Int'` because optional chaining propagates `?` through the
 
 - fix(alef-backend-swift): Duration-typed struct fields now bridge correctly through swift-bridge. Constructors emit `std::time::Duration::from_millis(<param>)` (or `.map(std::time::Duration::from_millis)` for optional), and getters emit `self.0.<field>.as_millis() as u64` (or `.map(|d| d.as_millis() as u64)` for optional). Previously both fell through to the generic field assign template, causing `E0308 expected Duration, found u64` in every swift binding crate that has timeout fields.
 
+
+- fix(magnus): remove problematic re-export loop in native.rb wrapper
+- fix(magnus): handle optional String parameters via magnus::Value conversion
+
 ## [0.15.33] - 2026-05-11
 
 ### Changed
@@ -10355,7 +10414,7 @@ argument type 'Int'` because optional chaining propagates `?` through the
 
 - fix(alef-backend-ffi): sync trait method bodies emitting static error messages now coerce bare string literals to `String` via `.to_string()`. Previously, `gen_vtable_call_body(inside_closure=false)` passed the literal directly to `spec.make_error(...)`, producing e.g. `KreuzbergError::Other("nul byte in serialized param doc")` — a `&'static str` — which fails E0308 when the error variant wraps `String`. The fix is in the `make_err` closure in `call_body.rs`: when not inside the async `_SendFn` closure and the message is a quoted string literal, `.to_string()` is appended before passing to `make_error`. The async closure path (`Box::from(...)`) is unaffected.
 
-## [0.15.28]
+## [0.15.28] - 2026-05-10
 
 ### Fixed
 
@@ -10584,6 +10643,16 @@ argument type 'Int'` because optional chaining propagates `?` through the
 - **alef swift e2e: load file bytes for `Vec<u8>` args; build `ExtractionConfig` from JSON; preserve optional arg slots.**
 - **e2e codegen fixes across csharp, java** — `setup_lines` in error cases, global `fields_enum` enum assertions, per-call `enum_fields` merge for `Optional<Enum>`.
 
+## [0.15.10] - 2026-05-09
+
+### Added
+
+- **NAPI scaffold serde-json support.** Crates with JSON fields now enable the `napi/serde-json` feature in scaffolded Node packages.
+
+### Fixed
+
+- **E2E and codegen stability fixes.** Fixed Java `Optional<Enum>` fallback coercion, Rust mock-server array-form `input.mock_responses`, and focused generated-test failures across the suite.
+
 ## [0.15.9] - 2026-05-09
 
 ### Fixed
@@ -10740,7 +10809,6 @@ argument type 'Int'` because optional chaining propagates `?` through the
   with a nil base_url for live-API fixtures. Previously every `smoke*\*`live-API fixture failed with "no mock route" because Go always pointed
 at`MOCK_SERVER_URL/fixtures/<id>`regardless of`api_key_var`.
 
-## [0.15.2] - 2026-05-09
 
 ### Fixed
 
@@ -11117,6 +11185,12 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 
 - feat(release): x86_64-apple-darwin release binaries to support downstream macOS x86_64 CI runners that cannot rely on Rosetta
 
+## [0.14.31] - 2026-05-07
+
+### Fixed
+
+- **Go backend bundles the FFI header inside published Go modules.** Generated Go bindings now use `#cgo CFLAGS: -I${SRCDIR}/include`, and the FFI build script copies the cbindgen header into the Go package when Go is configured. This lets downstream `go get` builds work without a monorepo checkout.
+
 ## [0.14.30] - 2026-05-07
 
 ### Fixed
@@ -11258,6 +11332,21 @@ below. Bumped to 0.14.35 to ship them on crates.io.
 - fix(java-backend): `createObjectMapper()` now calls `.setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)` so Jackson maps snake_case JSON keys (e.g. `total_lines`) to camelCase builder `with`-methods during deserialization.
 - fix(java-e2e): `contains` / `contains_all` / `not_contains` assertions on array fields now call `.toString().contains(value)` instead of `List.contains(value)`; `List.contains` uses `equals()` and always returns false when comparing a `String` against complex record types such as `StructureItem`.
 - fix(e2e/csharp): config arguments are now generated as typed C# object initializers (`new ProcessConfig { Language = "abl" }`) with PascalCase property names instead of raw `JsonSerializer.Deserialize` calls; this matches the `[JsonPropertyName]`-annotated C# API surface and avoids snake_case key mismatches.
+
+## [0.14.28] - 2026-05-07
+
+### Fixed
+
+- **Ruby, Python, and PyO3 scaffold fixes.** Ruby Magnus module names now use PascalCase for snake_case crates, Python registry-mode e2e dependency strings include the version comparator and resolved workspace version, and PyO3 scaffolds include `pyo3/abi3-py310` in default features.
+- **Stale test assertions updated.** Test expectations now match current codegen behavior.
+
+## [0.14.27] - 2026-05-07
+
+### Fixed
+
+- **Homebrew version checks inspect only source URL lines.** Third-party tap checks no longer match bottle `root_url` versions when the source URL is stale.
+- **E2E registry version fallback expanded.** C#, Dart, Ruby, R, Swift, and WASM e2e generators now use the workspace-version fallback when language-specific registry package config omits `version`, matching the existing Rust/PHP behavior.
+- **Python codegen formatter ordering.** Post-generation formatting now runs `ruff check --fix` before `ruff format`.
 
 ## [0.14.26] - 2026-05-07
 
@@ -14562,8 +14651,3 @@ This release closes a long-standing gap in alef's polyglot generator: bindings f
 - Blake3-based caching for `extract` and `generate` commands
 - CI pipeline: cargo fmt, clippy, deny, machete, sort, taplo
 - GoReleaser-based publish workflow with cross-platform binaries and Homebrew tap
-
-## [0.15.34] - 2026-05-11
-
-- fix(magnus): remove problematic re-export loop in native.rb wrapper
-- fix(magnus): handle optional String parameters via magnus::Value conversion

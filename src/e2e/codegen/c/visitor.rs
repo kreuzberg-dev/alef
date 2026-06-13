@@ -348,7 +348,7 @@ fn c_visitor_callback_body(method: &str, action: &crate::e2e::fixture::CallbackA
             for param in c_visitor_unused_params(method) {
                 let _ = writeln!(out, "    (void){param};");
             }
-            let _ = writeln!(out, "    return 1;");
+            let _ = writeln!(out, "    return 2;");
         }
         CallbackAction::Continue => {
             let _ = writeln!(out, "    (void)out_custom;");
@@ -364,7 +364,7 @@ fn c_visitor_callback_body(method: &str, action: &crate::e2e::fixture::CallbackA
             for param in c_visitor_unused_params(method) {
                 let _ = writeln!(out, "    (void){param};");
             }
-            let _ = writeln!(out, "    return 2;");
+            let _ = writeln!(out, "    return 3;");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_c(output);
@@ -374,7 +374,7 @@ fn c_visitor_callback_body(method: &str, action: &crate::e2e::fixture::CallbackA
             let _ = writeln!(out, "    char* _buf = strdup(\"{escaped}\");");
             let _ = writeln!(out, "    if (out_custom) *out_custom = _buf;");
             let _ = writeln!(out, "    if (out_len) *out_len = _buf ? strlen(_buf) : 0;");
-            let _ = writeln!(out, "    return 3;");
+            let _ = writeln!(out, "    return 1;");
         }
         CallbackAction::CustomTemplate { template, .. } => {
             // Build a sprintf format string and map fixture placeholders to C params.
@@ -409,7 +409,7 @@ fn c_visitor_callback_body(method: &str, action: &crate::e2e::fixture::CallbackA
 
             let _ = writeln!(out, "    if (out_custom) *out_custom = _buf;");
             let _ = writeln!(out, "    if (out_len) *out_len = _buf ? strlen(_buf) : 0;");
-            let _ = writeln!(out, "    return 3;");
+            let _ = writeln!(out, "    return 1;");
         }
     }
 

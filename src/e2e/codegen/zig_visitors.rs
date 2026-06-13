@@ -135,7 +135,7 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
         CallbackAction::Skip => {
             let _ = writeln!(out, "        _ = out_custom;");
             let _ = writeln!(out, "        _ = out_len;");
-            let _ = writeln!(out, "        return 1;");
+            let _ = writeln!(out, "        return 2;");
         }
         CallbackAction::Continue => {
             let _ = writeln!(out, "        _ = out_custom;");
@@ -145,7 +145,7 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
         CallbackAction::PreserveHtml => {
             let _ = writeln!(out, "        _ = out_custom;");
             let _ = writeln!(out, "        _ = out_len;");
-            let _ = writeln!(out, "        return 2;");
+            let _ = writeln!(out, "        return 3;");
         }
         CallbackAction::Custom { output } => {
             let escaped = escape_zig_string(output);
@@ -155,7 +155,7 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
             );
             let _ = writeln!(out, "        if (out_custom != null) out_custom.* = _buf.ptr;");
             let _ = writeln!(out, "        if (out_len != null) out_len.* = _buf.len;");
-            let _ = writeln!(out, "        return 3;");
+            let _ = writeln!(out, "        return 1;");
         }
         CallbackAction::CustomTemplate { template, .. } => {
             // Convert `{name}` placeholders to `{s}` and collect placeholder names.
@@ -179,7 +179,7 @@ fn callback_body(method: &str, action: &CallbackAction) -> String {
             );
             let _ = writeln!(out, "        if (out_custom != null) out_custom.* = _buf.ptr;");
             let _ = writeln!(out, "        if (out_len != null) out_len.* = _buf.len;");
-            let _ = writeln!(out, "        return 3;");
+            let _ = writeln!(out, "        return 1;");
         }
     }
     out
