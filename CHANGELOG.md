@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [UNRELEASED]
 
+### Fixed
+
+- **Rustler emitter: batch-vec deserialization, optional-slice parameters, and trait-bridge constructor signature.** Fixed four critical rustler NIF generation bugs blocking kreuzberg elixir e2e: (1) `trait_constructor.rs.jinja` now accepts two parameters matching the two-field struct shape (`inner: LocalPid`, `cached_name: String`), (2) `sync_method_body.rs.jinja` drops the spurious `.recv()` call on `tokio::sync::oneshot::Receiver` (use `.await` directly), (3) batch-vec deserializations no longer wrap the result in `Option<>`, instead defaulting to empty-vec on None, (4) optional slice parameters now properly unwrap `Option<Vec<T>>` to `&[T]` at the call site. Together these fixes allow all 47 generated Rustler NIF errors to resolve and `cargo check` the kreuzberg_nif crate clean.
+
 ### Changed
 
 - **`CITATION.cff` `date-released` is now auto-stamped from the system date on every `alef sync-versions` regen.** Previously, the renderer copied `[workspace.citation].date-released` from `alef.toml` verbatim, forcing every polyglot consumer (kreuzberg, html-to-markdown, kreuzcrawl, lllm, tslp) to hand-edit `alef.toml` per release just to keep `CITATION.cff` accurate. The field is now an optional override: when absent (the recommended default), `render_citation_cff` stamps `chrono::Local::now()` formatted as `YYYY-MM-DD` per the CFF spec; when present, the explicit value still wins (preserves the escape hatch for backports / historical replays). The pure renderer accepts `today: &str` as an injected parameter so unit tests can pin the date; the live caller in `sync_versions` resolves it via `chrono::Local::now()`. No `alef.toml` migration required — existing configs with an explicit `date-released` keep working unchanged. (`src/cli/pipeline/version_text.rs`, `src/cli/pipeline/version.rs`)
