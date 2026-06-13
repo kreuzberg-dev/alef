@@ -188,7 +188,7 @@ Gem::Specification.new do |spec|
   spec.description   = "{description}"
 {homepage}
 {license}
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 3.2.0, < 4.0"
 {metadata}  spec.metadata["rubygems_mfa_required"] = "true"
 
   candidate_files    = Dir.glob(%w[README* LICENSE* lib/**/* ext/**/* sig/**/* Steepfile]).select {{ |f| File.file?(f) }}
@@ -341,13 +341,14 @@ RbSys::ExtensionTask.new("{cargo_pkg_name}", GEMSPEC) do |ext|
   ext.platform = "ruby"
   ext.cross_compile = true
   ext.cross_platform = CROSS_PLATFORMS
-  # Pin cross_compile_versions to Ruby 3.1+ stable releases, skipping Ruby 4.0.2
-  # which has a broken mingw sysroot in rb-sys-dock 0.9.127 (sys/select.h missing).
+  # Pin cross_compile_versions to Ruby 3.2-3.5 stable releases.
   # This overrides the container's RUBY_CC_VERSION env var at rake task definition time.
   # The setter was added in a later rb_sys version; guard against older gem installations
   # where the method does not exist (e.g., rb_sys 0.9.127 locked to avoid mingw bug in 0.9.128).
+  # rb-sys-dock 0.9.x ships images for Ruby 3.2, 3.3, 3.4, and 3.5; this list must
+  # match those available images. Per-ABI platform gem windows are controlled by rake-compiler-dock.
   if ext.respond_to?(:cross_compile_versions=)
-    ext.cross_compile_versions = %w[3.4.9 3.3.11 3.2.11 3.1.7]
+    ext.cross_compile_versions = %w[3.5.0 3.4.9 3.3.11 3.2.11]
   end
 end
 
