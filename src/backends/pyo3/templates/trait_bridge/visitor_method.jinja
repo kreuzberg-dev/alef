@@ -18,7 +18,7 @@ fn {{ method_name }}({{ sig }}) -> {{ ret_ty }} {
                 } else if result.is_none() {
                     {{ default_result_expr }}
                 } else {
-                    let py_dict = result.downcast::<pyo3::types::PyDict>();
+                    let py_dict = result.cast::<pyo3::types::PyDict>();
                     if let Ok(d) = py_dict {
 {%- for variant in payload_result_variants %}
                         if let Some(v) = d.get_item("{{ variant.wire_name }}").ok().flatten() {

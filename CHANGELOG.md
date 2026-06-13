@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **PyO3 backend pinned to `pyo3 = "0.29"` / `pyo3-async-runtimes = "0.29"`.** `src/core/template_versions.rs` bumps both `PYO3` and `PYO3_ASYNC_RUNTIMES` from `0.28` to `0.29` so every alef-emitted `Cargo.toml` in the pyo3 backend (and the matching dev-deps in service-API scaffolds) tracks the upstream 0.29 line. (`src/core/template_versions.rs`)
+
 ### Fixed
+
+- **PyO3 0.29 method-rename: `downcast`/`downcast_into` → `cast`/`cast_into` in every generated callsite.** PyO3 0.29 renamed the `.downcast()` family on `Bound<'_, PyAny>` to `.cast()` (the prior names are deprecated and will be removed). Three alef emit paths still produced the old call shape, so the generated `_kreuzberg.abi3.so` (and any downstream consumer's pyo3 binding) failed to compile under 0.29 with `help: there is a method 'cast_into' with a similar name`. Update each callsite to the 0.29 method names so the generated bindings build cleanly: (1) the `enum_from_json_default` helper that round-trips an enum payload through `json.loads(...)` now ends in `.cast_into::<PyDict>()` (`src/codegen/generators/enums.rs:283`); (2) the service-API registrations dispatcher binds `tuple` and metadata sub-tuples with `.cast()` (`src/backends/pyo3/gen_bindings/service_api/rust_service.rs:197,226`, comment at line 224 updated to match); (3) the visitor-result decoder in the trait-bridge template now narrows the Python return value via `result.cast::<PyDict>()` (`src/backends/pyo3/templates/trait_bridge/visitor_method.jinja`).
 
 - **JNI lib.rs crate now allows `missing_docs` so the alef-generated shim compiles cleanly under `rustdoc::missing-docs`.** Every `pub unsafe extern "system" fn Java_*` in the JNI shim is named from a paired Kotlin `external fun native*` declaration and has no human-authored docstring — the function name and signature carry the contract. With the shared `rustdoc-lint` pre-commit hook running `cargo doc -- -D missing-docs`, consumer projects were unable to commit any change that triggered alef regeneration of the JNI shim. `src/backends/jni/templates/lib_header.rs.jinja` now emits `#![allow(missing_docs)]` alongside the existing `#![allow(...)]` block. (`src/backends/jni/templates/lib_header.rs.jinja`)
 

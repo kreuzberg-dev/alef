@@ -280,7 +280,7 @@ pub(crate) fn write_pyo3_variant_accessors(out: &mut String, enum_def: &EnumDef,
         out.push_str("        }\n");
         out.push_str("        let json_str = json.to_string();\n");
         out.push_str("        let json_mod = py.import(\"json\")?;\n");
-        out.push_str("        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.downcast_into::<pyo3::types::PyDict>()?;\n");
+        out.push_str("        let py_dict = json_mod.call_method1(\"loads\", (&json_str,))?.cast_into::<pyo3::types::PyDict>()?;\n");
         out.push_str("        Ok(Some(py_dict.unbind()))\n");
         out.push_str("    }\n");
     }

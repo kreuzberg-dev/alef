@@ -194,7 +194,7 @@ fn gen_run_pyfunction(
 
     // Iterate registrations and dispatch
     out.push_str("    for entry in registrations.iter() {\n");
-    out.push_str("        let tuple: &Bound<'_, PyTuple> = entry.downcast()?;\n");
+    out.push_str("        let tuple: &Bound<'_, PyTuple> = entry.cast()?;\n");
     out.push_str("        let method_name: String = tuple.get_item(0)?.extract()?;\n");
     out.push_str("        let callable = tuple.get_item(2)?;\n\n");
 
@@ -221,9 +221,9 @@ fn gen_run_pyfunction(
 
             if meta_count > 0 {
                 // Bind the metadata item to a local first — `tuple.get_item(1)?` is a temporary
-                // and `.downcast()` borrows from it, so chaining would drop it while borrowed.
+                // and `.cast()` borrows from it, so chaining would drop it while borrowed.
                 out.push_str("                let meta_item = tuple.get_item(1)?;\n");
-                out.push_str("                let meta: &Bound<'_, PyTuple> = meta_item.downcast()?;\n");
+                out.push_str("                let meta: &Bound<'_, PyTuple> = meta_item.cast()?;\n");
                 for (i, meta_param) in reg.metadata_params.iter().enumerate() {
                     // A metadata param whose type is a generated opaque binding type is a
                     // `#[pyclass]` wrapping `inner: Arc<core>`. pyo3 can only extract the BINDING
