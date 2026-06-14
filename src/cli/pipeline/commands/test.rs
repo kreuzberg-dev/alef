@@ -296,9 +296,9 @@ e2e = "{e2e_cmd}"
     ///
     /// Before this fix, `before` entries in `[crates.test.<lang>]` were only
     /// documented as running prior to `command`; e2e invocations could start
-    /// without the setup steps completing first (e.g. the kreuzberg
-    /// kotlin-android binding needs `cargo build -p kreuzberg-ffi` + a symlink
-    /// before Gradle can load `kreuzberg_jni`).  Phase 1 runs `before`
+    /// without the setup steps completing first (e.g. a Kotlin Android binding
+    /// can need its FFI library built and symlinked before Gradle loads JNI).
+    /// Phase 1 runs `before`
     /// sequentially for every language before Phase 2 executes either
     /// `command` or `e2e`, so both invocation paths receive the same setup.
     #[cfg(unix)]
@@ -318,8 +318,13 @@ e2e = "{e2e_cmd}"
 
         let config = make_config_with_before_and_e2e(&before_cmd, &e2e_cmd);
 
-        test(&config, &[Language::Python], /* e2e= */ true, /* coverage= */ false)
-            .expect("test() should succeed when before and e2e commands exit 0");
+        test(
+            &config,
+            &[Language::Python],
+            /* e2e= */ true,
+            /* coverage= */ false,
+        )
+        .expect("test() should succeed when before and e2e commands exit 0");
 
         let content = std::fs::read_to_string(&order_file).expect("read order file");
         let lines: Vec<&str> = content.lines().collect();
