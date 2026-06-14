@@ -9,6 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C# e2e codegen: emit `KreuzbergConverter` not `KreuzbergLib`.** Every generated test file under `e2e/csharp/tests/` opens with `using static Kreuzberg.KreuzbergLib;` and then calls `KreuzbergLib.BatchExtractBytesAsync(...)`, `KreuzbergLib.ExtractFileAsync(...)`, `KreuzbergLib.DetectMimeTypeFromBytes(...)`, etc. The published Kreuzberg NuGet package no longer exposes a `KreuzbergLib` type — the facade is `public static class KreuzbergConverter` in `packages/csharp/src/Kreuzberg/KreuzbergConverter.cs`. `dotnet build` fails for every test file with `error CS0234: The type or namespace name 'KreuzbergLib' does not exist in the namespace 'Kreuzberg'` (≈40 callsites across `BatchTests.cs`, `ContractTests.cs`, `DetectionTests.cs`, plus the rest of the suite). Fix the C# e2e emitter to substitute the configured facade class name (or hard-code `KreuzbergConverter` if the rename is final). Observed on kreuzberg CI run 27492590406 `E2E (csharp)`.
+
+- **Swift e2e codegen: drop optional chaining on non-Optional `RustString` returns.** The emitter inserts `?` after every method call, but `result.summary()?.strategy()` returns a non-Optional `RustString`; the next chain segment `.toString()` must therefore be `.toString()` (no `?`). Swift refuses to compile: `error: cannot use optional chaining on non-optional value of type 'RustString'`. The most direct fix is to track per-method return-Optional-ness in the codegen and only emit `?` when the receiver is Optional. Reproduction: `e2e/swift_e2e/Tests/KreuzbergE2ETests/SummarizationTests.swift:37` emits `result.summary()?.strategy()?.toString()`. Observed on kreuzberg CI run 27492590406 `E2E (swift)`.
+
+- **R build.rs codegen: emit Linux `cargo:rustc-link-arg=-Wl,-rpath,...` so ORT dlopen resolves.** R's `library.dynam2` fails on Linux with `undefined symbol: OrtGetApiBase` because `libonnxruntime.so` is not on the runtime loader path. The current R build.rs template only emits the rpath link-arg for macOS. Extend it to emit the equivalent for `cfg(target_os = "linux")` (e.g., `cargo:rustc-link-arg=-Wl,-rpath,$ORIGIN/../target/release` or whatever the ORT `LIBONNXRUNTIME_PATH` resolves to). Observed on kreuzberg CI run 27492590406 `E2E (r)`. Companion to the partial `extendr_partial` fix already in CHANGELOG.
+
+- **Elixir Rustler NIF: pin `brotli ≤7` (or dedup `alloc-no-stdlib`) in the NIF template.** `cargo build --release` for `packages/elixir/native/kreuzberg_nif/` fails with `error[E0277]: the trait bound 'StandardAlloc: alloc::Allocator<u8>' is not satisfied` at `brotli-8.0.3/src/enc/writer.rs:113:9`. Brotli 8.0.3 pulls `alloc-no-stdlib` 3.0, but a sibling dep pins 2.x; the trait drift between majors breaks compilation. The simplest emitter-side fix is to pin `brotli = "=7"` in the generated NIF `Cargo.toml` (or insert a `[patch.crates-io]` for `alloc-no-stdlib`). If alef does not own this `Cargo.toml`, mark this issue as kreuzberg-side and remove from the [Unreleased] list. Observed on kreuzberg CI run 27492590406 `E2E (elixir)`.
+
+- **`publish prepare`: preserve workspace lockfile pins, validate via `cargo metadata --locked`.**
+  `vendor::scrub_or_regenerate_lock` used to seed the binding crate's `Cargo.lock`
+  from the workspace lock and then run `cargo generate-lockfile`, which rebuilds
+  the lock from scratch with the latest semver-compatible version of every
+  package — defeating the seed entirely. Any upstream release that landed
+  between the workspace `cargo update` and this prepare step could quietly
+  substitute itself into the binding's graph. This exposed the broken
+  `brotli-decompressor 5.0.1` release to kreuzcrawl v0.3.0-rc.60 macos-arm64
+  NIF/PHP builds (and an earlier `time 0.3.48` cookie E0119 break). The
+  function now runs `cargo update --package <name>` once per workspace member
+  (silently skipping any not present in the binding's dep tree via cargo's exact
+  "package ID specification … did not match any packages" message), then runs
+  `cargo metadata --locked` to validate the seeded lock fully satisfies the
+  rewritten manifest. Every transitive dep stays pinned at the workspace
+  version. (`src/publish/vendor.rs`)
+
 - **napi backend: strip `readonly` keyword from emitted `service.cjs`.**
   `strip_typescript_annotations` removed `private` and `: Type` annotations
   but left the `readonly` modifier in place, producing unparseable class-field
