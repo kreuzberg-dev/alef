@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi backend: strip `readonly` keyword from emitted `service.cjs`.**
+  `strip_typescript_annotations` removed `private` and `: Type` annotations
+  but left the `readonly` modifier in place, producing unparseable class-field
+  syntax like `class App { readonly _app ; }`. `require("./service.cjs")` then
+  threw `SyntaxError: Unexpected identifier '_app'`, the index.js wrapper-merge
+  spread became `{ ...nativeBinding }` only, and consumers calling
+  `app.registerRoute(...)` (a method on the wrapper, not on the napi-bound
+  class) hit `TypeError: app.registerRoute is not a function`. Stripping
+  `readonly` makes the file valid JS. (`src/backends/napi/gen_bindings/service_api/assembly.rs`)
+
 - **Extension API: extensions are now visible to rayon worker threads.**
   `EXTENSIONS` was a `thread_local!` populated by `run_with_extensions` on the
   main thread; the pipeline's parallel `generate()` runs on rayon workers,

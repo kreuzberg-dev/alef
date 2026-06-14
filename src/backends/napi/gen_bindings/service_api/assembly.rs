@@ -187,6 +187,13 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
             modified_line = modified_line.replace("private ", "");
         }
 
+        // Remove `readonly` keyword — it's a TypeScript modifier with no JS
+        // equivalent and leaving it in produces unparseable class-field syntax
+        // like `class A { readonly _app ; }`.
+        if modified_line.contains("readonly ") {
+            modified_line = modified_line.replace("readonly ", "");
+        }
+
         // Remove `: Type` where Type is anything up to ) or , or = or {
         // Using a character-by-character approach
         let mut output = String::new();
