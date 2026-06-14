@@ -262,9 +262,15 @@ pub(super) fn render_assertion(
         } else {
             field_expr.to_string()
         }
-    } else if field_is_enum && (field_is_optional || accessor_is_optional) {
-        // Enum-typed fields that are also optional (e.g. `finish_reason() -> Optional<RustString>`)
-        // must use optional chaining: `?.toString() ?? ""` to unwrap before converting to Swift String.
+    } else if field_is_enum && accessor_is_optional {
+        // Enum-typed leaf reached through an ancestor optional chain. The chain's `?`
+        // already propagated, so `field_expr` is `Optional<RustString>` even though
+        // the leaf accessor itself is non-Optional. Use `.toString()` (no extra `?`)
+        // to avoid Swift's "cannot use optional chaining on non-optional value" error.
+        format!("({field_expr}.toString() ?? \"\")")
+    } else if field_is_enum && field_is_optional {
+        // Enum-typed field that is itself Optional<RustString> (e.g. `finish_reason()`
+        // returning `Optional<RustString>` at the binding surface) — unwrap with `?`.
         format!("({field_expr}?.toString() ?? \"\")")
     } else if field_is_enum {
         // Enum-typed fields are now bridged as `String` (RustString in Swift) rather than
@@ -272,13 +278,18 @@ pub(super) fn render_assertion(
         // and returns a `String` across the FFI. In Swift this arrives as `RustString`, so
         // `.toString()` converts it to a Swift `String` — one call, not two.
         format!("{field_expr}.toString()")
-    } else if field_is_optional {
-        // Leaf field itself is Optional<RustString> — need ?.toString() to unwrap.
-        format!("({field_expr}?.toString() ?? \"\")")
     } else if accessor_is_optional {
-        // Ancestor optional chain propagates; leaf is non-optional RustString within chain.
-        // Use .toString() directly — the whole expr is Optional<String> due to propagation.
+        // Ancestor optional chain already propagated `?` (e.g. `result.summary()?.strategy()`),
+        // so the whole `field_expr` is Optional<RustString> regardless of whether the leaf
+        // field itself is also marked optional. Adding another `?` before `.toString()` here
+        // would emit `result.summary()?.strategy()?.toString()` which Swift rejects:
+        // "cannot use optional chaining on non-optional value of type 'RustString'".
+        // The earlier `?` from the accessor's chain already unwraps; use `.toString()` here.
         format!("({field_expr}.toString() ?? \"\")")
+    } else if field_is_optional {
+        // Leaf field itself is Optional<RustString> with no ancestor chain — need
+        // ?.toString() to unwrap before stringifying.
+        format!("({field_expr}?.toString() ?? \"\")")
     } else {
         format!("{field_expr}.toString()")
     };
