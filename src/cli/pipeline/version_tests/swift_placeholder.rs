@@ -107,8 +107,7 @@ fn sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen() {
     sync_result.expect("sync_versions must succeed");
 
     // Read the final Package.swift.
-    let final_pkg =
-        std::fs::read_to_string(root.join("Package.swift")).expect("read final Package.swift");
+    let final_pkg = std::fs::read_to_string(root.join("Package.swift")).expect("read final Package.swift");
 
     // The URL must contain the resolved version v1.5.0, NOT the placeholder.
     assert!(

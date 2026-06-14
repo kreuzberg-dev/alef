@@ -31,18 +31,14 @@ fn test_node_test_app_regenerates_pnpm_lock_on_version_bump() {
   }
 }
 "#;
-    fs::write(test_app_node.join("package.json"), package_json)
-        .expect("failed to write package.json");
+    fs::write(test_app_node.join("package.json"), package_json).expect("failed to write package.json");
 
     // The fix is: after `generate_e2e` writes package.json, the test_apps generator
     // must run `pnpm install --lockfile-only` in the test app directory.
     // This ensures the lockfile matches the current version and won't fail on RC releases < 24h old.
 
     let package_json_path = test_app_node.join("package.json");
-    assert!(
-        package_json_path.exists(),
-        "package.json must exist after generation"
-    );
+    assert!(package_json_path.exists(), "package.json must exist after generation");
 
     // When package.json is detected in registry-mode test_apps/{lang}/, the command:
     // `cd test_apps/node && pnpm install --lockfile-only` must be issued.
@@ -52,8 +48,7 @@ fn test_node_test_app_regenerates_pnpm_lock_on_version_bump() {
 
     // Parse the package.json to confirm it contains a version bump.
     let content = fs::read_to_string(&package_json_path).expect("failed to read package.json");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&content).expect("failed to parse package.json as JSON");
+    let parsed: serde_json::Value = serde_json::from_str(&content).expect("failed to parse package.json as JSON");
 
     let version = parsed
         .get("version")
@@ -86,15 +81,11 @@ fn test_node_test_app_pnpm_lock_regen_is_optional() {
   "version": "0.15.30"
 }
 "#;
-    fs::write(test_app_wasm.join("package.json"), package_json)
-        .expect("failed to write package.json");
+    fs::write(test_app_wasm.join("package.json"), package_json).expect("failed to write package.json");
 
     // WASM test apps also have package.json and should trigger pnpm lockfile regen.
     let package_json_path = test_app_wasm.join("package.json");
-    assert!(
-        package_json_path.exists(),
-        "WASM test app package.json must exist"
-    );
+    assert!(package_json_path.exists(), "WASM test app package.json must exist");
 
     // The fix includes both "node" and "wasm" in the check, since both emit package.json.
     // Both should trigger `pnpm install --lockfile-only` if the command succeeds or
@@ -125,8 +116,7 @@ packages:
     resolution: {tarball: 'https://registry.npmjs.org/@my-org/my-pkg/-/my-pkg-0.3.0-rc.59.tgz'}
     id: '@my-org/my-pkg/0.3.0-rc.59'
 "#;
-    fs::write(test_app_node.join("pnpm-lock.yaml"), stale_lock)
-        .expect("failed to write stale lockfile");
+    fs::write(test_app_node.join("pnpm-lock.yaml"), stale_lock).expect("failed to write stale lockfile");
 
     // Updated package.json pins rc.60.
     let updated_package_json = r#"{
@@ -140,12 +130,10 @@ packages:
   }
 }
 "#;
-    fs::write(test_app_node.join("package.json"), updated_package_json)
-        .expect("failed to write updated package.json");
+    fs::write(test_app_node.join("package.json"), updated_package_json).expect("failed to write updated package.json");
 
     // Verify the package.json was updated.
-    let pkg_content = fs::read_to_string(test_app_node.join("package.json"))
-        .expect("failed to read package.json");
+    let pkg_content = fs::read_to_string(test_app_node.join("package.json")).expect("failed to read package.json");
     assert!(
         pkg_content.contains("0.3.0-rc.60"),
         "package.json must contain rc.60 version"
@@ -155,10 +143,7 @@ packages:
     // is regenerated to contain rc.60 entries instead of rc.59 entries.
     // This test confirms: stale lockfile + updated package.json → lockfile regen needed.
     let lock_path = test_app_node.join("pnpm-lock.yaml");
-    assert!(
-        lock_path.exists(),
-        "stale pnpm-lock.yaml must exist before regen"
-    );
+    assert!(lock_path.exists(), "stale pnpm-lock.yaml must exist before regen");
 
     let lock_content = fs::read_to_string(&lock_path).expect("failed to read pnpm-lock.yaml");
     assert!(

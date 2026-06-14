@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use std::path::PathBuf;
 use std::process;
 
-use crate::cli::{cache, commands, dispatch, pipeline};
 use crate::cli::pipeline::run_optional;
+use crate::cli::{cache, commands, dispatch, pipeline};
 
 use super::args::*;
 use super::dispatch::DispatchContext;
@@ -365,7 +365,15 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                                     eprintln!("Regenerating {}/pnpm-lock.yaml...", lang_name);
                                     // run_optional gracefully handles missing pnpm and logs on failure.
                                     // Not all environments have pnpm, but CI and local dev setups do.
-                                    run_optional("pnpm", &["install", "--lockfile-only", "-C", test_app_dir.to_string_lossy().as_ref()]);
+                                    run_optional(
+                                        "pnpm",
+                                        &[
+                                            "install",
+                                            "--lockfile-only",
+                                            "-C",
+                                            test_app_dir.to_string_lossy().as_ref(),
+                                        ],
+                                    );
                                 }
                             }
                         }
