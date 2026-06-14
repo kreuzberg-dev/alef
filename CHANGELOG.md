@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`alef scaffold` patches `[workspace.lints.rust]` to allowlist the `alef-meta` cfg key.** Adds `unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("alef-meta"))'] }` via a format-preserving `toml_edit` patch so downstream crates can use `#[cfg_attr(feature = "alef-meta", alef(since = "..."))]` without declaring a real Cargo feature — which would cause `cargo clippy --all-features` to activate the feature and fail. Patch is idempotent and skipped on non-workspace manifests.
 
+- **FFI backend: allow `clippy::not_unsafe_ptr_arg_deref` in generated `service.rs`.**
+  Generated FFI exports are `#[no_mangle] pub extern "C" fn` with raw-pointer
+  parameters; their bodies dereference those pointers inside `unsafe { ... }`
+  blocks with `// SAFETY:` comments documenting the host-side invariants the
+  C ABI requires. Clippy's `not_unsafe_ptr_arg_deref` (default-deny) suggests
+  marking the functions `unsafe extern "C" fn`, but doing so would change the
+  Rust-side calling convention for in-crate consumers without changing the C
+  ABI consumers actually see. Adding the lint to the file-level allow in
+  `src/backends/ffi/templates/service_api_rs_header.rs.jinja`.
+
 - **Swift backend: allow `clippy::new_without_default` in generated Rust crate.**
   The swift-bridge App wrapper emits `pub fn new() -> Self` so swift-bridge can
   expose it as a Swift initializer. Clippy's `new_without_default` (pedantic)
