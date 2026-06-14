@@ -223,8 +223,22 @@ pub(super) fn emit_nested_accessor(
             let return_type_pascal = match fields_c_types.get(&lookup_key) {
                 Some(t) => t.clone(),
                 None => {
-                    // Fallback: derive PascalCase from the segment name itself.
-                    segment.to_pascal_case()
+                    // No silent fallback: deriving the C type from the field name only
+                    // works when the Rust return type is the literal PascalCase of the
+                    // field identifier. For accessors whose return type carries a
+                    // suffix (e.g. `data` -> `DataNode`, `metadata` -> `MetadataConfig`)
+                    // the guessed name does not match what cbindgen emits and the
+                    // generated C fails to compile with `unknown type name`. Fail loud
+                    // here so the operator declares the correct C type explicitly.
+                    panic!(
+                        "fields_c_types: missing key \"{lookup_key}\" (path \"{resolved}\", \
+                         segment \"{segment}\") — declare the C type for this intermediate \
+                         accessor explicitly in `[crates.e2e.fields_c_types]`. The previous \
+                         fallback derived `{guess}` from the field name, which silently \
+                         miscompiled when the Rust return type differed (e.g. `DataNode` \
+                         vs. `Data`).",
+                        guess = segment.to_pascal_case(),
+                    );
                 }
             };
 

@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **C e2e codegen: panic instead of silently miscompiling on missing `fields_c_types` keys.**
+  `emit_nested_accessor` in `src/e2e/codegen/c/assertions.rs` previously fell back to
+  `segment.to_pascal_case()` (prefixed with the FFI upper-case prefix) whenever an
+  intermediate path key like `process_result.data` was missing from
+  `[crates.e2e.fields_c_types]`. That fallback only matched when the Rust return
+  type was the literal PascalCase of the field identifier; for accessors whose
+  return type carries a suffix (e.g. `data` → `DataNode`, `metadata` → `MetadataConfig`)
+  it emitted references to a non-existent type such as `TS_PACKData*`, and the
+  generated C failed with `unknown type name 'TS_PACKData'`. The fallback now
+  panics with a message naming the missing key and the bogus guess, so missing
+  entries fail loudly during regeneration rather than producing C that does not
+  compile downstream.
+
 - **C# e2e codegen: emit `KreuzbergConverter` not `KreuzbergLib`.** Every generated test file under `e2e/csharp/tests/` opens with `using static Kreuzberg.KreuzbergLib;` and then calls `KreuzbergLib.BatchExtractBytesAsync(...)`, `KreuzbergLib.ExtractFileAsync(...)`, `KreuzbergLib.DetectMimeTypeFromBytes(...)`, etc. The published Kreuzberg NuGet package no longer exposes a `KreuzbergLib` type — the facade is `public static class KreuzbergConverter` in `packages/csharp/src/Kreuzberg/KreuzbergConverter.cs`. `dotnet build` fails for every test file with `error CS0234: The type or namespace name 'KreuzbergLib' does not exist in the namespace 'Kreuzberg'` (≈40 callsites across `BatchTests.cs`, `ContractTests.cs`, `DetectionTests.cs`, plus the rest of the suite). Fix the C# e2e emitter to substitute the configured facade class name (or hard-code `KreuzbergConverter` if the rename is final). Observed on kreuzberg CI run 27492590406 `E2E (csharp)`.
 
 - **Swift e2e codegen: drop optional chaining on non-Optional `RustString` returns.** The emitter inserts `?` after every method call, but `result.summary()?.strategy()` returns a non-Optional `RustString`; the next chain segment `.toString()` must therefore be `.toString()` (no `?`). Swift refuses to compile: `error: cannot use optional chaining on non-optional value of type 'RustString'`. The most direct fix is to track per-method return-Optional-ness in the codegen and only emit `?` when the receiver is Optional. Reproduction: `e2e/swift_e2e/Tests/KreuzbergE2ETests/SummarizationTests.swift:37` emits `result.summary()?.strategy()?.toString()`. Observed on kreuzberg CI run 27492590406 `E2E (swift)`.
