@@ -19,5 +19,7 @@ mod e2e_manifests;
 mod manifests;
 #[path = "version_tests/swift_checksum.rs"]
 mod swift_checksum;
+#[path = "version_tests/swift_placeholder.rs"]
+mod swift_placeholder;
 #[path = "version_tests/sync_versions.rs"]
 mod sync_versions;
