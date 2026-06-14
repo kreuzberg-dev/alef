@@ -22,6 +22,7 @@ fn php_enum_default_variant_uses_marked_variant() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -34,6 +35,7 @@ fn php_enum_default_variant_uses_marked_variant() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -77,6 +79,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -89,6 +92,7 @@ fn enum_default_variant_falls_back_to_first_when_no_default_marker() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

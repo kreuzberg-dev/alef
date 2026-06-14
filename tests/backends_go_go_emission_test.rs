@@ -335,6 +335,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 // Struct variant with multiple named fields
@@ -351,6 +352,7 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -445,6 +447,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 // Struct variant: OcrDocument::Encoded { data: String, mime: String }
@@ -461,6 +464,7 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -545,6 +549,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -560,6 +565,7 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -675,6 +681,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -687,6 +694,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -699,6 +707,7 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

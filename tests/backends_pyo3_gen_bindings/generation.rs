@@ -85,6 +85,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -97,6 +98,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -364,6 +366,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -376,6 +379,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -388,6 +392,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

@@ -193,6 +193,7 @@ fn test_basic_rbs_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -205,6 +206,7 @@ fn test_basic_rbs_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -421,6 +423,7 @@ fn test_enum_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -433,6 +436,7 @@ fn test_enum_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -445,6 +449,7 @@ fn test_enum_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -457,6 +462,7 @@ fn test_enum_stubs() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -899,6 +905,7 @@ fn test_multiline_doc_comment_is_valid_rbs() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: "Multi-line enum doc.\nSecond line.".to_string(),

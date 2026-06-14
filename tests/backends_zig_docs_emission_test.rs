@@ -157,6 +157,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -169,6 +170,7 @@ fn unit_enum_variants_emit_zig_doc_comments_above_tag() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -222,6 +224,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -234,6 +237,7 @@ fn tagged_enum_variants_emit_zig_doc_comments() {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

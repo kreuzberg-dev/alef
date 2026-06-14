@@ -743,6 +743,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -755,6 +756,7 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

@@ -68,6 +68,7 @@ fn enum_return_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -80,6 +81,7 @@ fn enum_return_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

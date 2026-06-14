@@ -96,6 +96,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             })
             .collect(),
@@ -2302,6 +2303,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: true,
+                cfg: None,
                 version: Default::default(),
             })
             .collect(),

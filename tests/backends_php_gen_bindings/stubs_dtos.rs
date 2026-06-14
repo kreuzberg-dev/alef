@@ -531,6 +531,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -543,6 +544,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -555,6 +557,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

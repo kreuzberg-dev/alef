@@ -204,6 +204,7 @@ fn enum_emits_custom_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -216,6 +217,7 @@ fn enum_emits_custom_type() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -357,6 +359,7 @@ fn enum_tuple_variant_emits_unlabeled_field() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: String::new(),

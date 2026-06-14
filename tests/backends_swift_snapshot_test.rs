@@ -141,6 +141,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -153,6 +154,7 @@ fn make_basic_api() -> ApiSurface {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -366,6 +368,7 @@ fn snapshot_conversion_enum_with_data() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -378,6 +381,7 @@ fn snapshot_conversion_enum_with_data() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1104,6 +1108,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -1116,6 +1121,7 @@ fn snapshot_trait_bridge_inbound_options_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1700,6 +1706,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 // Variant with optional String field -- same extractor form.
@@ -1713,6 +1720,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 // Variant with non-optional field -- must stay bare.
@@ -1726,6 +1734,7 @@ fn snapshot_enum_variant_optional_field() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1834,6 +1843,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -1846,6 +1856,7 @@ fn untagged_enum_field_uses_json_decoder_not_ref_init() {
                     binding_excluded: false,
                     binding_exclusion_reason: None,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

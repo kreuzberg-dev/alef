@@ -18,6 +18,7 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             })
             .collect(),
@@ -123,6 +124,7 @@ fn make_tagged_tuple_enum() -> EnumDef {
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     };
 
@@ -244,6 +246,7 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -256,6 +259,7 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -324,6 +328,7 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
             binding_excluded: false,
             binding_exclusion_reason: None,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         }],
         doc: String::new(),
@@ -390,6 +395,7 @@ fn gen_tagged_enum_struct_variant_preserves_optional_fields() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         }],
         doc: String::new(),

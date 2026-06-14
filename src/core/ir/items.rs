@@ -412,6 +412,14 @@ pub struct EnumVariant {
     /// unit pattern, which would be a compiler error against the real core type.
     #[serde(default)]
     pub originally_had_data_fields: bool,
+    /// `#[cfg(...)]` condition string on this variant, if any.
+    ///
+    /// When set, backends that generate Rust source (e.g. Dart FRB mirror enums and
+    /// their `From` impls) must emit a matching `#[cfg(...)]` attribute so the binding
+    /// compiles correctly under every active feature subset — including targets whose
+    /// `[target_dep_overrides]` disable the feature that gates this variant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cfg: Option<String>,
     /// Version annotation (since, deprecated).
     #[serde(default)]
     pub version: VersionAnnotation,

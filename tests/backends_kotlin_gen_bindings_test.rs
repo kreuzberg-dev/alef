@@ -214,6 +214,7 @@ fn unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -226,6 +227,7 @@ fn unit_enum_emits_enum_class() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1325,6 +1327,7 @@ fn make_enum_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     }
 }

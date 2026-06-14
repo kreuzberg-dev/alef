@@ -1181,6 +1181,7 @@ fn make_sealed_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> Enu
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     }
 }
@@ -2189,6 +2190,7 @@ fn make_exclude_types_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: String::new(),
@@ -2643,6 +2645,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         }],
         doc: String::new(),
@@ -2671,6 +2674,7 @@ fn skipped_types_and_enums_are_not_emitted_as_kt_files() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         }],
         doc: String::new(),

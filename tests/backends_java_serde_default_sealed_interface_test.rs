@@ -123,6 +123,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -176,6 +177,7 @@ fn test_java_serde_default_sealed_interface_with_fields_uses_null() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -279,6 +281,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -291,6 +294,7 @@ fn test_java_serde_default_sealed_interface_zero_field_variant_uses_new() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

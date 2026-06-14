@@ -83,6 +83,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -114,6 +115,7 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -187,6 +189,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -199,6 +202,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -211,6 +215,7 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -303,6 +308,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -334,6 +340,7 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

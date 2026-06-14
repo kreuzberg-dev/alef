@@ -35,6 +35,7 @@ fn make_variant(name: &str, serde_rename: Option<&str>, fields: Vec<FieldDef>) -
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     }
 }

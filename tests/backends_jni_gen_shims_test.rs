@@ -195,6 +195,7 @@ fn make_demo_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: "Available models.".to_string(),

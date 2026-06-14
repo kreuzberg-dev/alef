@@ -22,6 +22,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -34,6 +35,7 @@ fn java_builder_uses_correct_default_variant_for_serde_default_enum_field() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -153,6 +155,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -165,6 +168,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -195,6 +199,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -207,6 +212,7 @@ fn enum_default_variants_map_extracts_default_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

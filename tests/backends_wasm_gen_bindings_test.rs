@@ -131,6 +131,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -143,6 +144,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -308,6 +310,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -320,6 +323,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -332,6 +336,7 @@ fn test_enum_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1519,6 +1524,7 @@ fn make_visit_result_wasm() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -1531,6 +1537,7 @@ fn make_visit_result_wasm() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -2788,6 +2795,7 @@ fn test_default_factory_emitted_for_required_args_struct() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: String::new(),
@@ -2946,6 +2954,7 @@ fn make_enum_def(name: &str, variants: &[&str], serde_rename_all: Option<&str>) 
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             })
             .collect(),
@@ -3164,6 +3173,7 @@ fn test_vec_of_tagged_data_enum_field_uses_js_value() {
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     };
     let message_enum = EnumDef {
@@ -3331,6 +3341,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -3343,6 +3354,7 @@ fn test_option_and_bare_tagged_data_enum_fields_use_js_value() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -3780,6 +3792,7 @@ fn test_wasm_js_name_on_unit_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -3792,6 +3805,7 @@ fn test_wasm_js_name_on_unit_enum() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -4099,6 +4113,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -4131,6 +4146,7 @@ fn test_sanitized_tuple_vec_field_uses_js_value_in_tagged_enum() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

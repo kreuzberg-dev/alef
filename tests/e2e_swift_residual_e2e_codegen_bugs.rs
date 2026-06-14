@@ -488,3 +488,114 @@ type = "string"
         fixtures_json_line
     );
 }
+
+// -- Bug F: multi-line string literal content must start on new line after """ --
+
+#[test]
+fn harness_fixtures_json_multi_line_string_starts_on_new_line_after_quotes() {
+    let toml = r#"
+[workspace]
+languages = ["swift"]
+
+[[crates]]
+name = "sample_pack"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+
+[crates.e2e.call]
+function = "process"
+module = "SampleLanguagePack"
+result_var = "result"
+
+[[crates.e2e.call.args]]
+name = "source"
+field = "source_code"
+type = "string"
+"#;
+    let mut fixture = make_fixture(
+        "harness_multiline",
+        Assertion {
+            assertion_type: "not_error".to_string(),
+            field: None,
+            value: None,
+            values: None,
+            method: None,
+            check: None,
+            args: None,
+            return_type: None,
+        },
+    );
+    fixture.http = Some(HttpFixture {
+        handler: HttpHandler {
+            route: "/test".to_string(),
+            method: "POST".to_string(),
+            body_schema: None,
+            parameters: Default::default(),
+            middleware: None,
+        },
+        request: HttpRequest {
+            method: "POST".to_string(),
+            path: "/test".to_string(),
+            headers: Default::default(),
+            query_params: Default::default(),
+            cookies: Default::default(),
+            body: None,
+            form_data: None,
+            content_type: None,
+        },
+        expected_response: HttpExpectedResponse {
+            status_code: 200,
+            body: Some(serde_json::json!({"result": "ok"})),
+            body_partial: None,
+            headers: Default::default(),
+            validation_errors: None,
+        },
+    });
+    let harness = render_harness(toml, fixture);
+
+    // The bug: Jinja whitespace trim causes `let _FIXTURES_JSON = """{"...`
+    // which Swift rejects. Content must be on the line AFTER the opening `"""`.
+    // Valid form: `let _FIXTURES_JSON = """\n{...`.
+    assert!(
+        !harness.contains("= \"\"\"{\n"),
+        "Swift multi-line string literal must not have content immediately \
+         after the opening triple quotes. Generated harness shows literal like:\n{}",
+        harness
+            .lines()
+            .find(|line| line.contains("_FIXTURES_JSON") && line.contains("\"\"\""))
+            .unwrap_or("")
+    );
+
+    // Positive assertion: opening `"""` must be followed by a newline before JSON content.
+    let lines: Vec<&str> = harness.lines().collect();
+    let mut found_opening = false;
+    for (i, line) in lines.iter().enumerate() {
+        if line.trim_end().ends_with("\"\"\"") && line.contains("_FIXTURES_JSON") {
+            // The opening `"""` must be on this line.
+            // The next line must contain the JSON content (starts with `{`).
+            if i + 1 < lines.len() {
+                let next_line = lines[i + 1];
+                assert!(
+                    next_line.trim_start().starts_with('{'),
+                    "Content must appear on the line after opening \\\"\\\"\\\". \
+                     Found line {} with: '{}' \
+                     Next line {}: '{}'. Full harness:\n{}",
+                    i,
+                    line,
+                    i + 1,
+                    next_line,
+                    harness
+                );
+                found_opening = true;
+            }
+        }
+    }
+    assert!(
+        found_opening,
+        "Multi-line string literal with opening triple quotes not found in harness:\n{}",
+        harness
+    );
+}

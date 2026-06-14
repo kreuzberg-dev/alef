@@ -17,6 +17,7 @@ fn unit_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -29,6 +30,7 @@ fn unit_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -103,6 +105,7 @@ fn data_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -156,6 +159,7 @@ fn data_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -259,6 +263,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -290,6 +295,7 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -389,6 +395,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -420,6 +427,7 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

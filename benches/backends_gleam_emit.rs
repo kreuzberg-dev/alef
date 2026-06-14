@@ -91,6 +91,7 @@ fn make_enum(name: &str, variant_count: usize) -> EnumDef {
             binding_excluded: false,
             binding_exclusion_reason: None,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         })
         .collect();

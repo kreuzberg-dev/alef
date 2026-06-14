@@ -69,6 +69,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -81,6 +82,7 @@ fn test_generate_docs_with_enum_renders_python_screaming_case_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -386,6 +388,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: VersionAnnotation {
                         since: Some("0.5.0".to_string()),
                         deprecated: None,
@@ -401,6 +404,7 @@ fn test_enum_variant_with_since_renders_inline_in_table() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: VersionAnnotation {
                         since: None,
                         deprecated: Some(DeprecationInfo {

@@ -56,6 +56,7 @@ fn make_variant(name: &str, fields: Vec<FieldDef>, is_tuple: bool) -> EnumVarian
         binding_exclusion_reason: None,
         is_tuple,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     }
 }

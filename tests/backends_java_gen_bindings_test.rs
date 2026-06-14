@@ -657,6 +657,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -669,6 +670,7 @@ fn test_basic_generation() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -1451,6 +1453,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -1463,6 +1466,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -1475,6 +1479,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -2171,6 +2176,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -2202,6 +2208,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -2460,6 +2467,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -2475,6 +2483,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

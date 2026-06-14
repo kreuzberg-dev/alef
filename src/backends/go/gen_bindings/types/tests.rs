@@ -63,6 +63,7 @@ fn test_gen_unit_enum_type_produces_type_string_and_const_block() {
             binding_exclusion_reason: None,
             is_tuple: false,
             originally_had_data_fields: false,
+            cfg: None,
             version: Default::default(),
         }],
         binding_excluded: false,
@@ -142,6 +143,7 @@ fn test_gen_data_enum_sealed_interface() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -154,6 +156,7 @@ fn test_gen_data_enum_sealed_interface() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

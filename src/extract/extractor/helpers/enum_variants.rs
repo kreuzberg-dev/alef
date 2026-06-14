@@ -2,7 +2,7 @@ use crate::core::ir::{CoreWrapper, EnumVariant, FieldDef};
 
 use crate::extract::type_resolver;
 
-use super::attributes::{extract_binding_exclusion_reason, extract_version_annotation};
+use super::attributes::{extract_binding_exclusion_reason, extract_cfg_condition, extract_version_annotation};
 use super::field_types::{extract_field_type_rust_path, syn_type_is_boxed};
 use super::fields::extract_field;
 use super::rustdoc::extract_doc_comments;
@@ -62,6 +62,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
 
     let binding_exclusion_reason = extract_binding_exclusion_reason(&v.attrs);
     let binding_excluded = binding_exclusion_reason.is_some();
+    let cfg = extract_cfg_condition(&v.attrs);
 
     EnumVariant {
         name: v.ident.to_string(),
@@ -74,6 +75,7 @@ pub(crate) fn extract_enum_variant(v: &syn::Variant) -> EnumVariant {
         binding_exclusion_reason,
         // Set by strip_binding_excluded pipeline step if all fields are binding_excluded.
         originally_had_data_fields: false,
+        cfg,
         version: extract_version_annotation(&v.attrs),
     }
 }

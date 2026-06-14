@@ -106,6 +106,7 @@ fn simple_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -118,6 +119,7 @@ fn simple_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -203,6 +205,7 @@ fn test_enum_from_core_to_binding_with_excluded_variants_has_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     });
     let result = gen_enum_from_core_to_binding(&enum_def, "my_crate");
@@ -229,6 +232,7 @@ fn test_enum_from_binding_to_core_with_excluded_variants_no_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     });
     let result = gen_enum_from_binding_to_core(&enum_def, "my_crate");
@@ -275,6 +279,7 @@ fn test_enum_from_core_to_binding_unit_only_with_struct_variants_no_catchall() {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     });
     // Unit-only binding (default config has binding_enums_have_data=false).
@@ -325,6 +330,7 @@ fn untagged_tuple_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -356,6 +362,7 @@ fn untagged_tuple_enum() -> EnumDef {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

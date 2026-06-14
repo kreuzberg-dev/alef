@@ -180,6 +180,7 @@ fn regression_namespace_exports_functions_types_enums() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -192,6 +193,7 @@ fn regression_namespace_exports_functions_types_enums() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

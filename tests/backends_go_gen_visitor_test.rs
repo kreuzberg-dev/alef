@@ -526,6 +526,7 @@ fn variant(name: &str, payload_field: Option<&str>, is_tuple: bool) -> EnumVaria
         binding_excluded: false,
         binding_exclusion_reason: None,
         originally_had_data_fields: payload_field.is_some(),
+        cfg: None,
         version: Default::default(),
     }
 }

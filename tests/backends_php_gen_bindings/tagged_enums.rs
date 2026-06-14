@@ -25,6 +25,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -37,6 +38,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -49,6 +51,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
                 binding_excluded: false,
                 binding_exclusion_reason: None,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -184,6 +187,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -199,6 +203,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

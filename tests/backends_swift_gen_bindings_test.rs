@@ -405,6 +405,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -417,6 +418,7 @@ fn unit_only_enum_emits_lower_camel_cases() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -474,6 +476,7 @@ fn data_bearing_enum_emits_associated_values() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -486,6 +489,7 @@ fn data_bearing_enum_emits_associated_values() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -546,6 +550,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -558,6 +563,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -570,6 +576,7 @@ fn unit_enum_escapes_swift_keyword_variants_with_backticks() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -650,6 +657,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -665,6 +673,7 @@ fn data_variant_serde_enum_with_bridge_safe_fields_emits_codable() {
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],
@@ -730,6 +739,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
                 EnumVariant {
@@ -744,6 +754,7 @@ fn data_variant_serde_enum_with_opaque_field_falls_back_to_rust_bridge_from_json
                     binding_exclusion_reason: None,
                     is_tuple: false,
                     originally_had_data_fields: false,
+                    cfg: None,
                     version: Default::default(),
                 },
             ],

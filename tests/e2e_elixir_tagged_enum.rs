@@ -92,6 +92,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -104,6 +105,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -156,6 +158,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             // Scroll { direction: ScrollDirection }
@@ -188,6 +191,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             // Scrape (unit variant)
@@ -201,6 +205,7 @@ fn build_test_enums() -> Vec<EnumDef> {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

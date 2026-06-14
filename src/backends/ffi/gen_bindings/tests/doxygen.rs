@@ -96,6 +96,7 @@ fn doxygen_sample_api() -> ApiSurface {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             }],
             doc: "Diagnostic severity level.".to_string(),

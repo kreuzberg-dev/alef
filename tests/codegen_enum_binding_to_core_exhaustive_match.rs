@@ -34,6 +34,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -46,6 +47,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -58,6 +60,7 @@ fn make_color_enum() -> EnumDef {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -87,6 +90,7 @@ fn excluded_variant() -> EnumVariant {
         binding_exclusion_reason: None,
         is_tuple: false,
         originally_had_data_fields: false,
+        cfg: None,
         version: Default::default(),
     }
 }

@@ -208,6 +208,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -220,6 +221,7 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],
@@ -320,6 +322,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
             EnumVariant {
@@ -351,6 +354,7 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
                 binding_exclusion_reason: None,
                 is_tuple: false,
                 originally_had_data_fields: false,
+                cfg: None,
                 version: Default::default(),
             },
         ],

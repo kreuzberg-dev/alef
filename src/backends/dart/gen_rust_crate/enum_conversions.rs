@@ -18,6 +18,12 @@ pub(super) fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, sour
 
     for variant in &en.variants {
         let vname = &variant.name;
+        let cfg = variant.cfg.as_deref();
+        if let Some(condition) = cfg {
+            out.push_str("            #[cfg(");
+            out.push_str(condition);
+            out.push_str(")]\n");
+        }
         if variant.originally_had_data_fields {
             // All fields are binding_excluded (retained in IR). The mirror variant is a
             // unit variant, but the core type still has struct/tuple fields. Reconstruct
@@ -274,6 +280,12 @@ pub(super) fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_cra
 
     for variant in &en.variants {
         let vname = &variant.name;
+        let cfg = variant.cfg.as_deref();
+        if let Some(condition) = cfg {
+            out.push_str("            #[cfg(");
+            out.push_str(condition);
+            out.push_str(")]\n");
+        }
         // Visible (non-binding_excluded) fields only — binding_excluded fields are retained
         // in the IR for to-core conversion but must not appear in the mirror.
         let visible_fields: Vec<&crate::core::ir::FieldDef> =
