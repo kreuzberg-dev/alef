@@ -34,11 +34,16 @@ use tracing::warn;
 ///   output and reformatted by prek, causing `alef verify` to report stale files.
 /// * `wasm` — same as `node`; the wasm e2e suite uses the same TypeScript
 ///   toolchain and oxfmt produces identical normalisation requirements.
+/// * `go` — `(cd {dir} && go mod tidy)` regenerates `go.sum` from `go.mod`
+///   directives. Alef emits `go.mod` with require directives but no `go.sum`,
+///   so `go test` would fail without it. `go mod tidy` is idempotent and
+///   matches the pre-test setup expected by `default_test_apps_run_config`.
 fn default_formatter(lang: &str) -> Option<&'static str> {
     match lang {
         "rust" => Some("(cd {dir} && cargo fmt --all)"),
         "python" => Some("ruff check --fix {dir} && ruff format {dir}"),
         "node" | "wasm" => Some("pnpm dlx oxfmt {dir}"),
+        "go" => Some("(cd {dir} && go mod tidy)"),
         _ => None,
     }
 }
@@ -201,6 +206,20 @@ mod tests {
         assert!(
             cmd.contains("{dir}"),
             "wasm formatter must include {{dir}} placeholder: {cmd}"
+        );
+    }
+
+    #[test]
+    fn test_default_formatter_go_uses_go_mod_tidy() {
+        let cmd = default_formatter("go").expect("go must have a default formatter");
+        assert!(cmd.contains("cd {dir}"), "go formatter must cd into {{dir}}: {cmd}");
+        assert!(
+            cmd.contains("go mod tidy"),
+            "go formatter must run go mod tidy to populate go.sum from go.mod: {cmd}"
+        );
+        assert!(
+            cmd.contains("{dir}"),
+            "go formatter must include {{dir}} placeholder: {cmd}"
         );
     }
 
