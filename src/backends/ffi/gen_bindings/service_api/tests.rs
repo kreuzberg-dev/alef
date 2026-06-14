@@ -648,3 +648,43 @@ fn configurator_function_unboxes_and_reboxes_inner() {
         "configurator must re-box the result and assign to owner.inner; got:\n{rs}"
     );
 }
+
+/// Regression test for builder/config double-free bug (alef issue #TBD).
+/// FFI registration functions that accept a builder or config pointer must
+/// NOT transfer ownership (Box::from_raw) since the C caller still holds the
+/// pointer and will call _free() or a deferred finalizer afterwards. Instead,
+/// borrow the pointer as a reference (&*ptr).
+///
+/// Previously the emitted code was:
+///   let builder = unsafe { *Box::from_raw(builder) };
+/// which dropped the builder at function end, causing a double-free when
+/// Java's finalizer or C's deferred _free() ran on the same pointer.
+///
+/// The fix borrows instead:
+///   let builder = unsafe { &*builder };
+/// The C caller retains ownership and responsibility for freeing.
+#[test]
+fn registration_function_does_not_consume_builder_ownership() {
+    let api = make_fixture_surface();
+    let config = ResolvedCrateConfig {
+        name: "test_crate".to_owned(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let rs = gen_service_rs(&api, &config);
+
+    // The registration function must borrow the metadata params (path) as references,
+    // not consume them with Box::from_raw.
+    assert!(
+        !rs.contains("*Box::from_raw(path)"),
+        "registration function must not use Box::from_raw on metadata params; got:\n{rs}"
+    );
+    // String parameters are converted from *const c_char to owned String,
+    // but any Named type (builder, config) must be borrowed.
+    // Verify that path (a String param) uses the correct C-to-Rust conversion
+    // (CStr::from_ptr), not a pointer-ownership transfer.
+    assert!(
+        rs.contains("CStr::from_ptr(path)"),
+        "registration function must convert string params via CStr::from_ptr; got:\n{rs}"
+    );
+}

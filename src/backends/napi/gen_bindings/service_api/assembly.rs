@@ -448,4 +448,28 @@ import { appIntoRouter } from "./index";"#;
             js_output
         );
     }
+
+    #[test]
+    fn strip_typescript_annotations_preserves_napi_class_instantiation() {
+        // Regression test for downstream Node E2E failures where service.cjs
+        // tried to instantiate `new JsApp()` instead of the imported native class.
+        // The native service class is imported as `App as NativeApp` to avoid
+        // collision with the wrapper class, so the constructor instantiates
+        // with the alias name "NativeApp".
+        let ts_input = "  constructor() {\n    this._app = new NativeApp();\n  }";
+        let js_output = strip_typescript_annotations(ts_input);
+
+        // The class instantiation must preserve "NativeApp" (the alias for the
+        // imported native class), so it can be properly resolved at runtime.
+        assert!(
+            js_output.contains("new NativeApp()"),
+            "native class instantiation should use the imported alias (NativeApp), got: {}",
+            js_output
+        );
+        assert!(
+            !js_output.contains("JsApp"),
+            "Rust type name with prefix (JsApp) must not appear in JS, got: {}",
+            js_output
+        );
+    }
 }

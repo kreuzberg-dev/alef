@@ -352,8 +352,9 @@ fn ffi_param_binding(p: &crate::core::ir::ParamDef, core_import: &str, api: &Api
         TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n) => FfiParamBinding {
             decl: format!("{}: *mut {core_import}::{n}", p.name),
             conversion: format!(
-                "    // SAFETY: pointer was produced by the matching opaque `_new`/builder export and is consumed here.\n    \
-                 let {0} = unsafe {{ *Box::from_raw({0}) }};\n",
+                "    // SAFETY: pointer was produced by the matching opaque `_new`/builder export.\n    \
+                 // Borrow it as a reference; caller retains ownership and is responsible for freeing.\n    \
+                 let {0} = unsafe {{ &*{0} }};\n",
                 p.name
             ),
             arg: p.name.clone(),

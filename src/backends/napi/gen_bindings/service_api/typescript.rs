@@ -38,6 +38,10 @@ fn classify_service_imports(api: &ApiSurface, _config: &ResolvedCrateConfig) -> 
     let _ = &api.handler_contracts;
 
     if let Some(service) = api.services.first() {
+        // The native service class must be imported to instantiate in the wrapper constructor.
+        // Since the wrapper class will also be named after the service (e.g., "App"), import
+        // the native binding with an alias (`App as NativeApp`) to avoid collision.
+        value_imports.push(format!("{} as Native{}", service.name, service.name));
         for param in &service.constructor.params {
             if let TypeRef::Named(name) = &param.ty {
                 type_imports.push(name.clone());
@@ -146,10 +150,13 @@ fn gen_service_class_ts(
     service: &ServiceDef,
     api: &ApiSurface,
     _native_module: &str,
-    config: &ResolvedCrateConfig,
+    _config: &ResolvedCrateConfig,
 ) {
     let class_name = &service.name;
-    let native_class_name = format!("{}{}", config.node_type_prefix(), service.name);
+    // The native class is imported with an alias to avoid collision with the wrapper class.
+    // For a service named "App", it's imported as `App as NativeApp`, so we instantiate
+    // with the alias name "NativeApp".
+    let native_class_name = format!("Native{}", service.name);
 
     // Class docstring
     let class_doc = if service.doc.is_empty() {
@@ -877,7 +884,11 @@ mod classify_service_imports_tests {
             native_imports,
         } = classify_service_imports(&api, &config);
 
-        assert_eq!(value_imports, vec!["Method", "RouteBuilder"]);
+        // The native service class is imported with an alias to avoid collision
+        // with the wrapper class. For a service named "App", it's imported as
+        // `App as NativeApp` to ensure both the wrapper and native class have
+        // distinct names in the generated code.
+        assert_eq!(value_imports, vec!["App as NativeApp", "Method", "RouteBuilder"]);
         // Wire DTOs (`RequestData`, `Response`) are intentionally NOT
         // pre-seeded — they would be flagged TS6196 since napi-rs handler
         // signatures use `(...args: any[])` and never reference them.
