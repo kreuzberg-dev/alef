@@ -472,6 +472,10 @@ fn test_scaffold_csharp_csproj_at_package_root() {
         "csproj must enable nullable reference types"
     );
     assert!(
+        csproj.content.contains("<GenerateAssemblyInfo>false</GenerateAssemblyInfo>"),
+        "csproj must suppress SDK auto-generated AssemblyInfo to avoid CS0579 collisions"
+    );
+    assert!(
         !csproj.generated_header,
         "csproj must be scaffold-once (generated_header = false)"
     );
