@@ -366,7 +366,14 @@ pub fn gen_struct(typ: &TypeDef, mapper: &dyn TypeMapper, cfg: &RustBindingConfi
                 attrs.push(format!("serde(rename = \"{rename}\")"));
             }
         }
-        sb.add_field_with_doc(&field.name, &ty, attrs, &sanitize_field_doc(&field.doc));
+        // Escape Rust reserved keywords in field names using raw-identifier syntax (r#type).
+        // When the name is escaped, add a serde(rename) attribute so JSON serialization still
+        // uses the original wire name (e.g. `r#type` field serializes as `"type"`).
+        let emit_name = crate::core::keywords::rust_raw_ident(&field.name);
+        if emit_name != field.name && !attrs.iter().any(|a| a.starts_with("serde(rename")) {
+            attrs.push(format!("serde(rename = \"{}\")", field.name));
+        }
+        sb.add_field_with_doc(&emit_name, &ty, attrs, &sanitize_field_doc(&field.doc));
     }
     let mut result = sb.build();
     if suppress_default_derive {

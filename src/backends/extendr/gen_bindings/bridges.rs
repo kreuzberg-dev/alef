@@ -219,10 +219,17 @@ pub(super) fn gen_extendr_flat_data_enum_struct(
             name => name,
         },
     ));
+    let disc_ident = crate::core::keywords::rust_raw_ident(discriminator);
+    let serde_rename_disc: Option<&str> = if disc_ident != discriminator {
+        Some(discriminator)
+    } else {
+        None
+    };
     out.push_str(&template_env::render(
         "flat_enum_discriminator_field.jinja",
         minijinja::context! {
-            discriminator => discriminator,
+            disc_ident => &disc_ident,
+            serde_rename => serde_rename_disc,
         },
     ));
 
@@ -257,6 +264,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
     let name = &enum_def.name;
     let core_path = format!("{core_import}::{name}");
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let disc_ident = crate::core::keywords::rust_raw_ident(discriminator);
     let mut out = String::with_capacity(512);
 
     out.push_str(&template_env::render(
@@ -280,7 +288,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                 minijinja::context! {
                     core_path => &core_path,
                     vname => &variant.name,
-                    disc => discriminator,
+                    disc_ident => &disc_ident,
                     wire => &wire_name,
                 },
             ));
@@ -304,7 +312,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                 minijinja::context! {
                     core_path => &core_path,
                     vname => &variant.name,
-                    disc => discriminator,
+                    disc_ident => &disc_ident,
                     wire => &wire_name,
                     fname => &field_name,
                     expr => &data_expr,
@@ -316,7 +324,7 @@ pub(super) fn gen_extendr_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                 minijinja::context! {
                     core_path => &core_path,
                     vname => &variant.name,
-                    disc => discriminator,
+                    disc_ident => &disc_ident,
                     wire => &wire_name,
                 },
             ));
@@ -339,6 +347,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
     let name = &enum_def.name;
     let core_path = format!("{core_import}::{name}");
     let discriminator = enum_def.serde_tag.as_deref().unwrap_or("format_type");
+    let disc_ident = crate::core::keywords::rust_raw_ident(discriminator);
     let mut out = String::with_capacity(512);
 
     out.push_str(&template_env::render(
@@ -346,7 +355,7 @@ pub(super) fn gen_extendr_flat_data_enum_to_core(enum_def: &EnumDef, core_import
         minijinja::context! {
             name => name,
             core_path => &core_path,
-            discriminator => discriminator,
+            disc_ident => &disc_ident,
         },
     ));
 

@@ -1,1 +1,2 @@
-    pub {{ discriminator }}: String,
+{% if serde_rename %}    #[serde(rename = "{{ serde_rename }}")]
+{% endif %}    pub {{ disc_ident }}: String,

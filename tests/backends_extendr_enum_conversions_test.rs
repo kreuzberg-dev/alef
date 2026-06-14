@@ -285,3 +285,53 @@ fn extendr_flat_data_enum_with_struct_variant_generates_from_core_impl() {
         "{content}"
     );
 }
+
+#[test]
+fn extendr_flat_data_enum_with_reserved_keyword_serde_tag_escapes_field_name() {
+    // Reproduces the kreuzberg `ImageOutputFormat` compile error:
+    //   `#[serde(tag = "type")]` on a flat data enum caused alef to emit
+    //   `pub type: String,` in the binding struct, which is a Rust reserved keyword.
+    // Expected fix: the discriminator field uses raw-identifier syntax (`r#type`)
+    // and a `#[serde(rename = "type")]` attribute so JSON wire format is preserved.
+    let mut enum_def = make_enum(
+        "ImageOutputFormat",
+        vec![
+            make_variant("Native", vec![], false),
+            make_variant("Png", vec![], false),
+            make_variant(
+                "Jpeg",
+                vec![make_field("quality", TypeRef::Primitive(PrimitiveType::U8))],
+                false, // struct variant
+            ),
+        ],
+    );
+    enum_def.serde_tag = Some("type".to_string());
+
+    let api = make_api(vec![enum_def], vec![]);
+
+    let files = ExtendrBackend
+        .generate_bindings(&api, &make_config())
+        .expect("generation succeeds");
+    let content = &files[0].content;
+
+    // Must not emit the bare `type` keyword as a field name — that is a compile error.
+    assert!(
+        !content.contains("pub type: String"),
+        "bare `pub type:` is a reserved keyword and must not appear:\n{content}"
+    );
+    // Must use raw-identifier syntax for the field declaration.
+    assert!(
+        content.contains("pub r#type: String"),
+        "discriminator field must be emitted as `pub r#type: String`:\n{content}"
+    );
+    // Must add serde(rename) so JSON round-trips still use the original wire name.
+    assert!(
+        content.contains("#[serde(rename = \"type\")]"),
+        "escaped discriminator field must have `#[serde(rename = \"type\")]`:\n{content}"
+    );
+    // From<core> impl must reference the escaped field name in struct literals.
+    assert!(
+        content.contains("r#type: \""),
+        "From<core> arm struct literals must use `r#type:` not `type:`:\n{content}"
+    );
+}
