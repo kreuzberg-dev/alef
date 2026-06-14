@@ -512,6 +512,20 @@ pub(crate) fn scrub_or_regenerate_lock(
         {
             fs::copy(ws_lock, &lock_path)
                 .with_context(|| format!("seeding {} from {}", lock_path.display(), ws_lock.display()))?;
+            // Strip workspace-member entries from the seed. In the source
+            // workspace, members appear in `Cargo.lock` as `[[package]]` entries
+            // with NO `source` field (cargo's encoding for path-based workspace
+            // members). After the binding manifest is rewritten path→registry,
+            // cargo's resolver still sees the seed's path entry, then adds the
+            // registry entry for the rewrite, then bails with
+            // `specification 'NAME' is ambiguous` on the per-member
+            // `cargo update -p`. Removing the member entries here lets the
+            // update step add a single registry-source entry per member without
+            // collision. Failure is non-fatal — if the strip fails we proceed
+            // and let the per-member update produce a clearer error.
+            if let Err(error) = strip_workspace_member_entries(&lock_path, &members.names) {
+                tracing::warn!(%error, "could not strip workspace-member entries from seed lockfile");
+            }
         }
         let manifest = manifest_dir.join("Cargo.toml");
 
@@ -654,6 +668,61 @@ pub(crate) fn scrub_or_regenerate_lock(
     if lock_path.exists() {
         fs::remove_file(&lock_path).with_context(|| format!("removing {}", lock_path.display()))?;
     }
+    Ok(())
+}
+
+/// Remove every `[[package]]` entry from `Cargo.lock` whose `name` matches a
+/// workspace-member name. In the source workspace lock, members are encoded as
+/// `[[package]]` entries with NO `source` field (cargo's marker for path-based
+/// workspace members). After `rewrite_path_deps_to_registry` rewrites the
+/// binding manifest, cargo's resolver still sees the seed's path-source entry
+/// AND adds a registry entry for the rewritten dep — `cargo update -p NAME`
+/// then errors with `specification 'NAME' is ambiguous` because both entries
+/// share the same name and version. Removing the path-source entries here lets
+/// the subsequent `cargo update -p NAME` add a single registry-source entry
+/// per member without collision.
+///
+/// Returns an error if the lockfile cannot be parsed or rewritten; callers
+/// treat this as non-fatal (the per-member update step would surface the
+/// underlying problem with a clearer message anyway).
+fn strip_workspace_member_entries(
+    lock_path: &Path,
+    member_names: &std::collections::BTreeSet<String>,
+) -> Result<()> {
+    if member_names.is_empty() {
+        return Ok(());
+    }
+    let content =
+        fs::read_to_string(lock_path).with_context(|| format!("reading {}", lock_path.display()))?;
+    let mut doc: DocumentMut = content
+        .parse()
+        .with_context(|| format!("parsing {} as TOML", lock_path.display()))?;
+
+    let Some(packages) = doc.get_mut("package").and_then(|p| p.as_array_of_tables_mut()) else {
+        return Ok(());
+    };
+    // Walk in reverse and `Vec::remove`-equivalent so indices stay valid.
+    let mut idx = packages.len();
+    while idx > 0 {
+        idx -= 1;
+        let pkg = match packages.get(idx) {
+            Some(t) => t,
+            None => continue,
+        };
+        let Some(name) = pkg.get("name").and_then(|n| n.as_str()) else {
+            continue;
+        };
+        if !member_names.contains(name) {
+            continue;
+        }
+        // Workspace-member entries are encoded with NO `source` field.
+        if pkg.contains_key("source") {
+            continue;
+        }
+        packages.remove(idx);
+    }
+
+    fs::write(lock_path, doc.to_string()).with_context(|| format!("writing {}", lock_path.display()))?;
     Ok(())
 }
 
