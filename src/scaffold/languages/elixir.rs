@@ -135,6 +135,17 @@ pub(crate) fn scaffold_elixir_cargo(
         format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n")
     };
 
+    // Unconditionally emit a [patch.crates-io] block to pin alloc-no-stdlib
+    // and related transitive dependencies. This resolves the brotli 8.0.x
+    // compatibility issue where brotli-decompressor 5.x pulls alloc-no-stdlib 3.0,
+    // but sibling dependencies may need 2.x, creating duplicate trait definitions.
+    let patch_section = r#"[patch.crates-io]
+alloc-no-stdlib = { version = "=2.0.4" }
+alloc-stdlib = { version = "=0.2.2" }
+brotli-decompressor = { version = "=5.0.1" }
+
+"#;
+
     let content = format!(
         r#"{pkg_header}
 
@@ -146,12 +157,15 @@ name = "{nif_name}"
 crate-type = ["cdylib"]
 
 [dependencies]
-{deps_section}"#,
+{deps_section}
+
+{patch_section}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
         deps_section = deps_section,
+        patch_section = patch_section,
     );
 
     Ok(vec![GeneratedFile {
