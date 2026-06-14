@@ -560,7 +560,16 @@ pub(crate) fn scrub_or_regenerate_lock(
                 .get(member)
                 .map(|version| format!("registry+https://github.com/rust-lang/crates.io-index#{member}@{version}"));
             let pkg_arg: &str = registry_spec.as_deref().unwrap_or(member);
+            // `cargo update -p` is allowed to mutate the lockfile by design — that
+            // is the whole point of this call. Some CI runners export
+            // `CARGO_BUILD_LOCKED=true` globally to guard downstream build steps;
+            // when that env var is set, every cargo invocation (including this
+            // one and the metadata validation below) silently picks up `--locked`
+            // and bails with "cannot update the lock file ... because --locked
+            // was passed". Explicitly clear it for this command so the seeded
+            // lockfile can be aligned with the rewritten manifest.
             let output = std::process::Command::new("cargo")
+                .env_remove("CARGO_BUILD_LOCKED")
                 .arg("update")
                 .arg("--manifest-path")
                 .arg(&manifest)
@@ -603,16 +612,27 @@ pub(crate) fn scrub_or_regenerate_lock(
             }
         }
 
-        // Validate the lockfile fully satisfies the rewritten manifest. The
-        // per-member updates above only refresh entries we explicitly named, so a
-        // pre-existing stale seed or a broken path dep elsewhere in the manifest
-        // would otherwise go undetected. `cargo metadata --locked` resolves the
-        // graph without writing anything; it errors iff the lockfile cannot
-        // satisfy the manifest's dependency constraints.
+        // Validate and complete the lockfile by running `cargo metadata` (without
+        // `--locked`) against the rewritten manifest. The per-member `cargo update
+        // -p` loop above only refreshes entries we explicitly named; binding crates
+        // that are NOT workspace members of the upstream workspace (e.g. Ruby gem
+        // NIFs, Elixir NIFs) have no `[[package]]` entry in the seeded lock for the
+        // NIF root crate itself. If we ran `cargo metadata --locked`, cargo would
+        // refuse to add that missing entry and bail with "cannot update the lock
+        // file because --locked was passed". Dropping `--locked` lets cargo write
+        // only the entries that are genuinely absent from the seed while leaving all
+        // existing pinned entries untouched — this avoids the brotli-decompressor
+        // 5.0.1 drift that `cargo generate-lockfile` caused (which rebuilt the full
+        // graph at the latest semver-compatible version, defeating the seed).
         if last_failure.is_none() {
+            // See the matching env_remove on `cargo update -p` above: validation
+            // intentionally drops `--locked` so cargo can write any genuinely
+            // missing transitive entries (NIF root crates, etc.) into the seed
+            // lock. `CARGO_BUILD_LOCKED=true` from the surrounding CI runner
+            // would silently re-enable `--locked` and defeat this; clear it.
             let validation = std::process::Command::new("cargo")
+                .env_remove("CARGO_BUILD_LOCKED")
                 .arg("metadata")
-                .arg("--locked")
                 .arg("--format-version")
                 .arg("1")
                 .arg("--manifest-path")
@@ -632,7 +652,7 @@ pub(crate) fn scrub_or_regenerate_lock(
                     if strict {
                         return Err(error).with_context(|| {
                             format!(
-                                "could not run cargo metadata --locked for {} to validate the \
+                                "could not run cargo metadata for {} to validate and complete the \
                                  seeded lockfile",
                                 manifest.display()
                             )

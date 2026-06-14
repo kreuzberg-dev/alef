@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Java Panama FFM codegen: downcall fallback chain now matches palantir-java-format output.** Method handle `.or()` chains for native symbol fallbacks (underscore-prefixed variant for macOS, defaultLookup fallback) previously emitted inline comments like `.or(() -> LIB.find("_name")) // Try ...`, which palantir-java-format rewrapped to place the comment on the following line. The generated code now emits the comment on a separate line immediately after the `.or()` call, matching palantir's preferred formatting and eliminating lint failures on every Java binding regeneration. Updated templates: `method_handle_normal.jinja`, `method_handle_from_json.jinja`, `method_handle_free.jinja`, `method_handle_len.jinja`, `method_handle_free_bytes.jinja`.
+
 ## [0.25.6] - 2026-06-14
 
 ### Fixed
