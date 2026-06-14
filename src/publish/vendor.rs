@@ -685,15 +685,11 @@ pub(crate) fn scrub_or_regenerate_lock(
 /// Returns an error if the lockfile cannot be parsed or rewritten; callers
 /// treat this as non-fatal (the per-member update step would surface the
 /// underlying problem with a clearer message anyway).
-fn strip_workspace_member_entries(
-    lock_path: &Path,
-    member_names: &std::collections::BTreeSet<String>,
-) -> Result<()> {
+fn strip_workspace_member_entries(lock_path: &Path, member_names: &std::collections::BTreeSet<String>) -> Result<()> {
     if member_names.is_empty() {
         return Ok(());
     }
-    let content =
-        fs::read_to_string(lock_path).with_context(|| format!("reading {}", lock_path.display()))?;
+    let content = fs::read_to_string(lock_path).with_context(|| format!("reading {}", lock_path.display()))?;
     let mut doc: DocumentMut = content
         .parse()
         .with_context(|| format!("parsing {} as TOML", lock_path.display()))?;

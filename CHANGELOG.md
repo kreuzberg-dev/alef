@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.3] - 2026-06-14
+
 ### Fixed
 
 - **`publish prepare`: strip workspace-member entries from the seeded `Cargo.lock` before the per-member `cargo update -p` runs.** Companion to the disambiguation fix below. In the source workspace lock, members appear as `[[package]]` entries with NO `source` field (cargo's marker for path-based workspace members). After `rewrite_path_deps_to_registry` rewrites the binding manifest, cargo's resolver still sees the seed's path-source entry AND adds a registry entry for the rewritten dep; the per-member `cargo update -p NAME` then errors with `specification 'NAME' is ambiguous`. Even with the full-URL disambiguation, `cargo metadata --locked` (the final validation step) bails because the binding's registry-source dep cannot satisfy the seed's path-source entry. The new `strip_workspace_member_entries` helper parses the seeded `Cargo.lock` via `toml_edit`, drops every `[[package]]` whose name is in `members.names` AND has no `source` field, and writes the lockfile back. The subsequent `cargo update -p NAME` then adds a single registry-source entry per member with no collision. Failures of the strip step are logged as warnings — the downstream cargo update / metadata steps surface clearer errors on their own. Observed on kreuzcrawl v0.3.0-rc.61 publish run 27497229082 across multiple Ruby gem, Elixir NIF, and PHP extension matrix cells.
