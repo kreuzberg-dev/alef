@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift `Package.swift` placeholder substitution: regression test for persistence past scaffold regen.** `sync_versions` applies the `v__ALEF_SWIFT_VERSION__` → `v{version}` text substitution, but `regenerate_scaffold_after_sync` then calls `scaffold_swift` which rewrites the root `Package.swift` from the template (containing the placeholder), overwriting the substitution. A second-pass substitution at `src/cli/pipeline/version.rs:927-935` re-applies the replacement after scaffold regen — confirmed in production code path. Added regression test `sync_versions_reapplies_swift_version_placeholder_after_scaffold_regen` in `src/cli/pipeline/version_tests/swift_placeholder.rs` so the persistence guarantee survives future refactors. Observed symptom prior to the fix: SwiftPM resolution 404 on `v__ALEF_SWIFT_VERSION__/<lib>.artifactbundle.zip`.
+
 ## [0.25.5] - 2026-06-14
 
 ### Changed
