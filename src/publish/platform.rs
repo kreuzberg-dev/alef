@@ -398,6 +398,13 @@ mod tests {
     }
 
     #[test]
+    fn go_java_platform_linux_aarch64() {
+        let t = RustTarget::parse("aarch64-unknown-linux-gnu").unwrap();
+        assert_eq!(t.platform_for(Language::Go), "linux-aarch64");
+        assert_eq!(t.platform_for(Language::Java), "linux-aarch64");
+    }
+
+    #[test]
     fn csharp_rid_linux_x64() {
         let t = RustTarget::parse("x86_64-unknown-linux-gnu").unwrap();
         assert_eq!(t.platform_for(Language::Csharp), "linux-x64");

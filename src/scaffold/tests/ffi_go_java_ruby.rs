@@ -472,10 +472,18 @@ fn test_scaffold_csharp_csproj_at_package_root() {
         "csproj must enable nullable reference types"
     );
     assert!(
-        csproj
+        !csproj
             .content
             .contains("<GenerateAssemblyInfo>false</GenerateAssemblyInfo>"),
-        "csproj must suppress SDK auto-generated AssemblyInfo to avoid CS0579 collisions"
+        "csproj must NOT suppress SDK AssemblyInfo so version stays in sync with <Version> tag"
+    );
+    assert!(
+        csproj.content.contains("<Company>Kreuzberg Team</Company>"),
+        "csproj must set Company to provide SDK-generated AssemblyCompanyAttribute"
+    );
+    assert!(
+        csproj.content.contains("<Product>"),
+        "csproj must set Product to provide SDK-generated AssemblyProductAttribute"
     );
     assert!(
         !csproj.generated_header,

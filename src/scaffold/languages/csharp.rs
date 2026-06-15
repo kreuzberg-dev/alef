@@ -1,9 +1,27 @@
 use crate::core::backend::GeneratedFile;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::ApiSurface;
+use crate::core::version::to_dotnet_assembly_version;
 use crate::scaffold::naming::csharp_package_id;
 use crate::{scaffold::scaffold_meta, scaffold::xml_escape};
 use std::path::PathBuf;
+
+/// Runtime Identifiers (RIDs) advertised by the binding NuGet package.
+///
+/// All six platforms must appear in `<RuntimeIdentifiers>` so the SDK packs
+/// every `runtimes/<rid>/native/` payload into the NuGet artifact and consumers
+/// on each supported platform resolve a matching native asset at restore time.
+/// Mismatches surface to consumers as `warning CS8012: ... targets a different
+/// processor` followed by `FileNotFoundException` at runtime — the exact
+/// failure mode observed on tslp v1.9.0-rc.48.
+pub(crate) const PUBLISHED_RUNTIME_IDENTIFIERS: &[&str] = &[
+    "win-x64",
+    "win-arm64",
+    "linux-x64",
+    "linux-arm64",
+    "osx-x64",
+    "osx-arm64",
+];
 
 /// Render just the `.csproj` XML content for the given config and version string.
 ///
@@ -48,11 +66,10 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <Version>{version}</Version>
     <Description>{description}</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-{repository}{authors}    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+{repository}{authors}    <Company>Kreuzberg Team</Company>
+    <Product>{namespace}</Product>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
-    <!-- Suppress SDK auto-generated AssemblyInfo to avoid CS0579 collisions
-         with hand-checked-in Properties/AssemblyInfo.cs files in consumer repos. -->
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <!-- Enable native asset resolution for P/Invoke. Detect platform at build time. -->
     <UseRuntimeIdentifier>true</UseRuntimeIdentifier>
     <RuntimeIdentifier Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">osx-arm64</RuntimeIdentifier>
