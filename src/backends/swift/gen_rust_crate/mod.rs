@@ -133,6 +133,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         license,
         has_streaming_adapters,
         target_overrides,
+        api,
     );
     let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(

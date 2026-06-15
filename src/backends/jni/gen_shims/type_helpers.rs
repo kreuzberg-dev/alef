@@ -102,14 +102,17 @@ fn primitive_zero_literal(p: &PrimitiveType) -> Option<&'static str> {
 }
 
 /// Return a Rust cast target for a JNI primitive → Rust type conversion, or "" if no cast needed.
+/// jboolean is bool (jni 0.22+) and jint is i32, so those types need no cast.
 fn primitive_cast(p: &PrimitiveType) -> &'static str {
     match p {
-        PrimitiveType::Bool => "bool",
+        // jboolean is now `bool` in jni 0.22+; no cast needed
+        PrimitiveType::Bool => "",
         PrimitiveType::I8 => "i8",
         PrimitiveType::U8 => "u8",
         PrimitiveType::I16 => "i16",
         PrimitiveType::U16 => "u16",
-        PrimitiveType::I32 => "i32",
+        // jint is i32; no cast needed
+        PrimitiveType::I32 => "",
         PrimitiveType::U32 => "u32",
         PrimitiveType::I64 => "i64",
         PrimitiveType::U64 => "u64",
