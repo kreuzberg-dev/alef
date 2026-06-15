@@ -24,31 +24,16 @@ pub(super) fn render_makefile(
     // pkg-config package name retains the original form (as declared in the .pc file).
     let link_lib_name = lib_name.replace('-', "_");
 
-    // Ensure FFI artifacts are downloaded if not present locally
-    let _ = writeln!(out, "$(FFI_DIR)/include/{header_name}: download_ffi.sh");
+    // Always invoke download_ffi.sh as a prerequisite of every build. The
+    // script is idempotent: it checks a per-version marker file
+    // (ffi/.alef-ffi-version) and skips the network round-trip when the
+    // on-disk artifacts already match the pinned VERSION. This avoids the
+    // stale-header trap where a prior rc left ffi/include/<header>.h on disk
+    // and the Makefile previously short-circuited the download, causing the
+    // test_app to compile against headers missing the new rc's symbols.
+    let _ = writeln!(out, ".PHONY: download_ffi");
+    let _ = writeln!(out, "download_ffi:");
     let _ = writeln!(out, "\tbash download_ffi.sh");
-    let _ = writeln!(out);
-
-    // Resolve the header to whichever location holds it (downloaded ffi/ or
-    // in-tree FFI crate). When set, the build target omits the
-    // download-triggering prerequisite below — this avoids 404s on release
-    // commits where download_ffi.sh's pinned VERSION points at assets not
-    // yet published, but CI has already staged a locally-built header.
-    let _ = writeln!(
-        out,
-        "HEADER_PATH := $(if $(wildcard $(FFI_DIR)/include/{header_name}),$(FFI_DIR)/include/{header_name},$(if $(wildcard {ffi_crate_path}/include/{header_name}),{ffi_crate_path}/include/{header_name}))"
-    );
-    // Resolve the shared lib to whichever location holds it (downloaded ffi/
-    // or a local cargo build at ../../target/release). Symmetric to
-    // HEADER_PATH: the build target only skips the download prerequisite when
-    // BOTH header and lib are present locally. Without the lib check, a tree
-    // that has the in-tree header but no local cargo build would skip the
-    // download and then fail at link time with "library not found".
-    // Prefer dynamic library (.dylib on macOS, .so on Linux) for system-dependent symbols.
-    let _ = writeln!(
-        out,
-        "LIB_PATH := $(or $(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.dylib),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.so),$(wildcard $(FFI_DIR)/lib/lib{link_lib_name}.a),$(wildcard ../../target/release/lib{link_lib_name}.dylib),$(wildcard ../../target/release/lib{link_lib_name}.so),$(wildcard ../../target/release/lib{link_lib_name}.a))"
-    );
     let _ = writeln!(out);
 
     // Dynamically select FFI library location using shell tests (evaluated at compilation time for each command)
@@ -99,25 +84,32 @@ pub(super) fn render_makefile(
     let _ = writeln!(out, "SRCS = main.c {srcs}");
     let _ = writeln!(out, "TARGET = run_tests");
     let _ = writeln!(out);
-    let _ = writeln!(out, ".PHONY: all clean test");
+    let _ = writeln!(out, ".PHONY: all build clean test");
     let _ = writeln!(out);
-    let _ = writeln!(out, "all: $(TARGET)");
+    // Two-phase build via recursive make: phase 1 (`all`) ensures the FFI
+    // tarball matching the pinned VERSION is on disk, phase 2 (`build`)
+    // re-enters make so `$(wildcard ...)` re-evaluates FFI_INCLUDE/FFI_LIB_DIR
+    // against the freshly downloaded files. Without recursion, wildcard would
+    // bind at parse time to whatever stale state existed before the download.
+    let _ = writeln!(out, "all: download_ffi");
+    let _ = writeln!(out, "\t$(MAKE) build");
     let _ = writeln!(out);
-    let _ = writeln!(
-        out,
-        "$(TARGET): $(SRCS) $(if $(and $(HEADER_PATH),$(LIB_PATH)),,$(FFI_DIR)/include/{header_name})"
-    );
+    let _ = writeln!(out, "build: $(TARGET)");
+    let _ = writeln!(out);
+    let _ = writeln!(out, "$(TARGET): $(SRCS)");
     let _ = writeln!(out, "\t$(CC) $(CFLAGS) -o $@ $(SRCS) $(LDFLAGS)");
     let _ = writeln!(out);
 
     if !needs_mock_server {
         // No fixtures require an HTTP mock backend; run the test binary directly.
-        let _ = writeln!(out, ".PHONY: all clean test smoke");
+        let _ = writeln!(out, ".PHONY: all build clean test smoke download_ffi");
         let _ = writeln!(out);
-        let _ = writeln!(out, "test: $(TARGET)");
+        // test/smoke depend on `all` (not $(TARGET)) so the unconditional
+        // download_ffi prerequisite runs before the compile step.
+        let _ = writeln!(out, "test: all");
         let _ = writeln!(out, "\t./$(TARGET)");
         let _ = writeln!(out);
-        let _ = writeln!(out, "smoke: $(TARGET)");
+        let _ = writeln!(out, "smoke: all");
         let _ = writeln!(out, "\t./$(TARGET) --smoke");
         let _ = writeln!(out);
         let _ = writeln!(out, "clean:");
@@ -136,7 +128,7 @@ pub(super) fn render_makefile(
     let _ = writeln!(out, "MOCK_SERVER_MANIFEST ?= ../rust/Cargo.toml");
     let _ = writeln!(out, "FIXTURES_DIR ?= ../../fixtures");
     let _ = writeln!(out);
-    let _ = writeln!(out, ".PHONY: all clean test smoke");
+    let _ = writeln!(out, ".PHONY: all build clean test smoke download_ffi");
     let _ = writeln!(out);
     let _ = writeln!(
         out,
@@ -206,10 +198,12 @@ pub(super) fn render_makefile(
     let _ = writeln!(out, "\tfi");
     let _ = writeln!(out, "endef");
     let _ = writeln!(out);
-    let _ = writeln!(out, "test: $(TARGET)");
+    // test/smoke depend on `all` (not $(TARGET)) so the unconditional
+    // download_ffi prerequisite runs before the compile step.
+    let _ = writeln!(out, "test: all");
     let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET)' $(MAKE) -s run_with_mock_server");
     let _ = writeln!(out);
-    let _ = writeln!(out, "smoke: $(TARGET)");
+    let _ = writeln!(out, "smoke: all");
     let _ = writeln!(out, "\t@TEST_CMD='./$(TARGET) --smoke' $(MAKE) -s run_with_mock_server");
     let _ = writeln!(out);
     let _ = writeln!(out, "run_with_mock_server:");
@@ -301,7 +295,20 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
         "URL=\"${{REPO_URL}}/releases/download/v${{VERSION}}/${{ARCHIVE}}\""
     );
     let _ = writeln!(out);
+    // Idempotency marker: the Makefile invokes this script on every build to
+    // guarantee freshness against the pinned VERSION. The marker file lets us
+    // skip the network round-trip when the on-disk artifacts already match.
+    // Without the marker, a prior rc's header/lib would linger across rc
+    // bumps and the test_app would compile against stale symbols.
+    let _ = writeln!(out, "MARKER=\"$FFI_DIR/.alef-ffi-version\"");
+    let _ = writeln!(out, "EXPECTED=\"${{ASSET_STEM}}\"");
+    let _ = writeln!(out, "if [ -f \"$MARKER\" ] && [ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]; then");
+    let _ = writeln!(out, "  echo \"FFI v${{VERSION}} (${{TRIPLE}}) already present; skipping download.\"");
+    let _ = writeln!(out, "  exit 0");
+    let _ = writeln!(out, "fi");
+    let _ = writeln!(out);
     let _ = writeln!(out, "echo \"Downloading ${{ARCHIVE}} from v${{VERSION}}...\"");
+    let _ = writeln!(out, "rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
     let _ = writeln!(out, "mkdir -p \"$FFI_DIR\"");
     let _ = writeln!(out, "curl -fSL \"$URL\" | tar xz -C \"$FFI_DIR\"");
     let _ = writeln!(out, "# Flatten the platform subdirectory into the ffi/ root");
@@ -314,6 +321,125 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     );
     let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/${{FFI_PKG_NAME}}-*");
     let _ = writeln!(out, "fi");
+    // Record the version stamp so subsequent invocations of this script can
+    // short-circuit. The Makefile calls this script unconditionally on every
+    // build; the marker is what makes the call cheap.
+    let _ = writeln!(out, "echo \"$EXPECTED\" > \"$MARKER\"");
     let _ = writeln!(out, "echo \"FFI library extracted to $FFI_DIR/\"");
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_makefile(needs_mock_server: bool) -> String {
+        render_makefile(
+            &["smoke".to_string()],
+            "ts_pack.h",
+            "../../crates/ts-pack-core-ffi",
+            "ts-pack-core-ffi",
+            needs_mock_server,
+        )
+    }
+
+    /// Regression: tslp v1.9.0-rc.48 test_apps run failed because the old
+    /// Makefile shape gated download_ffi.sh on a wildcard check that resolved
+    /// to a stale on-disk header from a prior rc. The unconditional
+    /// `download_ffi` prerequisite on `all` is what guarantees freshness.
+    #[test]
+    fn makefile_always_invokes_download_ffi() {
+        let makefile = sample_makefile(false);
+        assert!(
+            makefile.contains(".PHONY: download_ffi"),
+            "download_ffi must be declared phony; got: {makefile}"
+        );
+        assert!(
+            makefile.contains("download_ffi:\n\tbash download_ffi.sh"),
+            "phony download_ffi target must invoke the script; got: {makefile}"
+        );
+        assert!(
+            makefile.contains("all: download_ffi"),
+            "`all` must depend on the unconditional download_ffi prerequisite; got: {makefile}"
+        );
+    }
+
+    /// Regression: tslp v1.9.0-rc.48 test_apps run failed because the
+    /// `HEADER_PATH`/`LIB_PATH` wildcard short-circuit caused make to skip the
+    /// `$(FFI_DIR)/include/<header>` build dependency when a stale header
+    /// from a prior rc was on disk. The Makefile must no longer contain that
+    /// conditional-skip pattern, and the file-target rule on the header is
+    /// dropped in favor of the phony `download_ffi` target.
+    #[test]
+    fn makefile_does_not_short_circuit_download_on_stale_header() {
+        let makefile = sample_makefile(false);
+        assert!(
+            !makefile.contains("HEADER_PATH := $(if $(wildcard"),
+            "stale-header wildcard short-circuit (HEADER_PATH := ...) must be removed; got: {makefile}"
+        );
+        assert!(
+            !makefile.contains("LIB_PATH := $(or $(wildcard"),
+            "stale-header wildcard short-circuit (LIB_PATH := ...) must be removed; got: {makefile}"
+        );
+        assert!(
+            !makefile.contains("$(if $(and $(HEADER_PATH),$(LIB_PATH)),,"),
+            "conditional skip of header dependency must be removed; got: {makefile}"
+        );
+        // The old file-target rule
+        // `$(FFI_DIR)/include/ts_pack.h: download_ffi.sh` was a no-op when the
+        // file already existed. Confirm it is no longer emitted; the phony
+        // target takes its place.
+        assert!(
+            !makefile.contains("$(FFI_DIR)/include/ts_pack.h: download_ffi.sh"),
+            "file-target rule on header must be replaced by phony download_ffi; got: {makefile}"
+        );
+    }
+
+    /// `test` and `smoke` invoke the compiled binary; both must route through
+    /// `all` (not `$(TARGET)`) so the unconditional `download_ffi` prerequisite
+    /// is honored before linking.
+    #[test]
+    fn makefile_test_and_smoke_route_through_all() {
+        for needs_mock_server in [false, true] {
+            let makefile = sample_makefile(needs_mock_server);
+            assert!(
+                makefile.contains("test: all"),
+                "test target must depend on `all` (mock={needs_mock_server}); got: {makefile}"
+            );
+            assert!(
+                makefile.contains("smoke: all"),
+                "smoke target must depend on `all` (mock={needs_mock_server}); got: {makefile}"
+            );
+        }
+    }
+
+    /// `download_ffi.sh` is invoked on every build; it must short-circuit when
+    /// the on-disk artifacts already match the pinned VERSION, otherwise every
+    /// `make` invocation would re-download. The marker file is what gates the
+    /// short-circuit.
+    #[test]
+    fn download_script_is_idempotent_via_version_marker() {
+        let script = render_download_script(
+            "https://github.com/kreuzberg-dev/tree-sitter-language-pack",
+            "1.9.0-rc.48",
+            "ts-pack-core-ffi",
+        );
+        assert!(
+            script.contains("MARKER=\"$FFI_DIR/.alef-ffi-version\""),
+            "script must declare a version marker; got: {script}"
+        );
+        assert!(
+            script.contains("EXPECTED=\"${ASSET_STEM}\""),
+            "marker must encode the asset stem (version + triple); got: {script}"
+        );
+        assert!(
+            script.contains("[ \"$(cat \"$MARKER\")\" = \"$EXPECTED\" ]"),
+            "script must compare marker contents to the expected stem; got: {script}"
+        );
+        assert!(
+            script.contains("echo \"$EXPECTED\" > \"$MARKER\""),
+            "script must write the marker after a successful download; got: {script}"
+        );
+    }
+}
+
