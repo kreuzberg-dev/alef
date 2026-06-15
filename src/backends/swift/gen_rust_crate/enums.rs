@@ -56,6 +56,16 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
             format!("{} {{ .. }}", variant.name)
         };
 
+        // Mirror the dart enum_conversions emitter: variants gated by upstream `#[cfg(...)]`
+        // (e.g. `Heif` under `#[cfg(feature = "heic")]`) must carry that same gate on the
+        // From-impl arm so cross-compiling against feature sets that drop the variant (iOS
+        // uses `android-target` which excludes `heic`) compiles cleanly.
+        if let Some(condition) = variant.cfg.as_deref() {
+            out.push_str("            #[cfg(");
+            out.push_str(condition);
+            out.push_str(")]\n");
+        }
+
         out.push_str(&crate::backends::swift::template_env::render(
             "enum_from_variant.jinja",
             minijinja::context! {
