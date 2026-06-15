@@ -137,7 +137,11 @@ impl Backend for ZigBackend {
         content.push('\n');
 
         // Emit helper wrappers for FFI error introspection and string ownership.
-        emit_helpers(&prefix, &mut content);
+        // Pass the list of declared error-set type names so `_error_with_message`
+        // can dispatch to the per-error `_from_ffi_msg_<name>` matchers emitted
+        // alongside each error set below.
+        let declared_error_names: Vec<String> = api.errors.iter().map(|e| e.name.clone()).collect();
+        emit_helpers(&prefix, &declared_error_names, &mut content);
         content.push('\n');
 
         // Z1 fix: emit opaque pointer type aliases for every configured trait bridge

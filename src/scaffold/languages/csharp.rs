@@ -57,6 +57,16 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         .map(|repository| format!("    <RepositoryUrl>{}</RepositoryUrl>\n", xml_escape(repository)))
         .unwrap_or_default();
 
+    // .NET requires AssemblyVersion / FileVersion to be strict 4-component numeric
+    // (MAJOR.MINOR.PATCH.REVISION). Without these explicitly stamped, the resulting
+    // assembly metadata defaults to `0.0.0.0`, which surfaces to consumers as
+    // `warning CS8012: ... Version=0.0.0.0` + `FileNotFoundException`. The full
+    // SemVer (including any `-rc.N` suffix) is preserved on `InformationalVersion`
+    // for diagnostics, while AssemblyVersion / FileVersion strip the prerelease so
+    // all RCs in a release series stamp the same binary-identity version.
+    let assembly_version = to_dotnet_assembly_version(version);
+    let runtime_identifiers = PUBLISHED_RUNTIME_IDENTIFIERS.join(";");
+
     format!(
         r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -64,17 +74,23 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <RootNamespace>{namespace}</RootNamespace>
     <PackageId>{package_id}</PackageId>
     <Version>{version}</Version>
+    <AssemblyVersion>{assembly_version}</AssemblyVersion>
+    <FileVersion>{assembly_version}</FileVersion>
+    <InformationalVersion>{version}</InformationalVersion>
     <Description>{description}</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
 {repository}{authors}    <Company>Kreuzberg Team</Company>
     <Product>{namespace}</Product>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
-    <!-- Enable native asset resolution for P/Invoke. Detect platform at build time. -->
-    <UseRuntimeIdentifier>true</UseRuntimeIdentifier>
-    <RuntimeIdentifier Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))">osx-arm64</RuntimeIdentifier>
-    <RuntimeIdentifier Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Linux)))">linux-x64</RuntimeIdentifier>
-    <RuntimeIdentifier Condition="$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))">win-x64</RuntimeIdentifier>
+    <!-- AnyCPU managed assembly so the PE `Machine` header stays processor-neutral
+         and consumers never see `warning CS8012: ... targets a different processor`.
+         Native asset resolution at consumer build time is driven by the
+         `runtimes/<rid>/native/` payload baked into the NuGet package — not a
+         single `<RuntimeIdentifier>` on the package author's side, which would
+         force runtime-specific output and break AnyCPU packaging. -->
+    <PlatformTarget>AnyCPU</PlatformTarget>
+    <RuntimeIdentifiers>{runtime_identifiers}</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
@@ -91,6 +107,8 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         namespace = namespace,
         package_id = package_id,
         version = version,
+        assembly_version = assembly_version,
+        runtime_identifiers = runtime_identifiers,
         description = meta.description,
         repository = repository_csproj,
         authors = authors_csproj,

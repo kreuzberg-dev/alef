@@ -95,6 +95,37 @@ pub fn to_rubygems_prerelease(version: &str) -> String {
     }
 }
 
+/// Convert a semver version to a .NET-compatible 4-component assembly version
+/// (`MAJOR.MINOR.PATCH.REVISION`).
+///
+/// .NET's `AssemblyVersion` and `AssemblyFileVersion` attributes require a strict
+/// 4-component numeric form. SemVer pre-release suffixes (`1.9.0-rc.48`) are
+/// rejected by the compiler, so the prerelease is stripped and the revision is
+/// set to `0` — pre-releases in the same `MAJOR.MINOR.PATCH` series all stamp
+/// the same assembly version, which matches the .NET convention for in-series
+/// binary compatibility. The full SemVer is still preserved on the NuGet
+/// `<Version>` and `<InformationalVersion>` properties.
+///
+/// # Examples
+///
+/// ```
+/// use alef::core::version::to_dotnet_assembly_version;
+/// assert_eq!(to_dotnet_assembly_version("1.9.0"), "1.9.0.0");
+/// assert_eq!(to_dotnet_assembly_version("1.9.0-rc.48"), "1.9.0.0");
+/// assert_eq!(to_dotnet_assembly_version("0.1.0-alpha.2"), "0.1.0.0");
+/// ```
+pub fn to_dotnet_assembly_version(version: &str) -> String {
+    let base = version.split_once('-').map_or(version, |(b, _)| b);
+    // Defensive: if the base lacks any of the MAJOR.MINOR.PATCH components,
+    // pad with zeros so the result is always 4-component numeric.
+    let mut parts: Vec<&str> = base.split('.').collect();
+    while parts.len() < 3 {
+        parts.push("0");
+    }
+    parts.truncate(3);
+    format!("{}.0", parts.join("."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,5 +197,28 @@ mod tests {
     fn pep440_alpha_beta_prereleases() {
         assert_eq!(to_pep440("1.0.0-alpha.2"), "1.0.0a2");
         assert_eq!(to_pep440("1.0.0-beta.3"), "1.0.0b3");
+    }
+
+    // --- to_dotnet_assembly_version tests ---
+
+    #[test]
+    fn dotnet_release_version_pads_to_four_components() {
+        assert_eq!(to_dotnet_assembly_version("1.9.0"), "1.9.0.0");
+        assert_eq!(to_dotnet_assembly_version("0.1.0"), "0.1.0.0");
+    }
+
+    #[test]
+    fn dotnet_strips_prerelease_suffix() {
+        // tslp rc.48 was the symptom that exposed the missing AssemblyVersion stamp.
+        assert_eq!(to_dotnet_assembly_version("1.9.0-rc.48"), "1.9.0.0");
+        assert_eq!(to_dotnet_assembly_version("0.1.0-alpha.2"), "0.1.0.0");
+        assert_eq!(to_dotnet_assembly_version("0.1.0-beta.3"), "0.1.0.0");
+    }
+
+    #[test]
+    fn dotnet_short_versions_pad_zero_components() {
+        // Defensive: never emit a value that breaks csc's MAJOR.MINOR.PATCH.REVISION parser.
+        assert_eq!(to_dotnet_assembly_version("1"), "1.0.0.0");
+        assert_eq!(to_dotnet_assembly_version("1.2"), "1.2.0.0");
     }
 }

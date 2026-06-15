@@ -520,6 +520,80 @@ fn test_render_csharp_csproj_runtimes_glob_is_relative() {
 }
 
 #[test]
+fn test_render_csharp_csproj_stamps_assembly_version_properties() {
+    // Regression: tslp v1.9.0-rc.48 shipped a NuGet package whose consumers saw
+    //   warning CS8012: ... Version=0.0.0.0
+    //   FileNotFoundException: Could not load file or assembly 'TreeSitterLanguagePack, Version=0.0.0.0, ...'
+    // Root cause: the csproj had `<GenerateAssemblyInfo>false</GenerateAssemblyInfo>`
+    // and no explicit AssemblyVersion/FileVersion stamp, so the compiled assembly
+    // metadata defaulted to 0.0.0.0. The fix stamps AssemblyVersion/FileVersion
+    // as 4-component numeric (MAJOR.MINOR.PATCH.0) derived from the SemVer base
+    // and preserves the full SemVer (including any `-rc.N` suffix) on
+    // <Version> and <InformationalVersion>.
+    let config = test_config();
+    let content = render_csharp_csproj(&config, "1.9.0-rc.48");
+
+    // The full SemVer (with prerelease) lives on Version + InformationalVersion.
+    assert!(
+        content.contains("<Version>1.9.0-rc.48</Version>"),
+        "Version must carry the full SemVer including prerelease: {content}"
+    );
+    assert!(
+        content.contains("<InformationalVersion>1.9.0-rc.48</InformationalVersion>"),
+        "InformationalVersion must carry the full SemVer for diagnostics: {content}"
+    );
+
+    // AssemblyVersion + FileVersion must be the 4-component numeric form .NET requires.
+    assert!(
+        content.contains("<AssemblyVersion>1.9.0.0</AssemblyVersion>"),
+        "AssemblyVersion must be a 4-component numeric (prerelease stripped): {content}"
+    );
+    assert!(
+        content.contains("<FileVersion>1.9.0.0</FileVersion>"),
+        "FileVersion must be a 4-component numeric (prerelease stripped): {content}"
+    );
+
+    // The metadata must never default to 0.0.0.0 — that's the bug we're fixing.
+    assert!(
+        !content.contains("0.0.0.0"),
+        "no version property may be 0.0.0.0: {content}"
+    );
+}
+
+#[test]
+fn test_render_csharp_csproj_advertises_all_published_runtime_identifiers() {
+    // Regression: tslp v1.9.0-rc.48 csproj only listed osx-arm64/linux-x64/win-x64
+    // as conditional singular <RuntimeIdentifier>, which forced the binding NuGet
+    // build into single-RID mode and packaged a managed assembly with a
+    // processor-specific PE header — surfacing as `CS8012: ... targets a different
+    // processor` on consumers whose RID didn't match the build host. The fix
+    // advertises every published RID via <RuntimeIdentifiers> (plural) so the SDK
+    // packs all `runtimes/<rid>/native/` payloads, and pins the managed assembly
+    // to AnyCPU so the PE header is processor-neutral.
+    let config = test_config();
+    let content = render_csharp_csproj(&config, "1.9.0-rc.48");
+
+    for rid in ["win-x64", "win-arm64", "linux-x64", "linux-arm64", "osx-x64", "osx-arm64"] {
+        assert!(
+            content.contains(rid),
+            "RuntimeIdentifiers must include {rid}: {content}"
+        );
+    }
+    assert!(
+        content.contains("<RuntimeIdentifiers>"),
+        "csproj must declare <RuntimeIdentifiers> (plural) for multi-RID packaging: {content}"
+    );
+    assert!(
+        content.contains("<PlatformTarget>AnyCPU</PlatformTarget>"),
+        "managed assembly must be AnyCPU so PE Machine header stays processor-neutral: {content}"
+    );
+    assert!(
+        !content.contains("<RuntimeIdentifier Condition="),
+        "package csproj must NOT use conditional singular <RuntimeIdentifier> (forces runtime-specific build): {content}"
+    );
+}
+
+#[test]
 fn test_scaffold_java_checkstyle_suppressions_use_config_location() {
     let config = test_config();
     let api = test_api();
