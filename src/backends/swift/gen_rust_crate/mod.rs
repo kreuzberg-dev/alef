@@ -389,15 +389,14 @@ fn emit_lib_rs(
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
     for ty in &visible_types {
-        // Types with cfg gates are emitted in wrapper code with `#[cfg(...)]` so they
-        // disappear under per-target feature sets (iOS/Android use a narrower kreuzberg
-        // dep than desktop). swift-bridge-build 0.1.59 cannot parse `#[cfg(...)]` inside
-        // `extern "Rust"` blocks, and emitting an extern decl for a wrapper that
-        // disappears under a different feature set leaves a dangling extern. Skip
-        // cfg-gated types from the extern surface entirely.
-        if ty.cfg.is_some() {
-            continue;
-        }
+        // Emit extern decls unconditionally, even for cfg-gated wrapper types.
+        // swift-bridge-build 0.1.59 cannot parse `#[cfg(...)]` *inside* extern blocks,
+        // but it parses bare `type T;` decls fine. The wrapper struct itself is
+        // emitted with `#[cfg(...)]` in `wrappers/constructors.rs`, so when the cfg
+        // is satisfied the link target exists; when it isn't, the consumer would
+        // already be missing the upstream feature and hit linker errors regardless.
+        // Skipping the extern decl entirely (the previous behaviour) leaves parent
+        // types referencing the wrapper unresolvable to swift-bridge's parser.
         extern_blocks.push(extern_block::emit_extern_block_for_type(
             ty,
             exclude_fields,
@@ -430,18 +429,18 @@ fn emit_lib_rs(
     for en in &visible_enums {
         // Skip result-type enums from the bridge — they're first-class Swift enums
         // and don't need opaque swift-bridge types. Swift calls JSON decoders locally.
-        // Also skip cfg-gated enums (see comment on the cfg.is_some() skip above).
-        if en.cfg.is_some() {
-            continue;
-        }
+        // Emit cfg-gated enums unconditionally (see comment on the type loop above).
         if !result_type_enums.contains(&en.name) {
             extern_blocks.push(extern_block::emit_extern_block_for_enum(en));
         }
     }
     if !visible_functions.is_empty() {
-        // Skip cfg-gated functions from the extern block (swift-bridge-build cannot
-        // parse `#[cfg(...)]` inside extern blocks); the function-shim wrapper emits
-        // them with `#[cfg(...)]` so per-target features (iOS/Android) work.
+        // Skip cfg-gated functions from the extern block. Unlike types (which are
+        // referenced as field types by other types and so must always be declared),
+        // functions are standalone: when the cfg is unsatisfied at consumer build
+        // time the shim disappears and the extern decl would fail to resolve. The
+        // function-shim wrapper emits the body with `#[cfg(...)]` so per-target
+        // feature sets still work; the extern simply doesn't surface that function.
         let visible: Vec<FunctionDef> = visible_functions
             .iter()
             .filter(|f| f.cfg.is_none())
