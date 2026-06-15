@@ -250,13 +250,13 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>${{maven-jar-plugin.version}}</version>
                 <configuration>
-                    <!-- Bind the ${classifier} property so native JARs are emitted
+                    <!-- Bind the ${{classifier}} property so native JARs are emitted
                          with the correct classifier (e.g. osx-aarch64, linux-x64, …).
                          When CI runs `mvn package -Dclassifier=osx-aarch64`, Maven
                          passes the classifier through to this configuration, allowing
                          the JAR to be published as tree-sitter-language-pack-java-1.9.0-osx-aarch64.jar
                          instead of tree-sitter-language-pack-java-1.9.0.jar. -->
-                    <classifier>${classifier}</classifier>
+                    <classifier>${{classifier}}</classifier>
                 </configuration>
             </plugin>
             <plugin>
