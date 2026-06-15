@@ -247,7 +247,8 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                 }
 
                 eprintln!("Generating READMEs...");
-                let readme_files = pipeline::readme(&api, resolved_cfg, &languages)?;
+                let readme_languages = crate::readme::expand_configured_readme_languages(resolved_cfg, &languages);
+                let readme_files = pipeline::readme(&api, resolved_cfg, &readme_languages)?;
                 let readme_count = pipeline::write_scaffold_files_with_overwrite(&readme_files, &base_dir, true)?;
                 for file in &readme_files {
                     current_gen_paths.insert(base_dir.join(&file.path));

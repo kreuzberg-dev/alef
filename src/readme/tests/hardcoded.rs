@@ -92,6 +92,7 @@ fn test_template_version_in_install_command() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -255,6 +256,7 @@ fn test_generate_rust_readme_emitted_when_explicitly_configured() {
         discord_url: None,
         banner_url: None,
         languages: std::collections::HashMap::new(),
+        targets: std::collections::HashMap::new(),
     };
     readme_cfg.languages.insert(
         "rust".to_string(),

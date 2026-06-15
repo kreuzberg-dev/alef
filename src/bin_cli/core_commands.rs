@@ -489,7 +489,10 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
             let config_toml = std::fs::read_to_string(config_path)?;
             let mut grand_total: usize = 0;
             for resolved_cfg in &crates_to_process {
-                let languages = resolve_readme_languages(resolved_cfg, lang.as_deref())?;
+                let languages = crate::readme::expand_configured_readme_languages(
+                    resolved_cfg,
+                    &resolve_readme_languages(resolved_cfg, lang.as_deref())?,
+                );
                 let api = pipeline::extract(resolved_cfg, config_path, false)?;
                 let ir_json = serde_json::to_string(&api)?;
                 let stage_hash = cache::compute_stage_hash(&ir_json, "readme", &config_toml, &[]);

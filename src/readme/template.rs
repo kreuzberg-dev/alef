@@ -1,4 +1,4 @@
-use super::paths::{lang_code, readme_output_path};
+use super::paths::{lang_code, readme_output_path, readme_target_output_path};
 use super::template_env;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
@@ -6,7 +6,7 @@ use crate::core::ir::ApiSurface;
 use minijinja::{Environment, Value};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// Attempt to render a README using a minijinja template. Returns `None` when no
 /// language-specific template entry is found in the config (signals caller to fall back).
@@ -47,6 +47,62 @@ pub(super) fn try_template_readme(
         return Ok(None);
     };
 
+    // Determine output path
+    let path = readme_output_path(config, lang, readme_cfg, &lang_json);
+
+    render_template_readme(
+        api,
+        config,
+        readme_cfg,
+        workspace_root,
+        abs_template_dir,
+        &lang_json,
+        "language_package.md",
+        lang_code,
+        path,
+        false,
+    )
+}
+
+/// Render a configured non-language README target.
+pub(super) fn render_target_readme(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    target_name: &str,
+    target_json: &serde_json::Value,
+    readme_cfg: &crate::core::config::ReadmeConfig,
+    workspace_root: &Path,
+    abs_template_dir: &Path,
+) -> anyhow::Result<GeneratedFile> {
+    let path = readme_target_output_path(target_name, target_json)?;
+    render_template_readme(
+        api,
+        config,
+        readme_cfg,
+        workspace_root,
+        abs_template_dir,
+        target_json,
+        "root.md",
+        target_name,
+        path,
+        true,
+    )?
+    .ok_or_else(|| anyhow::anyhow!("README target '{target_name}' could not be rendered"))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_template_readme(
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    readme_cfg: &crate::core::config::ReadmeConfig,
+    workspace_root: &Path,
+    abs_template_dir: &Path,
+    entry_json: &serde_json::Value,
+    default_template: &str,
+    language_context: &str,
+    path: PathBuf,
+    require_template: bool,
+) -> anyhow::Result<Option<GeneratedFile>> {
     // Resolve top-level discord_url / banner_url. Prefer inline fields; fall back to
     // what may have been loaded from the external YAML (not re-loaded here — callers
     // using the deprecated path still get the values injected via the JSON block).
@@ -54,15 +110,18 @@ pub(super) fn try_template_readme(
     let banner_url = readme_cfg.banner_url.as_deref().unwrap_or("").to_string();
 
     // Determine template name: prefer lang config, then default
-    let template_name = lang_json
+    let template_name = entry_json
         .get("template")
         .and_then(|v| v.as_str())
-        .unwrap_or("language_package.md")
+        .unwrap_or(default_template)
         .to_string();
 
     let template_file = abs_template_dir.join(&template_name);
     if !template_file.exists() {
-        // Template file missing — fall back to hardcoded
+        if require_template {
+            anyhow::bail!("README template '{}' does not exist", template_file.display());
+        }
+        // Language template file missing — fall back to hardcoded
         return Ok(None);
     }
 
@@ -145,7 +204,7 @@ pub(super) fn try_template_readme(
     ctx.insert("repository", Value::from(repository));
     ctx.insert("discord_url", Value::from(discord_url));
     ctx.insert("banner_url", Value::from(banner_url));
-    ctx.insert("language", Value::from(lang_code.to_string()));
+    ctx.insert("language", Value::from(language_context.to_string()));
 
     // Expose the C# wrapper class name so templates can reference the actual class emitted
     // by the C# backend (e.g. `SampleRs.Convert(...)`) instead of hardcoding a
@@ -165,7 +224,7 @@ pub(super) fn try_template_readme(
     // String values may themselves contain template expressions (e.g. `{{ version }}`
     // in Java/Elixir install_command). We render those inline before inserting them
     // so the outer template receives the final text.
-    if let serde_json::Value::Object(map) = &lang_json {
+    if let serde_json::Value::Object(map) = entry_json {
         for (key, val) in map {
             let rendered_val = if let serde_json::Value::String(s) = val {
                 if s.contains("{{") {
@@ -206,9 +265,6 @@ pub(super) fn try_template_readme(
     if !content.ends_with('\n') {
         content.push('\n');
     }
-
-    // Determine output path
-    let path = readme_output_path(config, lang, readme_cfg, &lang_json);
 
     Ok(Some(GeneratedFile {
         path,

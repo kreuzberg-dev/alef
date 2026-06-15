@@ -217,7 +217,8 @@ fn render_run_tests(
     let _ = writeln!(out);
 
     // Install step.
-    let _ = writeln!(out, "# Install formulae.");
+    let _ = writeln!(out, "# Trust and install formulae.");
+    let _ = writeln!(out, "brew trust \"$TAP\" || true");
     let _ = writeln!(out, "brew bundle install --file=\"$SCRIPT_DIR/Brewfile\"");
     let _ = writeln!(out);
 

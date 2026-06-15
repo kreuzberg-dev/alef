@@ -157,7 +157,7 @@ pub(super) fn regenerate_scaffold_after_sync(
 /// Extracts IR, computes README files, and writes them to disk.
 pub(super) fn regenerate_readmes(config: &ResolvedCrateConfig, config_path: &std::path::Path) -> anyhow::Result<usize> {
     let api = extract(config, config_path, false)?;
-    let languages = config.languages.clone();
+    let languages = crate::readme::expand_configured_readme_languages(config, &config.languages);
     let readme_files = readme(&api, config, &languages)?;
     let base_dir = std::path::PathBuf::from(".");
     let sources_hash = super::super::cache::sources_hash(&config.sources)?;

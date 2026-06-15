@@ -4,6 +4,7 @@ use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 mod fallback;
@@ -20,12 +21,26 @@ pub fn generate_readmes(
     languages: &[Language],
 ) -> anyhow::Result<Vec<GeneratedFile>> {
     let mut files = vec![];
+    let mut seen_paths = HashSet::new();
     for &lang in languages {
         if let Some(file) = generate_readme(api, config, lang)? {
-            files.push(file);
+            push_unique_readme(&mut files, &mut seen_paths, file)?;
         }
     }
+    for file in generate_readme_targets(api, config)? {
+        push_unique_readme(&mut files, &mut seen_paths, file)?;
+    }
     Ok(files)
+}
+
+/// Expand a binding-language list with any extra language README targets that
+/// are configured but not part of the binding language matrix.
+pub fn expand_configured_readme_languages(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<Language> {
+    let mut expanded = languages.to_vec();
+    if rust_readme_explicitly_configured(config) && !expanded.contains(&Language::Rust) {
+        expanded.push(Language::Rust);
+    }
+    expanded
 }
 
 fn generate_readme(
@@ -67,6 +82,62 @@ fn generate_readme(
 
     // Fall back to hardcoded generation
     Ok(Some(fallback::generate_readme_hardcoded(api, config, lang)?))
+}
+
+fn generate_readme_targets(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    let Some(readme_cfg) = &config.readme else {
+        return Ok(Vec::new());
+    };
+    if readme_cfg.targets.is_empty() {
+        return Ok(Vec::new());
+    }
+    let workspace_root = config.workspace_root.clone().unwrap_or_else(|| PathBuf::from("."));
+    let Some(template_dir) = &readme_cfg.template_dir else {
+        anyhow::bail!("README targets require `crates.readme.template_dir`");
+    };
+    let abs_template_dir = workspace_root.join(template_dir);
+    if !abs_template_dir.exists() {
+        anyhow::bail!(
+            "README template directory '{}' does not exist",
+            abs_template_dir.display()
+        );
+    }
+
+    let mut target_names = readme_cfg.targets.keys().cloned().collect::<Vec<_>>();
+    target_names.sort();
+    target_names
+        .into_iter()
+        .map(|target_name| {
+            let target_json = readme_cfg
+                .targets
+                .get(&target_name)
+                .ok_or_else(|| anyhow::anyhow!("README target '{target_name}' disappeared during generation"))?;
+            template::render_target_readme(
+                api,
+                config,
+                &target_name,
+                target_json,
+                readme_cfg,
+                &workspace_root,
+                &abs_template_dir,
+            )
+        })
+        .collect()
+}
+
+fn push_unique_readme(
+    files: &mut Vec<GeneratedFile>,
+    seen_paths: &mut HashSet<PathBuf>,
+    file: GeneratedFile,
+) -> anyhow::Result<()> {
+    if !seen_paths.insert(file.path.clone()) {
+        anyhow::bail!(
+            "duplicate README output path '{}'; configure unique `output_path` values",
+            file.path.display()
+        );
+    }
+    files.push(file);
+    Ok(())
 }
 
 /// Returns true when the user has explicitly configured a Rust README in

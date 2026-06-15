@@ -200,6 +200,10 @@ pub struct ReadmeConfig {
     /// that map directly to minijinja template context variables.
     #[serde(default)]
     pub languages: HashMap<String, JsonValue>,
+    /// Non-language README targets, keyed by target name
+    /// (e.g. "root", "cli"). Targets must declare `output_path` or `output`.
+    #[serde(default)]
+    pub targets: HashMap<String, JsonValue>,
 }
 
 /// A value that can be either a single string or a list of strings.

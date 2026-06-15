@@ -27,6 +27,16 @@ pub(super) fn readme_output_path(
     default_readme_path(config, lang)
 }
 
+/// Determine the output path for a named README target.
+pub(super) fn readme_target_output_path(target_name: &str, target_json: &serde_json::Value) -> anyhow::Result<PathBuf> {
+    target_json
+        .get("output_path")
+        .or_else(|| target_json.get("output"))
+        .and_then(|v| v.as_str())
+        .map(PathBuf::from)
+        .ok_or_else(|| anyhow::anyhow!("README target '{target_name}' requires `output_path` or `output`"))
+}
+
 pub(super) fn default_readme_path(config: &ResolvedCrateConfig, lang: Language) -> PathBuf {
     let name = &config.name;
     match lang {

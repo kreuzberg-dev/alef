@@ -83,6 +83,7 @@ fn test_template_with_output_pattern() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -120,6 +121,7 @@ fn test_template_readme_missing_template_falls_back() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -154,6 +156,7 @@ fn test_template_readme_no_lang_entry_falls_back() {
         discord_url: None,
         banner_url: None,
         languages: std::collections::HashMap::new(),
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -191,6 +194,7 @@ languages:
         discord_url: None,
         banner_url: None,
         languages: std::collections::HashMap::new(), // empty — triggers YAML path
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -233,6 +237,7 @@ fn test_template_readme_discord_and_banner_url() {
         discord_url: Some("https://discord.gg/test".to_string()),
         banner_url: Some("https://img.example.com/banner.png".to_string()),
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -281,6 +286,7 @@ fn test_template_readme_no_scaffold_uses_defaults() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -330,6 +336,7 @@ fn test_template_readme_trailing_newline_not_doubled() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -383,6 +390,7 @@ fn test_default_readme_path_rust_when_explicitly_configured() {
         discord_url: None,
         banner_url: None,
         languages: std::collections::HashMap::new(),
+        targets: std::collections::HashMap::new(),
     };
     // Opt in via output_path so the Rust README is not silently skipped.
     readme_cfg.languages.insert(
@@ -393,6 +401,133 @@ fn test_default_readme_path_rust_when_explicitly_configured() {
     let api = test_api();
     let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
     assert_eq!(files[0].path, PathBuf::from("crates/my-lib/README.md"));
+}
+
+#[test]
+fn test_readme_target_root_and_rust_readme_are_generated() {
+    let tmp = std::env::temp_dir().join("alef_readme_test_root_target");
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+    fs::write(tmp.join("root.md"), "# {{ name }} root").unwrap();
+    fs::write(tmp.join("rust.md"), "# {{ name }} rust").unwrap();
+
+    let mut config = test_config();
+    let mut languages = std::collections::HashMap::new();
+    languages.insert(
+        "rust".to_string(),
+        serde_json::json!({
+            "template": "rust.md",
+            "output_path": "crates/my-lib/README.md"
+        }),
+    );
+    let mut targets = std::collections::HashMap::new();
+    targets.insert(
+        "root".to_string(),
+        serde_json::json!({
+            "template": "root.md",
+            "output_path": "README.md"
+        }),
+    );
+    config.readme = Some(ReadmeConfig {
+        template_dir: Some(tmp.clone()),
+        snippets_dir: None,
+        config: None,
+        output_pattern: None,
+        discord_url: None,
+        banner_url: None,
+        languages,
+        targets,
+    });
+    config.workspace_root = Some(tmp.clone());
+
+    let api = test_api();
+    let files = generate_readmes(&api, &config, &[Language::Rust]).unwrap();
+    let paths = files.iter().map(|file| file.path.clone()).collect::<Vec<_>>();
+    assert_eq!(
+        paths,
+        vec![PathBuf::from("crates/my-lib/README.md"), PathBuf::from("README.md")]
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_readme_target_requires_output_path() {
+    let tmp = std::env::temp_dir().join("alef_readme_test_root_target_output");
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+    fs::write(tmp.join("root.md"), "# {{ name }} root").unwrap();
+
+    let mut config = test_config();
+    let mut targets = std::collections::HashMap::new();
+    targets.insert("root".to_string(), serde_json::json!({ "template": "root.md" }));
+    config.readme = Some(ReadmeConfig {
+        template_dir: Some(tmp.clone()),
+        snippets_dir: None,
+        config: None,
+        output_pattern: None,
+        discord_url: None,
+        banner_url: None,
+        languages: std::collections::HashMap::new(),
+        targets,
+    });
+    config.workspace_root = Some(tmp.clone());
+
+    let api = test_api();
+    let err = generate_readmes(&api, &config, &[]).unwrap_err();
+    assert!(
+        err.to_string().contains("requires `output_path` or `output`"),
+        "unexpected error: {err}"
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn test_readme_duplicate_output_path_is_rejected() {
+    let tmp = std::env::temp_dir().join("alef_readme_test_root_target_duplicate");
+    let _ = fs::remove_dir_all(&tmp);
+    fs::create_dir_all(&tmp).unwrap();
+    fs::write(tmp.join("root.md"), "# {{ name }} root").unwrap();
+    fs::write(tmp.join("lang.md"), "# {{ name }} lang").unwrap();
+
+    let mut config = test_config();
+    let mut languages = std::collections::HashMap::new();
+    languages.insert(
+        "python".to_string(),
+        serde_json::json!({
+            "template": "lang.md",
+            "output_path": "README.md"
+        }),
+    );
+    let mut targets = std::collections::HashMap::new();
+    targets.insert(
+        "root".to_string(),
+        serde_json::json!({
+            "template": "root.md",
+            "output_path": "README.md"
+        }),
+    );
+    config.readme = Some(ReadmeConfig {
+        template_dir: Some(tmp.clone()),
+        snippets_dir: None,
+        config: None,
+        output_pattern: None,
+        discord_url: None,
+        banner_url: None,
+        languages,
+        targets,
+    });
+    config.workspace_root = Some(tmp.clone());
+
+    let api = test_api();
+    let err = generate_readmes(&api, &config, &[Language::Python]).unwrap_err();
+    assert!(
+        err.to_string().contains("duplicate README output path"),
+        "unexpected error: {err}"
+    );
+
+    let _ = fs::remove_dir_all(&tmp);
 }
 
 // --- readme_output_path: "output" key alias ---
@@ -422,6 +557,7 @@ fn test_template_output_key_alias() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -454,6 +590,7 @@ fn test_template_readme_default_path_fallthrough() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -508,6 +645,7 @@ fn test_template_readme_missing_snippets_renders_gracefully() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -549,6 +687,7 @@ fn test_template_include_snippet_filter() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
     config.workspace_root = Some(tmp.clone());
 
@@ -648,6 +787,7 @@ fn test_alef_all_and_cold_readme_produce_same_output() {
         discord_url: None,
         banner_url: None,
         languages: lang_map,
+        targets: std::collections::HashMap::new(),
     });
 
     let api = test_api();

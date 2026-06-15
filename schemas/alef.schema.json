@@ -4987,6 +4987,12 @@
           "description": "Per-language README configuration, keyed by language code\n(e.g. \"python\", \"typescript\", \"ruby\"). Values are flexible JSON objects\nthat map directly to minijinja template context variables.",
           "type": "object"
         },
+        "targets": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Non-language README targets, keyed by target name\n(e.g. \"root\", \"cli\"). Targets must declare `output_path` or `output`.",
+          "type": "object"
+        },
         "output_pattern": {
           "type": [
             "string",
