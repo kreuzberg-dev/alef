@@ -527,7 +527,18 @@ pub(crate) fn scrub_or_regenerate_lock(
                 tracing::warn!(%error, "could not strip workspace-member entries from seed lockfile");
             }
         }
-        let manifest = manifest_dir.join("Cargo.toml");
+        // canonicalize so subsequent `cargo` subprocesses can resolve --manifest-path
+        // independently of the working directory: we set `current_dir(manifest_dir)`
+        // on every cargo subprocess below, which makes the original relative
+        // `manifest_dir.join("Cargo.toml")` no longer resolve from the new cwd
+        // (cargo would emit `manifest path './path/from/repo/root/...' does not
+        // exist`). Fall back to the relative join when canonicalize fails (e.g.
+        // when the manifest is not yet on disk — only the regenerate path uses
+        // this anyway, so it always exists in practice).
+        let manifest = manifest_dir
+            .join("Cargo.toml")
+            .canonicalize()
+            .unwrap_or_else(|_| manifest_dir.join("Cargo.toml"));
 
         // Refresh ONLY the workspace-member entries whose source we just rewrote
         // from `path` to a registry version (one `cargo update -p NAME` per member,
