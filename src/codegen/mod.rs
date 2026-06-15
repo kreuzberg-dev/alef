@@ -4,6 +4,7 @@
 pub(crate) mod template_env;
 
 pub mod builder;
+pub mod cfg;
 pub mod c_consumer;
 pub mod config_gen;
 pub mod conversions;

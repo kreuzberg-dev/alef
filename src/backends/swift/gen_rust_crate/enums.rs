@@ -47,6 +47,8 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
     ));
     out.push_str("        match val {\n");
 
+    let has_cfg_variants = en.variants.iter().any(|v| v.cfg.is_some());
+
     for variant in &en.variants {
         let pattern = if variant.fields.is_empty() {
             variant.name.clone()
@@ -76,16 +78,22 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
         ));
     }
 
-    // When the source enum has feature-gated variants excluded from the bridge
-    // (e.g. `FormatMetadata::Code` under `#[cfg(feature = "tree-sitter")]`),
-    // those variants live in `excluded_variants` but not in `variants`.  The
-    // generated match arms only cover `variants`, making the impl non-exhaustive
-    // (E0004) when compiled with `--all-features`.  Emit a wildcard arm so the
-    // match is always exhaustive regardless of which feature flags are active.
-    // The `#![allow(unreachable_patterns)]` at the crate root suppresses the
-    // redundant-arm warning when all variants are in fact covered.
-    if !en.excluded_variants.is_empty() {
-        out.push_str("            _ => unreachable!(\"bridge enum variant not exposed in binding\"),\n");
+    // Emit a catch-all wildcard arm whenever either of these conditions holds:
+    //
+    // 1. `excluded_variants` is non-empty: source variants live outside `variants`;
+    //    the match arms only cover `variants`, making it non-exhaustive (E0004) under
+    //    `--all-features`.
+    //
+    // 2. Any `variants` entry carries a `#[cfg(feature = "X")]` gate: when that feature
+    //    is inactive the arm is compiled out, also making the match non-exhaustive.
+    //
+    // `#![allow(unreachable_patterns)]` at the crate root suppresses the redundant-arm
+    // warning when all variants are in fact covered.
+    if !en.excluded_variants.is_empty() || has_cfg_variants {
+        out.push_str(&format!(
+            "            _ => unreachable!(\"bridge enum variant of {} not exposed in binding\"),\n",
+            en.name
+        ));
     }
 
     out.push_str("        }\n");
@@ -127,4 +135,79 @@ pub(crate) fn emit_enum_wrapper(en: &EnumDef, source_crate: &str, type_paths: &H
 /// 3. Raw Rust identifier (no transformation).
 fn serde_variant_wire_name(variant: &crate::core::ir::EnumVariant, rename_all: Option<&str>) -> String {
     crate::codegen::naming::wire_variant_value(&variant.name, variant.serde_rename.as_deref(), rename_all)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant};
+
+    fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            cfg: cfg.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// When any variant in the primary list carries a `#[cfg(...)]` gate the
+    /// From-impl match must emit a `_ => unreachable!()` catch-all arm so it
+    /// remains exhaustive when that feature is inactive (E0004 guard).
+    #[test]
+    fn cfg_gated_variant_emits_catch_all_in_from_impl() {
+        let en = EnumDef {
+            name: "ImageOutputFormat".to_string(),
+            variants: vec![
+                make_unit_variant("Jpeg", None),
+                make_unit_variant("Heif", Some(r#"feature = "heic""#)),
+            ],
+            excluded_variants: vec![],
+            ..Default::default()
+        };
+        let type_paths = std::collections::HashMap::new();
+        let out = emit_enum_wrapper(&en, "mylib", &type_paths);
+        assert!(
+            out.contains("_ => unreachable!"),
+            "expected catch-all `_ => unreachable!` arm when cfg-gated variant present, got:\n{out}"
+        );
+        assert!(
+            out.contains("ImageOutputFormat"),
+            "catch-all message must include the enum name, got:\n{out}"
+        );
+    }
+
+    /// When no variant is cfg-gated and `excluded_variants` is empty, no catch-all
+    /// should be emitted (the match is statically exhaustive without it).
+    #[test]
+    fn no_cfg_or_excluded_variants_does_not_emit_catch_all() {
+        let en = EnumDef {
+            name: "SimpleEnum".to_string(),
+            variants: vec![make_unit_variant("A", None), make_unit_variant("B", None)],
+            excluded_variants: vec![],
+            ..Default::default()
+        };
+        let type_paths = std::collections::HashMap::new();
+        let out = emit_enum_wrapper(&en, "mylib", &type_paths);
+        assert!(
+            !out.contains("_ => unreachable!"),
+            "unexpected catch-all arm in From impl for fully-covered enum:\n{out}"
+        );
+    }
+
+    /// `excluded_variants` alone (no inline cfg gates) must still trigger the catch-all.
+    #[test]
+    fn excluded_variants_alone_emits_catch_all() {
+        let en = EnumDef {
+            name: "ImageOutputFormat".to_string(),
+            variants: vec![make_unit_variant("Jpeg", None)],
+            excluded_variants: vec![make_unit_variant("ExcludedVariant", None)],
+            ..Default::default()
+        };
+        let type_paths = std::collections::HashMap::new();
+        let out = emit_enum_wrapper(&en, "mylib", &type_paths);
+        assert!(
+            out.contains("_ => unreachable!"),
+            "expected catch-all arm when excluded_variants is non-empty, got:\n{out}"
+        );
+    }
 }

@@ -1,3 +1,4 @@
+use crate::codegen::cfg as shared_cfg;
 use crate::core::ir::{ApiSurface, TypeRef};
 use std::collections::BTreeSet;
 
@@ -60,68 +61,10 @@ pub(super) fn cfg_condition_enabled(cfg_str: &str, enabled_features: &[String]) 
     true
 }
 
-/// Extract every `feature = "X"` referenced by a cfg expression.
-///
-/// Recursively descends through `any(...)`, `all(...)`, and `not(...)` so that
-/// the wasm Cargo.toml emitter can declare a passthrough Cargo feature for
-/// every feature the generated source references. Without this, items emitted
-/// behind `#[cfg(feature = "X")]` produce
-/// `error: unexpected cfg condition value: X` when the binding crate's
-/// `Cargo.toml` only declares an unrelated feature list (e.g. `wasm-target`).
-///
-/// Unknown cfg patterns (`target_arch`, `target_os`, ...) yield no features
-/// — those are recognised by Cargo directly and don't need passthroughs.
-pub(super) fn collect_cfg_feature_names(cfg_str: &str, out: &mut BTreeSet<String>) {
-    let normalized = cfg_str.trim().replace(" (", "(");
-    let cfg_str = normalized.as_str();
-
-    if let Some(feature) = cfg_str.strip_prefix("feature = \"").and_then(|s| s.strip_suffix('"')) {
-        out.insert(feature.to_string());
-        return;
-    }
-    if let Some(inner) = cfg_str
-        .strip_prefix("any(")
-        .and_then(|s| s.strip_suffix(')'))
-        .or_else(|| cfg_str.strip_prefix("all(").and_then(|s| s.strip_suffix(')')))
-    {
-        for cond in parse_cfg_list(inner) {
-            collect_cfg_feature_names(&cond, out);
-        }
-        return;
-    }
-    if let Some(inner) = cfg_str.strip_prefix("not(").and_then(|s| s.strip_suffix(')')) {
-        collect_cfg_feature_names(inner.trim(), out);
-    }
-}
-
-/// Walk the full [`ApiSurface`] and return the set of feature names referenced
-/// by any cfg attribute on a type, field, enum, or top-level function.
-///
-/// The set is sorted (via `BTreeSet`) so the resulting Cargo.toml is stable
-/// across regenerations.
+/// Re-export from shared codegen — WASM was the original implementation site;
+/// all backends now share the canonical version in [`crate::codegen::cfg`].
 pub(super) fn collect_cfg_features(api: &ApiSurface) -> BTreeSet<String> {
-    let mut out = BTreeSet::new();
-    for typ in &api.types {
-        if let Some(cfg) = &typ.cfg {
-            collect_cfg_feature_names(cfg, &mut out);
-        }
-        for field in &typ.fields {
-            if let Some(cfg) = &field.cfg {
-                collect_cfg_feature_names(cfg, &mut out);
-            }
-        }
-    }
-    for enum_def in &api.enums {
-        if let Some(cfg) = &enum_def.cfg {
-            collect_cfg_feature_names(cfg, &mut out);
-        }
-    }
-    for func in &api.functions {
-        if let Some(cfg) = &func.cfg {
-            collect_cfg_feature_names(cfg, &mut out);
-        }
-    }
-    out
+    shared_cfg::collect_cfg_features(api)
 }
 
 fn parse_cfg_list(s: &str) -> Vec<String> {
@@ -153,28 +96,4 @@ fn parse_cfg_list(s: &str) -> Vec<String> {
         result.push(trimmed);
     }
     result
-}
-
-#[cfg(test)]
-mod tests {
-    use super::collect_cfg_feature_names;
-    use std::collections::BTreeSet;
-
-    #[test]
-    fn collect_cfg_feature_names_extracts_every_feature_reference() {
-        let mut out = BTreeSet::new();
-        collect_cfg_feature_names(r#"feature = "pdf""#, &mut out);
-        collect_cfg_feature_names(r#"any(feature = "html", feature = "xml")"#, &mut out);
-        collect_cfg_feature_names(
-            r#"all(feature = "layout-types", not(feature = "wasm-target"))"#,
-            &mut out,
-        );
-        // Unknown / non-feature cfg expressions yield nothing.
-        collect_cfg_feature_names(r#"target_arch = "wasm32""#, &mut out);
-        let want: BTreeSet<String> = ["html", "layout-types", "pdf", "wasm-target", "xml"]
-            .into_iter()
-            .map(String::from)
-            .collect();
-        assert_eq!(out, want);
-    }
 }
