@@ -301,6 +301,8 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
             // Vec<Named>: blanket From<Vec<core::T>> for Vec<T> doesn't exist; map element-wise.
             let is_vec_of_named =
                 matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
+            // String fields don't need .into() since String → String is already covered by From impl.
+            let is_string_field = matches!(first_field.ty, TypeRef::String) && !is_sanitized_to_string;
             let data_expr: String = if is_sanitized_to_string {
                 if is_boxed {
                     "format!(\"{:?}\", *_0)".to_string()
@@ -312,6 +314,12 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                     "(*_0).into_iter().map(Into::into).collect()".to_string()
                 } else {
                     "_0.into_iter().map(Into::into).collect()".to_string()
+                }
+            } else if is_string_field {
+                if is_boxed {
+                    "(*_0)".to_string()
+                } else {
+                    "_0".to_string()
                 }
             } else if is_boxed {
                 "(*_0).into()".to_string()
@@ -327,6 +335,7 @@ pub(super) fn gen_rustler_flat_data_enum_from_core(enum_def: &EnumDef, core_impo
                     wire => &wire_name,
                     fname => &field_name,
                     expr => &data_expr,
+                    all_fields_specified => true,
                 },
             ));
         }
@@ -387,6 +396,8 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
             let is_sanitized_to_string = first_field.sanitized && matches!(first_field.ty, TypeRef::String);
             let is_vec_of_named =
                 matches!(&first_field.ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(_)));
+            // String fields don't need .into() since String → String is already covered by From impl.
+            let is_string_field = matches!(first_field.ty, TypeRef::String) && !is_sanitized_to_string;
             // Each variant's payload is stored as `Option<T>` on the local struct;
             // `.unwrap_or_default()` falls back to T::default() when the discriminator matches
             // but the payload is missing (defensive against malformed input).
@@ -394,6 +405,8 @@ pub(super) fn gen_rustler_flat_data_enum_to_core(enum_def: &EnumDef, core_import
                 "Default::default()".to_string()
             } else if is_vec_of_named {
                 format!("val.{field_name}.unwrap_or_default().into_iter().map(Into::into).collect()")
+            } else if is_string_field {
+                format!("val.{field_name}.unwrap_or_default()")
             } else {
                 format!("val.{field_name}.unwrap_or_default().into()")
             };

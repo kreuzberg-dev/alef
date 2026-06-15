@@ -522,8 +522,17 @@ fn gen_field_accessor(field: &FieldDef, mapper: &MagnusMapper) -> String {
         format!("self.{}.clone()", field.name)
     };
 
+    // Field accessors may have names that conflict with Rust naming conventions (e.g., `from_email`).
+    // These are simple getters that return the field value, not conversion constructors, so we allow
+    // the clippy lint.
+    let allow_attr = if field.name.starts_with("from_") || field.name.starts_with("to_") {
+        "#[allow(clippy::wrong_self_convention)]\n    "
+    } else {
+        ""
+    };
+
     format!(
-        "fn {}(&self) -> {} {{\n        {}\n    }}",
+        "{allow_attr}fn {}(&self) -> {} {{\n        {}\n    }}",
         field.name, return_type, body
     )
 }

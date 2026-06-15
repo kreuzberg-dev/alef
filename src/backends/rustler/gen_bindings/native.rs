@@ -251,10 +251,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         builder.add_import("std::sync::Mutex");
         builder.add_import("std::collections::HashMap");
         builder.add_item("static TRAIT_REPLY_COUNTER: AtomicU64 = AtomicU64::new(1);");
+        builder.add_item("type TraitReplyChannel = tokio::sync::oneshot::Sender<std::result::Result<String, String>>;");
         builder.add_item(
-                "static TRAIT_REPLY_CHANNELS: std::sync::LazyLock<Mutex<HashMap<u64, tokio::sync::oneshot::Sender<std::result::Result<String, String>>>>> = \
+            "static TRAIT_REPLY_CHANNELS: std::sync::LazyLock<Mutex<HashMap<u64, TraitReplyChannel>>> = \
                  std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));",
-            );
+        );
     }
 
     // Build a name → TypeDef map so codegen can resolve full rust_paths for

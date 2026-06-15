@@ -16,20 +16,20 @@
 
 #[rustler::nif]
 pub fn complete_trait_call(reply_id: u64, result_json: String) -> rustler::types::atom::Atom {
-    if let Ok(mut channels) = TRAIT_REPLY_CHANNELS.lock() {
-        if let Some(tx) = channels.remove(&reply_id) {
-            let _ = tx.send(Ok(result_json));
-        }
+    if let Ok(mut channels) = TRAIT_REPLY_CHANNELS.lock()
+        && let Some(tx) = channels.remove(&reply_id)
+    {
+        let _ = tx.send(Ok(result_json));
     }
     rustler::types::atom::ok()
 }
 
 #[rustler::nif]
 pub fn fail_trait_call(reply_id: u64, error_reason: String) -> rustler::types::atom::Atom {
-    if let Ok(mut channels) = TRAIT_REPLY_CHANNELS.lock() {
-        if let Some(tx) = channels.remove(&reply_id) {
-            let _ = tx.send(Err(error_reason));
-        }
+    if let Ok(mut channels) = TRAIT_REPLY_CHANNELS.lock()
+        && let Some(tx) = channels.remove(&reply_id)
+    {
+        let _ = tx.send(Err(error_reason));
     }
     rustler::types::atom::ok()
 }
