@@ -195,30 +195,22 @@ pub fn default_test_apps_run_config(
             ))),
         },
         Language::Dart => TestAppRunConfig {
-            // Pub.dev does not ship native libraries inside a Dart package — they live on
-            // GitHub release assets, and the published package ships a `bin/download_libs.dart`
-            // helper (exposed as an `executables:` entry in pubspec.yaml) that fetches the
-            // platform-specific dylib/so/dll into the pub-cache's `lib/src/native/<rid>/`
-            // directory where the FRB loader resolves it via `Isolate.resolvePackageUri`.
-            // Without invoking that executable between `pub get` and `dart test`, the loader
-            // cannot find the native lib and falls back to a relative-path candidate that
-            // hardened-runtime `dart` rejects with "relative path not allowed".
+            // Native libraries ship inside the pub.dev package itself: the publish pipeline's
+            // `assemble-dart-package` job stages prebuilt cdylibs under
+            // `packages/dart/lib/src/native/<rid>/` before `dart pub publish`, and the
+            // FRB loader (`_alefResolveExternalLibrary` in the generated `frb_generated.dart`)
+            // resolves them from there via `Isolate.resolvePackageUri`. No runtime download
+            // step is required, and no `Upload Dart natives to GitHub Release` step exists
+            // in the publish workflow — invoking the `download_libs` executable here turned a
+            // missing-natives publish-pipeline regression into a runtime HTTP 404 that
+            // masked the real failure mode (and broke every test_app run unconditionally).
             //
-            // We extract the first dependency name from the test_app's pubspec.yaml (which is
-            // the under-test package, per alef's test_apps codegen convention) and invoke
-            // `dart run <pkg>:download_libs`. The `|| echo` lets dart packages without a
-            // `download_libs` executable continue, while keeping stderr attached so any real
-            // failure (HTTP 404, network, asset-name mismatch) is visible in the test output —
-            // silently dropping stderr just defers the failure to a confusing `dlopen` rejection
-            // inside `dart test`.
+            // If natives are absent from the pub.dev tarball (publish-pipeline bug), `dart test`
+            // surfaces a direct loader error, which points at the right layer to fix.
             precondition: Some(require_tool("dart")),
             before: None,
             run: Some(StringOrVec::Single(format!(
-                "cd {test_apps_dir}/dart && \
-                dart pub get && \
-                DART_PKG=$(awk '/^dependencies:$/{{f=1;next}} f && /^  [a-z]/{{sub(/:.*/,\"\");sub(/^  /,\"\");print;exit}}' pubspec.yaml) && \
-                (dart run \"${{DART_PKG}}:download_libs\" || echo \"WARN: download_libs failed or unavailable for ${{DART_PKG}}\") && \
-                dart test"
+                "cd {test_apps_dir}/dart && dart pub get && dart test"
             ))),
         },
         Language::Swift => TestAppRunConfig {
@@ -643,6 +635,29 @@ mod tests {
         assert!(
             !run.contains("cd test_apps/brew "),
             "must not use brew/ subdir for homebrew target, got: {run}"
+        );
+    }
+
+    #[test]
+    fn dart_run_does_not_invoke_download_libs() {
+        // Pub.dev packages bundle prebuilt natives under `lib/src/native/<rid>/`;
+        // there is no GitHub Release tarball for Dart natives, so invoking
+        // `dart run <pkg>:download_libs` between `pub get` and `dart test` produced
+        // an HTTP 404 on every test_app run. The default command must run only
+        // `dart pub get && dart test` from the dart subdir.
+        let c = cfg(Language::Dart, "test_apps");
+        let run = c.run.expect("dart should have a run command").commands().join(" ");
+        assert_eq!(c.precondition.as_deref(), Some("command -v dart >/dev/null 2>&1"));
+        assert!(run.contains("cd test_apps/dart"), "got: {run}");
+        assert!(run.contains("dart pub get"), "got: {run}");
+        assert!(run.contains("dart test"), "got: {run}");
+        assert!(
+            !run.contains("download_libs"),
+            "dart run must not invoke download_libs (no GH Release tarball exists); got: {run}"
+        );
+        assert!(
+            !run.contains("DART_PKG"),
+            "dart run must not derive a DART_PKG var for the dropped download_libs call; got: {run}"
         );
     }
 
