@@ -9,6 +9,24 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use tracing::warn;
 
+/// Recursively copy a directory and all its contents.
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    fs::create_dir_all(dst).context(format!("creating directory: {}", dst.display()))?;
+    for entry in fs::read_dir(src).context(format!("reading directory: {}", src.display()))? {
+        let entry = entry.context(format!("reading entry in {}", src.display()))?;
+        let path = entry.path();
+        let file_name = entry.file_name();
+        let dst_path = dst.join(&file_name);
+        if path.is_dir() {
+            copy_dir_recursive(&path, &dst_path)?;
+        } else {
+            fs::copy(&path, &dst_path)
+                .with_context(|| format!("copying file {} to {}", path.display(), dst_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Platform-specific native library filename patterns.
 /// Maps from runtime identifier (RID) to expected library filenames.
 #[derive(Debug, Clone)]
@@ -134,8 +152,14 @@ pub fn stage_dart_native_libraries(workspace_root: &Path, package_root: &Path, s
                 fs::create_dir_all(parent)
                     .with_context(|| format!("creating native library parent directory: {}", parent.display()))?;
             }
-            fs::copy(&lib_path, &dest)
-                .with_context(|| format!("copying native library {} to {}", lib_path.display(), dest.display()))?;
+            // Handle directories (e.g., .framework) separately from files
+            if lib_path.is_dir() {
+                copy_dir_recursive(&lib_path, &dest)
+                    .with_context(|| format!("copying native library directory {} to {}", lib_path.display(), dest.display()))?;
+            } else {
+                fs::copy(&lib_path, &dest)
+                    .with_context(|| format!("copying native library {} to {}", lib_path.display(), dest.display()))?;
+            }
             staged_any = true;
         }
     }
