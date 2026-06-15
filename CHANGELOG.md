@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift binding codegen: propagate cfg gates from function parameter and return types.** When a function has no explicit cfg attribute but its parameters or return type reference types that are cfg-gated (e.g., `download_manager_installed_languages(client: &DownloadManager)` where `DownloadManager` is `#[cfg(feature = "download")]`), the function must also be cfg-gated with the union of those referenced cfgs. Without this, FFI bindings (swift-bridge) would emit function signatures referencing non-existent types when the feature is not enabled, causing compilation errors in default builds that don't enable the feature. Added `compute_cfg_from_referenced_types_for_functions()` postprocessing pass that walks each function's parameters and return type, collects cfgs of referenced types, and applies the union cfg to the function when it lacks an explicit cfg.
+
 ## [0.25.12] - 2026-06-15
 
 ### Fixed
