@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(test_apps/node): raise smoke timeout for slow grammars (vb).** Tree-sitter grammars with complex scanner.c logic (e.g., Visual Basic) take >30 seconds to load and parse on first invocation. Added `is_slow_grammar()` check in TypeScript codegen; grammars in the slow list receive 90000ms timeout instead of the default 30000ms. Visual Basic (vb) added to initial slow list.
+
 ## [0.25.16] - 2026-06-15
 
 ### Fixed

@@ -293,9 +293,11 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
         }
     });
 
-    // Long-running fixtures opt in explicitly through tags.
+    // Long-running fixtures opt in explicitly through tags, or use slow-grammar timeouts.
     let timeout_ms = if fixture.tags.contains(&"embeddings".to_string()) {
         "600000"
+    } else if is_slow_grammar(&fixture.input) {
+        "90000"
     } else {
         "30000"
     };
@@ -328,4 +330,20 @@ pub(in crate::e2e::codegen::typescript::test_file) fn render_test_case(
     };
     let rendered = crate::e2e::template_env::render("typescript/test_function.jinja", ctx);
     out.push_str(&rendered);
+}
+
+/// Check if a grammar has slow load times and needs extended timeout.
+/// Tree-sitter grammars with complex scanner.c or large parser.c files
+/// may take significantly longer to load and parse on first invocation.
+fn is_slow_grammar(input: &serde_json::Value) -> bool {
+    // Extract language from nested input.config.language
+    let language = input
+        .get("config")
+        .and_then(|config| config.get("language"))
+        .and_then(|lang| lang.as_str());
+
+    // Grammars with slow parse times: known slow compilation or heavy scanner logic
+    const SLOW_GRAMMARS: &[&str] = &["vb"];
+
+    language.map_or(false, |lang| SLOW_GRAMMARS.contains(&lang))
 }
