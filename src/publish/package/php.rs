@@ -4,15 +4,12 @@
 //! named according to the PIE convention so that `pie install <vendor>/<pkg>`
 //! resolves to a pre-built binary instead of compiling from source.
 //!
-//! **Unix archive — Linux** (`{ext}.so` at archive root, `.tgz`):
+//! **Unix archive** (`{ext}.so` at archive root, `.tgz`):
 //! ```text
 //! php_{ext}-{ver}_php{phpVer}-{arch}-{os}-{libc}-{ts}.tgz
 //! ```
-//!
-//! **Unix archive — macOS** (`{ext}.dylib` at archive root, `.tgz`):
-//! ```text
-//! php_{ext}-{ver}_php{phpVer}-{arch}-{os}-{libc}-{ts}.tgz
-//! ```
+//! (Used on both Linux and macOS; cargo produces `.dylib` on macOS but we rename it to `.so`
+//! so PIE 1.4.5+ can locate it consistently across Unix platforms.)
 //!
 //! **Windows archive** (`{ext}.dll` at archive root, `.zip`):
 //! ```text
@@ -147,14 +144,12 @@ pub fn package_php(
         create_zip(&staging, &archive_path)?;
     } else {
         // Locate cargo's .so/.dylib and rename appropriately for the archive.
-        // PIE on macOS probes for {ext_name}.dylib, while on Linux it probes for {ext_name}.so.
+        // PIE probes for {ext_name}.so on all Unix platforms (Linux, macOS, etc.).
+        // Cargo produces lib{name}.dylib on macOS and lib{name}.so on Linux; we rename
+        // both to {ext_name}.so for the archive so PIE 1.4.5+ can find it consistently.
         let cargo_lib_file = target.shared_lib_name(&cargo_lib_stem);
         let lib_src = find_php_ext(workspace_root, target, &cargo_lib_file)?;
-        let staged_name = if target.os == Os::MacOs {
-            format!("{ext_name}.dylib")
-        } else {
-            format!("{ext_name}.so")
-        };
+        let staged_name = format!("{ext_name}.so");
         fs::copy(&lib_src, staging.join(&staged_name))?;
         // PIE's UnixBuild probes the extracted-source root for the extension binary and
         // only unfolds a single subdirectory if it contains `config.m4` /
