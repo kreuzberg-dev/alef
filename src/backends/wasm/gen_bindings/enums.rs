@@ -365,6 +365,10 @@ pub(super) fn gen_tagged_enum_binding_to_core(enum_def: &EnumDef, core_import: &
             variant.serde_rename.as_deref(),
             enum_def.serde_rename_all.as_deref(),
         );
+        // Add cfg guard if variant is behind a feature gate
+        if let Some(cfg) = variant.cfg.as_deref() {
+            lines.push(format!("            #[cfg({})]", cfg));
+        }
         if variant.fields.is_empty() {
             lines.push(format!("            \"{tag_value}\" => Self::{},", variant.name));
         } else if variant.is_tuple {
@@ -523,6 +527,10 @@ pub(super) fn gen_tagged_enum_core_to_binding(enum_def: &EnumDef, core_import: &
         );
         let variant_field_names: std::collections::BTreeSet<String> =
             variant.fields.iter().map(|f| f.name.clone()).collect();
+        // Add cfg guard if variant is behind a feature gate
+        if let Some(cfg) = variant.cfg.as_deref() {
+            lines.push(format!("            #[cfg({})]", cfg));
+        }
         if variant.fields.is_empty() {
             let mut inits = vec![format!(
                 "                {tag_field_ident}: \"{tag_value}\".to_string()"
