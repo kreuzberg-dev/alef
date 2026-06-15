@@ -346,17 +346,54 @@ pub fn gen_function_with_mutex(
                 false,
             ),
         };
-        let async_body = gen_async_body(
-            &core_call,
-            cfg,
-            func.error_type.is_some(),
-            &return_wrap,
-            false,
-            "",
-            matches!(func.return_type, TypeRef::Unit),
-            Some(&return_type),
-        );
-        format!("{let_bindings}{async_body}")
+
+        // For Pyo3 async functions with let_bindings that create temporary borrows,
+        // the bindings must be moved INSIDE the `async move` block to extend their
+        // lifetime past the function return (when the future executes).
+        // The serde async path (lines 233-255) already does this correctly.
+        if cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy && !let_bindings.is_empty() {
+            let is_unit = matches!(func.return_type, TypeRef::Unit);
+            let result_handling = if func.error_type.is_some() {
+                format!(
+                    "let result = {core_call}.await\n            \
+                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?"
+                )
+            } else if is_unit {
+                format!("{core_call}.await;")
+            } else {
+                format!("let result = {core_call}.await;")
+            };
+            let (ok_expr, extra_binding) = if is_unit && !func.error_type.is_some() {
+                ("()".to_string(), String::new())
+            } else if return_wrap.contains(".into()") || return_wrap.contains("::from(") {
+                let wrapped_var = "wrapped_result";
+                let binding = if let Some(ret_type) = Some(&return_type) {
+                    format!("let {wrapped_var}: {ret_type} = {return_wrap};\n            ")
+                } else {
+                    format!("let {wrapped_var} = {return_wrap};\n            ")
+                };
+                (wrapped_var.to_string(), binding)
+            } else {
+                (return_wrap.to_string(), String::new())
+            };
+            // Move let_bindings inside the async block
+            let inner_body = format!(
+                "{let_bindings}{result_handling}\n            {extra_binding}Ok({ok_expr})"
+            );
+            format!("pyo3_async_runtimes::tokio::future_into_py(py, async move {{\n{inner_body}\n        }})")
+        } else {
+            let async_body = gen_async_body(
+                &core_call,
+                cfg,
+                func.error_type.is_some(),
+                &return_wrap,
+                false,
+                "",
+                matches!(func.return_type, TypeRef::Unit),
+                Some(&return_type),
+            );
+            format!("{let_bindings}{async_body}")
+        }
     } else {
         let core_call = format!("{core_fn_path}({call_args})");
 

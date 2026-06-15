@@ -490,11 +490,17 @@ pub fn gen_method(
             )
         }
     } else if method.is_async {
-        let inner_clone_line = if is_opaque {
-            "let inner = self.inner.clone();\n        "
+        let mut inner_clone_line = if is_opaque {
+            "let inner = self.inner.clone();\n        ".to_string()
         } else {
-            ""
+            String::new()
         };
+        // For async Pyo3 functions with let_bindings, move them inside the async block
+        // so temporary borrows (e.g., Vec<&str> from Vec<String>) extend to when the
+        // future executes, not just when the binding function returns.
+        if cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy && !ref_let_bindings.is_empty() {
+            inner_clone_line.push_str(&ref_let_bindings);
+        }
         let core_call_str = make_async_core_call(&method.name);
         gen_async_body(
             &core_call_str,
@@ -502,7 +508,7 @@ pub fn gen_method(
             method.error_type.is_some(),
             &async_result_wrap,
             is_opaque,
-            inner_clone_line,
+            &inner_clone_line,
             matches!(method.return_type, TypeRef::Unit),
             Some(&return_type),
         )
@@ -566,7 +572,13 @@ pub fn gen_method(
     // includes its own parameter conversions (via core_let_bindings). Prepending the
     // normal {name}_core bindings would produce a duplicate .into() call on a moved value
     // (E0382 use of moved value).
+    // NOTE: For async Pyo3 methods with bindings, the bindings are moved INSIDE the async
+    // block via the inner_clone_line parameter to gen_async_body(), so they should NOT
+    // be prepended here (they would be duplicated).
     let body = if ref_let_bindings.is_empty() || has_adapter {
+        body
+    } else if method.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy {
+        // Bindings already moved inside async block, don't prepend
         body
     } else {
         format!("{ref_let_bindings}{body}")
