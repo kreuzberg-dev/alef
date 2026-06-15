@@ -1,8 +1,11 @@
 impl From<{{ binding_name }}> for {{ core_path }} {
     fn from(val: {{ binding_name }}) -> Self {
         match val {
-{%- for arm in arms %}
-            {{ arm }}
+{%- for arm_info in arms %}
+{%- if arm_info.cfg %}
+            #[cfg({{ arm_info.cfg }})]
+{%- endif %}
+            {{ arm_info.arm }}
 {%- endfor %}
 {%- if has_excluded_variants %}
             _ => Default::default(),

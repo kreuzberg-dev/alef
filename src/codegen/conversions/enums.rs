@@ -13,19 +13,23 @@ pub fn gen_enum_from_binding_to_core_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Pre-compute all arms for the template
-    let arms: Vec<String> = enum_def
+    // Pre-compute all arms for the template with optional cfg guards
+    let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
         .map(|variant| {
-            binding_to_core_match_arm_ext_cfg(
+            let arm = binding_to_core_match_arm_ext_cfg(
                 &binding_name,
                 &variant.name,
                 &variant.fields,
                 config.binding_enums_have_data,
                 config,
                 enum_def.serde_untagged && config.binding_tuple_form_for_untagged_variants,
-            )
+            );
+            minijinja::context! {
+                arm => arm,
+                cfg => variant.cfg.as_deref(),
+            }
         })
         .collect();
 
@@ -61,37 +65,44 @@ pub fn gen_enum_from_core_to_binding_cfg(enum_def: &EnumDef, core_import: &str, 
     let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
     let binding_name = format!("{}{}", config.type_name_prefix, enum_def.name);
 
-    // Pre-compute all arms for the template
-    let arms: Vec<String> = enum_def
+    // Pre-compute all arms for the template with optional cfg guards
+    let arms: Vec<minijinja::value::Value> = enum_def
         .variants
         .iter()
         .map(|variant| {
-            core_to_binding_match_arm_ext_cfg(
+            let arm = core_to_binding_match_arm_ext_cfg(
                 &core_path,
                 &variant.name,
                 &variant.fields,
                 config.binding_enums_have_data,
                 config,
                 enum_def.serde_untagged && config.binding_tuple_form_for_untagged_variants,
-            )
+            );
+            minijinja::context! {
+                arm => arm,
+                cfg => variant.cfg.as_deref(),
+            }
         })
         .collect();
 
     // Emit a wildcard arm only when the core enum has cfg-gated variants that are absent
-    // from the IR's `variants` list (stored in `excluded_variants` instead). In that case
-    // the compiler sees those variants at compile time but the match has no arm for them,
-    // so a `_ => Default::default()` catch-all keeps the match exhaustive.
+    // from the IR's `variants` list (stored in `excluded_variants` instead) OR when
+    // some of the included variants are gated behind feature cfg (so they compile out).
+    // In that case the compiler sees those variants at compile time but the match has
+    // no arm for them (when the feature is disabled), so a `_ => Default::default()`
+    // catch-all keeps the match exhaustive.
     //
-    // When all core variants ARE in `enum_def.variants`, every variant gets its own
-    // explicit arm (unit variants → `Self::V`, tuple variants → `CoreT::V(..)`,
-    // struct variants → `CoreT::V { .. }`). The match is exhaustive without a wildcard,
-    // and emitting `_ => Default::default()` would produce an "unreachable pattern"
-    // error under `-D warnings`.
+    // When all core variants ARE in `enum_def.variants` and none are cfg-gated,
+    // every variant gets its own explicit arm (unit variants → `Self::V`, tuple
+    // variants → `CoreT::V(..)`, struct variants → `CoreT::V { .. }`). The match
+    // is exhaustive without a wildcard, and emitting `_ => Default::default()` would
+    // produce an "unreachable pattern" error under `-D warnings`.
     //
     // In particular, a unit-only binding with core struct variants (e.g. a NAPI
     // `string_enum` for a core enum that has data) does NOT need a catch-all: each
     // struct variant is matched by its own `CoreT::Variant { .. } => Self::Variant,` arm.
-    let needs_catch_all = !enum_def.excluded_variants.is_empty();
+    let has_cfg_variants = enum_def.variants.iter().any(|v| v.cfg.is_some());
+    let needs_catch_all = !enum_def.excluded_variants.is_empty() || has_cfg_variants;
 
     crate::codegen::template_env::render(
         "conversions/enum_from_core_to_binding",
