@@ -92,4 +92,77 @@ mod test_helper_tests {
             "has_http_tests path must call ExUnit.start(), got:\n{output}"
         );
     }
+
+    /// Env vars from [e2e.env] must appear before ExUnit.start() to ensure
+    /// the binding's first call sees the configured environment.
+    #[test]
+    fn test_helper_emits_env_setup_before_exunit() {
+        let mut config = make_e2e_config();
+        config
+            .env
+            .insert("ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        config.env.insert("DEBUG_MODE".to_string(), "false".to_string());
+
+        let output = render_test_helper(false, false, &config);
+
+        // Must contain System.put_env calls for both keys
+        assert!(
+            output.contains("System.get_env(\"ALLOW_PRIVATE_NETWORK\")"),
+            "must check ALLOW_PRIVATE_NETWORK, got:\n{output}"
+        );
+        assert!(
+            output.contains("System.put_env(\"ALLOW_PRIVATE_NETWORK\", \"true\")"),
+            "must set ALLOW_PRIVATE_NETWORK, got:\n{output}"
+        );
+        assert!(
+            output.contains("System.get_env(\"DEBUG_MODE\")"),
+            "must check DEBUG_MODE, got:\n{output}"
+        );
+        assert!(
+            output.contains("System.put_env(\"DEBUG_MODE\", \"false\")"),
+            "must set DEBUG_MODE, got:\n{output}"
+        );
+
+        // Keys must appear in alphabetical order
+        let allow_pos = output
+            .find("ALLOW_PRIVATE_NETWORK")
+            .expect("ALLOW_PRIVATE_NETWORK not found");
+        let debug_pos = output.find("DEBUG_MODE").expect("DEBUG_MODE not found");
+        assert!(
+            allow_pos < debug_pos,
+            "env vars must be sorted alphabetically, got:\n{output}"
+        );
+
+        // Env setup must come before ExUnit.start()
+        let env_setup_end = output.rfind("System.put_env").expect("no System.put_env found");
+        let exunit_start = output.find("ExUnit.start()").expect("ExUnit.start() not found");
+        assert!(
+            env_setup_end < exunit_start,
+            "env setup must come before ExUnit.start(), got:\n{output}"
+        );
+    }
+
+    /// When [e2e.env] is empty, no env setup block should be emitted.
+    #[test]
+    fn test_helper_empty_env_produces_no_setup_block() {
+        let config = make_e2e_config();
+        // config.env is empty by default
+
+        let output = render_test_helper(false, false, &config);
+
+        // Should not contain System.put_env or System.get_env
+        assert!(
+            !output.contains("System.put_env"),
+            "empty env must not emit System.put_env, got:\n{output}"
+        );
+        assert!(
+            !output.contains("System.get_env"),
+            "empty env must not emit System.get_env, got:\n{output}"
+        );
+        // But should still contain ExUnit.start()
+        assert!(
+            output.contains("ExUnit.start()"),
+            "must still start ExUnit, got:\n{output}"
+        );
+    }
 }

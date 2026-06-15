@@ -192,3 +192,120 @@ fn test_java_harness_main_uses_default_port_not_random_probe() {
         "HarnessMain should use default_port in SUT_URL URI parsing"
     );
 }
+
+#[test]
+fn test_java_env_entries_empty_produces_no_init_env() {
+    use super::test_file::render_test_file;
+
+    let fixture = make_fixture_with_input("basic", serde_json::json!({}));
+    let fixtures = vec![&fixture];
+
+    let e2e_config = E2eConfig {
+        env: HashMap::new(),
+        call: CallConfig::default(),
+        ..E2eConfig::default()
+    };
+
+    let rendered = render_test_file(
+        "test",
+        &fixtures,
+        "TestClass",
+        "testFunc",
+        "com.example",
+        "com.example.binding",
+        "result",
+        &[],
+        None,
+        false,
+        &e2e_config,
+        &HashMap::new(),
+        true,
+        &[],
+        &ResolvedCrateConfig::default(),
+        &[],
+        false,
+    );
+
+    // Should not contain initEnv when env is empty
+    assert!(
+        !rendered.contains("initEnv"),
+        "empty env should not emit initEnv method"
+    );
+}
+
+#[test]
+fn test_java_env_entries_renders_sorted_system_properties() {
+    use super::test_file::render_test_file;
+
+    let fixture = make_fixture_with_input("basic", serde_json::json!({}));
+    let fixtures = vec![&fixture];
+
+    let mut env = HashMap::new();
+    env.insert("ZEBRA_FLAG".to_string(), "zebra_value".to_string());
+    env.insert("ALPHA_FLAG".to_string(), "alpha_value".to_string());
+    env.insert("BETA_FLAG".to_string(), "beta_value".to_string());
+
+    let e2e_config = E2eConfig {
+        env,
+        call: CallConfig::default(),
+        ..E2eConfig::default()
+    };
+
+    let rendered = render_test_file(
+        "test",
+        &fixtures,
+        "TestClass",
+        "testFunc",
+        "com.example",
+        "com.example.binding",
+        "result",
+        &[],
+        None,
+        false,
+        &e2e_config,
+        &HashMap::new(),
+        true,
+        &[],
+        &ResolvedCrateConfig::default(),
+        &[],
+        false,
+    );
+
+    // Should contain initEnv method
+    assert!(rendered.contains("static void initEnv()"), "should emit initEnv method");
+
+    // Should contain each property with null check
+    assert!(
+        rendered.contains("System.getProperty(\"ALPHA_FLAG\")"),
+        "should check ALPHA_FLAG"
+    );
+    assert!(
+        rendered.contains("System.setProperty(\"ALPHA_FLAG\", \"alpha_value\")"),
+        "should set ALPHA_FLAG"
+    );
+    assert!(
+        rendered.contains("System.getProperty(\"BETA_FLAG\")"),
+        "should check BETA_FLAG"
+    );
+    assert!(
+        rendered.contains("System.setProperty(\"BETA_FLAG\", \"beta_value\")"),
+        "should set BETA_FLAG"
+    );
+    assert!(
+        rendered.contains("System.getProperty(\"ZEBRA_FLAG\")"),
+        "should check ZEBRA_FLAG"
+    );
+    assert!(
+        rendered.contains("System.setProperty(\"ZEBRA_FLAG\", \"zebra_value\")"),
+        "should set ZEBRA_FLAG"
+    );
+
+    // Verify alphabetical ordering by finding positions
+    let alpha_pos = rendered.find("ALPHA_FLAG").expect("ALPHA_FLAG should be present");
+    let beta_pos = rendered.find("BETA_FLAG").expect("BETA_FLAG should be present");
+    let zebra_pos = rendered.find("ZEBRA_FLAG").expect("ZEBRA_FLAG should be present");
+    assert!(
+        alpha_pos < beta_pos && beta_pos < zebra_pos,
+        "env keys should be sorted alphabetically"
+    );
+}

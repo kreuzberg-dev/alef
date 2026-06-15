@@ -1,5 +1,22 @@
 use super::*;
 
+/// Emit environment variable setup code for test file.
+/// Returns a TypeScript code snippet with `process.env.VAR ??= "value"` assignments,
+/// or an empty string if no env vars are configured. Keys are sorted alphabetically.
+pub(crate) fn render_env_setup(env: &std::collections::HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    for k in keys {
+        let v = &env[k];
+        out.push_str(&format!("process.env.{} ??= \"{}\";\n", k, v));
+    }
+    out
+}
+
 /// Render a complete test file for the given category.
 ///
 /// `lang` is the language key used for per-fixture call override resolution
@@ -416,6 +433,9 @@ pub fn render_test_file(
         emit_cache_isolation_setup(&mut cache_isolation_setup);
     }
 
+    // Build env var setup
+    let env_setup = render_env_setup(&e2e_config.env);
+
     // Build fixtures body
     let mut fixtures_body = String::new();
     for (i, fixture) in fixtures.iter().enumerate() {
@@ -450,6 +470,7 @@ pub fn render_test_file(
         import_node_fs => import_node_fs,
         helper_functions => helper_functions,
         category => category,
+        env_setup => env_setup,
         cache_isolation_setup => cache_isolation_setup,
         fixtures_body => fixtures_body,
     };

@@ -4,8 +4,95 @@ use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::sanitize_filename;
 use crate::e2e::fixture::Fixture;
 use heck::ToUpperCamelCase;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
+
+/// Emit a Kotlin snippet that calls `System.setProperty(KEY, VALUE)` for every
+/// `[e2e.env]` entry when not already set. JVM OS env is immutable from inside
+/// the process; system properties are the runtime-mutable analog. The
+/// `getProperty(...) == null` guard preserves any value supplied externally via
+/// `-D` flags (setdefault semantics). Emitted inside the companion `init {}`
+/// block before `System.loadLibrary`. Returns an empty string when the env
+/// map is empty. Keys are sorted alphabetically for deterministic output.
+pub(super) fn render_kotlin_env_init(env: &HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "            // Suite-level environment defaults from [e2e.env]. JVM OS env is"
+    );
+    let _ = writeln!(
+        out,
+        "            // immutable; System.setProperty is the runtime-mutable analog. Each"
+    );
+    let _ = writeln!(
+        out,
+        "            // entry uses setdefault semantics: only applied when not already set."
+    );
+    for key in keys {
+        let value = &env[key];
+        // Kotlin double-quoted strings: escape `\`, `"`, and `$` (string template).
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"").replace('$', "\\$");
+        let _ = writeln!(out, "            if (System.getProperty(\"{key}\") == null) {{");
+        let _ = writeln!(out, "                System.setProperty(\"{key}\", \"{escaped}\")");
+        let _ = writeln!(out, "            }}");
+    }
+    out
+}
+
+#[cfg(test)]
+mod env_init_tests {
+    use super::render_kotlin_env_init;
+    use std::collections::HashMap;
+
+    #[test]
+    fn render_kotlin_env_init_emits_setdefault_with_sorted_keys() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("ALEF_FOO".to_string(), "bar".to_string());
+        let block = render_kotlin_env_init(&env);
+        assert!(
+            block.contains("if (System.getProperty(\"ALEF_FOO\") == null) {"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("System.setProperty(\"ALEF_FOO\", \"bar\")"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("if (System.getProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == null) {"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("System.setProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\")"),
+            "got: {block}"
+        );
+        let alef_pos = block.find("ALEF_FOO").unwrap();
+        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+    }
+
+    #[test]
+    fn render_kotlin_env_init_empty_when_no_env_configured() {
+        let env = HashMap::new();
+        assert_eq!(render_kotlin_env_init(&env), "");
+    }
+
+    #[test]
+    fn render_kotlin_env_init_escapes_quotes_and_dollar() {
+        let mut env = HashMap::new();
+        env.insert("Q".to_string(), "a\"b$c\\d".to_string());
+        let block = render_kotlin_env_init(&env);
+        assert!(
+            block.contains("System.setProperty(\"Q\", \"a\\\"b\\$c\\\\d\")"),
+            "got: {block}"
+        );
+    }
+}
 
 pub(super) fn resolve_handle_config_type(
     arg: &crate::e2e::config::ArgMapping,
@@ -523,6 +610,15 @@ pub(super) fn render_test_file_inner(
         if kotlin_android_style {
             let jni_lib_name = config.jni_lib_name();
             let _ = writeln!(out, "        init {{");
+            // Inject every `[e2e.env]` entry before System.loadLibrary so any
+            // JNI ctor that reads JVM system properties sees the configured
+            // values. JVM System.setProperty is the runtime-mutable analog of
+            // OS env (OS env is immutable from inside the JVM). `setdefault`
+            // semantics: existing properties are preserved.
+            let env_block = render_kotlin_env_init(&e2e_config.env);
+            if !env_block.is_empty() {
+                out.push_str(&env_block);
+            }
             let _ = writeln!(out, "            try {{");
             let _ = writeln!(out, "                System.loadLibrary(\"{jni_lib_name}\")");
             let _ = writeln!(out, "            }} catch (e: UnsatisfiedLinkError) {{");

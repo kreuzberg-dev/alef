@@ -95,7 +95,7 @@ impl E2eCodegen for RCodegen {
 
         files.push(GeneratedFile {
             path: output_base.join("tests").join("setup-fixtures.R"),
-            content: project::render_setup_fixtures(&e2e_config.test_documents_relative_from(1)),
+            content: project::render_setup_fixtures(&e2e_config.test_documents_relative_from(1), &e2e_config.env),
             generated_header: true,
         });
 

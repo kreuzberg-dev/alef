@@ -2,6 +2,7 @@
 
 use crate::core::hash::{self, CommentStyle};
 use crate::core::template_versions as tv;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
 pub(super) fn render_csproj(
@@ -30,7 +31,12 @@ pub(super) fn render_csproj(
     )
 }
 
-pub(super) fn render_test_setup(needs_mock_server: bool, test_documents_dir: &str, namespace: &str) -> String {
+pub(super) fn render_test_setup(
+    needs_mock_server: bool,
+    test_documents_dir: &str,
+    namespace: &str,
+    env: &HashMap<String, String>,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::DoubleSlash));
     out.push_str("using System;\n");
@@ -48,6 +54,26 @@ pub(super) fn render_test_setup(needs_mock_server: bool, test_documents_dir: &st
     out.push_str("    [ModuleInitializer]\n");
     out.push_str("    internal static void Init()\n");
     out.push_str("    {\n");
+
+    // Emit env vars if present
+    if !env.is_empty() {
+        let mut sorted_keys: Vec<_> = env.keys().collect();
+        sorted_keys.sort();
+        for key in sorted_keys {
+            let value = &env[key];
+            let _ = writeln!(
+                out,
+                "        if (Environment.GetEnvironmentVariable(\"{key}\") == null) {{"
+            );
+            let _ = writeln!(
+                out,
+                "            Environment.SetEnvironmentVariable(\"{key}\", \"{value}\");"
+            );
+            out.push_str("        }\n");
+        }
+        out.push('\n');
+    }
+
     let _ = writeln!(
         out,
         "        // Walk up from the assembly directory until we find the repo root."
@@ -90,4 +116,56 @@ pub(super) fn render_test_setup(needs_mock_server: bool, test_documents_dir: &st
     out.push_str("    }\n");
     out.push_str("}\n");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_render_test_setup_with_env_vars() {
+        let mut env = HashMap::new();
+        env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
+        env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
+        env.insert("BETA_VAR".to_string(), "b_value".to_string());
+
+        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+
+        assert!(output.contains("ALPHA_VAR"));
+        assert!(output.contains("a_value"));
+        assert!(output.contains("BETA_VAR"));
+        assert!(output.contains("b_value"));
+        assert!(output.contains("ZEBRA_VAR"));
+        assert!(output.contains("z_value"));
+
+        // Verify alphabetical order
+        let alpha_pos = output.find("ALPHA_VAR").unwrap();
+        let beta_pos = output.find("BETA_VAR").unwrap();
+        let zebra_pos = output.find("ZEBRA_VAR").unwrap();
+        assert!(alpha_pos < beta_pos && beta_pos < zebra_pos);
+
+        // Verify SetEnvironmentVariable pattern
+        assert!(output.contains("Environment.SetEnvironmentVariable("));
+    }
+
+    #[test]
+    fn test_render_test_setup_empty_env() {
+        let env = HashMap::new();
+        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+
+        // Should not contain SetEnvironmentVariable calls for empty env
+        assert!(!output.contains("Environment.SetEnvironmentVariable("));
+    }
+
+    #[test]
+    fn test_render_test_setup_env_null_check() {
+        let mut env = HashMap::new();
+        env.insert("TEST_VAR".to_string(), "test_value".to_string());
+
+        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+
+        // Verify null-check pattern: if null, set
+        assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));
+        assert!(output.contains("Environment.SetEnvironmentVariable(\"TEST_VAR\", \"test_value\");"));
+    }
 }

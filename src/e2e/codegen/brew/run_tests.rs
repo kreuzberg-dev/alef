@@ -1,14 +1,41 @@
 use crate::core::hash::{self, CommentStyle};
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 
+/// Emit a bash snippet that exports every `[e2e.env]` entry using `setdefault`
+/// semantics: each var is only set when not already present in the parent
+/// environment. Returns an empty string when the map is empty. Keys are sorted
+/// alphabetically for deterministic output.
+pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    let _ = writeln!(out, "# Suite-level environment defaults from [e2e.env]. Each entry");
+    let _ = writeln!(out, "# uses setdefault semantics: only applied when not already set.");
+    for key in keys {
+        let value = &env[key];
+        let _ = writeln!(out, ": \"${{{key}:={value}}}\"");
+        let _ = writeln!(out, "export {key}");
+    }
+    let _ = writeln!(out);
+    out
+}
+
 /// Render the main `run_tests.sh` runner script.
-pub(super) fn render_run_tests(categories: &[String]) -> String {
+pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, String>) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out, "# shellcheck disable=SC1091");
     let _ = writeln!(out, "set -euo pipefail");
     let _ = writeln!(out);
+    let env_block = render_env_block(env);
+    if !env_block.is_empty() {
+        out.push_str(&env_block);
+    }
     let _ = writeln!(out, "# Auto-spawn mock-server if MOCK_SERVER_URL is not pre-set.");
     let _ = writeln!(
         out,
@@ -270,11 +297,69 @@ mod tests {
     #[test]
     fn render_run_tests_uses_two_space_indent() {
         let categories = vec!["auth".to_string(), "crawl".to_string()];
-        let script = render_run_tests(&categories);
+        let script = render_run_tests(&categories, &HashMap::new());
         assert_shfmt_canonical_indent(&script, "render_run_tests");
         assert!(
             script.lines().any(|l| l.starts_with("  ") && !l.starts_with("   ")),
             "render_run_tests should emit at least one 2-space-indented line; got:\n{script}",
         );
+    }
+
+    #[test]
+    fn render_env_block_emits_setdefault_with_sorted_keys() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("ALEF_FOO".to_string(), "bar".to_string());
+        let block = render_env_block(&env);
+        assert!(block.contains(": \"${ALEF_FOO:=bar}\""), "got: {block}");
+        assert!(
+            block.contains(": \"${KREUZCRAWL_ALLOW_PRIVATE_NETWORK:=true}\""),
+            "got: {block}"
+        );
+        assert!(block.contains("export ALEF_FOO"), "got: {block}");
+        assert!(
+            block.contains("export KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
+            "got: {block}"
+        );
+        let alef_pos = block.find("ALEF_FOO").unwrap();
+        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+    }
+
+    #[test]
+    fn render_env_block_empty_when_no_env_configured() {
+        let env = HashMap::new();
+        assert_eq!(render_env_block(&env), "");
+    }
+
+    #[test]
+    fn render_run_tests_omits_env_block_when_env_empty() {
+        let categories = vec!["smoke".to_string()];
+        let script = render_run_tests(&categories, &HashMap::new());
+        assert!(
+            !script.contains("Suite-level environment defaults"),
+            "no env block when env empty; got: {script}"
+        );
+    }
+
+    #[test]
+    fn render_run_tests_includes_env_block_when_env_configured() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        let categories = vec!["smoke".to_string()];
+        let script = render_run_tests(&categories, &env);
+        assert!(
+            script.contains(": \"${KREUZCRAWL_ALLOW_PRIVATE_NETWORK:=true}\""),
+            "got: {script}"
+        );
+        assert!(
+            script.contains("export KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
+            "got: {script}"
+        );
+        // Env block must precede the MOCK_SERVER_URL bootstrap so the binding's
+        // first call already sees the configured environment.
+        let env_pos = script.find("${KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        let mock_pos = script.find("MOCK_SERVER_URL").unwrap();
+        assert!(env_pos < mock_pos, "env block must precede mock-server bootstrap");
     }
 }

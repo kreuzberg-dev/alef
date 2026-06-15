@@ -1,9 +1,42 @@
 //! C e2e test runner file rendering.
 
 use crate::core::hash::{self, CommentStyle};
-use crate::e2e::escape::sanitize_ident;
+use crate::e2e::escape::{escape_c, sanitize_ident};
 use crate::e2e::fixture::{Fixture, FixtureGroup};
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+
+/// Emit a C snippet that calls `setenv(KEY, VALUE, 0)` for every `[e2e.env]`
+/// entry when not already present in the process environment. The `0` overwrite
+/// flag preserves any parent-set values (setdefault semantics). Returns an
+/// empty string when the env map is empty. Keys are sorted alphabetically for
+/// deterministic output.
+pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "    /* Suite-level env defaults from [e2e.env]. setdefault semantics: */"
+    );
+    let _ = writeln!(
+        out,
+        "    /* only applied when not already set in the process environment.   */"
+    );
+    for key in keys {
+        let value = &env[key];
+        let key_lit = escape_c(key);
+        let val_lit = escape_c(value);
+        let _ = writeln!(out, "    if (getenv(\"{key_lit}\") == NULL) {{");
+        let _ = writeln!(out, "        setenv(\"{key_lit}\", \"{val_lit}\", 0);");
+        let _ = writeln!(out, "    }}");
+    }
+    let _ = writeln!(out);
+    out
+}
 
 pub(super) fn render_test_runner_header(
     active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
@@ -345,7 +378,11 @@ pub(super) fn render_test_runner_header(
     out
 }
 
-pub(super) fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)], visitor_fixtures: &[&Fixture]) -> String {
+pub(super) fn render_main_c(
+    active_groups: &[(&FixtureGroup, Vec<&Fixture>)],
+    visitor_fixtures: &[&Fixture],
+    env: &HashMap<String, String>,
+) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Block));
     let _ = writeln!(out, "#include <stdio.h>");
@@ -354,6 +391,10 @@ pub(super) fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)], vi
     let _ = writeln!(out, "int main(void) {{");
     let _ = writeln!(out, "    int passed = 0;");
     let _ = writeln!(out);
+    let env_block = render_env_block(env);
+    if !env_block.is_empty() {
+        out.push_str(&env_block);
+    }
 
     for (group, fixtures) in active_groups {
         let _ = writeln!(out, "    /* Category: {} */", group.category);
@@ -383,4 +424,65 @@ pub(super) fn render_main_c(active_groups: &[(&FixtureGroup, Vec<&Fixture>)], vi
     let _ = writeln!(out, "    return 0;");
     let _ = writeln!(out, "}}");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn render_env_block_emits_setdefault_with_sorted_keys() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("ALEF_FOO".to_string(), "bar".to_string());
+        let block = render_env_block(&env);
+        assert!(block.contains("if (getenv(\"ALEF_FOO\") == NULL)"), "got: {block}");
+        assert!(block.contains("setenv(\"ALEF_FOO\", \"bar\", 0);"), "got: {block}");
+        assert!(
+            block.contains("if (getenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == NULL)"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\", 0);"),
+            "got: {block}"
+        );
+        let alef_pos = block.find("ALEF_FOO").unwrap();
+        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+    }
+
+    #[test]
+    fn render_env_block_empty_when_no_env_configured() {
+        let env = HashMap::new();
+        assert_eq!(render_env_block(&env), "");
+    }
+
+    #[test]
+    fn render_main_c_includes_env_block_at_start_of_main() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        let main_c = render_main_c(&[], &[], &env);
+        assert!(
+            main_c.contains("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\""),
+            "got: {main_c}"
+        );
+        // Env injection happens before any test invocation.
+        let main_pos = main_c.find("int main(void)").unwrap();
+        let env_pos = main_c.find("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\"").unwrap();
+        let return_pos = main_c.find("return 0;").unwrap();
+        assert!(main_pos < env_pos && env_pos < return_pos);
+    }
+
+    #[test]
+    fn render_main_c_omits_env_block_when_env_empty() {
+        let main_c = render_main_c(&[], &[], &HashMap::new());
+        assert!(
+            !main_c.contains("Suite-level env defaults"),
+            "no env block when env empty; got: {main_c}"
+        );
+        assert!(
+            !main_c.contains("setenv("),
+            "no setenv call when env empty; got: {main_c}"
+        );
+    }
 }

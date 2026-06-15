@@ -215,3 +215,89 @@ fn chained_optional_only_emits_question_mark_on_first_optional() {
     // The expression IS optional overall.
     assert!(has_optional, "expected has_optional=true for chain with optional root");
 }
+
+/// Env var injection in setUp() produces sorted setenv() calls with proper string escaping.
+#[test]
+fn test_file_renders_env_vars_in_class_setup() {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+
+    let mut e2e_config = E2eConfig::default();
+    e2e_config.env.insert("ZEBRA".to_string(), "z_value".to_string());
+    e2e_config.env.insert("APPLE".to_string(), "a_value".to_string());
+    e2e_config.env.insert("BANANA".to_string(), "b_value".to_string());
+
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[],
+        &e2e_config,
+        "TestModule",
+        "TestCase",
+        "testFunction",
+        "result",
+        &[],
+        false,
+        None,
+        &Default::default(),
+        &ResolvedCrateConfig::default(),
+        &[],
+        false,
+        &[],
+    );
+
+    // Verify env vars appear in sorted order: APPLE, BANANA, ZEBRA.
+    assert!(output.contains("APPLE"), "expected APPLE env var in output");
+    assert!(output.contains("BANANA"), "expected BANANA env var in output");
+    assert!(output.contains("ZEBRA"), "expected ZEBRA env var in output");
+
+    // Verify sorting: APPLE must come before BANANA, BANANA before ZEBRA.
+    let apple_pos = output.find("APPLE").unwrap();
+    let banana_pos = output.find("BANANA").unwrap();
+    let zebra_pos = output.find("ZEBRA").unwrap();
+    assert!(
+        apple_pos < banana_pos && banana_pos < zebra_pos,
+        "env vars must be sorted alphabetically, got positions APPLE={}, BANANA={}, ZEBRA={}",
+        apple_pos,
+        banana_pos,
+        zebra_pos
+    );
+
+    // Verify setenv signature: should have setenv(key, val, 0) calls.
+    assert!(
+        output.contains("setenv(key, val, 0)"),
+        "expected setenv(key, val, 0) calls in output"
+    );
+}
+
+/// Empty env produces no env injection block.
+#[test]
+fn test_file_renders_no_env_block_when_env_empty() {
+    use crate::core::config::ResolvedCrateConfig;
+    use crate::e2e::config::E2eConfig;
+
+    let e2e_config = E2eConfig::default();
+
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[],
+        &e2e_config,
+        "TestModule",
+        "TestCase",
+        "testFunction",
+        "result",
+        &[],
+        false,
+        None,
+        &Default::default(),
+        &ResolvedCrateConfig::default(),
+        &[],
+        false,
+        &[],
+    );
+
+    // No env vars means no setenv calls.
+    assert!(
+        !output.contains("setenv"),
+        "empty env should not produce any setenv calls"
+    );
+}

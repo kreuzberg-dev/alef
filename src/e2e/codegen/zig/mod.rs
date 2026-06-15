@@ -348,6 +348,7 @@ impl E2eCodegen for ZigE2eCodegen {
                     &e2e_config.test_documents_relative_from(0),
                     e2e_config.dep_mode,
                     use_platform_registry_deps,
+                    &e2e_config.env,
                 ),
                 generated_header: false,
             },

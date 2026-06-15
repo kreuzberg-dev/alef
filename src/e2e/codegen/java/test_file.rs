@@ -287,6 +287,16 @@ pub(super) fn render_test_file(
     }
 
     // Render template
+    let env_entries: Vec<(String, String)> = e2e_config
+        .env
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut sorted_env: Vec<(String, String)> = env_entries;
+    sorted_env.sort_by(|a, b| a.0.cmp(&b.0));
+
     crate::e2e::template_env::render(
         "java/test_file.jinja",
         minijinja::context! {
@@ -298,6 +308,7 @@ pub(super) fn render_test_file(
             needs_object_mapper => needs_object_mapper,
             fixtures_body => fixtures_body,
             uses_harness => uses_harness,
+            env_entries => sorted_env,
         },
     )
 }

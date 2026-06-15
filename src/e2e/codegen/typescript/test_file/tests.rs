@@ -472,3 +472,55 @@ fn http_only_test_file_with_json_body_emits_decompress_helper() {
              actual output:\n{output}"
     );
 }
+
+#[test]
+fn render_env_setup_empty_env_returns_empty_string() {
+    use crate::e2e::codegen::typescript::test_file::render::render_env_setup;
+    let env = std::collections::HashMap::new();
+    let output = render_env_setup(&env);
+    assert_eq!(output, "", "empty env must return empty string");
+}
+
+#[test]
+fn render_env_setup_single_var() {
+    use crate::e2e::codegen::typescript::test_file::render::render_env_setup;
+    let mut env = std::collections::HashMap::new();
+    env.insert("TEST_VAR".to_string(), "test_value".to_string());
+    let output = render_env_setup(&env);
+    assert!(
+        output.contains("process.env.TEST_VAR ??= \"test_value\";"),
+        "output must contain process.env assignment; got: {output}"
+    );
+}
+
+#[test]
+fn render_env_setup_multiple_vars_sorted_alphabetically() {
+    use crate::e2e::codegen::typescript::test_file::render::render_env_setup;
+    let mut env = std::collections::HashMap::new();
+    env.insert("ZEBRA".to_string(), "value1".to_string());
+    env.insert("APPLE".to_string(), "value2".to_string());
+    env.insert("BANANA".to_string(), "value3".to_string());
+    let output = render_env_setup(&env);
+
+    let apple_idx = output.find("APPLE").expect("must contain APPLE");
+    let banana_idx = output.find("BANANA").expect("must contain BANANA");
+    let zebra_idx = output.find("ZEBRA").expect("must contain ZEBRA");
+
+    assert!(
+        apple_idx < banana_idx && banana_idx < zebra_idx,
+        "env vars must be sorted alphabetically; got: {output}"
+    );
+}
+
+#[test]
+fn render_env_setup_uses_defaultassign_semantics() {
+    use crate::e2e::codegen::typescript::test_file::render::render_env_setup;
+    let mut env = std::collections::HashMap::new();
+    env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+    let output = render_env_setup(&env);
+
+    assert!(
+        output.contains("??="),
+        "must use ??= operator for setdefault semantics; got: {output}"
+    );
+}

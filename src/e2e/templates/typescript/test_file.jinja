@@ -7,6 +7,7 @@
    - import_node_fs: import for fs utilities (or empty string)
    - helper_functions: string containing helper functions (_alefE2eText, _alefE2eItemTexts)
    - category: test category/describe block name
+   - env_setup: environment variable assignments (or empty string)
    - cache_isolation_setup: beforeAll/afterAll setup code (or empty string)
    - fixtures_body: string containing all rendered test cases (it() blocks)
 #}
@@ -17,6 +18,10 @@
 {% endif %}
 {% if import_node_fs %}
 {{ import_node_fs }}
+{% endif %}
+{% if env_setup %}
+
+{{ env_setup }}
 {% endif %}
 {% if helper_functions %}
 

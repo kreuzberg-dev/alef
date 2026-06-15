@@ -5,6 +5,7 @@ mod trait_bridge_tests {
     use crate::core::config::TraitBridgeConfig;
     use crate::core::ir::{MethodDef, ParamDef, TypeRef};
     use crate::e2e::fixture::Fixture;
+    use std::collections::HashMap;
 
     fn make_fixture(id: &str) -> Fixture {
         Fixture {
@@ -80,6 +81,7 @@ mod trait_bridge_tests {
             "custom_module",
             "127.0.0.1",
             8000,
+            &HashMap::new(),
         );
 
         assert!(
@@ -404,5 +406,48 @@ mod gemfile_tests {
             out.contains("HARNESS_PORT="),
             "expected `HARNESS_PORT=` output in generated app_harness.rb:\n{out}"
         );
+    }
+}
+
+#[cfg(test)]
+mod env_setup_tests {
+    use super::super::project::render_env_setup;
+    use std::collections::HashMap;
+
+    #[test]
+    fn empty_env_produces_no_setup_block() {
+        let env = HashMap::new();
+        let output = render_env_setup(&env);
+        assert_eq!(output, "", "empty env must produce empty string");
+    }
+
+    #[test]
+    fn non_empty_env_produces_sorted_lines() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("FOO".to_string(), "bar".to_string());
+        env.insert("BAZ".to_string(), "qux".to_string());
+
+        let output = render_env_setup(&env);
+
+        // Lines must be sorted by key
+        let lines: Vec<&str> = output.lines().collect();
+        assert_eq!(lines.len(), 3, "expected 3 lines, got: {output}");
+        assert!(
+            lines[0].contains("BAZ"),
+            "first line should be BAZ (alphabetically first), got: {}",
+            lines[0]
+        );
+        assert!(lines[1].contains("FOO"), "second line should be FOO, got: {}", lines[1]);
+        assert!(
+            lines[2].contains("KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
+            "third line should be KREUZCRAWL_ALLOW_PRIVATE_NETWORK, got: {}",
+            lines[2]
+        );
+
+        // Each line must use ||= form with proper quoting
+        for line in lines {
+            assert!(line.contains("||="), "line must use ||= operator: {line}");
+        }
     }
 }

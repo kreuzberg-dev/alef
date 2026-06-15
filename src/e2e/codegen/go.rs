@@ -239,7 +239,12 @@ impl E2eCodegen for GoCodegen {
         if needs_main_test {
             files.push(GeneratedFile {
                 path: output_base.join("main_test.go"),
-                content: render_main_test_go(&e2e_config.test_documents_dir, needs_mock_server, has_http_fixtures),
+                content: render_main_test_go(
+                    &e2e_config.test_documents_dir,
+                    needs_mock_server,
+                    has_http_fixtures,
+                    &e2e_config.env,
+                ),
                 generated_header: true,
             });
 
@@ -342,12 +347,37 @@ fn render_go_mod(go_module_path: &str, replace_path: Option<&str>, version: &str
     out
 }
 
+/// Emit environment variable setup code for the TestMain function.
+/// Returns a Go code snippet that calls os.Setenv for each env var in the config,
+/// or an empty string if no env vars are configured. Uses setdefault semantics
+/// (checks if already set to allow parent runners to override).
+fn render_env_setup(env: &std::collections::HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    for k in keys {
+        let v = &env[k];
+        let _ = writeln!(out, "\tif _, ok := os.LookupEnv(\"{k}\"); !ok {{");
+        let _ = writeln!(out, "\t\t_ = os.Setenv(\"{k}\", \"{v}\")");
+        let _ = writeln!(out, "\t}}");
+    }
+    out
+}
+
 /// Generate `main_test.go` that spawns the app harness subprocess before all tests run.
 ///
 /// The harness is expected at `cmd/harness/main.go` (built as `./harness` binary).
 /// The harness prints `Harness listening on HOST:PORT` on stdout; we poll TCP port availability.
 /// On readiness, we export SUT_URL so all test files can call `os.Getenv("SUT_URL")`.
-fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bool, has_http_fixtures: bool) -> String {
+fn render_main_test_go(
+    test_documents_dir: &str,
+    needs_mock_server_bootstrap: bool,
+    has_http_fixtures: bool,
+    env: &std::collections::HashMap<String, String>,
+) -> String {
     // NOTE: the generated-file header is injected by the caller (generated_header: true).
     let mut out = String::new();
     let _ = writeln!(out, "package e2e_test");
@@ -384,6 +414,14 @@ fn render_main_test_go(test_documents_dir: &str, needs_mock_server_bootstrap: bo
     let _ = writeln!(out, "\t_, filename, _, _ := runtime.Caller(0)");
     let _ = writeln!(out, "\tdir := filepath.Dir(filename)");
     let _ = writeln!(out);
+
+    // Emit environment variable setup at the start of TestMain, before any other setup.
+    let env_setup = render_env_setup(env);
+    if !env_setup.is_empty() {
+        out.push_str(&env_setup);
+        let _ = writeln!(out);
+    }
+
     let _ = writeln!(
         out,
         "\t// Change to the configured test-documents directory (if it exists) so that fixture"
@@ -748,10 +786,70 @@ mod setup;
 mod test_backend;
 mod test_file;
 mod test_function;
-#[cfg(test)]
-mod tests;
 mod visitors;
 
 pub use test_backend::emit_test_backend;
 use test_file::{GoTestFileContext, render_test_file};
 use test_function::fixture_has_go_callable;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn render_env_setup_empty_returns_empty_string() {
+        let env = HashMap::new();
+        let out = render_env_setup(&env);
+        assert_eq!(out, "", "empty env should produce empty output");
+    }
+
+    #[test]
+    fn render_env_setup_single_var_contains_key_and_value() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        let out = render_env_setup(&env);
+        assert!(
+            out.contains("KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
+            "output should contain env var name: {out}"
+        );
+        assert!(out.contains("true"), "output should contain env var value: {out}");
+        assert!(
+            out.contains("os.LookupEnv"),
+            "output should use os.LookupEnv for setdefault behavior: {out}"
+        );
+        assert!(out.contains("os.Setenv"), "output should call os.Setenv: {out}");
+    }
+
+    #[test]
+    fn render_env_setup_multiple_vars_are_sorted() {
+        let mut env = HashMap::new();
+        env.insert("ZEBRA".to_string(), "value1".to_string());
+        env.insert("APPLE".to_string(), "value2".to_string());
+        env.insert("BANANA".to_string(), "value3".to_string());
+        let out = render_env_setup(&env);
+        let apple_idx = out.find("APPLE").expect("should contain APPLE");
+        let banana_idx = out.find("BANANA").expect("should contain BANANA");
+        let zebra_idx = out.find("ZEBRA").expect("should contain ZEBRA");
+        assert!(
+            apple_idx < banana_idx && banana_idx < zebra_idx,
+            "env vars should be sorted alphabetically: {out}"
+        );
+    }
+
+    #[test]
+    fn render_main_test_go_includes_env_setup_at_start() {
+        let mut env = HashMap::new();
+        env.insert("TEST_VAR".to_string(), "test_value".to_string());
+        let out = render_main_test_go("test_documents", false, false, &env);
+
+        // Find the position of env setup and the start of TestMain body
+        let dir_idx = out
+            .find("dir := filepath.Dir(filename)")
+            .expect("should contain dir assignment");
+        let test_var_idx = out.find("TEST_VAR").expect("should contain TEST_VAR");
+
+        // Env setup should come after dir assignment
+        assert!(dir_idx < test_var_idx, "env setup should come after dir initialization");
+    }
+}

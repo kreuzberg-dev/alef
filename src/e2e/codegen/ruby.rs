@@ -124,6 +124,7 @@ impl E2eCodegen for RubyCodegen {
                     &module_path,
                     &e2e_config.harness.host,
                     e2e_config.harness.port,
+                    &e2e_config.env,
                 ),
                 generated_header: true,
             });

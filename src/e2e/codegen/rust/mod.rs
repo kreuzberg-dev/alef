@@ -4,6 +4,7 @@
 //! JSON fixtures, driven entirely by `E2eConfig` and `CallConfig`.
 
 pub mod assertions;
+pub mod cargo_config;
 pub mod cargo_toml;
 pub mod http;
 pub mod mock_server;
@@ -13,6 +14,7 @@ mod args;
 mod assertion_helpers;
 mod assertion_synthetic;
 
+pub use cargo_config::render_cargo_config;
 pub use cargo_toml::render_cargo_toml;
 pub use mock_server::{render_common_module, render_mock_server_binary, render_mock_server_module};
 
@@ -97,6 +99,19 @@ impl E2eCodegen for RustE2eCodegen {
             .filter(|f| !is_skipped(f, "rust"))
             .any(|f| f.args.iter().any(|a| a.arg_type == "test_backend"));
         let needs_anyhow = all_call_args_for_anyhow || any_fixture_test_backend;
+
+        // Emit `.cargo/config.toml` with an `[env]` block when `[e2e.env]`
+        // is non-empty. Cargo's `[env]` table propagates these variables to
+        // every test-binary process before any binding constructor runs,
+        // with `force = false` so a parent shell can still override at
+        // spawn time (setdefault semantics).
+        if let Some(content) = render_cargo_config(&e2e_config.env) {
+            files.push(GeneratedFile {
+                path: output_base.join(".cargo").join("config.toml"),
+                content,
+                generated_header: false,
+            });
+        }
 
         let crate_version = resolve_crate_version(e2e_config).or_else(|| config.resolved_version());
         files.push(GeneratedFile {

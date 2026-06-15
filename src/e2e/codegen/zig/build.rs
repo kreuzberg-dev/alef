@@ -125,6 +125,7 @@ pub(super) fn render_build_zig(
     test_documents_path: &str,
     dep_mode: crate::e2e::config::DependencyMode,
     use_platform_registry_deps: bool,
+    env: &std::collections::HashMap<String, String>,
 ) -> String {
     let ZigBuildFlags {
         has_file_fixtures,
@@ -427,6 +428,14 @@ pub fn build(b: *std.Build) void {
                 "    {test_name}_run.setCwd(b.path(\"{test_documents_path}\"));\n"
             ));
         }
+        // Inject configured environment variables in alphabetical order.
+        let mut sorted_env: Vec<_> = env.iter().collect();
+        sorted_env.sort_by_key(|(k, _)| k.as_str());
+        for (key, value) in sorted_env {
+            content.push_str(&format!(
+                "    {test_name}_run.setEnvironmentVariable(\"{key}\", \"{value}\");\n"
+            ));
+        }
         if needs_mock_server {
             // Forward the captured mock-server URL into the test binary's
             // environment so `std.c.getenv(\"MOCK_SERVER_URL\")` resolves to the
@@ -568,6 +577,7 @@ mod zig_build_tests {
             "test_documents",
             DependencyMode::Registry,
             false,
+            &std::collections::HashMap::new(),
         );
 
         // Must NOT reference the workspace-local target directory.
@@ -613,6 +623,7 @@ mod zig_build_tests {
             "test_documents",
             DependencyMode::Local,
             false,
+            &std::collections::HashMap::new(),
         );
 
         // In local mode, workspace paths are expected for development.
@@ -625,6 +636,97 @@ mod zig_build_tests {
         assert!(
             content.contains("linkSystemLibrary(\"demo_client_ffi\""),
             "local mode build.zig must link the FFI system library, got:\n{content}"
+        );
+    }
+
+    /// Non-empty env vars are injected via setEnvironmentVariable in alphabetical
+    /// order after addRunArtifact, and keys are sorted.
+    #[test]
+    fn env_vars_injected_alphabetically_after_run_artifact() {
+        let test_filenames = vec!["basic_test.zig".to_string()];
+        let mut env = std::collections::HashMap::new();
+        env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
+        env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
+        env.insert("BETA_VAR".to_string(), "b_value".to_string());
+
+        let content = render_build_zig(
+            &test_filenames,
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Local,
+            false,
+            &env,
+        );
+
+        // All three vars must be present.
+        assert!(
+            content.contains("setEnvironmentVariable(\"ALPHA_VAR\", \"a_value\")"),
+            "env var ALPHA_VAR not found"
+        );
+        assert!(
+            content.contains("setEnvironmentVariable(\"BETA_VAR\", \"b_value\")"),
+            "env var BETA_VAR not found"
+        );
+        assert!(
+            content.contains("setEnvironmentVariable(\"ZEBRA_VAR\", \"z_value\")"),
+            "env var ZEBRA_VAR not found"
+        );
+
+        // Alphabetical order: ALPHA < BETA < ZEBRA.
+        let alpha_pos = content.find("ALPHA_VAR").expect("ALPHA_VAR not found");
+        let beta_pos = content.find("BETA_VAR").expect("BETA_VAR not found");
+        let zebra_pos = content.find("ZEBRA_VAR").expect("ZEBRA_VAR not found");
+        assert!(
+            alpha_pos < beta_pos && beta_pos < zebra_pos,
+            "env vars not in alphabetical order: ALPHA at {}, BETA at {}, ZEBRA at {}",
+            alpha_pos,
+            beta_pos,
+            zebra_pos
+        );
+    }
+
+    /// Empty env produces no setEnvironmentVariable calls.
+    #[test]
+    fn empty_env_produces_no_env_block() {
+        let test_filenames = vec!["basic_test.zig".to_string()];
+        let env = std::collections::HashMap::new();
+
+        let content = render_build_zig(
+            &test_filenames,
+            "demo_client",
+            "demo_client",
+            "demo_client_ffi",
+            "../../crates/demo-client-ffi",
+            ZigBuildFlags {
+                has_file_fixtures: false,
+                needs_mock_server: false,
+            },
+            "test_documents",
+            DependencyMode::Local,
+            false,
+            &env,
+        );
+
+        // With no env, no setEnvironmentVariable calls except the conditional mock-server ones.
+        let lines: Vec<&str> = content
+            .lines()
+            .filter(|line| {
+                line.contains("setEnvironmentVariable")
+                    && !line.contains("if (mock_server")
+                    && !line.contains("_entry.key_ptr")
+            })
+            .collect();
+        assert!(
+            lines.is_empty(),
+            "empty env must not emit unconditional setEnvironmentVariable calls, got: {:?}",
+            lines
         );
     }
 }

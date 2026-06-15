@@ -285,6 +285,25 @@ pub(super) fn render_app_harness(
 // conftest.py
 // ---------------------------------------------------------------------------
 
+/// Emit a Python snippet that copies every `[e2e.env]` entry into `os.environ`
+/// using `setdefault` so a parent runner can still override at spawn time.
+/// Returns empty when no env vars are configured.
+fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
+    if e2e_config.env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
+    keys.sort();
+    let entries = keys
+        .iter()
+        .map(|k| format!("    {:?}: {:?},", k, &e2e_config.env[*k]))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "import os as _os\n\n_SUITE_ENV = {{\n{entries}\n}}\nfor _k, _v in _SUITE_ENV.items():\n    _os.environ.setdefault(_k, _v)\n\n"
+    )
+}
+
 pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -> String {
     let module = resolve_module(e2e_config);
 
@@ -314,6 +333,7 @@ pub(super) fn render_conftest(e2e_config: &E2eConfig, groups: &[FixtureGroup]) -
     });
 
     let header = hash::header(CommentStyle::Hash);
+    let env_setup = render_env_setup_block(e2e_config);
 
     if uses_harness {
         // Server-pattern harness: spawn app_harness.py subprocess
@@ -332,7 +352,7 @@ from typing import Generator
 
 import pytest
 
-# Ensure the package is importable.
+{env_setup}# Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
 _HERE = Path(__file__).parent
@@ -438,7 +458,7 @@ from typing import Generator
 
 import pytest
 
-# Ensure the package is importable.
+{env_setup}# Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
 _HERE = Path(__file__).parent
@@ -555,7 +575,7 @@ def app(mock_server: str) -> object:  # noqa: ARG001
 import os
 from pathlib import Path
 
-# Ensure the package is importable.
+{env_setup}# Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 
 # Change to the configured test-documents directory so that fixture file
@@ -570,7 +590,7 @@ if _TEST_DOCUMENTS.is_dir():
     } else {
         format!(
             r#"{header}"""Pytest configuration for e2e tests."""
-# Ensure the package is importable.
+{env_setup}# Ensure the package is importable.
 # The {module} package is expected to be installed in the current environment.
 "#
         )
@@ -607,6 +627,35 @@ mod tests {
         let out = render_conftest(&e2e_config, &groups);
         assert!(out.contains("Pytest configuration"), "got: {out}");
         assert!(!out.contains("mock_server"), "got: {out}");
+    }
+
+    #[test]
+    fn render_conftest_emits_env_block_when_env_configured() {
+        let mut e2e_config = crate::e2e::config::E2eConfig::default();
+        e2e_config
+            .env
+            .insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_owned(), "true".to_owned());
+        e2e_config.env.insert("ALEF_FOO".to_owned(), "bar".to_owned());
+        let groups: Vec<crate::e2e::fixture::FixtureGroup> = Vec::new();
+        let out = render_conftest(&e2e_config, &groups);
+        assert!(out.contains("_SUITE_ENV"), "got: {out}");
+        assert!(out.contains("\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\""), "got: {out}");
+        assert!(out.contains("\"ALEF_FOO\""), "got: {out}");
+        assert!(out.contains("setdefault"), "got: {out}");
+        let alef_pos = out.find("\"ALEF_FOO\"").unwrap();
+        let kreuz_pos = out.find("\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\"").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys should be sorted alphabetically; got: {out}");
+    }
+
+    #[test]
+    fn render_conftest_skips_env_block_when_env_empty() {
+        let e2e_config = crate::e2e::config::E2eConfig::default();
+        let groups: Vec<crate::e2e::fixture::FixtureGroup> = Vec::new();
+        let out = render_conftest(&e2e_config, &groups);
+        assert!(
+            !out.contains("_SUITE_ENV"),
+            "empty env should emit no block; got: {out}"
+        );
     }
 
     #[test]

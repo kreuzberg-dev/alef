@@ -211,6 +211,11 @@ pub(super) fn render_test_file(
     if has_http_fixtures || has_page_action || has_mock_url_refs || has_json_array_args {
         let _ = writeln!(out, "import 'dart:convert';");
     }
+    // Require dart:ffi for setenv if e2e config has env vars to inject
+    if !e2e_config.env.is_empty() {
+        let _ = writeln!(out, "import 'dart:ffi';");
+        let _ = writeln!(out, "import 'package:ffi/ffi.dart';");
+    }
     let _ = writeln!(out);
 
     // Emit file-level HTTP client and serialization mutex.
@@ -424,6 +429,25 @@ pub(super) fn render_test_file(
         let _ = writeln!(out);
     }
 
+    // Emit _setEnv helper if e2e config has env vars to inject.
+    if !e2e_config.env.is_empty() {
+        let _ = writeln!(out, "void _setEnv(String key, String value) {{");
+        let _ = writeln!(out, "  final libc = DynamicLibrary.process();");
+        let _ = writeln!(out, "  final setenv = libc.lookupFunction<");
+        let _ = writeln!(out, "      Int32 Function(Pointer<Utf8>, Pointer<Utf8>, Int32),");
+        let _ = writeln!(out, "      int Function(Pointer<Utf8>, Pointer<Utf8>, int)>('setenv');");
+        let _ = writeln!(out, "  final keyPtr = key.toNativeUtf8();");
+        let _ = writeln!(out, "  final valuePtr = value.toNativeUtf8();");
+        let _ = writeln!(out, "  try {{");
+        let _ = writeln!(out, "    setenv(keyPtr, valuePtr, 0);");
+        let _ = writeln!(out, "  }} finally {{");
+        let _ = writeln!(out, "    calloc.free(keyPtr);");
+        let _ = writeln!(out, "    calloc.free(valuePtr);");
+        let _ = writeln!(out, "  }}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+    }
+
     // First pass: collect module-level test stub class definitions BEFORE void main().
     // Dart does not allow class definitions inside functions, so we must emit them
     // at the module level before void main().
@@ -453,6 +477,17 @@ pub(super) fn render_test_file(
     // The test_documents directory lives two levels above e2e/dart/ (at the repo root).
     // The FIXTURES_DIR environment variable can override this for CI environments.
     let _ = writeln!(out, "  setUpAll(() async {{");
+    // Inject e2e env vars before initializing the binding engine.
+    if !e2e_config.env.is_empty() {
+        let mut keys: Vec<_> = e2e_config.env.keys().collect();
+        keys.sort();
+        for key in keys {
+            let value = &e2e_config.env[key];
+            // Escape backslashes and quotes in value for Dart string literal.
+            let escaped_value = value.replace('\\', "\\\\").replace('"', "\\\"");
+            let _ = writeln!(out, "    _setEnv('{key}', '{escaped_value}');");
+        }
+    }
     let _ = writeln!(out, "    await RustLib.init();");
     let _ = writeln!(out, "    _rustLibInitialized = true;");
     if needs_chdir {

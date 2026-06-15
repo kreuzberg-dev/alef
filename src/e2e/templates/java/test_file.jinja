@@ -18,8 +18,10 @@ package {{ java_group_id }}.e2e;
 {{ imp }}
 {% endfor %}
 {% endif %}
-{%- if uses_harness %}
+{%- if uses_harness or env_entries %}
 import org.junit.jupiter.api.BeforeAll;
+{%- endif %}
+{%- if uses_harness %}
 import org.junit.jupiter.api.AfterAll;
 import java.io.IOException;
 import java.net.Socket;
@@ -32,6 +34,17 @@ public class {{ test_class_name }} {
 {%- if needs_object_mapper %}
 
     private static final ObjectMapper MAPPER = new ObjectMapper().registerModule(new Jdk8Module()).setPropertyNamingStrategy(com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+{%- endif %}
+{%- if env_entries %}
+
+    @BeforeAll
+    static void initEnv() {
+{%- for key, val in env_entries %}
+        if (System.getProperty("{{ key }}") == null) {
+            System.setProperty("{{ key }}", "{{ val }}");
+        }
+{%- endfor %}
+    }
 {%- endif %}
 {%- if uses_harness %}
 

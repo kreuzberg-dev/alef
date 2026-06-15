@@ -112,13 +112,36 @@ pub(super) fn render_app_harness(
     crate::e2e::template_env::render("elixir/app_harness.exs.jinja", ctx)
 }
 
+/// Emit an Elixir snippet that sets every `[e2e.env]` entry into the environment
+/// using `System.get_env` to check first so a parent runner can override at spawn time.
+/// Returns empty when no env vars are configured.
+fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
+    if e2e_config.env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    for k in keys {
+        let v = &e2e_config.env[k];
+        out.push_str(&format!(
+            "unless System.get_env(\"{}\") do\n  System.put_env(\"{}\", \"{}\")\nend\n",
+            k, k, v
+        ));
+    }
+    out.push('\n');
+    out
+}
+
 pub(super) fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2eConfig) -> String {
+    let env_setup = render_env_setup_block(e2e_config);
+
     if uses_harness {
         // Server-pattern harness: spawn app_harness.exs subprocess
         let host = &e2e_config.harness.host;
         let port = e2e_config.harness.port;
         format!(
-            r#"# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
+            r#"{env_setup}# Start a named Finch pool before ExUnit configured to use HTTP/1 only.
 # Tests pass `finch: AlefE2EFinch` on every Req call; the pool's protocol
 # selection (via `pools.default.protocols: [:http1]`) is the canonical place
 # to pin the wire protocol since Req rejects per-call `:connect_options` when
@@ -201,9 +224,9 @@ ExUnit.start()
 "#;
         let mock_server =
             crate::e2e::template_env::render("elixir/test_helper_mock_server.exs.jinja", minijinja::context!());
-        format!("{}{}", finch_setup, mock_server)
+        format!("{}{}{}", env_setup, finch_setup, mock_server)
     } else {
-        "ExUnit.start()\n".to_string()
+        format!("{}ExUnit.start()\n", env_setup)
     }
 }
 

@@ -269,7 +269,7 @@ impl E2eCodegen for CCodegen {
         // Generate main.c.
         files.push(GeneratedFile {
             path: output_base.join("main.c"),
-            content: render_main_c(&active_groups, &visitor_fixtures),
+            content: render_main_c(&active_groups, &visitor_fixtures, &e2e_config.env),
             generated_header: true,
         });
 

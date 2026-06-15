@@ -2,7 +2,36 @@
 
 use crate::core::hash::{self, CommentStyle};
 use crate::core::version::to_r_version;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+
+/// Emit an R snippet that calls `Sys.setenv(KEY = VALUE)` for every
+/// `[e2e.env]` entry when not already set. The check via `Sys.getenv(..., unset = "")`
+/// preserves any value supplied by the parent shell (setdefault semantics).
+/// Returns an empty string when the env map is empty. Keys are sorted
+/// alphabetically for deterministic output.
+pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = env.keys().collect();
+    keys.sort();
+    let mut out = String::new();
+    let _ = writeln!(out, "# Suite-level environment defaults from [e2e.env]. Each entry");
+    let _ = writeln!(out, "# uses setdefault semantics: only applied when not already set.");
+    for key in keys {
+        let value = &env[key];
+        // R double-quoted strings: escape `\` and `"`.
+        let escaped = value.replace('\\', "\\\\").replace('"', "\\\"");
+        let _ = writeln!(out, "if (Sys.getenv(\"{key}\", unset = \"\") == \"\") {{");
+        let _ = writeln!(out, "  args <- list(\"{escaped}\")");
+        let _ = writeln!(out, "  names(args) <- \"{key}\"");
+        let _ = writeln!(out, "  do.call(Sys.setenv, args)");
+        let _ = writeln!(out, "}}");
+    }
+    let _ = writeln!(out);
+    out
+}
 
 pub(super) fn render_description(
     pkg_name: &str,
@@ -27,10 +56,14 @@ Config/testthat/edition: 3
     )
 }
 
-pub(super) fn render_setup_fixtures(test_documents_path: &str) -> String {
+pub(super) fn render_setup_fixtures(test_documents_path: &str, env: &HashMap<String, String>) -> String {
     let mut out = String::new();
     out.push_str(&hash::header(CommentStyle::Hash));
     let _ = writeln!(out);
+    let env_block = render_env_block(env);
+    if !env_block.is_empty() {
+        out.push_str(&env_block);
+    }
     let _ = writeln!(
         out,
         "# Resolve fixture paths against the repo's `test_documents/` directory."
@@ -196,6 +229,58 @@ mod description_tests {
         assert!(
             !out.contains("Imports:"),
             "local mode must not emit Imports line, got: {out}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod env_tests {
+    use super::{render_env_block, render_setup_fixtures};
+    use std::collections::HashMap;
+
+    #[test]
+    fn render_env_block_emits_setdefault_with_sorted_keys() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("ALEF_FOO".to_string(), "bar".to_string());
+        let block = render_env_block(&env);
+        assert!(
+            block.contains("if (Sys.getenv(\"ALEF_FOO\", unset = \"\") == \"\") {"),
+            "got: {block}"
+        );
+        assert!(
+            block.contains("if (Sys.getenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", unset = \"\") == \"\") {"),
+            "got: {block}"
+        );
+        assert!(block.contains("names(args) <- \"ALEF_FOO\""), "got: {block}");
+        let alef_pos = block.find("ALEF_FOO").unwrap();
+        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+    }
+
+    #[test]
+    fn render_env_block_empty_when_no_env_configured() {
+        let env = HashMap::new();
+        assert_eq!(render_env_block(&env), "");
+    }
+
+    #[test]
+    fn render_setup_fixtures_includes_env_block_when_env_configured() {
+        let mut env = HashMap::new();
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        let out = render_setup_fixtures("../../../test_documents", &env);
+        assert!(
+            out.contains("if (Sys.getenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", unset = \"\") == \"\")"),
+            "got: {out}"
+        );
+    }
+
+    #[test]
+    fn render_setup_fixtures_omits_env_block_when_env_empty() {
+        let out = render_setup_fixtures("../../../test_documents", &HashMap::new());
+        assert!(
+            !out.contains("Suite-level environment defaults"),
+            "no env block when env empty; got: {out}"
         );
     }
 }

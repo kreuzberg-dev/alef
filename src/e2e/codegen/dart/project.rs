@@ -9,6 +9,7 @@ pub(super) fn render_pubspec(
 ) -> String {
     let test_ver = crate::core::template_versions::pub_dev::TEST_PACKAGE;
     let http_ver = crate::core::template_versions::pub_dev::HTTP_PACKAGE;
+    let ffi_ver = crate::core::template_versions::pub_dev::FFI_PACKAGE;
 
     let dep_block = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
@@ -41,6 +42,7 @@ environment:
 
 dependencies:
 {dep_block}
+  ffi: {ffi_ver}
 
 dev_dependencies:
   test: {test_ver}

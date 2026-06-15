@@ -183,6 +183,7 @@ impl E2eCodegen for PhpCodegen {
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
             content: project::render_bootstrap(
+                e2e_config,
                 &pkg_path,
                 has_mock_server_fixtures,
                 has_file_fixtures,

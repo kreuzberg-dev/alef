@@ -124,7 +124,12 @@ impl E2eCodegen for CSharpCodegen {
         // need it) spawns the mock-server binary.
         files.push(GeneratedFile {
             path: output_base.join("TestSetup.cs"),
-            content: render_test_setup(needs_mock_server, &e2e_config.test_documents_dir, &namespace),
+            content: render_test_setup(
+                needs_mock_server,
+                &e2e_config.test_documents_dir,
+                &namespace,
+                &e2e_config.env,
+            ),
             generated_header: true,
         });
 

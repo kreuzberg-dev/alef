@@ -65,6 +65,24 @@ pub(super) fn render_test_file(
     let _ = writeln!(out, "    override class func setUp() {{");
     let _ = writeln!(out, "        super.setUp()");
 
+    // Inject environment variables from e2e.env, sorted alphabetically.
+    if !e2e_config.env.is_empty() {
+        let mut keys: Vec<_> = e2e_config.env.keys().collect();
+        keys.sort();
+        for key in keys {
+            let value = &e2e_config.env[key];
+            let _ = writeln!(
+                out,
+                "        _ = \"{}\".withCString {{ val in",
+                value.replace('\\', "\\\\").replace('"', "\\\"")
+            );
+            let _ = writeln!(out, "            \"{}\".withCString {{ key in", key);
+            let _ = writeln!(out, "                setenv(key, val, 0)");
+            let _ = writeln!(out, "            }}");
+            let _ = writeln!(out, "        }}");
+        }
+    }
+
     // Spawn the harness subprocess if SUT_URL is not already set.
     // Only emit when there are HTTP fixtures; consumers without HTTP tests
     // don't need the harness.

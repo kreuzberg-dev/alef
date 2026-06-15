@@ -312,7 +312,31 @@ pub(super) fn render_app_harness(e2e_config: &E2eConfig, groups: &[FixtureGroup]
     crate::e2e::template_env::render("php/app_harness.php.jinja", ctx)
 }
 
+/// Emit PHP code that sets every `[e2e.env]` entry into the environment
+/// using the setdefault pattern (check getenv, then update putenv + $_ENV + $_SERVER).
+/// Returns empty when no env vars are configured.
+fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
+    if e2e_config.env.is_empty() {
+        return String::new();
+    }
+    let mut keys: Vec<&String> = e2e_config.env.keys().collect();
+    keys.sort();
+    let lines = keys
+        .iter()
+        .map(|k| {
+            let v = &e2e_config.env[*k];
+            format!(
+                "if (getenv('{}') === false) {{\n    putenv('{}={}');\n    $_ENV['{}'] = '{}';\n    $_SERVER['{}'] = '{}';\n}}",
+                k, k, v, k, v, k, v
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    format!("{}\n\n", lines)
+}
+
 pub(super) fn render_bootstrap(
+    e2e_config: &E2eConfig,
     pkg_path: &str,
     has_mock_server_fixtures: bool,
     has_file_fixtures: bool,
@@ -322,10 +346,12 @@ pub(super) fn render_bootstrap(
     harness_port: u16,
 ) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
+    let env_setup = render_env_setup_block(e2e_config);
     crate::e2e::template_env::render(
         "php/bootstrap.php.jinja",
         minijinja::context! {
             header => header,
+            env_setup => env_setup,
             pkg_path => pkg_path,
             has_mock_server_fixtures => has_mock_server_fixtures,
             has_file_fixtures => has_file_fixtures,
@@ -400,4 +426,87 @@ if (!file_exists($phpunitPath)) {{
 require $phpunitPath;
 "#
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    fn make_e2e_config_with_env(env: HashMap<String, String>) -> E2eConfig {
+        let mut config = E2eConfig::default();
+        config.env = env;
+        config
+    }
+
+    #[test]
+    fn test_render_env_setup_block_empty_env() {
+        let config = make_e2e_config_with_env(HashMap::new());
+        let result = render_env_setup_block(&config);
+        assert!(result.is_empty(), "empty env should produce empty setup block");
+    }
+
+    #[test]
+    fn test_render_env_setup_block_single_env_var() {
+        let mut env = HashMap::new();
+        env.insert("ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+
+        let config = make_e2e_config_with_env(env);
+        let result = render_env_setup_block(&config);
+
+        assert!(
+            result.contains("getenv('ALLOW_PRIVATE_NETWORK')"),
+            "should check getenv"
+        );
+        assert!(
+            result.contains("putenv('ALLOW_PRIVATE_NETWORK=true')"),
+            "should call putenv"
+        );
+        assert!(
+            result.contains("$_ENV['ALLOW_PRIVATE_NETWORK'] = 'true'"),
+            "should set $_ENV"
+        );
+        assert!(
+            result.contains("$_SERVER['ALLOW_PRIVATE_NETWORK'] = 'true'"),
+            "should set $_SERVER"
+        );
+    }
+
+    #[test]
+    fn test_render_env_setup_block_multiple_env_vars_sorted() {
+        let mut env = HashMap::new();
+        env.insert("ZEBRA_VAR".to_string(), "z_value".to_string());
+        env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
+        env.insert("BETA_VAR".to_string(), "b_value".to_string());
+
+        let config = make_e2e_config_with_env(env);
+        let result = render_env_setup_block(&config);
+
+        // Check that all variables are present
+        assert!(result.contains("ALPHA_VAR"), "should contain ALPHA_VAR");
+        assert!(result.contains("BETA_VAR"), "should contain BETA_VAR");
+        assert!(result.contains("ZEBRA_VAR"), "should contain ZEBRA_VAR");
+
+        // Check alphabetical ordering by verifying positions
+        let alpha_pos = result.find("ALPHA_VAR").unwrap();
+        let beta_pos = result.find("BETA_VAR").unwrap();
+        let zebra_pos = result.find("ZEBRA_VAR").unwrap();
+
+        assert!(alpha_pos < beta_pos, "ALPHA_VAR should appear before BETA_VAR");
+        assert!(beta_pos < zebra_pos, "BETA_VAR should appear before ZEBRA_VAR");
+    }
+
+    #[test]
+    fn test_render_env_setup_block_special_characters_escaped() {
+        let mut env = HashMap::new();
+        env.insert("PATH_VAR".to_string(), "/some/path/value".to_string());
+
+        let config = make_e2e_config_with_env(env);
+        let result = render_env_setup_block(&config);
+
+        assert!(
+            result.contains("putenv('PATH_VAR=/some/path/value')"),
+            "should preserve path"
+        );
+    }
 }

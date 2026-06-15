@@ -4,7 +4,28 @@ use crate::core::version::to_rubygems_prerelease;
 use crate::e2e::config::E2eConfig;
 use crate::e2e::escape::ruby_string_literal;
 use crate::e2e::fixture::FixtureGroup;
+use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
+
+/// Render environment variable setup lines for spec_helper.rb.
+/// Returns empty string if env is empty, otherwise returns alphabetically-sorted
+/// ENV[k] ||= v assignments, each on its own line.
+pub(super) fn render_env_setup(env: &HashMap<String, String>) -> String {
+    if env.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::new();
+    let mut sorted_keys: Vec<_> = env.keys().collect();
+    sorted_keys.sort();
+
+    for key in sorted_keys {
+        let value = &env[key];
+        let _ = writeln!(out, "ENV[{key:?}] ||= {value:?}");
+    }
+
+    out
+}
 
 /// Build a Ruby-native middleware value for app harness fixtures.
 pub(super) fn build_middleware_value(middleware: &Option<crate::e2e::fixture::HttpMiddleware>) -> serde_json::Value {
@@ -200,11 +221,19 @@ pub(super) fn render_spec_helper(
     module_path: &str,
     harness_host: &str,
     _harness_port: u16,
+    env: &HashMap<String, String>,
 ) -> String {
     let header = hash::header(CommentStyle::Hash);
     let mut out = header;
     out.push_str("# frozen_string_literal: true\n");
     let _module_name = super::values::ruby_module_name(module_path);
+
+    // Environment variables: set at suite start, before any require or spec config
+    let env_setup = render_env_setup(env);
+    if !env_setup.is_empty() {
+        let _ = writeln!(out);
+        out.push_str(&env_setup);
+    }
 
     // Note: spec_helper.rb may contain library-specific registry cleanup hooks
     // (e.g., tracking plugin backends, clearing test-prefixed stubs between tests).
