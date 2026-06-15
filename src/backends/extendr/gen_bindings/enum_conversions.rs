@@ -1,9 +1,14 @@
-use crate::codegen::conversions::helpers::{core_enum_path_remapped, is_tuple_variant};
+use crate::codegen::conversions::helpers::is_tuple_variant;
+use crate::codegen::generators::type_paths::resolve_type_path;
 use crate::core::ir::{EnumDef, EnumVariant};
+use std::collections::HashMap;
 
-pub(super) fn gen_from_binding_to_core(enum_def: &EnumDef, core_import: &str) -> String {
-    let config = crate::codegen::conversions::ConversionConfig::default();
-    let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
+pub(super) fn gen_from_binding_to_core(
+    enum_def: &EnumDef,
+    core_import: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let core_path = resolve_type_path(&enum_def.name, core_import, type_paths);
     let binding_name = enum_def.name.as_str();
     let arms: Vec<String> = enum_def
         .variants
@@ -39,9 +44,12 @@ pub(super) fn gen_from_binding_to_core(enum_def: &EnumDef, core_import: &str) ->
     )
 }
 
-pub(super) fn gen_from_core_to_binding(enum_def: &EnumDef, core_import: &str) -> String {
-    let config = crate::codegen::conversions::ConversionConfig::default();
-    let core_path = core_enum_path_remapped(enum_def, core_import, config.source_crate_remaps);
+pub(super) fn gen_from_core_to_binding(
+    enum_def: &EnumDef,
+    core_import: &str,
+    type_paths: &HashMap<String, String>,
+) -> String {
+    let core_path = resolve_type_path(&enum_def.name, core_import, type_paths);
     let binding_name = enum_def.name.as_str();
     let arms: Vec<String> = enum_def
         .variants

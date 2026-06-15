@@ -10,6 +10,7 @@ use self::trait_bridge_wrappers::{collect_trait_bridge_fn_names, collect_trait_b
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
 use crate::codegen::generators::trait_bridge::find_bridge_field;
+use crate::codegen::generators::type_paths::build_type_path_lookup;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
@@ -44,6 +45,8 @@ impl Backend for ExtendrBackend {
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
         let core_import = config.core_import_name();
+        // Build type path map for resolving fully-qualified paths to enums not re-exported at crate root
+        let type_paths = build_type_path_lookup(api);
         // Compute flat data enum names first so binding_config and conversion config can use them.
         let flat_data_enum_names_vec: Vec<String> = api
             .enums
@@ -626,10 +629,10 @@ impl Backend for ExtendrBackend {
                 // only the variant tag.
                 // Emit binding→core for any enum in the surface (not just input params).
                 if all_surface_types.contains(&e.name) && crate::codegen::conversions::can_generate_enum_conversion(e) {
-                    builder.add_item(&enum_conversions::gen_from_binding_to_core(e, &core_import));
+                    builder.add_item(&enum_conversions::gen_from_binding_to_core(e, &core_import, &type_paths));
                 }
                 if crate::codegen::conversions::can_generate_enum_conversion_from_core(e) {
-                    builder.add_item(&enum_conversions::gen_from_core_to_binding(e, &core_import));
+                    builder.add_item(&enum_conversions::gen_from_core_to_binding(e, &core_import, &type_paths));
                 }
             }
         }
