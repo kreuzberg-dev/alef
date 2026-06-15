@@ -52,6 +52,7 @@ fn e2e_config_with_exclusions(excluded: &[&str]) -> E2eConfig {
         result_fields: HashSet::new(),
         fields_c_types: Default::default(),
         fields_enum: HashSet::new(),
+        env: Default::default(),
         dep_mode: Default::default(),
         registry: Default::default(),
         exclude_categories: excluded.iter().map(|s| s.to_string()).collect(),

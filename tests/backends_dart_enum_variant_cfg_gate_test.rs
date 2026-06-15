@@ -1,13 +1,10 @@
 /// Test that enum variants carrying a `#[cfg(feature = "...")]` attribute cause the Dart
-/// Rust crate generator to emit matching `#[cfg(...)]` guards in:
-///   1. the `#[frb(mirror(...))]` enum body (so the mirror type itself is conditional), and
-///   2. the `From<CoreType>` match arm (core → mirror direction), and
-///   3. the `From<MirrorType>` match arm (mirror → core direction).
+/// Rust crate generator to keep the mirror enum complete while guarding upstream-referencing
+/// conversion arms.
 ///
-/// This is the fix for the kreuzberg regression where `ImageOutputFormat::Heif { quality }`
-/// is gated behind the `heic` feature but the generated `packages/dart/rust/src/lib.rs`
-/// unconditionally referenced it, causing `cargo check` failures on Android/iOS targets
-/// that activate `android-target` (which excludes `heic`).
+/// This covers a regression where a generated Rust crate unconditionally referenced a
+/// feature-gated upstream enum variant, causing `cargo check` failures when that feature was
+/// inactive.
 use alef::backends::dart::DartBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{ResolvedCrateConfig, new_config::NewAlefConfig};
@@ -140,40 +137,62 @@ fn generate_lib_rs(enum_def: EnumDef) -> String {
         .clone()
 }
 
-#[test]
-fn cfg_gated_variant_emits_cfg_attribute_in_mirror_enum() {
-    let lib_rs = generate_lib_rs(make_image_output_format_enum());
+fn mirror_enum_section(lib_rs: &str) -> &str {
+    let start = lib_rs
+        .find("pub enum ImageOutputFormat {")
+        .expect("mirror enum section must exist");
+    let end = lib_rs[start..]
+        .find("\n}\n\n// From<SourceT>")
+        .map(|offset| start + offset + "\n}\n".len())
+        .expect("mirror enum section must end before conversion impls");
+    &lib_rs[start..end]
+}
 
-    // The mirror enum body must contain `#[cfg(feature = "heic")]` before `Heif`.
+fn from_core_section(lib_rs: &str) -> &str {
+    let start = lib_rs
+        .find("impl From<demo::ImageOutputFormat> for ImageOutputFormat")
+        .expect("From<CoreType> impl must exist");
+    &lib_rs[start..]
+}
+
+#[test]
+fn cfg_gated_variant_keeps_mirror_variant_unconditional() {
+    let lib_rs = generate_lib_rs(make_image_output_format_enum());
+    let mirror_enum = mirror_enum_section(&lib_rs);
+
     assert!(
-        lib_rs.contains(r#"#[cfg(feature = "heic")]"#),
-        "Expected #[cfg(feature = \"heic\")] in generated lib.rs mirror enum, but not found.\n\
-         Generated output (enum section):\n{lib_rs}",
+        mirror_enum.contains("Heif {"),
+        "mirror enum must include the feature-gated variant unconditionally:\n{mirror_enum}"
+    );
+    assert!(
+        !mirror_enum.contains(r#"#[cfg(feature = "heic")]"#),
+        "mirror enum must not propagate upstream cfg guards because FRB generates \
+         unconditional references to mirror variants:\n{mirror_enum}"
     );
 }
 
 #[test]
-fn cfg_gated_variant_cfg_precedes_variant_in_mirror_body() {
+fn cfg_gated_variant_cfg_precedes_variant_in_from_core_arm() {
     let lib_rs = generate_lib_rs(make_image_output_format_enum());
+    let from_core = from_core_section(&lib_rs);
 
-    // The `#[cfg(...)]` must appear before the `Heif {` line (i.e. at a lower line index).
-    let cfg_line = lib_rs
+    let cfg_line = from_core
         .lines()
         .enumerate()
         .find(|(_, l)| l.contains(r#"#[cfg(feature = "heic")]"#))
         .map(|(i, _)| i)
         .expect("#[cfg(feature = \"heic\")] line not found");
 
-    let heif_line = lib_rs
+    let heif_arm_line = from_core
         .lines()
         .enumerate()
-        .find(|(_, l)| l.contains("Heif"))
+        .find(|(_, l)| l.contains("demo::ImageOutputFormat::Heif"))
         .map(|(i, _)| i)
-        .expect("Heif variant line not found");
+        .expect("Heif match arm line not found");
 
     assert!(
-        cfg_line < heif_line,
-        "#[cfg] attribute (line {cfg_line}) must precede the Heif variant (line {heif_line})",
+        cfg_line < heif_arm_line,
+        "#[cfg] attribute (line {cfg_line}) must precede the Heif match arm (line {heif_arm_line})",
     );
 }
 
@@ -181,19 +200,16 @@ fn cfg_gated_variant_cfg_precedes_variant_in_mirror_body() {
 fn non_cfg_variants_have_no_cfg_attribute() {
     let lib_rs = generate_lib_rs(make_image_output_format_enum());
 
-    // Verify that `#[cfg(feature = "heic")]` appears exactly twice:
-    //   1. In the `#[frb(mirror(...))]` enum body before the `Heif` variant.
-    //   2. In the `From<CoreType>` match arm for `Heif`.
-    // (The mirror-to-core From impl is only emitted for input-side param types, not for
-    // output-only enums like ImageOutputFormat — so exactly 2 occurrences is correct.)
+    // The mirror enum remains unconditional. This output-only enum only needs one cfg guard:
+    // the `From<CoreType>` match arm for `Heif`.
     let cfg_count = lib_rs
         .lines()
         .filter(|l| l.contains(r#"#[cfg(feature = "heic")]"#))
         .count();
     assert_eq!(
-        cfg_count, 2,
-        "Expected exactly 2 occurrences of #[cfg(feature = \"heic\")]: \
-         one in the mirror enum body + one in From<Core>. \
+        cfg_count, 1,
+        "Expected exactly 1 occurrence of #[cfg(feature = \"heic\")]: \
+         the From<Core> arm that references the upstream variant. \
          Found {cfg_count}:\n{lib_rs}",
     );
 }

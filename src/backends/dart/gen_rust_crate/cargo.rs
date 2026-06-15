@@ -4,6 +4,65 @@ use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeRef};
 use std::path::PathBuf;
 
+/// Parse a cfg condition string of the form `feature = "X"` or
+/// `any(feature = "X", feature = "Y", ...)` and return the feature name(s).
+///
+/// Returns an empty Vec when the condition does not reference features.
+fn extract_feature_names_from_cfg(condition: &str) -> Vec<String> {
+    let mut features = Vec::new();
+    // Handle the simple `feature = "X"` case.
+    let condition = condition.trim();
+    if let Some(rest) = condition.strip_prefix("feature = \"") {
+        if let Some(name) = rest.strip_suffix('"') {
+            features.push(name.to_string());
+            return features;
+        }
+    }
+    // Handle `any(feature = "X", feature = "Y", ...)`.
+    let inner = if let Some(s) = condition.strip_prefix("any(") {
+        s.strip_suffix(')').unwrap_or(s)
+    } else {
+        return features;
+    };
+    for part in inner.split(',') {
+        let part = part.trim();
+        if let Some(rest) = part.strip_prefix("feature = \"") {
+            if let Some(name) = rest.strip_suffix('"') {
+                features.push(name.to_string());
+            }
+        }
+    }
+    features
+}
+
+/// Collect the sorted, deduplicated set of feature names referenced via `variant.cfg`
+/// across all enums in the API surface.
+fn collect_referenced_features(api: &ApiSurface) -> Vec<String> {
+    let mut features: Vec<String> = api
+        .enums
+        .iter()
+        .flat_map(|en| en.variants.iter())
+        .filter_map(|v| v.cfg.as_deref())
+        .flat_map(extract_feature_names_from_cfg)
+        .collect();
+    features.sort();
+    features.dedup();
+    features
+}
+
+fn quote_check_cfg_feature_value(feature: &str) -> String {
+    let escaped = feature.replace('\\', "\\\\").replace('"', "\\\"");
+    format!("\"{escaped}\"")
+}
+
+fn format_check_cfg_feature_values(features: &[String]) -> String {
+    features
+        .iter()
+        .map(|feature| quote_check_cfg_feature_value(feature))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Returns true when any function parameter has `map_is_ahash = true`, meaning
 /// the generated bridge fn references `ahash::AHashMap` in a pre-call binding.
 fn api_has_ahash_param(api: &ApiSurface) -> bool {
@@ -354,6 +413,18 @@ pub(crate) fn emit_cargo_toml(
         (String::new(), blocks)
     };
 
+    // Collect feature names referenced via variant.cfg across all enums so the
+    // Cargo.toml [lints.rust] block can declare them as known cfgs (allow-list).
+    // This suppresses the `unexpected_cfgs` lint that fires when rustc sees
+    // `#[cfg(feature = "office")]` in a crate that does not declare that feature.
+    //
+    // Build the `values(...)` argument string in Rust (e.g. `"chunking", "office"`)
+    // so the jinja template can embed it directly without needing a filter pipeline.
+    let referenced_feature_values: String = {
+        let features = collect_referenced_features(api);
+        format_check_cfg_feature_values(&features)
+    };
+
     let content = template_env::render(
         "rust_cargo_toml.rs.jinja",
         minijinja::context! {
@@ -365,6 +436,7 @@ pub(crate) fn emit_cargo_toml(
             frb_version => frb_version.as_str(),
             extra_deps => extra_deps.as_str(),
             target_override_blocks => target_override_blocks.as_str(),
+            referenced_feature_values => referenced_feature_values.as_str(),
         },
     );
 
@@ -476,6 +548,155 @@ fn api_version(config: &ResolvedCrateConfig) -> String {
     // Use the resolved version from Cargo.toml if available, otherwise fall back to "0.1.0"
     // as a safe default (the real version is resolved from Cargo.toml at publish time).
     config.resolved_version().unwrap_or_else(|| "0.1.0".to_string())
+}
+
+#[cfg(test)]
+mod feature_cfg_tests {
+    use super::*;
+    use crate::core::ir::{EnumDef, EnumVariant};
+
+    fn make_unit_variant(name: &str, cfg: Option<&str>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            cfg: cfg.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    /// Feature names are parsed from `feature = "X"` cfg conditions.
+    #[test]
+    fn extract_feature_names_from_simple_cfg() {
+        let names = extract_feature_names_from_cfg("feature = \"heic\"");
+        assert_eq!(names, vec!["heic"]);
+    }
+
+    /// Feature names are parsed from `any(feature = "X", feature = "Y")` conditions.
+    #[test]
+    fn extract_feature_names_from_any_cfg() {
+        let names = extract_feature_names_from_cfg("any(feature = \"heic\", feature = \"svg\")");
+        assert_eq!(names, vec!["heic", "svg"]);
+    }
+
+    /// Non-feature cfg conditions produce an empty result.
+    #[test]
+    fn extract_feature_names_ignores_non_feature_cfg() {
+        let names = extract_feature_names_from_cfg("target_os = \"linux\"");
+        assert!(names.is_empty());
+    }
+
+    /// `collect_referenced_features` returns sorted, deduplicated feature names
+    /// from all enum variant cfg conditions in the API surface.
+    #[test]
+    fn collect_referenced_features_sorted_deduped() {
+        use crate::core::ir::ApiSurface;
+        let api = ApiSurface {
+            enums: vec![
+                EnumDef {
+                    name: "ImageOutputFormat".to_string(),
+                    variants: vec![
+                        make_unit_variant("Native", None),
+                        make_unit_variant("Heic", Some("feature = \"heic\"")),
+                        make_unit_variant("Svg", Some("feature = \"svg\"")),
+                        // Duplicate; should dedup.
+                        make_unit_variant("Svg2", Some("feature = \"svg\"")),
+                    ],
+                    ..Default::default()
+                },
+                EnumDef {
+                    name: "OtherEnum".to_string(),
+                    variants: vec![make_unit_variant("A", Some("feature = \"heic\""))],
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+        let features = collect_referenced_features(&api);
+        assert_eq!(features, vec!["heic", "svg"]);
+    }
+
+    #[test]
+    fn format_check_cfg_feature_values_quotes_and_escapes() {
+        let features = vec![
+            "plain".to_string(),
+            "quote\"feature".to_string(),
+            "slash\\feature".to_string(),
+        ];
+        assert_eq!(
+            format_check_cfg_feature_values(&features),
+            r#""plain", "quote\"feature", "slash\\feature""#
+        );
+    }
+
+    /// When the API has cfg-gated enum variants, the emitted Cargo.toml
+    /// `[lints.rust]` block declares those feature names as known cfgs so that
+    /// `#[cfg(feature = "X")]` match arms in the generated lib.rs do not trigger
+    /// the `unexpected_cfgs` lint.
+    #[test]
+    fn cargo_toml_check_cfg_includes_referenced_features() {
+        use crate::core::config::ResolvedCrateConfig;
+        use crate::core::ir::ApiSurface;
+
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "ImageOutputFormat".to_string(),
+                variants: vec![
+                    make_unit_variant("Native", None),
+                    make_unit_variant("Heic", Some("feature = \"heic\"")),
+                    make_unit_variant("Svg", Some("feature = \"svg\"")),
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "sample-lib".to_string(),
+            ..Default::default()
+        };
+        let file = emit_cargo_toml("packages/dart/rust", &api, &config, "sample_lib");
+        assert!(
+            file.content.contains("values(\"heic\", \"svg\")"),
+            "Cargo.toml must declare referenced features in check-cfg values; got:\n{}",
+            file.content
+        );
+        assert!(
+            file.content.contains("'cfg(frb_expand)'"),
+            "Cargo.toml must still include cfg(frb_expand); got:\n{}",
+            file.content
+        );
+    }
+
+    /// When no enum variant has a cfg attribute, the emitted Cargo.toml falls
+    /// back to the single-entry form (only `cfg(frb_expand)`).
+    #[test]
+    fn cargo_toml_check_cfg_fallback_when_no_cfg_variants() {
+        use crate::core::config::ResolvedCrateConfig;
+        use crate::core::ir::ApiSurface;
+
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "SimpleEnum".to_string(),
+                variants: vec![make_unit_variant("A", None), make_unit_variant("B", None)],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let config = ResolvedCrateConfig {
+            name: "sample-lib".to_string(),
+            ..Default::default()
+        };
+        let file = emit_cargo_toml("packages/dart/rust", &api, &config, "sample_lib");
+        assert!(
+            file.content
+                .contains("unexpected_cfgs = { level = \"warn\", check-cfg = ['cfg(frb_expand)'] }"),
+            "Cargo.toml must use single-entry form when no cfg variants; got:\n{}",
+            file.content
+        );
+        assert!(
+            !file.content.contains("values("),
+            "Cargo.toml must not contain feature values when no cfg variants; got:\n{}",
+            file.content
+        );
+    }
 }
 
 #[cfg(test)]

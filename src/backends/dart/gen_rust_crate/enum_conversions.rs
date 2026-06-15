@@ -132,7 +132,7 @@ pub(super) fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, sour
     }
 
     // When any variant carries a `#[cfg(feature = "X")]` attribute, the cfg is
-    // resolved in the context of the *binding* crate (e.g. kreuzberg-dart), which
+    // resolved in the context of the *binding* crate (e.g. sample-dart), which
     // does not declare the upstream feature. The arm is compiled out, leaving the
     // match non-exhaustive (E0004). A catch-all makes the match exhaustive under
     // every feature combination; `#![allow(unreachable_patterns)]` at the crate
@@ -385,7 +385,7 @@ pub(super) fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_cra
     }
 
     // When any variant carries a `#[cfg(feature = "X")]` attribute, the cfg is
-    // resolved in the context of the *binding* crate (e.g. kreuzberg-dart), which
+    // resolved in the context of the *binding* crate (e.g. sample-dart), which
     // does not declare the upstream feature. The arm is compiled out, leaving the
     // match non-exhaustive (E0004). A catch-all makes the match exhaustive under
     // every feature combination; `#![allow(unreachable_patterns)]` at the crate

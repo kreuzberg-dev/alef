@@ -570,6 +570,7 @@ pub(crate) fn scrub_or_regenerate_lock(
             // lockfile can be aligned with the rewritten manifest.
             let output = std::process::Command::new("cargo")
                 .env_remove("CARGO_BUILD_LOCKED")
+                .current_dir(manifest_dir)
                 .arg("update")
                 .arg("--manifest-path")
                 .arg(&manifest)
@@ -632,6 +633,7 @@ pub(crate) fn scrub_or_regenerate_lock(
             // would silently re-enable `--locked` and defeat this; clear it.
             let validation = std::process::Command::new("cargo")
                 .env_remove("CARGO_BUILD_LOCKED")
+                .current_dir(manifest_dir)
                 .arg("metadata")
                 .arg("--format-version")
                 .arg("1")

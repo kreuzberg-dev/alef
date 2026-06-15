@@ -106,8 +106,6 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
     ));
     if all_unit {
         for variant in &en.variants {
-            // Do NOT propagate cfg attributes to the mirror enum body.
-            //
             // The mirror enum is a DTO/wire type used by flutter_rust_bridge to generate
             // unconditional match arms in `frb_generated.rs`. If a variant is conditionally
             // compiled out of the mirror, those generated arms reference a missing variant
@@ -129,7 +127,6 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
             let visible_fields: Vec<&_> = variant.fields.iter().filter(|f| !f.binding_excluded).collect();
             if visible_fields.is_empty() {
                 // All fields are binding_excluded (or variant was already unit): emit as unit.
-                // No cfg attribute — mirror body is always-complete (see comment above).
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_unit_variant.jinja",
@@ -138,7 +135,6 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                     },
                 ));
             } else {
-                // No cfg attribute — mirror body is always-complete (see comment above).
                 emit_rust_doc(&variant.doc, "    ", out);
                 out.push_str(&template_env::render(
                     "rust_mirror_enum_data_variant_open.jinja",
@@ -170,28 +166,11 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
                     "rust_mirror_enum_data_close.jinja",
                     minijinja::context! {},
                 ));
-                emit_variant_cfg_close(out, variant.cfg.as_deref());
             }
         }
     }
     out.push_str("}\n");
 }
-
-/// Emit an opening `#[cfg(...)]` attribute before a feature-gated enum variant, indented for a
-/// variant position (four spaces).  No-op when `cfg` is `None`.
-fn emit_variant_cfg_open(out: &mut String, cfg: Option<&str>) {
-    if let Some(condition) = cfg {
-        out.push_str("    #[cfg(");
-        out.push_str(condition);
-        out.push_str(")]\n");
-    }
-}
-
-/// Counterpart to [`emit_variant_cfg_open`].  Currently a no-op because Rust `#[cfg]` applies
-/// only to the immediately following item — no closing token is needed.  The parameter is kept
-/// for symmetry so callers remain readable.
-#[inline]
-fn emit_variant_cfg_close(_out: &mut String, _cfg: Option<&str>) {}
 
 /// Return the conversion expression to reconstruct a real-type field value from a
 /// mirror field binding.

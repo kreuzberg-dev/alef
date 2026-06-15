@@ -1639,6 +1639,14 @@
           "description": "Named additional call configurations for multi-function testing.\nFixtures reference these via the `call` field, e.g. `\"call\": \"embed\"`.",
           "type": "object"
         },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Environment variables every generated e2e suite's setup must set\nbefore the binding's engine is constructed. Keyed by env-var name;\nvalues are passed through verbatim.\n\nEach per-language test-harness emitter consumes this map at\nsuite-setup time (conftest.py for Python, spec_helper.rb for Ruby,\nTestMain for Go, bootstrap.php for PHP, test_helper.exs for Elixir,\nglobalSetup.ts for WASM, assembly fixture for C#, XCTestCase\nclassSetUp for Swift, etc.). The injection point sits next to where\n`MOCK_SERVER_URL` is exported so the binding's first call already\nsees the configured environment.\n\nMotivating use case: a binding may require an environment flag to\nallow loopback mock-server calls in e2e tests while keeping production\nURL validation strict by default. The map is intentionally generic so\nconsumers can pass any binding-side env-var (feature flags,\nobservability toggles, etc.) the same way.\n\nExample:\n```toml\n[crates.e2e.env]\nALLOW_PRIVATE_NETWORK = \"true\"\n```",
+          "type": "object"
+        },
         "exclude_categories": {
           "default": [],
           "description": "Fixture categories excluded from cross-language e2e codegen.\n\nFixtures whose resolved category matches an entry in this set are\nskipped by every per-language e2e generator — no test is emitted at\nall (no skip directive, no commented-out body). The fixture files stay\non disk and remain available to Rust integration tests inside the\nconsumer crate's own `tests/` directory.\n\nUse this to keep fixtures that exercise internal middleware (cache,\nproxy, budget, hooks, etc.) out of bindings whose public surface does\nnot expose those layers.\n\nExample:\n```toml\n[e2e]\nexclude_categories = [\"cache\", \"proxy\", \"budget\", \"hooks\"]\n```",
@@ -6863,7 +6871,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.8/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.9/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -6973,6 +6981,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.8",
-  "x-alef-version": "0.25.8"
+  "version": "0.25.9",
+  "x-alef-version": "0.25.9"
 }
