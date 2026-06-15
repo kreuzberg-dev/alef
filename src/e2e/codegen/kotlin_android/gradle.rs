@@ -159,19 +159,22 @@ tasks.register("copyHostJni", Copy::class) {{
         }} else {{
             "linux"
         }}
-        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
-        val crateDir = jniCargoPath.substringBeforeLast("/Cargo.toml")
-        val workspaceTarget = file("../../target/release")
-        val crateTarget = file(crateDir).resolve("target/release")
-        val buildDir = if (workspaceTarget.exists()) workspaceTarget else crateTarget
-
         val libName = when (hostPlatform) {{
             "darwin" -> "lib{jni_lib_name}.dylib"
             "windows" -> "{jni_lib_name}.dll"
             else -> "lib{jni_lib_name}.so"
         }}
 
-        from(buildDir) {{
+        // Cargo builds to the workspace target directory by default, even when
+        // --manifest-path points at a member crate. The previous
+        // `if (workspaceTarget.exists()) ... else crateTarget` dual-path was
+        // evaluated at gradle configuration time, before `cargo build` finished
+        // or before the workspace target dir existed, so the glob could match
+        // zero files and the test runtime would fail with `UnsatisfiedLinkError`
+        // at static-init time. Always read from the workspace target.
+        val workspaceTarget = file("../../target/release")
+
+        from(workspaceTarget) {{
             include(libName)
         }}
         into(layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform"))
@@ -237,19 +240,22 @@ tasks.register("copyHostJni", Copy::class) {{
         }} else {{
             "linux"
         }}
-        val jniCargoPath = "{jni_crate_path}/Cargo.toml"
-        val crateDir = jniCargoPath.substringBeforeLast("/Cargo.toml")
-        val workspaceTarget = file("../../target/release")
-        val crateTarget = file(crateDir).resolve("target/release")
-        val buildDir = if (workspaceTarget.exists()) workspaceTarget else crateTarget
-
         val libName = when (hostPlatform) {{
             "darwin" -> "lib{jni_lib_name}.dylib"
             "windows" -> "{jni_lib_name}.dll"
             else -> "lib{jni_lib_name}.so"
         }}
 
-        from(buildDir) {{
+        // Cargo builds to the workspace target directory by default, even when
+        // --manifest-path points at a member crate. The previous
+        // `if (workspaceTarget.exists()) ... else crateTarget` dual-path was
+        // evaluated at gradle configuration time, before `cargo build` finished
+        // or before the workspace target dir existed, so the glob could match
+        // zero files and the test runtime would fail with `UnsatisfiedLinkError`
+        // at static-init time. Always read from the workspace target.
+        val workspaceTarget = file("../../target/release")
+
+        from(workspaceTarget) {{
             include(libName)
         }}
         into(layout.projectDirectory.dir("src/test/resources/host-jni/$hostPlatform"))
