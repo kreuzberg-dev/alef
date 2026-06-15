@@ -181,10 +181,15 @@ pub(crate) fn emit_cargo_toml(
     let features_table = if cfg_features.is_empty() {
         String::new()
     } else {
-        let lines: Vec<String> = cfg_features
+        let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
+        let default_list: Vec<String> = cfg_features
             .iter()
-            .map(|name| format!(r#"{name} = ["{core_dep_key}/{name}"]"#))
+            .map(|name| format!("\"{name}\""))
             .collect();
+        lines.push(format!("default = [{}]", default_list.join(", ")));
+        for name in &cfg_features {
+            lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#));
+        }
         format!("[features]\n{}\n\n", lines.join("\n"))
     };
 
