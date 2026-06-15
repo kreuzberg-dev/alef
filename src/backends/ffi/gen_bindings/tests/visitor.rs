@@ -77,6 +77,55 @@ fn test_visitor_callbacks_enabled() {
     assert!(lib.content.contains("is_inline: i32"));
 }
 
+/// Regression: when the visitor context's first field is a Named enum (e.g.
+/// `node_type: NodeType` rather than `node_type: i32`), the FFI emitter must
+/// still emit `node_type: i32` in the C struct. Without this, Java/Kotlin/Swift
+/// CTX_LAYOUTs that hardcode `node_type` at offset 0 read garbage from the
+/// shifted `tag_name` pointer and crash with negative-index errors.
+#[test]
+fn test_visitor_callbacks_emit_enum_node_type_as_i32() {
+    let mut api = visitor_api();
+    // Replace the i32 `node_type` field with an enum reference, matching the
+    // shape used by real consumers (html-to-markdown core's `NodeType`).
+    api.enums.push(EnumDef {
+        name: "NodeType".to_string(),
+        rust_path: "my_lib::visitor::NodeType".to_string(),
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Element".to_string(),
+                ..Default::default()
+            },
+        ],
+        ..Default::default()
+    });
+    let ctx = api
+        .types
+        .iter_mut()
+        .find(|t| t.name == "NodeContext")
+        .expect("NodeContext fixture missing");
+    ctx.fields[0].ty = TypeRef::Named("NodeType".to_string());
+
+    let config = visitor_config_htm();
+    let backend = FfiBackend;
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    // Enum field is emitted as i32 discriminant in the C struct.
+    assert!(
+        lib.content.contains("node_type: i32"),
+        "expected `node_type: i32` in emitted FFI struct"
+    );
+    // Construction site casts via `as i32`.
+    assert!(
+        lib.content.contains("node_type: ctx.node_type as i32"),
+        "expected `node_type: ctx.node_type as i32` initialization"
+    );
+}
+
 #[test]
 fn test_visitor_callbacks_visitor_handle_struct() {
     let api = visitor_api();

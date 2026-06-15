@@ -94,7 +94,7 @@ pub fn gen_visitor_bindings_with_api(
     let options_field = bridge_cfg.resolved_options_field().unwrap_or("visitor");
     let options_path = format!("{core_import}::{options_type}");
 
-    let context_fields = context_field_specs(context_def);
+    let context_fields = context_field_specs(context_def, api);
     if context_fields.is_empty() {
         eprintln!(
             "[alef] gen_visitor_bindings(ffi): context_type `{}` has no FFI-compatible fields",

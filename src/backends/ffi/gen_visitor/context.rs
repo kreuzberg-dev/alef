@@ -1,7 +1,7 @@
 use heck::ToShoutySnakeCase;
 
 use crate::backends::ffi::template_env::render;
-use crate::core::ir::{FieldDef, PrimitiveType, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, FieldDef, PrimitiveType, TypeDef, TypeRef};
 
 pub(super) struct ContextFieldSpec {
     name: String,
@@ -27,6 +27,7 @@ enum ContextFieldInitKind {
     RequiredString,
     OptionalString,
     Bool,
+    Enum,
     Passthrough,
 }
 
@@ -70,7 +71,7 @@ pub(super) fn gen_result_decode_arms(
     arms
 }
 
-fn context_c_type(field: &FieldDef) -> Option<&'static str> {
+fn context_c_type(field: &FieldDef, api: &ApiSurface) -> Option<&'static str> {
     match (&field.ty, field.optional) {
         (TypeRef::String, false | true) => Some("*const std::ffi::c_char"),
         (TypeRef::Primitive(PrimitiveType::Bool), false) => Some("i32"),
@@ -84,16 +85,23 @@ fn context_c_type(field: &FieldDef) -> Option<&'static str> {
         (TypeRef::Primitive(PrimitiveType::I64), false) => Some("i64"),
         (TypeRef::Primitive(PrimitiveType::Usize), false) => Some("usize"),
         (TypeRef::Primitive(PrimitiveType::Isize), false) => Some("isize"),
+        // Enum context fields (e.g. NodeType for visitor dispatch) are passed
+        // as the i32 discriminant across the C ABI so language-side templates
+        // can read them as a plain int and decode via `Enum.values()[i]`.
+        // Without this, the field is silently dropped from the Rust HtmContext
+        // struct and host-side struct layouts (Java CTX_LAYOUT, Kotlin / Swift
+        // / Dart equivalents) read from the wrong offset.
+        (TypeRef::Named(name), false) if api.enums.iter().any(|e| e.name == *name) => Some("i32"),
         _ => None,
     }
 }
 
-pub(super) fn context_field_specs(context_def: &TypeDef) -> Vec<ContextFieldSpec> {
+pub(super) fn context_field_specs(context_def: &TypeDef, api: &ApiSurface) -> Vec<ContextFieldSpec> {
     context_def
         .fields
         .iter()
         .filter_map(|field| {
-            let Some(c_type) = context_c_type(field) else {
+            let Some(c_type) = context_c_type(field, api) else {
                 eprintln!(
                     "[alef] gen_visitor(ffi): skip context field `{}.{}` with unsupported type {:?}",
                     context_def.name, field.name, field.ty
@@ -131,6 +139,10 @@ pub(super) fn context_field_specs(context_def: &TypeDef) -> Vec<ContextFieldSpec
                 (TypeRef::Primitive(PrimitiveType::Bool), false) => ContextFieldInit {
                     name: field.name.clone(),
                     kind: ContextFieldInitKind::Bool,
+                },
+                (TypeRef::Named(name), false) if api.enums.iter().any(|e| e.name == *name) => ContextFieldInit {
+                    name: field.name.clone(),
+                    kind: ContextFieldInitKind::Enum,
                 },
                 _ => ContextFieldInit {
                     name: field.name.clone(),
@@ -189,6 +201,7 @@ pub(super) fn gen_context_inits(fields: &[ContextFieldSpec]) -> String {
                 ContextFieldInitKind::RequiredString => "ffi_visitor_context_required_string_init.jinja",
                 ContextFieldInitKind::OptionalString => "ffi_visitor_context_optional_string_init.jinja",
                 ContextFieldInitKind::Bool => "ffi_visitor_context_bool_init.jinja",
+                ContextFieldInitKind::Enum => "ffi_visitor_context_enum_init.jinja",
                 ContextFieldInitKind::Passthrough => "ffi_visitor_context_passthrough_init.jinja",
             };
             render(template, minijinja::context! { name => field.c_init.name.as_str() })

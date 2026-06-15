@@ -510,6 +510,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/ffi_visitor_context_bool_init.jinja"),
     ),
     (
+        "ffi_visitor_context_enum_init.jinja",
+        include_str!("templates/ffi_visitor_context_enum_init.jinja"),
+    ),
+    (
         "ffi_visitor_context_passthrough_init.jinja",
         include_str!("templates/ffi_visitor_context_passthrough_init.jinja"),
     ),
