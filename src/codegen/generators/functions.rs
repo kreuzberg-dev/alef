@@ -356,7 +356,7 @@ pub fn gen_function_with_mutex(
             let result_handling = if func.error_type.is_some() {
                 format!(
                     "let result = {core_call}.await\n            \
-                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?"
+                     .map_err(|e| PyErr::new::<PyRuntimeError, _>(e.to_string()))?;"
                 )
             } else if is_unit {
                 format!("{core_call}.await;")
