@@ -154,6 +154,11 @@ pub(crate) fn scaffold_elixir_cargo(
     // under `-D warnings`. Mirrors the dart 0.25.9 + swift 0.25.11 check-cfg
     // allow-lists for backends that don't (yet) implement Option B feature forwarding.
     let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
+    // Emit `[lints.rust]` at end of file (after `[dependencies]`) to match
+    // cargo-sort's canonical ordering. Emitting it before `[dependencies]`
+    // matches the template but cargo-sort (run by consumer repos' prek) moves
+    // it to the bottom, producing a perpetual diff against the committed file
+    // and failing strict version-sync checks in CI.
     let check_cfg_block = if referenced_features.is_empty() {
         String::new()
     } else {
@@ -163,7 +168,7 @@ pub(crate) fn scaffold_elixir_cargo(
             .collect::<Vec<_>>()
             .join(", ");
         format!(
-            "[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = ['cfg(feature, values({csv}))'] }}\n\n"
+            "\n[lints.rust]\nunexpected_cfgs = {{ level = \"warn\", check-cfg = ['cfg(feature, values({csv}))'] }}\n"
         )
     };
 
@@ -177,9 +182,8 @@ name = "{nif_name}"
 {lib_path_line}
 crate-type = ["cdylib"]
 
-{check_cfg_block}[dependencies]
-{deps_section}
-"#,
+[dependencies]
+{deps_section}{check_cfg_block}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
