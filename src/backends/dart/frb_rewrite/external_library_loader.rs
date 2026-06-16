@@ -138,10 +138,11 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
       // This allows test harnesses to override library location for development.
       final envDir = Platform.environment['FRB_DART_LOAD_EXTERNAL_LIBRARY_NATIVE_LIB_DIR'];
       if (envDir != null && envDir.isNotEmpty) {{
-        final libDir = Directory(envDir);
+        final absEnvDir = Directory(envDir).absolute.path;
+        final libDir = Directory(absEnvDir);
         if (libDir.existsSync()) {{
           for (final candidate in candidates) {{
-            final libPath = '$envDir/$candidate';
+            final libPath = '$absEnvDir/$candidate';
             if (candidateExists(libPath)) {{
               final result = tryOpenAbsolute(libPath);
               if (result != null) return result;
@@ -217,17 +218,18 @@ pub(super) fn frb_init_prologue_replacement(package_name: &str, module_name: &st
       // contains the native lib directly rather than via the bridged package).
       try {{
         final scriptPath = Platform.script.toFilePath();
-        var dir = File(scriptPath).parent;
+        var dir = File(scriptPath).absolute.parent;
         while (dir.parent.path != dir.path
             && !File('${{dir.path}}/pubspec.yaml').existsSync()) {{
           dir = dir.parent;
         }}
         if (File('${{dir.path}}/pubspec.yaml').existsSync()) {{
           final rid = computeRid();
+          final absRootPath = dir.absolute.path;
           final searchRoots = <String>[
-            if (rid != null) '${{dir.path}}/lib/src/native/$rid',
-            '${{dir.path}}/lib',
-            dir.path,
+            if (rid != null) '$absRootPath/lib/src/native/$rid',
+            '$absRootPath/lib',
+            absRootPath,
           ];
           for (final root in searchRoots) {{
             for (final candidate in candidates) {{
