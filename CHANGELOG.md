@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.20] - 2026-06-16
+
+### Changed
+
+- **(docs): split `src/docs/language_pages.rs` into focused submodules under the 1000-LOC cap.** The file grew to 1124 lines, failing the `rust-max-lines` prek hook. Extracted to a `src/docs/language_pages/` directory: `mod.rs` (120 lines, re-exports), `excludes.rs` (123), `function_render.rs` (166), `streaming.rs` (462), `type_render.rs` (97), `enum_render.rs` (82), `error_render.rs` (83). Module resolution and call sites unchanged — Rust's module loader transparently resolves `mod language_pages;` to either `language_pages.rs` or `language_pages/mod.rs`. No public API shift, no behavior change.
+
 ### Fixed
 
 - **(backends/zig): align `download_test` error decoding with FFI return shape.** Opaque method error checking was using `_first_error` which returns the first declared error variant, instead of `_error_with_message` which dispatches by FFI message prefix. This caused negative-case tests (e.g. passing an invalid language name) to crash instead of surfacing the expected typed error. Fixed `opaque_method_error_check.jinja` to call `_error_with_message({{ error_type }})` so per-variant message-prefix matching works for all FFI boundaries, including opaque methods.
