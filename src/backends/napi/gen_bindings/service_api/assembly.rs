@@ -146,7 +146,8 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
             if let Some(start_brace) = modified_line.find('{') {
                 if let Some(end_brace) = modified_line.rfind('}') {
                     if let Some(from_pos) = modified_line.find("from") {
-                        let imports = modified_line[start_brace..=end_brace].to_string();
+                        // TS `import { A as B }` renames use `as`; JS destructuring uses `:`.
+                        let imports = modified_line[start_brace..=end_brace].replace(" as ", ": ");
                         let module_spec = modified_line[from_pos + 4..].trim(); // Skip "from"
                         // module_spec is something like `"./index";` — strip trailing semicolon
                         let module_spec = module_spec.trim_end_matches(';');
@@ -164,7 +165,8 @@ fn strip_typescript_annotations(ts_code: &str) -> String {
             if let Some(start_brace) = modified_line.find('{') {
                 if let Some(end_brace) = modified_line.rfind('}') {
                     if let Some(from_pos) = modified_line.find("from") {
-                        let imports = modified_line[start_brace..=end_brace].to_string();
+                        // TS `import { A as B }` renames use `as`; JS destructuring uses `:`.
+                        let imports = modified_line[start_brace..=end_brace].replace(" as ", ": ");
                         let module_spec = modified_line[from_pos + 4..].trim(); // Skip "from"
                         // module_spec is something like `"./index";` — strip trailing semicolon
                         let module_spec = module_spec.trim_end_matches(';');
@@ -296,6 +298,36 @@ import { appIntoRouter } from "./index";"#;
             js_output.contains(r#"const { appIntoRouter } = require("./index");"#),
             "appIntoRouter import should convert correctly, got: {}",
             js_output
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_translates_import_alias_to_destructuring_rename() {
+        // TS `import { A as B }` uses the `as` keyword for renames; CJS destructuring
+        // `const { A as B }` is a syntax error — JS uses `:` instead. The conversion
+        // must translate `A as B` → `A: B` within the imports brace.
+        let ts_input = r#"import { App as NativeApp, Method, RouteBuilder } from "./index";"#;
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(
+            js_output.contains(r#"const { App: NativeApp, Method, RouteBuilder } = require("./index");"#),
+            "import alias should translate `as` to `:` for CJS destructuring, got: {js_output}",
+        );
+        assert!(
+            !js_output.contains(" as "),
+            "no `as` keyword should remain in CJS output, got: {js_output}",
+        );
+    }
+
+    #[test]
+    fn strip_typescript_annotations_translates_type_import_alias_to_destructuring_rename() {
+        // Same translation must apply to `import type { A as B }` conversions.
+        let ts_input = r#"import type { ServerConfig as Config } from "./index";"#;
+        let js_output = strip_typescript_annotations(ts_input);
+
+        assert!(
+            js_output.contains(r#"const { ServerConfig: Config } = require("./index");"#),
+            "import type alias should translate `as` to `:` for CJS destructuring, got: {js_output}",
         );
     }
 
