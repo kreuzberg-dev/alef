@@ -1,3 +1,4 @@
+use crate::codegen::cfg as shared_cfg;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{AdapterPattern, Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeRef};
@@ -251,6 +252,25 @@ pub(crate) fn scaffold_node_cargo(
     // collapses extra_deps_section into dep_entries directly.
     let _ = extra_deps_section;
 
+    // Collect every feature name referenced by a cfg attribute on any type, field,
+    // enum variant, or function in the API surface and emit a forwarding `[features]`
+    // table so the binding crate can re-export them to the core dep. Without this,
+    // `#[cfg(feature = "X")]` arms emitted by the codegen produce
+    // `error: unexpected cfg condition value: X` because the binding crate's
+    // `Cargo.toml` does not declare that feature.
+    let cfg_features = shared_cfg::collect_cfg_features(api);
+    let features_table = if cfg_features.is_empty() {
+        String::new()
+    } else {
+        let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
+        let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
+        lines.push(format!("default = [{}]", default_list.join(", ")));
+        for name in &cfg_features {
+            lines.push(format!(r#"{name} = ["{}/{name}"]"#, config.name));
+        }
+        format!("[features]\n{}\n\n", lines.join("\n"))
+    };
+
     let content = format!(
         r#"{pkg_header}
 
@@ -265,7 +285,7 @@ ignored = [{machete_ignored_str}]
 [lib]
 crate-type = ["cdylib"]
 
-[dependencies]
+{features_table}[dependencies]
 {dep_block}
 
 [build-dependencies]
@@ -274,6 +294,7 @@ napi-build = "{napi_build}"
 "#,
         pkg_header = pkg_header,
         dep_block = dep_block,
+        features_table = features_table,
         machete_ignored_str = machete_ignored_str,
         napi_build = tv::cargo::NAPI_BUILD,
     );
