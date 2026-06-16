@@ -5,16 +5,19 @@ use crate::docs::type_mapping::doc_type;
 use crate::docs::type_mapping::java_boxed_type;
 use heck::{ToPascalCase, ToShoutySnakeCase};
 
-/// Escape literal pipe characters so a value can be embedded inside a Markdown
-/// table cell without being interpreted as a column separator.
+/// Escape literal pipe characters and square brackets so a value can be
+/// embedded inside a Markdown table cell without being misinterpreted.
 ///
 /// This is required because some renderers (notably rumdl's MD056 check) treat
 /// every `|` on a row as a separator, even when the pipe is inside a backtick
 /// span — e.g. union types like `` `string | null` `` or `` `String.t() | nil` ``
-/// would otherwise be parsed as two cells. We escape unconditionally so the
-/// output is robust across the strictest Markdown table parsers.
+/// would otherwise be parsed as two cells.
+///
+/// Square brackets inside backticks (e.g., `` `list[Table]` ``) are parsed as
+/// link references by Zensical's CommonMark parser, causing "unresolved reference"
+/// warnings in strict mode. We escape them to prevent this.
 pub(crate) fn escape_table_cell(value: &str) -> String {
-    value.replace('|', "\\|")
+    value.replace('|', "\\|").replace('[', "\\[").replace(']', "\\]")
 }
 
 pub(crate) fn format_field_default(field: &FieldDef, lang: Language, api: &ApiSurface, ffi_prefix: &str) -> String {

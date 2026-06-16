@@ -1,7 +1,11 @@
-// Note: suppress -Wincompatible-function-pointer-types because cgo exports may have
+// Note: suppress incompatible-pointer-types warnings because cgo exports may have
 // signatures that C strictly typechecks. The function pointers are ABI-compatible.
 #pragma GCC diagnostic push
+#if defined(__clang__)
 #pragma GCC diagnostic ignored "-Wincompatible-function-pointer-types"
+#else
+#pragma GCC diagnostic ignored "-Wincompatible-pointer-types"
+#endif
 // C inline function to construct the {{ c_vtable_struct }} vtable.
 // This allows direct assignment of function pointers with proper casting.
 static inline {{ c_vtable_struct }}* {{ vtable_constructor }}(void) {
