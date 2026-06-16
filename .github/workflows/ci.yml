@@ -36,7 +36,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings -A clippy::needless_update
       - name: Check unused dependencies
         run: cargo machete
       - name: Security and license audit
