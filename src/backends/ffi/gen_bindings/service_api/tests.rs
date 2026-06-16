@@ -700,7 +700,7 @@ fn registration_function_does_not_consume_builder_ownership() {
 /// `App::route(builder: RouteBuilder, ...)` and `App::config(config:
 /// ServerConfig) -> Self` consume `T` by value, so passing `&T` produced
 /// `error[E0308]: mismatched types`. The fix is to emit `.clone()` at the
-/// call site (both opaque types implement `Clone` in spikard core).
+/// call site (every opaque type wired through this path must derive `Clone`).
 ///
 /// This test fails if either:
 ///   - the borrow is missing (double-free regression — alef 0.25.5)

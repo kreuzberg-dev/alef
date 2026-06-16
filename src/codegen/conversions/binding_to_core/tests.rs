@@ -202,12 +202,13 @@ fn opaque_no_wrapper_field_without_arc_flag_emits_default() {
 /// emit `..Default::default()` so the field is filled from the core type's
 /// `Default` impl instead.
 ///
-/// Concrete case that motivated this: `CrawlConfig.ssrf` is `binding_excluded`
-/// because `SsrfPolicy` carries a `#[serde(skip)] HashSet<&'static str>` that
-/// can't cross JSON boundaries. Emitting `ssrf: Default::default()` calls
-/// `SsrfPolicy::default()` which hardcodes `deny_private = true` and ignores
-/// `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`; `..Default::default()` delegates to
-/// `kreuzcrawl::CrawlConfig::default()` which calls `SsrfPolicy::from_env()`.
+/// Pattern that motivates this: a top-level config field of type `SubPolicy` is
+/// `binding_excluded` because `SubPolicy` carries a `#[serde(skip)]
+/// HashSet<&'static str>` that cannot cross a JSON boundary. Emitting
+/// `field: Default::default()` calls `SubPolicy::default()` directly, bypassing
+/// the parent `Config::default()` which might read an environment variable to
+/// pick a non-stricter setting. `..Default::default()` delegates to the parent
+/// `Config::default()` so its bespoke initialization runs.
 #[test]
 fn binding_excluded_non_cfg_field_falls_through_to_core_default_trailer() {
     let field = FieldDef {
@@ -253,11 +254,11 @@ fn binding_excluded_non_cfg_field_falls_through_to_core_default_trailer() {
 /// `Default` whose semantics could be bypassed (and the alternative is a
 /// generated impl that does not compile).
 ///
-/// Concrete case that motivated this: `spikard::UploadFile` carries an
-/// internal `cursor: Cursor<Bytes>` field annotated with
-/// `#[cfg_attr(alef, alef(skip))]`, but the struct does not derive `Default`.
-/// Previously the From impl emitted `..Default::default()` which failed with
-/// `E0277: the trait bound 'UploadFile: Default' is not satisfied`.
+/// Pattern that motivates this: a core type whose internal field is annotated
+/// `#[cfg_attr(alef, alef(skip))]` to keep it off the binding wire, but the
+/// struct itself has no `Default` impl. Previously the From impl emitted
+/// `..Default::default()` and failed with `E0277: the trait bound 'T: Default'
+/// is not satisfied`.
 #[test]
 fn binding_excluded_field_on_type_without_default_uses_per_field_fallback() {
     let field = FieldDef {

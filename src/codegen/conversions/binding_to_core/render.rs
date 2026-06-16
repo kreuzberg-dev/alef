@@ -218,10 +218,10 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             // Skip the field entirely and rely on `..Default::default()` to
             // populate it. Emitting `field: Default::default()` here would call
             // the sub-type's `Default` directly, bypassing any core-type Default
-            // that intentionally departs from per-field defaults (e.g.
-            // `kreuzcrawl::CrawlConfig::default()` calls `SsrfPolicy::from_env()`
-            // to honor `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`, whereas
-            // `SsrfPolicy::default()` hardcodes `deny_private = true`).
+            // that intentionally departs from per-field defaults (for example
+            // a `Config::default()` that reads an environment variable to pick
+            // a non-zero policy, whereas the embedded sub-policy's own
+            // `default()` hardcodes a stricter value).
             //
             // BUT: when the core type does not derive/impl Default, the spread
             // trailer (`..Default::default()`) does not compile. Emit a per-field
