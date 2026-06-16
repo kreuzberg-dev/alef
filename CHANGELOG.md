@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(scaffold/php): fix PIE download URL template** — use the `{OSLower}` placeholder instead of `{OS}` so the generated `composer.json` `extra.pie.binary.url-template` emits lowercase OS names (`linux`, `darwin`) matching actual GitHub Release asset names. Resolves repeated `CouldNotDetermineDownloadUrlMethod` errors when running `pie install kreuzberg-dev/html-to-markdown` (h2m #333).
+
 - **(e2e/typescript): pass visitor through `options.visitor` instead of a 3rd positional arg.** Node test codegen previously emitted `convert(html, undefined, visitor)`, but the NAPI `convert(html, options)` reads visitor off `options.visitor`. JavaScript silently dropped the extra third argument, so every visitor handler became unreachable and all `Custom`-substitution tests asserted on the original markup. `node_visitor_args` now synthesizes `{ visitor: V as any }` (the `as any` keeps strict TS happy against the opaque `VisitorHandle` field type), strips trailing `, undefined`, and spread-merges when an existing options literal is present. Fixes the entire `visitor.test.ts` family on Node.
 
 - **(e2e/csharp): replace existing `new ConversionOptions()` literal when injecting visitor.** The csharp test fallback appended `, options` even when `args_str` already contained `, new ConversionOptions()`, producing 3-argument calls (`Convert(html, new ConversionOptions(), options)`) that fail to compile with `CS1501: No overload for method 'Convert' takes 3 arguments`. New `find_default_options_literal` branch substitutes the literal in place. Fixes all 3 Test: C# CI jobs.

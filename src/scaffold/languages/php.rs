@@ -175,11 +175,13 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         // {OS}, {Libc}, {TSMode} (zts or nts). When no repository is configured, emit a
         // placeholder; the URL is typically overridden by the package maintainer.
         // PIE 1.4+ substitutes {Version} with `$package->version()` from Composer, which
-        // preserves the leading `v` from the source tag (e.g. `v0.3.0-rc.45`). Match the
-        // alef-published filename, which also carries the `v` prefix.
+        // preserves the leading `v` from the source tag (e.g. `v0.3.0-rc.45`). PIE's {OS}
+        // placeholder resolves to PHP's PHP_OS_FAMILY (uppercase: Linux, Darwin, Windows),
+        // but published release assets use lowercase (linux, darwin). Use the {OSLower}
+        // placeholder (PIE 1.5+) to match actual GitHub Release asset names.
         let pie_binary_block = if let Some(repo_url) = meta.configured_repository.as_deref() {
             format!(
-                ",\n  \"extra\": {{\n    \"pie\": {{\n      \"binary\": {{\n        \"url-template\": \"{repo_url}/releases/download/{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OS}}-{{Libc}}-{{TSMode}}.tgz\"\n      }}\n    }}\n  }}"
+                ",\n  \"extra\": {{\n    \"pie\": {{\n      \"binary\": {{\n        \"url-template\": \"{repo_url}/releases/download/{{Version}}/php_{ext_name}-{{Version}}_php{{PhpVersion}}-{{Arch}}-{{OSLower}}-{{Libc}}-{{TSMode}}.tgz\"\n      }}\n    }}\n  }}"
             )
         } else {
             String::new()
