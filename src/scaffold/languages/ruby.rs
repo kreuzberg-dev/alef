@@ -98,6 +98,26 @@ pub(crate) fn scaffold_ruby_cargo(
         .join(", ");
     let machete_section = format!("[package.metadata.cargo-machete]\nignored = [{ignored_list}]\n\n");
 
+    // Collect every feature name referenced by a cfg attribute on any type,
+    // field, enum variant, or function in the API surface and emit a forwarding
+    // `[features]` table so the magnus binding crate can re-export them to the
+    // core dep. Without this, `#[cfg(feature = "X")]` arms emitted by the
+    // magnus codegen produce `error: unexpected cfg condition value: X` under
+    // `-D warnings` because the binding crate's `Cargo.toml` does not declare
+    // that feature. Mirrors the swift / dart / napi / php backends' pattern.
+    let cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    let features_table = if cfg_features.is_empty() {
+        String::new()
+    } else {
+        let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
+        let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
+        lines.push(format!("default = [{}]", default_list.join(", ")));
+        for name in &cfg_features {
+            lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#, core_dep_key = config.name));
+        }
+        format!("[features]\n{}\n\n", lines.join("\n"))
+    };
+
     let content = format!(
         r#"{pkg_header}
 
@@ -106,11 +126,12 @@ name = "{lib_name}"
 path = "../src/lib.rs"
 crate-type = ["cdylib"]
 
-[dependencies]
+{features_table}[dependencies]
 {deps_section}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         lib_name = lib_name,
+        features_table = features_table,
         deps_section = deps_section,
     );
 
