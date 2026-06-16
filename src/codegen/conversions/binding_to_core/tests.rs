@@ -195,3 +195,53 @@ fn opaque_no_wrapper_field_without_arc_flag_emits_default() {
         "must not emit arc-clone for non-arc-wrapper opaque field, got:\n{out}"
     );
 }
+
+/// Regression: a binding-excluded field (with no cfg gate) must not be emitted as
+/// `field: Default::default()` because that calls the SUB-type's Default and
+/// bypasses any core-type Default override. The output must skip the field and
+/// emit `..Default::default()` so the field is filled from the core type's
+/// `Default` impl instead.
+///
+/// Concrete case that motivated this: `CrawlConfig.ssrf` is `binding_excluded`
+/// because `SsrfPolicy` carries a `#[serde(skip)] HashSet<&'static str>` that
+/// can't cross JSON boundaries. Emitting `ssrf: Default::default()` calls
+/// `SsrfPolicy::default()` which hardcodes `deny_private = true` and ignores
+/// `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`; `..Default::default()` delegates to
+/// `kreuzcrawl::CrawlConfig::default()` which calls `SsrfPolicy::from_env()`.
+#[test]
+fn binding_excluded_non_cfg_field_falls_through_to_core_default_trailer() {
+    let field = FieldDef {
+        name: "ssrf".to_string(),
+        ty: TypeRef::Named("SsrfPolicy".to_string()),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: true,
+        binding_exclusion_reason: Some("contains non-serializable scheme_allowlist".to_string()),
+        original_type: None,
+    };
+    let typ = type_with_field(field);
+    // Crucially: typ.has_stripped_cfg_fields = false (default).
+    // The trailer must still be emitted because a binding-excluded field was skipped.
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        !out.contains("ssrf: Default::default()"),
+        "binding-excluded field must not be emitted with field-level Default::default(); got:\n{out}"
+    );
+    assert!(
+        out.contains("..Default::default()"),
+        "binding-excluded fields require the core-type Default trailer; got:\n{out}"
+    );
+}

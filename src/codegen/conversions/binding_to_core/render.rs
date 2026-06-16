@@ -201,16 +201,22 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // Pre-compute all fields
     let mut fields = Vec::new();
     let mut statements = Vec::new();
+    // Track whether any binding-excluded field was skipped — when so, force the
+    // `..Default::default()` trailer so the core type's Default impl fills those
+    // fields in (preserves invariants like `SsrfPolicy::from_env`, which an
+    // explicit field-level `Default::default()` on a sub-type would bypass).
+    let mut skipped_binding_excluded = false;
 
     for field in &typ.fields {
         if field.binding_excluded {
-            if field.cfg.is_some()
-                && !config.never_skip_cfg_field_names.contains(&field.name)
-                && (typ.has_stripped_cfg_fields || config.strip_cfg_fields_from_binding_struct)
-            {
-                continue;
-            }
-            fields.push(format!("{}: Default::default()", field.name));
+            // Skip the field entirely and rely on `..Default::default()` to
+            // populate it. Emitting `field: Default::default()` here would call
+            // the sub-type's `Default` directly, bypassing any core-type Default
+            // that intentionally departs from per-field defaults (e.g.
+            // `kreuzcrawl::CrawlConfig::default()` calls `SsrfPolicy::from_env()`
+            // to honor `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`, whereas
+            // `SsrfPolicy::default()` hardcodes `deny_private = true`).
+            skipped_binding_excluded = true;
             continue;
         }
         // Cfg-gated fields: emit the assignment with `#[cfg(...)]` so it only applies when
@@ -377,6 +383,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
 
     // Note: ..Default::default() for cfg-gated fields is emitted by the template
     // via the has_stripped_cfg_fields context variable — do not push it here.
+    let emit_trailer = typ.has_stripped_cfg_fields || skipped_binding_excluded;
 
     crate::codegen::template_env::render(
         "conversions/binding_to_core_impl",
@@ -389,7 +396,7 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             newtype_inner_expr => "",
             builder_mode => optionalized,
             uses_builder_pattern => uses_builder_pattern,
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+            has_stripped_cfg_fields => emit_trailer,
             statements => statements,
             fields => fields,
         },
