@@ -216,7 +216,7 @@ pub(crate) enum Commands {
         #[arg(long, short)]
         release: bool,
     },
-    /// Run all: generate + stubs + scaffold + readme + sync + e2e.
+    /// Run all: generate + stubs + scaffold + readme + docs + sync + e2e.
     All {
         /// Ignore cache.
         #[arg(long)]

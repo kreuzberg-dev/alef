@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(cli/all): add `docs` to `alef all` help text.** The `all` command has always run the docs step in its pipeline, but the `--help` description listed "generate + stubs + scaffold + readme + sync + e2e" — omitting `docs`. Downstream consumers relying on the help text to understand pipeline coverage would not know that `alef all` regenerates `docs/reference/api-*.md`, causing confusion when CI reported stale docs after `alef all` runs. Updated the help string to "generate + stubs + scaffold + readme + docs + sync + e2e".
+
 ## [0.25.22] - 2026-06-16
 
 ### Fixed
