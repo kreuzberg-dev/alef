@@ -113,7 +113,10 @@ pub(crate) fn scaffold_ruby_cargo(
         let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
         lines.push(format!("default = [{}]", default_list.join(", ")));
         for name in &cfg_features {
-            lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#, core_dep_key = config.name));
+            lines.push(format!(
+                r#"{name} = ["{core_dep_key}/{name}"]"#,
+                core_dep_key = config.name
+            ));
         }
         format!("[features]\n{}\n\n", lines.join("\n"))
     };

@@ -1,3 +1,4 @@
+use crate::codegen::shared::binding_fields;
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, EnumDef, PrimitiveType, TypeDef, TypeRef};
@@ -49,11 +50,12 @@ pub(super) fn generate_configuration_doc(
             out.push('\n');
         }
 
-        if !ty.fields.is_empty() {
+        let fields: Vec<_> = binding_fields(&ty.fields).collect();
+        if !fields.is_empty() {
             out.push('\n');
             out.push_str("| Field | Type | Default | Description |\n");
             out.push_str("|-------|------|---------|-------------|\n");
-            for field in &ty.fields {
+            for field in fields {
                 let fty = doc_type_with_optional(&field.ty, Language::Python, field.optional, "");
                 let fdefault = format_field_default(field, Language::Python, api, "");
                 let fdoc = {
@@ -95,11 +97,9 @@ pub(super) fn generate_configuration_doc(
         .enums
         .iter()
         .filter(|en| {
-            config_types_for_enum_filter.iter().any(|ty| {
-                ty.fields
-                    .iter()
-                    .any(|field| type_ref_contains_named(&field.ty, &en.name))
-            })
+            config_types_for_enum_filter
+                .iter()
+                .any(|ty| binding_fields(&ty.fields).any(|field| type_ref_contains_named(&field.ty, &en.name)))
         })
         .collect();
     referenced_enums.sort_by(|a, b| a.name.cmp(&b.name));
@@ -107,7 +107,7 @@ pub(super) fn generate_configuration_doc(
     if !referenced_enums.is_empty() {
         out.push_str("### Enums\n\n");
         for en in &referenced_enums {
-            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str(&render_enum_for_shared_doc(en, Language::Python));
             out.push_str("\n---\n\n");
         }
     }
@@ -208,13 +208,14 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
                 out.push('\n');
             }
 
+            let fields: Vec<_> = binding_fields(&ty.fields).collect();
             if ty.is_opaque {
                 out.push_str("*Opaque type — fields are not directly accessible.*\n\n");
-            } else if !ty.fields.is_empty() {
+            } else if !fields.is_empty() {
                 out.push('\n');
                 out.push_str("| Field | Type | Default | Description |\n");
                 out.push_str("|-------|------|---------|-------------|\n");
-                for field in &ty.fields {
+                for field in fields {
                     // Use Rust-style type representation as canonical
                     let fty = format_type_ref_rust(&field.ty, field.optional);
                     // Use the typed default (consistent with per-language pages)
@@ -252,7 +253,7 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
 
         out.push_str("### Enums\n\n");
         for en in &sorted_enums {
-            out.push_str(&render_enum_for_shared_doc(en));
+            out.push_str(&render_enum_for_shared_doc(en, Language::Rust));
             out.push_str("\n---\n\n");
         }
     }
@@ -268,7 +269,7 @@ pub(super) fn generate_types_doc(api: &ApiSurface, output_dir: &str) -> anyhow::
 ///
 /// Uses Rust-canonical variant names and type representations, matching the
 /// style used by `generate_types_doc` and `generate_configuration_doc`.
-pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
+pub(super) fn render_enum_for_shared_doc(en: &EnumDef, lang: Language) -> String {
     let mut out = String::new();
 
     out.push_str(&template_env::render(
@@ -303,7 +304,7 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
         out.push('\n');
     }
 
-    let doc = clean_doc(&en.doc, Language::Rust);
+    let doc = clean_doc(&en.doc, lang);
     // Demote any embedded headings in the enum documentation by 2 levels
     // to ensure they stay nested under the enum heading (####).
     let doc = demote_headings(&doc, 2);
@@ -326,14 +327,14 @@ pub(super) fn render_enum_for_shared_doc(en: &EnumDef) -> String {
 
     for variant in &en.variants {
         let mut vdoc = if !variant.doc.is_empty() {
-            clean_doc_inline(&variant.doc, Language::Rust)
+            clean_doc_inline(&variant.doc, lang)
         } else {
             generate_enum_variant_description(&variant.name)
         };
-        if !variant.fields.is_empty() {
-            let fields_desc: Vec<String> = variant
-                .fields
-                .iter()
+        let variant_fields: Vec<_> = binding_fields(&variant.fields).collect();
+        if !variant_fields.is_empty() {
+            let fields_desc: Vec<String> = variant_fields
+                .into_iter()
                 .map(|f| {
                     let fty = format_type_ref_rust(&f.ty, false);
                     format!("`{}`: `{}`", f.name, fty)

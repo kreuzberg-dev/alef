@@ -382,14 +382,42 @@ pub(crate) fn render_zig_fn_sig(func: &FunctionDef, ffi_prefix: &str) -> String 
     format!("pub fn {name}({}) {ret_str}", params.join(", "))
 }
 
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MethodSignatureOverride {
+    pub(crate) name: Option<String>,
+    pub(crate) return_type: Option<String>,
+    pub(crate) signature: Option<String>,
+}
+
+#[allow(dead_code)]
 pub(crate) fn render_method_signature(
     method: &MethodDef,
     type_name_str: &str,
     lang: Language,
     ffi_prefix: &str,
 ) -> String {
-    let name = func_name(&method.name, lang, ffi_prefix);
-    let ret = doc_type(&method.return_type, lang, ffi_prefix);
+    render_method_signature_with_override(method, type_name_str, lang, ffi_prefix, None)
+}
+
+pub(crate) fn render_method_signature_with_override(
+    method: &MethodDef,
+    type_name_str: &str,
+    lang: Language,
+    ffi_prefix: &str,
+    signature_override: Option<&MethodSignatureOverride>,
+) -> String {
+    if let Some(signature) = signature_override.and_then(|override_| override_.signature.as_deref()) {
+        return signature.to_string();
+    }
+
+    let name = signature_override
+        .and_then(|override_| override_.name.as_deref())
+        .map(str::to_string)
+        .unwrap_or_else(|| func_name(&method.name, lang, ffi_prefix));
+    let ret = signature_override
+        .and_then(|override_| override_.return_type.as_deref())
+        .map(str::to_string)
+        .unwrap_or_else(|| doc_type(&method.return_type, lang, ffi_prefix));
 
     match lang {
         Language::Python => {

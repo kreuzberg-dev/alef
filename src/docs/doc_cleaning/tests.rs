@@ -35,6 +35,13 @@ fn test_clean_doc_bare_rust_links() {
 }
 
 #[test]
+fn test_clean_doc_normalizes_feature_label_versions() {
+    let doc = "Since v5.0.0.\n\nChanged in v1.6.2-rc.3.\n\nAvailable by v0.3.0+build.7.";
+    let cleaned = clean_doc(doc, Language::Python);
+    assert_eq!(cleaned, "Since v5.0.\n\nChanged in v1.6.\n\nAvailable by v0.3.");
+}
+
+#[test]
 fn test_extract_param_docs() {
     let doc = "Convert markup conversion.\n\n# Arguments\n\n* html - The HTML string to convert\n* options - Conversion options\n";
     let params = extract_param_docs(doc);
@@ -120,6 +127,100 @@ fn test_clean_doc_rust_path_stays_double_colon_for_php() {
     let doc = "Call `Foo::bar()` to create one.";
     let cleaned = clean_doc(doc, Language::Php);
     assert!(cleaned.contains("Foo::bar()"), "PHP keeps :: notation: {cleaned}");
+}
+
+#[test]
+fn test_clean_doc_rust_collection_terms_become_language_native() {
+    let doc = "Returns `Vec<Vec<String>>`, accepts `&BTreeMap<String, String>`, and stores `Vec<u8>` bytes.";
+
+    assert_eq!(
+        clean_doc(doc, Language::Python),
+        "Returns `list[list[str]]`, accepts `dict[str, str]`, and stores `bytes` bytes."
+    );
+    assert_eq!(
+        clean_doc(doc, Language::Node),
+        "Returns `string[][]`, accepts `Record<string, string>`, and stores `Buffer` bytes."
+    );
+    assert_eq!(
+        clean_doc(doc, Language::Go),
+        "Returns `[][]string`, accepts `map[string]string`, and stores `[]byte` bytes."
+    );
+}
+
+#[test]
+fn test_clean_doc_rust_collection_terms_keep_php_static_paths() {
+    let doc = "Use `NodeContext::attributes` to read `BTreeMap<String, String>` values.";
+    let cleaned = clean_doc(doc, Language::Php);
+    assert_eq!(
+        cleaned,
+        "Use `NodeContext::attributes` to read `array<string, string>` values."
+    );
+}
+
+#[test]
+fn test_clean_doc_rust_collection_terms_stay_rust_for_rust_docs() {
+    let doc = "Returns `Vec<String>` from `NodeContext::attributes`.";
+    assert_eq!(clean_doc(doc, Language::Rust), doc);
+}
+
+#[test]
+fn test_clean_doc_rust_internal_markers_become_clean_prose() {
+    let doc = "Use `ConversionError::from(io_error)` to convert from `std::io::Error`. Prefer `Foo::bar` (pub(crate)) internally.";
+    let cleaned = clean_doc(doc, Language::Python);
+
+    assert_eq!(
+        cleaned,
+        "Use `ConversionError.from(io_error)` to convert from an operating-system I/O error. Prefer `Foo.bar` internally."
+    );
+}
+
+#[test]
+fn test_clean_doc_private_helper_references_become_neutral_prose() {
+    let doc = "Access attributes through `NodeContext::with_lazy_attributes`. Populated when `ConversionOptions::include_document_structure` is `true` and exposed in `Self::tables`. Defaults to `PreprocessingOptions::default()`, which enables cleaning (or construct via `ConversionOptions::builder`).";
+    let cleaned = clean_doc(doc, Language::Python);
+
+    assert_eq!(
+        cleaned,
+        "Access attributes through lazy attribute extraction. Populated when the `include_document_structure` option is `True` and exposed in the result's `tables` field. Defaults to the standard preprocessing options, which enables cleaning (or construct via the configuration builder)."
+    );
+}
+
+#[test]
+fn test_clean_doc_vec_macros_become_list_examples() {
+    let doc =
+        "Example: `vec![\".cookie-banner\".into()]`. The length of this vec is bounded. An empty vec returns no cells.";
+    let cleaned = clean_doc(doc, Language::Node);
+
+    assert_eq!(
+        cleaned,
+        "Example: `[\".cookie-banner\"]`. The length of this list is bounded. An empty list returns no cells."
+    );
+}
+
+#[test]
+fn test_clean_doc_generic_rust_vec_terms_become_language_native() {
+    let doc = "Uses Arc-wrapped tables: `Vec<Arc<Table>>`. Stores middleware in `Vec<Box<dyn ChunkMiddleware>>`. Serializes as Vec<Table> for JSON.";
+
+    let python = clean_doc(doc, Language::Python);
+    assert_eq!(
+        python,
+        "Uses shared tables: `list[Table]`. Stores middleware in `list[ChunkMiddleware]`. Serializes as list[Table] for JSON."
+    );
+
+    let typescript = clean_doc(doc, Language::Node);
+    assert_eq!(
+        typescript,
+        "Uses shared tables: `Table[]`. Stores middleware in `ChunkMiddleware[]`. Serializes as Table[] for JSON."
+    );
+}
+
+#[test]
+fn test_clean_doc_strips_rust_fenced_blocks_with_collect_turbofish() {
+    let doc = "Before.\n\n```rust\nasync fn process(result: &mut ExtractionResult) -> Result<()> {\n    result.content = result.content.split_whitespace().collect::<Vec<_>>().join(\" \");\n    Ok(())\n}\n```\n\nAfter.";
+    let cleaned = clean_doc(doc, Language::Python);
+    assert!(cleaned.contains("Before."));
+    assert!(cleaned.contains("After."));
+    assert!(!cleaned.contains("collect::<Vec<_>>()"));
 }
 
 #[test]

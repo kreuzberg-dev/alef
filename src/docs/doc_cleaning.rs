@@ -135,6 +135,15 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     // Convert Rust path syntax `Foo::bar()` → `Foo.bar()` (or `Foo::bar()` for PHP) in prose
     let doc = rust_paths_to_dot_notation(&doc, lang);
 
+    // Convert common Rust type spellings that appear in rustdoc prose to
+    // language-native terminology. Signatures and field tables already use the
+    // IR type mapper; this catches free-form prose copied from Rust docs.
+    let doc = replace_rust_type_terms(&doc, lang);
+
+    // Normalize feature provenance labels copied from Rust doc comments. Page
+    // release badges are rendered separately and keep their full package version.
+    let doc = normalize_feature_label_versions(&doc);
+
     // Replace Rust-centric terminology
     let doc = replace_rust_terminology(&doc, lang);
 
@@ -146,6 +155,19 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     let doc = ensure_blank_before_lists(&doc);
 
     doc.trim().to_string()
+}
+
+/// Strip patch/prerelease suffixes from prose feature labels.
+///
+/// This intentionally targets only feature provenance phrases. API page release
+/// badges are generated elsewhere and must keep the full package version.
+pub(crate) fn normalize_feature_label_versions(doc: &str) -> String {
+    static FEATURE_LABEL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = FEATURE_LABEL_RE.get_or_init(|| {
+        regex::Regex::new(r"\b(Since|Changed in|Available by) v([0-9]+)\.([0-9]+)\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
+            .expect("feature label version regex must compile")
+    });
+    re.replace_all(doc, "$1 v$2.$3").into_owned()
 }
 
 /// Returns `true` if `line` starts a Markdown list item (`-`, `*`, `+`, or `N.`/`N)`).
@@ -349,12 +371,245 @@ pub(crate) fn replace_rust_terminology(doc: &str, lang: Language) -> String {
     doc
 }
 
+/// Replace common Rust type spellings in prose with language-native terms.
+pub(crate) fn replace_rust_type_terms(doc: &str, lang: Language) -> String {
+    if lang == Language::Rust {
+        return doc.to_string();
+    }
+
+    let string_list = language_string_list_type(lang);
+    let nested_string_list = language_nested_string_list_type(lang);
+    let string_map = language_string_map_type(lang);
+    let bytes = language_bytes_type(lang);
+
+    map_non_code_lines(doc, |line| {
+        let line = line
+            .replace("Vec<Vec<String>>", nested_string_list)
+            .replace("Vec<String>", string_list)
+            .replace("Vec<u8>", bytes);
+        replace_rust_generic_collection_terms(&line, lang)
+            .replace("&BTreeMap<String, String>", string_map)
+            .replace("BTreeMap<String, String>", string_map)
+            .replace("&HashMap<String, String>", string_map)
+            .replace("HashMap<String, String>", string_map)
+            .replace("`std.io.Error`", "an operating-system I/O error")
+            .replace("`std::io::Error`", "an operating-system I/O error")
+            .replace("vec![", "[")
+            .replace(".into()", "")
+            .replace("empty vec", "empty list")
+            .replace("this vec", "this list")
+            .replace("Arc-wrapped ", "shared ")
+            .replace("Arc semantics in-memory", "shared in-memory ownership")
+            .replace("`NodeContext.with_lazy_attributes`", "lazy attribute extraction")
+            .replace("`NodeContext::with_lazy_attributes`", "lazy attribute extraction")
+            .replace(
+                "`ConversionOptions.include_document_structure`",
+                "the `include_document_structure` option",
+            )
+            .replace(
+                "`ConversionOptions::include_document_structure`",
+                "the `include_document_structure` option",
+            )
+            .replace("`Self.tables`", "the result's `tables` field")
+            .replace("`Self::tables`", "the result's `tables` field")
+            .replace(
+                "Defaults to `PreprocessingOptions.default()`, which",
+                "Defaults to the standard preprocessing options, which",
+            )
+            .replace(
+                "Defaults to `PreprocessingOptions::default()`, which",
+                "Defaults to the standard preprocessing options, which",
+            )
+            .replace(
+                "or construct via `ConversionOptions.builder`",
+                "or construct via the configuration builder",
+            )
+            .replace(
+                "or construct via `ConversionOptions::builder`",
+                "or construct via the configuration builder",
+            )
+            .replace(" (pub(crate))", "")
+            .replace("(pub(crate))", "")
+    })
+}
+
+fn replace_rust_generic_collection_terms(line: &str, lang: Language) -> String {
+    let line = replace_wrapped_vec_terms(line.to_string(), "Vec<Arc<", ">>", lang);
+    let line = replace_wrapped_vec_terms(line, "Vec<Box<dyn ", ">>", lang);
+    replace_wrapped_vec_terms(line, "Vec<", ">", lang)
+}
+
+fn replace_wrapped_vec_terms(mut text: String, start: &str, end: &str, lang: Language) -> String {
+    let mut search_start = 0;
+    while let Some(relative_start) = text[search_start..].find(start) {
+        let start_idx = search_start + relative_start;
+        let inner_start = start_idx + start.len();
+        let Some(relative_end) = text[inner_start..].find(end) else {
+            break;
+        };
+        let end_idx = inner_start + relative_end;
+        let inner = &text[inner_start..end_idx];
+        if inner.is_empty() {
+            search_start = inner_start;
+            continue;
+        }
+        let replacement = language_list_of_type(lang, inner);
+        let replacement_end = end_idx + end.len();
+        text.replace_range(start_idx..replacement_end, &replacement);
+        search_start = start_idx + replacement.len();
+    }
+    text
+}
+
+fn language_list_of_type(lang: Language, inner: &str) -> String {
+    let inner = inner.trim();
+    if inner == "String" {
+        return language_string_list_type(lang).to_string();
+    }
+    if inner == "u8" {
+        return language_bytes_type(lang).to_string();
+    }
+    if inner == "_" {
+        return match lang {
+            Language::Python => "list".to_string(),
+            Language::Node | Language::Wasm => "Array".to_string(),
+            Language::Go => "slice".to_string(),
+            Language::Java | Language::Kotlin | Language::KotlinAndroid | Language::Dart => "List".to_string(),
+            Language::Csharp => "List".to_string(),
+            Language::Ruby | Language::Php | Language::Elixir | Language::R => "list".to_string(),
+            Language::Ffi | Language::C | Language::Jni => "array".to_string(),
+            Language::Swift => "Array".to_string(),
+            Language::Gleam => "List".to_string(),
+            Language::Zig => "slice".to_string(),
+            Language::Rust => "Vec<_>".to_string(),
+        };
+    }
+    match lang {
+        Language::Python => format!("list[{inner}]"),
+        Language::Node | Language::Wasm => format!("{inner}[]"),
+        Language::Go => format!("[]{inner}"),
+        Language::Java | Language::Kotlin | Language::KotlinAndroid | Language::Dart => format!("List<{inner}>"),
+        Language::Csharp => format!("List<{inner}>"),
+        Language::Ruby => format!("Array<{inner}>"),
+        Language::Php => format!("array<{inner}>"),
+        Language::Elixir => format!("list({inner})"),
+        Language::R => "list".to_string(),
+        Language::Ffi | Language::C | Language::Jni => format!("const {inner}*"),
+        Language::Swift => format!("[{inner}]"),
+        Language::Gleam => format!("List({inner})"),
+        Language::Zig => format!("[]const {inner}"),
+        Language::Rust => format!("Vec<{inner}>"),
+    }
+}
+
+fn map_non_code_lines(doc: &str, mut map_line: impl FnMut(&str) -> String) -> String {
+    let mut out = String::new();
+    let mut in_code_block = false;
+    for line in doc.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            out.push_str(line);
+        } else if in_code_block {
+            out.push_str(line);
+        } else {
+            out.push_str(&map_line(line));
+        }
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
+fn language_string_list_type(lang: Language) -> &'static str {
+    match lang {
+        Language::Python => "list[str]",
+        Language::Node | Language::Wasm => "string[]",
+        Language::Go => "[]string",
+        Language::Java => "List<String>",
+        Language::Csharp => "List<string>",
+        Language::Ruby => "Array<String>",
+        Language::Php => "array<string>",
+        Language::Elixir => "list(String.t())",
+        Language::R => "list",
+        Language::Ffi | Language::C | Language::Jni => "const char**",
+        Language::Kotlin | Language::KotlinAndroid | Language::Dart => "List<String>",
+        Language::Swift => "[String]",
+        Language::Gleam => "List(String)",
+        Language::Zig => "[]const []const u8",
+        Language::Rust => "Vec<String>",
+    }
+}
+
+fn language_nested_string_list_type(lang: Language) -> &'static str {
+    match lang {
+        Language::Python => "list[list[str]]",
+        Language::Node | Language::Wasm => "string[][]",
+        Language::Go => "[][]string",
+        Language::Java => "List<List<String>>",
+        Language::Csharp => "List<List<string>>",
+        Language::Ruby => "Array<Array<String>>",
+        Language::Php => "array<array<string>>",
+        Language::Elixir => "list(list(String.t()))",
+        Language::R => "list",
+        Language::Ffi | Language::C | Language::Jni => "const char***",
+        Language::Kotlin | Language::KotlinAndroid | Language::Dart => "List<List<String>>",
+        Language::Swift => "[[String]]",
+        Language::Gleam => "List(List(String))",
+        Language::Zig => "[]const []const []const u8",
+        Language::Rust => "Vec<Vec<String>>",
+    }
+}
+
+fn language_string_map_type(lang: Language) -> &'static str {
+    match lang {
+        Language::Python => "dict[str, str]",
+        Language::Node | Language::Wasm => "Record<string, string>",
+        Language::Go => "map[string]string",
+        Language::Java => "Map<String, String>",
+        Language::Csharp => "Dictionary<string, string>",
+        Language::Ruby => "Hash{String=>String}",
+        Language::Php => "array<string, string>",
+        Language::Elixir => "map()",
+        Language::R => "list",
+        Language::Ffi | Language::C | Language::Jni => "void*",
+        Language::Kotlin | Language::KotlinAndroid => "Map<String, String>",
+        Language::Swift => "[String: String]",
+        Language::Dart => "Map<String, String>",
+        Language::Gleam => "Dict(String, String)",
+        Language::Zig => "std.StringHashMap([]const u8)",
+        Language::Rust => "BTreeMap<String, String>",
+    }
+}
+
+fn language_bytes_type(lang: Language) -> &'static str {
+    match lang {
+        Language::Python => "bytes",
+        Language::Node | Language::Wasm => "Buffer",
+        Language::Go => "[]byte",
+        Language::Java => "byte[]",
+        Language::Csharp => "byte[]",
+        Language::Ruby => "String",
+        Language::Php => "string",
+        Language::Elixir => "binary()",
+        Language::R => "raw",
+        Language::Ffi | Language::C | Language::Jni => "const uint8_t*",
+        Language::Kotlin | Language::KotlinAndroid => "ByteArray",
+        Language::Swift => "Data",
+        Language::Dart => "Uint8List",
+        Language::Gleam => "BitArray",
+        Language::Zig => "[]const u8",
+        Language::Rust => "Vec<u8>",
+    }
+}
+
 /// Replace Rust `Foo::bar()` path notation with `Foo.bar()` in prose (outside code blocks).
 ///
-/// For PHP, static method calls use `::` so we keep that separator.
+/// Rust and PHP static paths use `::`, so keep that separator for those languages.
 pub(crate) fn rust_paths_to_dot_notation(doc: &str, lang: Language) -> String {
-    // PHP uses `::` for static method calls; other languages use `.`
-    let sep = if lang == Language::Php { "::" } else { "." };
+    let sep = if matches!(lang, Language::Rust | Language::Php) {
+        "::"
+    } else {
+        "."
+    };
     let mut out = String::new();
     let mut in_code_block = false;
     for line in doc.lines() {
@@ -497,7 +752,12 @@ pub(crate) fn is_rust_code_block(content: &str) -> bool {
                 || line.contains("Vec::new()")
                 || line.contains("Default::default()")
                 || line.contains("::new(")
+                || line.contains(".collect::<")
                 || line.contains(".to_string()")
+                || line.contains("async fn ")
+                || line.contains("-> Result<")
+                || line.contains("&mut ")
+                || line.contains("Ok(())")
                 || line.contains("r#\"")
             {
                 return true;

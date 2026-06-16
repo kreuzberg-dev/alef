@@ -121,7 +121,7 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
         excluded_variants: vec![],
         version: Default::default(),
     };
-    let out = render_enum_for_shared_doc(&en);
+    let out = render_enum_for_shared_doc(&en, Language::Rust);
     assert!(out.contains("| Variant | Wire value | Description |"));
     assert!(out.contains("| `Default` | `default` |"));
     assert!(out.contains("| `Github` | `github` |"));
@@ -161,7 +161,7 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
         excluded_variants: vec![],
         version: Default::default(),
     };
-    let out = render_enum_for_shared_doc(&en);
+    let out = render_enum_for_shared_doc(&en, Language::Rust);
     // The internal heading ## should become #### (demoted by 2 levels).
     // `contains("## Variants")` would false-match against `#### Variants`, so check
     // for the exact heading line at start-of-line instead.
@@ -244,7 +244,7 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                     cfg: None,
                     version: Default::default(),
                 }],
-                doc: "Image format enum.".into(),
+                doc: "Image format enum backed by `tl::parse`.".into(),
                 cfg: None,
                 is_copy: true,
                 has_serde: true,
@@ -301,6 +301,8 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
         .unwrap();
     assert!(cfg_file.content.contains("### Enums"));
     assert!(cfg_file.content.contains("#### ImageFormat"));
+    assert!(cfg_file.content.contains("`tl.parse`"));
+    assert!(!cfg_file.content.contains("`tl::parse`"));
     assert!(
         !cfg_file.content.contains("#### Unrelated"),
         "configuration.md must filter out enums not referenced by any config-type field"

@@ -23,9 +23,28 @@ pub(crate) fn render_function_example(func: &FunctionDef, lang: Language, ffi_pr
     )
 }
 
+#[allow(dead_code)]
 pub(crate) fn render_method_example(method: &MethodDef, owner_type: &str, lang: Language, ffi_prefix: &str) -> String {
+    render_method_example_with_override(method, owner_type, lang, ffi_prefix, None)
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MethodExampleOverride {
+    pub(crate) body: String,
+}
+
+pub(crate) fn render_method_example_with_override(
+    method: &MethodDef,
+    owner_type: &str,
+    lang: Language,
+    ffi_prefix: &str,
+    example_override: Option<&MethodExampleOverride>,
+) -> String {
     if let Some(example) = authored_example_block(&method.doc, lang) {
         return example;
+    }
+    if let Some(example_override) = example_override {
+        return render_example_block(lang, example_override.body.clone());
     }
     let call = method_call_expression(method, owner_type, lang, ffi_prefix);
     render_example_block(
