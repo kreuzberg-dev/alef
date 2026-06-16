@@ -688,3 +688,66 @@ fn registration_function_does_not_consume_builder_ownership() {
         "registration function must convert string params via CStr::from_ptr; got:\n{rs}"
     );
 }
+
+/// Regression test: when a registration carries a `TypeRef::Named` metadata
+/// param backed by a public `TypeDef` (i.e. an opaque pointer with `_new` /
+/// `_free` exports), the conversion borrows the pointer (`unsafe { &*ptr }`)
+/// AND the call site clones the borrow so the consuming Rust API can take
+/// the value by ownership.
+///
+/// The borrow alone (without `.clone()`) was introduced in 16279dba9 to fix a
+/// double-free, but it broke compilation: downstream methods like
+/// `App::route(builder: RouteBuilder, ...)` and `App::config(config:
+/// ServerConfig) -> Self` consume `T` by value, so passing `&T` produced
+/// `error[E0308]: mismatched types`. The fix is to emit `.clone()` at the
+/// call site (both opaque types implement `Clone` in spikard core).
+///
+/// This test fails if either:
+///   - the borrow is missing (double-free regression — alef 0.25.5)
+///   - the `.clone()` is missing on the call-site arg expression
+///     (E0308 regression — alef 0.25.5..=0.25.18)
+#[test]
+fn registration_named_opaque_param_clones_borrowed_pointer_at_call_site() {
+    use crate::core::ir::TypeDef;
+
+    let mut api = make_surface_with_variant();
+    // Register RouteBuilder as a public opaque type so the param-binding
+    // arm `TypeRef::Named(n) if api.types.iter().any(|t| t.name == *n)` fires.
+    api.types.push(TypeDef {
+        name: "RouteBuilder".to_owned(),
+        rust_path: "my_crate::RouteBuilder".to_owned(),
+        is_opaque: true,
+        is_clone: true,
+        ..TypeDef::default()
+    });
+    let config = ResolvedCrateConfig {
+        name: "my_crate".to_owned(),
+        ..ResolvedCrateConfig::default()
+    };
+
+    let rs = gen_service_rs(&api, &config);
+
+    // The borrow must be present (no Box::from_raw double-free).
+    assert!(
+        rs.contains("let builder = unsafe { &*builder };"),
+        "opaque-pointer metadata param `builder` must be borrowed via &*ptr; got:\n{rs}"
+    );
+    // The registration-dispatch call site must clone the borrow so the
+    // consuming `route()` API receives `RouteBuilder` by value, not
+    // `&RouteBuilder`. (Variant fns construct their own owned builder via
+    // `RouteBuilder::new(...)` and intentionally pass it by value without
+    // `.clone()` — that path is unaffected.)
+    assert!(
+        rs.contains(".add_route(builder.clone(), handler)"),
+        "opaque-pointer metadata param `builder` must be `.clone()`d at the \
+         registration dispatch call site so the consuming Rust API receives \
+         `T`, not `&T`; got:\n{rs}"
+    );
+    // Belt-and-braces: ensure the broken double-free path (Box::from_raw on
+    // the builder pointer) did not regress.
+    assert!(
+        !rs.contains("*Box::from_raw(builder)"),
+        "opaque-pointer metadata param `builder` must not be consumed via \
+         `Box::from_raw` — the C caller still holds the pointer; got:\n{rs}"
+    );
+}

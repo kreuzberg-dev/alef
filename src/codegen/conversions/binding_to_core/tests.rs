@@ -245,3 +245,55 @@ fn binding_excluded_non_cfg_field_falls_through_to_core_default_trailer() {
         "binding-excluded fields require the core-type Default trailer; got:\n{out}"
     );
 }
+
+/// Regression: when a core type has `binding_excluded` fields but does NOT
+/// implement `Default`, the spread trailer `..Default::default()` will not
+/// compile. In that case the From impl must fall back to per-field
+/// `Default::default()` for each excluded field — there is no bespoke core
+/// `Default` whose semantics could be bypassed (and the alternative is a
+/// generated impl that does not compile).
+///
+/// Concrete case that motivated this: `spikard::UploadFile` carries an
+/// internal `cursor: Cursor<Bytes>` field annotated with
+/// `#[cfg_attr(alef, alef(skip))]`, but the struct does not derive `Default`.
+/// Previously the From impl emitted `..Default::default()` which failed with
+/// `E0277: the trait bound 'UploadFile: Default' is not satisfied`.
+#[test]
+fn binding_excluded_field_on_type_without_default_uses_per_field_fallback() {
+    let field = FieldDef {
+        name: "cursor".to_string(),
+        ty: TypeRef::Named("Cursor".to_string()),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: true,
+        binding_exclusion_reason: Some("internal read cursor".to_string()),
+        original_type: None,
+    };
+    let mut typ = type_with_field(field);
+    typ.has_default = false; // core type does NOT impl Default
+    typ.has_stripped_cfg_fields = false;
+
+    let out = gen_from_binding_to_core(&typ, "crate");
+
+    assert!(
+        out.contains("cursor: Default::default()"),
+        "binding-excluded field on a type without `Default` must fall back to \
+         per-field `Default::default()`; got:\n{out}"
+    );
+    assert!(
+        !out.contains("..Default::default()"),
+        "the spread trailer must not be emitted when the core type does not \
+         derive/impl Default — it would fail to compile (E0277); got:\n{out}"
+    );
+}

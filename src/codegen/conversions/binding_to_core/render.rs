@@ -205,6 +205,12 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
     // `..Default::default()` trailer so the core type's Default impl fills those
     // fields in (preserves invariants like `SsrfPolicy::from_env`, which an
     // explicit field-level `Default::default()` on a sub-type would bypass).
+    //
+    // Exception: when the core type does not implement Default, the spread
+    // trailer would fail to compile. In that case, fall back to emitting
+    // per-field `Default::default()` for each binding-excluded field — there
+    // is no core Default to bypass.
+    let core_has_default = typ.has_default;
     let mut skipped_binding_excluded = false;
 
     for field in &typ.fields {
@@ -216,6 +222,15 @@ pub fn gen_from_binding_to_core_cfg(typ: &TypeDef, core_import: &str, config: &C
             // `kreuzcrawl::CrawlConfig::default()` calls `SsrfPolicy::from_env()`
             // to honor `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`, whereas
             // `SsrfPolicy::default()` hardcodes `deny_private = true`).
+            //
+            // BUT: when the core type does not derive/impl Default, the spread
+            // trailer (`..Default::default()`) does not compile. Emit a per-field
+            // `Default::default()` so the From impl still works — there is no
+            // bespoke core Default whose semantics we could be bypassing.
+            if !core_has_default {
+                fields.push(format!("{}: Default::default()", field.name));
+                continue;
+            }
             skipped_binding_excluded = true;
             continue;
         }

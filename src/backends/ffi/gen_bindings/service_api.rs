@@ -357,7 +357,7 @@ fn ffi_param_binding(p: &crate::core::ir::ParamDef, core_import: &str, api: &Api
                  let {0} = unsafe {{ &*{0} }};\n",
                 p.name
             ),
-            arg: p.name.clone(),
+            arg: format!("{}.clone()", p.name),
             pointer: true,
         },
         _ => FfiParamBinding {
