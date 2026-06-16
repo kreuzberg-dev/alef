@@ -12,7 +12,22 @@ use alef::e2e::codegen::c::CCodegen;
 use alef::e2e::fixture::{
     Assertion, Fixture, FixtureGroup, HttpExpectedResponse, HttpFixture, HttpHandler, HttpRequest, MockResponse,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+
+fn assert_phony_declares(content: &str, required_targets: &[&str]) {
+    let phony_targets = content
+        .lines()
+        .filter_map(|line| line.strip_prefix(".PHONY:"))
+        .flat_map(str::split_whitespace)
+        .collect::<BTreeSet<_>>();
+
+    for target in required_targets {
+        assert!(
+            phony_targets.contains(target),
+            ".PHONY must declare `{target}`. Got:\n{content}"
+        );
+    }
+}
 
 fn build_config_with_mock() -> NewAlefConfig {
     let toml_src = r#"
@@ -126,15 +141,11 @@ fn c_makefile_emits_smoke_and_test_targets() {
 
     let content = &makefile.content;
 
-    // Verify .PHONY declaration includes both test and smoke
-    assert!(
-        content.contains(".PHONY: all clean test smoke"),
-        ".PHONY must declare both test and smoke targets. Got:\n{content}"
-    );
+    assert_phony_declares(content, &["all", "build", "clean", "test", "smoke", "download_ffi"]);
 
     // Verify smoke target is present and runs with --smoke flag
     assert!(
-        content.contains("smoke: $(TARGET)"),
+        content.contains("smoke: all"),
         "smoke target must be defined. Got:\n{content}"
     );
     assert!(
@@ -144,7 +155,7 @@ fn c_makefile_emits_smoke_and_test_targets() {
 
     // Verify test target is present
     assert!(
-        content.contains("test: $(TARGET)"),
+        content.contains("test: all"),
         "test target must be defined. Got:\n{content}"
     );
 
@@ -262,14 +273,10 @@ prefix = "htm"
 
     let content = &makefile.content;
 
-    // Without mock server, both smoke and test should be simple direct invocations
-    assert!(
-        content.contains(".PHONY: all clean test smoke"),
-        ".PHONY must declare both test and smoke targets. Got:\n{content}"
-    );
+    assert_phony_declares(content, &["all", "build", "clean", "test", "smoke", "download_ffi"]);
 
-    assert!(content.contains("test: $(TARGET)"), "test target must be defined");
-    assert!(content.contains("smoke: $(TARGET)"), "smoke target must be defined");
+    assert!(content.contains("test: all"), "test target must be defined");
+    assert!(content.contains("smoke: all"), "smoke target must be defined");
 
     // Simple targets without mock server orchestration
     let test_target_lines: Vec<&str> = content

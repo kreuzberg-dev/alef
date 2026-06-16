@@ -335,16 +335,28 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
     format!("{}\n\n", lines)
 }
 
-pub(super) fn render_bootstrap(
-    e2e_config: &E2eConfig,
-    pkg_path: &str,
-    has_mock_server_fixtures: bool,
-    has_file_fixtures: bool,
-    test_documents_path: &str,
-    uses_server_harness: bool,
-    harness_host: &str,
-    harness_port: u16,
-) -> String {
+pub(super) struct BootstrapOptions<'a> {
+    pub(super) e2e_config: &'a E2eConfig,
+    pub(super) pkg_path: &'a str,
+    pub(super) has_mock_server_fixtures: bool,
+    pub(super) has_file_fixtures: bool,
+    pub(super) test_documents_path: &'a str,
+    pub(super) uses_server_harness: bool,
+    pub(super) harness_host: &'a str,
+    pub(super) harness_port: u16,
+}
+
+pub(super) fn render_bootstrap(options: BootstrapOptions<'_>) -> String {
+    let BootstrapOptions {
+        e2e_config,
+        pkg_path,
+        has_mock_server_fixtures,
+        has_file_fixtures,
+        test_documents_path,
+        uses_server_harness,
+        harness_host,
+        harness_port,
+    } = options;
     let header = hash::header(CommentStyle::DoubleSlash);
     let env_setup = render_env_setup_block(e2e_config);
     crate::e2e::template_env::render(
@@ -434,9 +446,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn make_e2e_config_with_env(env: HashMap<String, String>) -> E2eConfig {
-        let mut config = E2eConfig::default();
-        config.env = env;
-        config
+        E2eConfig {
+            env,
+            ..E2eConfig::default()
+        }
     }
 
     #[test]

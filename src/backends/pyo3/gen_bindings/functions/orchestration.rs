@@ -23,6 +23,7 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     dto: &crate::core::config::DtoConfig,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
+    opaque_types: &std::collections::HashMap<String, String>,
     adapters: &[crate::core::config::AdapterConfig],
     reexported_types: &[String],
     exclude_functions: &AHashSet<String>,
@@ -309,14 +310,21 @@ pub(in crate::backends::pyo3::gen_bindings) fn gen_api_py(
     for name in &all_type_imports {
         // Capsule types are not registered as #[pyclass] in the native module; skip them
         // here so api.py doesn't try `from ._native import <CapsuleType>` and crash at import.
+        // This applies to BOTH explicit capsule_types config AND opaque_types that have a
+        // capsule override — both are host-provided, not wrapper structs.
         if capsule_types.contains_key(name) {
             continue;
         }
         let is_options = options_type_names.contains(name) || options_enum_names.contains(name);
+        // Opaque types from [workspace.opaque_types] without a capsule override have a
+        // binding-side #[pyclass] wrapper struct emitted in mod.rs and are exported from
+        // the native module — classify them as native so api.py imports them from ._native.
+        let is_opaque_wrapper = opaque_types.contains_key(name) && !capsule_types.contains_key(name);
         let is_native = !is_options
             && (opaque_names.contains(name)
                 || error_names.contains(name)
                 || all_ir_type_names.contains(name)
+                || is_opaque_wrapper
                 // Enums not in options_enum_names live in the native module.
                 || (all_enum_names.contains(name) && !options_enum_names.contains(name)));
         if is_native {

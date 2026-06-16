@@ -1,0 +1,8 @@
+#[derive(Clone)]
+#[napi(js_name = "{{ name }}")]
+pub struct {{ struct_name }} {
+    pub(crate) inner: Arc<{{ rust_path }}>,
+}
+
+#[napi]
+impl {{ struct_name }} {}

@@ -308,22 +308,19 @@ mod tests {
     #[test]
     fn render_env_block_emits_setdefault_with_sorted_keys() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_env_block(&env);
         assert!(block.contains(": \"${ALEF_FOO:=bar}\""), "got: {block}");
         assert!(
-            block.contains(": \"${KREUZCRAWL_ALLOW_PRIVATE_NETWORK:=true}\""),
+            block.contains(": \"${E2E_ALLOW_PRIVATE_NETWORK:=true}\""),
             "got: {block}"
         );
         assert!(block.contains("export ALEF_FOO"), "got: {block}");
-        assert!(
-            block.contains("export KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
-            "got: {block}"
-        );
+        assert!(block.contains("export E2E_ALLOW_PRIVATE_NETWORK"), "got: {block}");
         let alef_pos = block.find("ALEF_FOO").unwrap();
-        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+        let e2e_pos = block.find("E2E_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < e2e_pos, "keys must be sorted alphabetically; got: {block}");
     }
 
     #[test]
@@ -345,20 +342,17 @@ mod tests {
     #[test]
     fn render_run_tests_includes_env_block_when_env_configured() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let categories = vec!["smoke".to_string()];
         let script = render_run_tests(&categories, &env);
         assert!(
-            script.contains(": \"${KREUZCRAWL_ALLOW_PRIVATE_NETWORK:=true}\""),
+            script.contains(": \"${E2E_ALLOW_PRIVATE_NETWORK:=true}\""),
             "got: {script}"
         );
-        assert!(
-            script.contains("export KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
-            "got: {script}"
-        );
+        assert!(script.contains("export E2E_ALLOW_PRIVATE_NETWORK"), "got: {script}");
         // Env block must precede the MOCK_SERVER_URL bootstrap so the binding's
         // first call already sees the configured environment.
-        let env_pos = script.find("${KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
+        let env_pos = script.find("${E2E_ALLOW_PRIVATE_NETWORK").unwrap();
         let mock_pos = script.find("MOCK_SERVER_URL").unwrap();
         assert!(env_pos < mock_pos, "env block must precede mock-server bootstrap");
     }

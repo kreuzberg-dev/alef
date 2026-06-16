@@ -652,7 +652,7 @@ mod env_init_tests {
     #[test]
     fn render_kotlin_env_init_emits_setdefault_with_sorted_keys() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_kotlin_env_init(&env);
         assert!(
@@ -664,16 +664,16 @@ mod env_init_tests {
             "got: {block}"
         );
         assert!(
-            block.contains("if (System.getProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == null) {"),
+            block.contains("if (System.getProperty(\"E2E_ALLOW_PRIVATE_NETWORK\") == null) {"),
             "got: {block}"
         );
         assert!(
-            block.contains("System.setProperty(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\")"),
+            block.contains("System.setProperty(\"E2E_ALLOW_PRIVATE_NETWORK\", \"true\")"),
             "got: {block}"
         );
         let alef_pos = block.find("ALEF_FOO").unwrap();
-        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+        let e2e_pos = block.find("E2E_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < e2e_pos, "keys must be sorted alphabetically; got: {block}");
     }
 
     #[test]

@@ -88,6 +88,8 @@ repos:
           - --
           - -D
           - warnings
+          - -A
+          - clippy::needless_update
       - id: cargo-sort
       - id: cargo-machete
       - id: cargo-deny

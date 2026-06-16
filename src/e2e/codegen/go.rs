@@ -816,10 +816,10 @@ mod tests {
     #[test]
     fn render_env_setup_single_var_contains_key_and_value() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let out = render_env_setup(&env);
         assert!(
-            out.contains("KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
+            out.contains("E2E_ALLOW_PRIVATE_NETWORK"),
             "output should contain env var name: {out}"
         );
         assert!(out.contains("true"), "output should contain env var value: {out}");

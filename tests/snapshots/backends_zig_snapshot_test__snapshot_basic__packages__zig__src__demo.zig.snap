@@ -35,11 +35,16 @@ inline fn _first_error(comptime E: type) E {
 }
 
 /// Map the last FFI error to a typed error, logging the error message.
-/// Captures context from `_last_error()` before returning the first variant.
+/// Reads the FFI error context from `_last_error()` and dispatches to a
+/// per-error-set message-prefix matcher emitted alongside each declared error.
+/// Falls back to the first declared variant when no prefix matches or the
+/// FFI layer did not set a context string.
 inline fn _error_with_message(comptime E: type) E {
-    if (_last_error()) |msg| {
+    const msg_opt = _last_error();
+    if (msg_opt) |msg| {
         std.debug.print("FFI error: {s}\n", .{msg});
     }
+    if (E == DemoError) return _from_ffi_msg_DemoError(msg_opt);
     return _first_error(E);
 }
 
@@ -49,6 +54,16 @@ pub const DemoError = error{
     ProcessingFailed,
     OutOfMemory,
 };
+/// Map an FFI error message string to a `DemoError` variant by prefix-matching
+/// against the upstream `#[error("...")]` templates. Falls back to the
+/// first declared variant when no prefix matches.
+inline fn _from_ffi_msg_DemoError(msg_opt: ?[]const u8) DemoError {
+    if (msg_opt) |msg| {
+        if (std.mem.startsWith(u8, msg, "invalid input provided")) return error.InvalidInput;
+        if (std.mem.startsWith(u8, msg, "processing failed")) return error.ProcessingFailed;
+    }
+    return _first_error(DemoError);
+}
 
 /// A demo configuration struct.
 pub const Config = struct {

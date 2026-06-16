@@ -29,7 +29,7 @@ pub(super) fn render_spec_file(
         .and_then(|o| o.client_factory.as_deref());
 
     // Build requires list. spec_helper MUST be required before the gem/module
-    // to ensure ENV vars (like KREUZCRAWL_ALLOW_PRIVATE_NETWORK) are set in libc
+    // to ensure ENV vars (like E2E_ALLOW_PRIVATE_NETWORK) are set in libc
     // before the native binding loads and caches the SSRF policy.
     let has_http = fixtures.iter().any(|f| f.is_http_test());
     let mut requires = Vec::new();

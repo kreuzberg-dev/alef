@@ -342,9 +342,9 @@ mod tests {
     fn sample_makefile(needs_mock_server: bool) -> String {
         render_makefile(
             &["smoke".to_string()],
-            "ts_pack.h",
-            "../../crates/ts-pack-core-ffi",
-            "ts-pack-core-ffi",
+            "example_pack.h",
+            "../../crates/example-pack-core-ffi",
+            "example-pack-core-ffi",
             needs_mock_server,
         )
     }
@@ -392,11 +392,11 @@ mod tests {
             "conditional skip of header dependency must be removed; got: {makefile}"
         );
         // The old file-target rule
-        // `$(FFI_DIR)/include/ts_pack.h: download_ffi.sh` was a no-op when the
+        // `$(FFI_DIR)/include/example_pack.h: download_ffi.sh` was a no-op when the
         // file already existed. Confirm it is no longer emitted; the phony
         // target takes its place.
         assert!(
-            !makefile.contains("$(FFI_DIR)/include/ts_pack.h: download_ffi.sh"),
+            !makefile.contains("$(FFI_DIR)/include/example_pack.h: download_ffi.sh"),
             "file-target rule on header must be replaced by phony download_ffi; got: {makefile}"
         );
     }
@@ -426,9 +426,9 @@ mod tests {
     #[test]
     fn download_script_is_idempotent_via_version_marker() {
         let script = render_download_script(
-            "https://github.com/kreuzberg-dev/tree-sitter-language-pack",
+            "https://github.com/fixture-dev/example-language-pack",
             "1.9.0-rc.48",
-            "ts-pack-core-ffi",
+            "example-pack-core-ffi",
         );
         assert!(
             script.contains("MARKER=\"$FFI_DIR/.alef-ffi-version\""),

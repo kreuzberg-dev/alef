@@ -13,6 +13,7 @@ pub(super) fn emit_from_mirror_to_core_enum(out: &mut String, en: &EnumDef, sour
         minijinja::context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
+            source_cfg => en.cfg.as_deref().unwrap_or(""),
         },
     ));
 
@@ -272,6 +273,7 @@ pub(super) fn emit_from_impl_for_enum(out: &mut String, en: &EnumDef, source_cra
         minijinja::context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
+            source_cfg => en.cfg.as_deref().unwrap_or(""),
         },
     ));
 

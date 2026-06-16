@@ -1,6 +1,6 @@
 {#- Mock-server startup block for Elixir e2e tests
    Spawns mock-server binary and sets MOCK_SERVER_URL and per-fixture env vars
-   NOTE: KREUZCRAWL_ALLOW_PRIVATE_NETWORK must be set BEFORE this block runs,
+   NOTE: E2E_ALLOW_PRIVATE_NETWORK must be set BEFORE this block runs,
    ideally in the Taskfile env: or via System.put_env in test_helper.exs BEFORE
    the Rustler NIF loads (which happens on first fixture compilation).
 -#}

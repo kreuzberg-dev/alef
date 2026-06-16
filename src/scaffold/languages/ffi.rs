@@ -137,6 +137,32 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
         &core_dep_features(config, Language::Ffi),
         target_overrides,
     );
+
+    // FFI source uses `#[cfg(feature = "X")]` to gate code paths driven by core-crate
+    // features (metadata, visitor, inline-images, testkit, …). The cfg matches against
+    // THIS crate's feature flags, not the core dep's, so we must declare matching
+    // passthrough features here. Without them, `RUSTFLAGS="-D warnings"` fails CI Rust
+    // with `unexpected cfg condition value` errors on every gated function.
+    let ffi_core_features = config.features_for_language(Language::Ffi);
+    let passthrough_feature_names: Vec<&str> = ffi_core_features
+        .iter()
+        .map(|f| f.as_str())
+        .filter(|f| *f != "serde") // serde is not a core feature here; it's a passthrough already enabled elsewhere when needed
+        .collect();
+    let core_features_default_list = passthrough_feature_names
+        .iter()
+        .map(|f| format!("\"{f}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let core_features_passthrough_block = if passthrough_feature_names.is_empty() {
+        String::new()
+    } else {
+        passthrough_feature_names
+            .iter()
+            .map(|f| format!("{f} = [\"{}/{f}\"]", config.name))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
     // Separate the main [dependencies] table from any per-target tables.
     let target_blocks_section = if target_blocks.is_empty() {
         String::new()
@@ -187,7 +213,8 @@ ignored = [{machete_ignored_str}]
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [features]
-default = []
+default = [{core_features_default_list}]
+{core_features_passthrough_block}
 
 [dependencies]
 {dep_block}
@@ -205,6 +232,8 @@ tempfile = "{tempfile}"
         cbindgen = tv::cargo::CBINDGEN,
         tempfile = tv::cargo::TEMPFILE,
         machete_ignored_str = machete_ignored_str,
+        core_features_default_list = core_features_default_list,
+        core_features_passthrough_block = core_features_passthrough_block,
     );
 
     let ffi_name = format!("{core_crate_dir}-ffi");

@@ -182,16 +182,16 @@ impl E2eCodegen for PhpCodegen {
         // Generate bootstrap.php that loads both autoloaders and optionally starts the mock server.
         files.push(GeneratedFile {
             path: output_base.join("bootstrap.php"),
-            content: project::render_bootstrap(
+            content: project::render_bootstrap(project::BootstrapOptions {
                 e2e_config,
-                &pkg_path,
+                pkg_path: &pkg_path,
                 has_mock_server_fixtures,
                 has_file_fixtures,
-                &e2e_config.test_documents_relative_from(0),
+                test_documents_path: &e2e_config.test_documents_relative_from(0),
                 uses_server_harness,
-                &e2e_config.harness.host,
-                e2e_config.harness.port,
-            ),
+                harness_host: &e2e_config.harness.host,
+                harness_port: e2e_config.harness.port,
+            }),
             generated_header: true,
         });
 

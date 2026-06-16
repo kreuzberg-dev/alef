@@ -60,7 +60,7 @@ mod tests {
     #[test]
     fn render_cargo_config_emits_env_table_with_sorted_keys() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let out = render_cargo_config(&env).expect("non-empty env yields config");
         assert!(out.contains("[env]"), "got: {out}");
@@ -69,12 +69,12 @@ mod tests {
             "got: {out}"
         );
         assert!(
-            out.contains("KREUZCRAWL_ALLOW_PRIVATE_NETWORK = { value = \"true\", force = false }"),
+            out.contains("E2E_ALLOW_PRIVATE_NETWORK = { value = \"true\", force = false }"),
             "got: {out}"
         );
         let alef_pos = out.find("ALEF_FOO").unwrap();
-        let kreuz_pos = out.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {out}");
+        let e2e_pos = out.find("E2E_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < e2e_pos, "keys must be sorted alphabetically; got: {out}");
     }
 
     #[test]

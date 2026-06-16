@@ -1,2 +1,5 @@
 
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 impl {{ error_name }} {

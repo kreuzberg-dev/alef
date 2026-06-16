@@ -49,6 +49,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
             minijinja::context! {
                 name => ty.name.as_str(),
                 inner_path => inner_path.as_str(),
+                source_cfg => ty.cfg.as_deref().unwrap_or(""),
             },
         ));
         return;
@@ -62,6 +63,7 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
         "rust_mirror_struct_attribute.jinja",
         minijinja::context! {
             name => ty.name.as_str(),
+            source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
     out.push_str(&template_env::render(
@@ -96,6 +98,7 @@ pub(crate) fn emit_mirror_enum(out: &mut String, en: &EnumDef) {
         "rust_mirror_enum_attribute.jinja",
         minijinja::context! {
             name => en.name.as_str(),
+            source_cfg => en.cfg.as_deref().unwrap_or(""),
         },
     ));
     out.push_str(&template_env::render(
@@ -260,7 +263,7 @@ fn variant_is_reconstructible(fields: &[&FieldDef]) -> bool {
 /// `unreachable!` is emitted to cover them so the match stays exhaustive.
 /// `#[allow(unreachable_patterns)]` is emitted unconditionally to suppress the
 /// compiler warning when all variants are in fact reconstructible.
-fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
+fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str, error_cfg: &str) {
     use crate::backends::dart::template_env;
 
     // A variant is "skipped" (needs wildcard arm) only when it has non-binding_excluded fields
@@ -276,6 +279,7 @@ fn emit_from_impl(out: &mut String, error: &ErrorDef, core_path: &str) {
         minijinja::context! {
             name => error.name.as_str(),
             core_path => core_path,
+            source_cfg => error_cfg,
         },
     ));
     for variant in &error.variants {
@@ -446,6 +450,7 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
         "rust_mirror_enum_attribute.jinja",
         minijinja::context! {
             name => error.name.as_str(),
+            source_cfg => "",
         },
     ));
     out.push_str(&template_env::render(
@@ -545,12 +550,13 @@ pub(crate) fn emit_mirror_error(out: &mut String, error: &ErrorDef, source_crate
     // Emit a safe From<&MirrorEnum> for CoreType impl. Each variant is reconstructed
     // field-by-field with explicit casts from FRB-widened types (i64/f64) to the real
     // primitive widths. This replaces the former unsound raw-pointer transmute.
-    emit_from_impl(out, error, &core_path);
+    emit_from_impl(out, error, &core_path, "");
 
     out.push_str(&crate::backends::dart::template_env::render(
         "rust_error_impl_open.rs.jinja",
         minijinja::context! {
             error_name => error.name.as_str(),
+            source_cfg => "",
         },
     ));
     for method in bridge_methods {

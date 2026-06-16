@@ -634,17 +634,17 @@ mod tests {
         let mut e2e_config = crate::e2e::config::E2eConfig::default();
         e2e_config
             .env
-            .insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_owned(), "true".to_owned());
+            .insert("E2E_ALLOW_PRIVATE_NETWORK".to_owned(), "true".to_owned());
         e2e_config.env.insert("ALEF_FOO".to_owned(), "bar".to_owned());
         let groups: Vec<crate::e2e::fixture::FixtureGroup> = Vec::new();
         let out = render_conftest(&e2e_config, &groups);
         assert!(out.contains("_SUITE_ENV"), "got: {out}");
-        assert!(out.contains("\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\""), "got: {out}");
+        assert!(out.contains("\"E2E_ALLOW_PRIVATE_NETWORK\""), "got: {out}");
         assert!(out.contains("\"ALEF_FOO\""), "got: {out}");
         assert!(out.contains("setdefault"), "got: {out}");
         let alef_pos = out.find("\"ALEF_FOO\"").unwrap();
-        let kreuz_pos = out.find("\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\"").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys should be sorted alphabetically; got: {out}");
+        let e2e_pos = out.find("\"E2E_ALLOW_PRIVATE_NETWORK\"").unwrap();
+        assert!(alef_pos < e2e_pos, "keys should be sorted alphabetically; got: {out}");
     }
 
     #[test]

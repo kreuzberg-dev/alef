@@ -32,6 +32,14 @@ pub(super) fn is_reserved_fn(name: &str) -> bool {
     MAGNUS_RESERVED_FN_NAMES.contains(&name)
 }
 
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 pub struct MagnusBackend;
 
 /// Convert crate name to PascalCase module name.
@@ -369,7 +377,7 @@ impl Backend for MagnusBackend {
                 let bridge_param =
                     crate::backends::magnus::trait_bridge::find_bridge_param(func, &config.trait_bridges);
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
-                    builder.add_item(&crate::backends::magnus::trait_bridge::gen_bridge_function(
+                    let item = crate::backends::magnus::trait_bridge::gen_bridge_function(
                         api,
                         func,
                         param_idx,
@@ -378,39 +386,38 @@ impl Backend for MagnusBackend {
                         &opaque_types,
                         &default_types,
                         &core_import,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 } else if let Some((options_param_idx, bridge_cfg)) =
                     crate::backends::magnus::trait_bridge::find_options_field_binding(func, &config.trait_bridges)
                 {
-                    builder.add_item(
-                        &crate::backends::magnus::trait_bridge::gen_options_field_bridge_function(
-                            api,
-                            func,
-                            options_param_idx,
-                            bridge_cfg,
-                            &mapper,
-                            &opaque_types,
-                            &core_import,
-                        ),
-                    );
-                } else {
-                    builder.add_item(&functions::gen_function(
+                    let item = crate::backends::magnus::trait_bridge::gen_options_field_bridge_function(
+                        api,
                         func,
+                        options_param_idx,
+                        bridge_cfg,
                         &mapper,
                         &opaque_types,
-                        &mutex_types,
                         &core_import,
-                        api,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
+                } else {
+                    let item = functions::gen_function(func, &mapper, &opaque_types, &mutex_types, &core_import, api);
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                     if func.is_async {
-                        builder.add_item(&functions::gen_async_function(
+                        let item = functions::gen_async_function(
                             func,
                             &mapper,
                             &opaque_types,
                             &mutex_types,
                             &core_import,
                             api,
-                        ));
+                        );
+                        let item = prepend_cfg(func.cfg.as_deref(), item);
+                        builder.add_item(&item);
                     }
                 }
             }

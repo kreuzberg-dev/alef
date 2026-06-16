@@ -1,1 +1,4 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 #[frb(mirror({{ name }}), unignore)]

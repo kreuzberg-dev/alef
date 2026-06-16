@@ -111,7 +111,11 @@ mod tests {
     #[test]
     fn error_with_message_dispatches_to_each_declared_error() {
         let mut out = String::new();
-        emit_helpers("ts_pack", &["Error".to_string(), "DownloadError".to_string()], &mut out);
+        emit_helpers(
+            "example_pack",
+            &["Error".to_string(), "DownloadError".to_string()],
+            &mut out,
+        );
 
         // The dispatch helper must reference both per-error matchers so the
         // generated Zig file correctly maps FFI messages to typed variants on

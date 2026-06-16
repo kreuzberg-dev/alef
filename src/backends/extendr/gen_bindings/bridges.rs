@@ -455,6 +455,17 @@ pub(super) fn gen_extendr_json_bridged_function(
     let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
     let rt_new = format!("tokio::runtime::Runtime::new(){err_map}?");
 
+    // Check if return type requires JSON serialization. If so, all Named params must also
+    // use JSON for bidirectional consistency (caller and callee both speak JSON).
+    let return_type_requires_json = matches!(&func.return_type, TypeRef::Named(n)
+        if extendr_incompatible_types.contains(n.as_str()))
+        || matches!(&func.return_type, TypeRef::Optional(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n)
+                if extendr_incompatible_types.contains(n.as_str())))
+        || matches!(&func.return_type, TypeRef::Vec(inner)
+            if matches!(inner.as_ref(), TypeRef::Named(n)
+                if extendr_incompatible_types.contains(n.as_str())));
+
     let mut sig_params: Vec<String> = Vec::new();
     let mut body_preamble = String::new();
 
@@ -510,7 +521,7 @@ pub(super) fn gen_extendr_json_bridged_function(
                         if !opaque_types.contains(n.as_str())
                             && !enum_names.contains(n.as_str())
                             && !extendr_incompatible_types.contains(n.as_str()))))
-                    && (param.optional || !cfg.named_non_opaque_params_by_ref));
+                    && (param.optional || !cfg.named_non_opaque_params_by_ref || return_type_requires_json));
         if needs_json_vec {
             let (core_ty_path, is_optional) = match &param.ty {
                 TypeRef::Vec(inner) => match inner.as_ref() {

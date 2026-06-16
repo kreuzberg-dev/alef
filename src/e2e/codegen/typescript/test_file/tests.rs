@@ -516,7 +516,7 @@ fn render_env_setup_multiple_vars_sorted_alphabetically() {
 fn render_env_setup_uses_defaultassign_semantics() {
     use crate::e2e::codegen::typescript::test_file::render::render_env_setup;
     let mut env = std::collections::HashMap::new();
-    env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+    env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
     let output = render_env_setup(&env);
 
     assert!(

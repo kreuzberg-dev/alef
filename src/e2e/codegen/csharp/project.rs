@@ -129,7 +129,7 @@ mod tests {
         env.insert("ALPHA_VAR".to_string(), "a_value".to_string());
         env.insert("BETA_VAR".to_string(), "b_value".to_string());
 
-        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
 
         assert!(output.contains("ALPHA_VAR"));
         assert!(output.contains("a_value"));
@@ -151,7 +151,7 @@ mod tests {
     #[test]
     fn test_render_test_setup_empty_env() {
         let env = HashMap::new();
-        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
 
         // Should not contain SetEnvironmentVariable calls for empty env
         assert!(!output.contains("Environment.SetEnvironmentVariable("));
@@ -162,7 +162,7 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("TEST_VAR".to_string(), "test_value".to_string());
 
-        let output = render_test_setup(false, "fixtures", "KreuzcrawlE2E", &env);
+        let output = render_test_setup(false, "fixtures", "FixtureE2E", &env);
 
         // Verify null-check pattern: if null, set
         assert!(output.contains("if (Environment.GetEnvironmentVariable(\"TEST_VAR\") == null)"));

@@ -19,6 +19,14 @@ use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 use std::path::PathBuf;
 
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 pub struct ExtendrBackend;
 
 impl Backend for ExtendrBackend {
@@ -676,7 +684,7 @@ impl Backend for ExtendrBackend {
             let bridge_field = find_bridge_field(func, &api.types, &active_bridges);
 
             if let Some((param_idx, bridge_cfg)) = bridge_param {
-                builder.add_item(&crate::backends::extendr::trait_bridge::gen_bridge_function(
+                let item = crate::backends::extendr::trait_bridge::gen_bridge_function(
                     api,
                     func,
                     param_idx,
@@ -684,15 +692,14 @@ impl Backend for ExtendrBackend {
                     self,
                     &opaque_types,
                     &core_import,
-                ));
+                );
+                let item = prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             } else if let Some(bm) = bridge_field {
                 // Function has a bridge field binding (e.g., visitor on options)
-                builder.add_item(&bridges::gen_extendr_bridge_field_function(
-                    api,
-                    func,
-                    &bm,
-                    &core_import,
-                ));
+                let item = bridges::gen_extendr_bridge_field_function(api, func, &bm, &core_import);
+                let item = prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             } else {
                 // Detect functions whose return type or parameter types are incompatible
                 // with extendr's automatic Robj conversions. These need JSON bridging.
@@ -733,7 +740,7 @@ impl Backend for ExtendrBackend {
                                     && api.types.iter().any(|t| !t.is_opaque && !t.is_trait && t.name == *n))))
                 });
                 if func_return_needs_json || func_params_need_json {
-                    builder.add_item(&bridges::gen_extendr_json_bridged_function(
+                    let item = bridges::gen_extendr_json_bridged_function(
                         func,
                         self,
                         &core_import,
@@ -741,15 +748,13 @@ impl Backend for ExtendrBackend {
                         &cfg,
                         &extendr_incompatible_types,
                         &enum_names,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 } else {
-                    builder.add_item(&generators::gen_function(
-                        func,
-                        self,
-                        &cfg,
-                        &adapter_bodies,
-                        &opaque_types,
-                    ));
+                    let item = generators::gen_function(func, self, &cfg, &adapter_bodies, &opaque_types);
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 }
             }
         }

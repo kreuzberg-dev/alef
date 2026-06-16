@@ -134,7 +134,7 @@ fn render_env_setup_block(e2e_config: &E2eConfig) -> String {
 }
 
 pub(super) fn render_test_helper(has_http_tests: bool, uses_harness: bool, e2e_config: &E2eConfig) -> String {
-    // Environment variables (including KREUZCRAWL_ALLOW_PRIVATE_NETWORK) must be set BEFORE
+    // Environment variables (including E2E_ALLOW_PRIVATE_NETWORK) must be set BEFORE
     // the Rustler NIF loads (at first module init). render_env_setup_block emits all [e2e.env]
     // vars with System.get_env guards, ensuring they're set early.
     let env_setup = render_env_setup_block(e2e_config);

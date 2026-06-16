@@ -1,3 +1,6 @@
+{% if source_cfg -%}
+#[cfg({{ source_cfg }})]
+{% endif -%}
 impl From<{{ core_ty }}> for {{ name }} {
     fn from(v: {{ core_ty }}) -> Self {
         {{ name }} {

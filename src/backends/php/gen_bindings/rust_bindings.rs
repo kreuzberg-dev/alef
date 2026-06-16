@@ -28,6 +28,14 @@ use minijinja::context;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 fn binding_config(core_import: &str, has_serde: bool) -> RustBindingConfig<'_> {
     RustBindingConfig {
         struct_attrs: &["php_class"],
@@ -386,7 +394,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             if let Some((param_idx, bridge_cfg)) = bridge_param {
                 let bridge_handle_path =
                     crate::codegen::generators::trait_bridge::bridge_handle_path(api, bridge_cfg, &core_import);
-                method_items.push(crate::backends::php::trait_bridge::gen_bridge_function(
+                let item = crate::backends::php::trait_bridge::gen_bridge_function(
                     func,
                     param_idx,
                     bridge_cfg,
@@ -394,9 +402,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     &opaque_types,
                     &core_import,
                     &bridge_handle_path,
-                ));
+                );
+                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
             } else if func.is_async {
-                method_items.push(gen_async_function_as_static_method(
+                let item = gen_async_function_as_static_method(
                     func,
                     &mapper,
                     PhpParamTypeSets {
@@ -407,9 +416,10 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     &core_import,
                     &config.trait_bridges,
                     &mutex_types,
-                ));
+                );
+                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
             } else {
-                method_items.push(gen_function_as_static_method(
+                let item = gen_function_as_static_method(
                     func,
                     &mapper,
                     PhpParamTypeSets {
@@ -421,7 +431,8 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                     &config.trait_bridges,
                     has_serde,
                     &mutex_types,
-                ));
+                );
+                method_items.push(prepend_cfg(func.cfg.as_deref(), item));
             }
         }
 

@@ -294,10 +294,20 @@ pub(super) fn gen_init_py(
     // (e.g. tree_sitter.Language) instead, so the symbol does not exist in `._native` and must
     // be excluded from the import list.
     imports_from_native.retain(|n| !capsule_types.contains_key(n));
-    // Declared opaque types from `[workspace.opaque_types]` are external references not
-    // registered as #[pyclass] in the native module (companion to methods.rs:75 m.add_class
-    // gating), so they must be excluded from __init__.py public imports to avoid ImportError.
-    imports_from_native.retain(|n| !opaque_types.contains_key(n));
+    // Declared opaque types from `[workspace.opaque_types]` that have a capsule_types override
+    // are external references not registered as #[pyclass] in the native module, so they must
+    // be excluded from __init__.py public imports to avoid ImportError.
+    // Opaque types WITHOUT a capsule override DO get a binding-side #[pyclass] wrapper struct
+    // and must remain in imports_from_native so they are re-exported from the public package.
+    let python_capsule_type_names: ahash::AHashSet<&str> = capsule_types.keys().map(|k| k.as_str()).collect();
+    imports_from_native.retain(|n| {
+        if opaque_types.contains_key(n) {
+            // Keep if no capsule override (has a wrapper struct), filter if capsule override exists
+            !python_capsule_type_names.contains(n.as_str())
+        } else {
+            true
+        }
+    });
     // Case-insensitive sort matches isort's ordering (e.g. VisitorHandle < WalkDecision).
     imports_from_native.sort_by_key(|a| a.to_lowercase());
     imports_from_native.dedup();
@@ -474,9 +484,17 @@ pub(super) fn gen_init_py(
     all_items.extend(extra_all_items);
     all_items.sort();
     all_items.dedup();
-    // Filter out declared opaque types from __all__ — they are not registered as public
-    // exports in the native module and must not appear in the public API.
-    all_items.retain(|n| !opaque_types.contains_key(n));
+    // Filter out declared opaque types that have a capsule override from __all__ — they are
+    // not registered as #[pyclass] in the native module.
+    // Opaque types WITHOUT a capsule override DO have a wrapper struct and SHOULD appear in
+    // __all__ so they are importable from the public package root.
+    all_items.retain(|n| {
+        if opaque_types.contains_key(n) {
+            !python_capsule_type_names.contains(n.as_str())
+        } else {
+            true
+        }
+    });
 
     out.push_str("\n__all__ = [\n");
     for name in &all_items {

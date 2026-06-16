@@ -1,0 +1,8 @@
+#[derive(Clone)]
+#[pyclass(unsendable)]
+pub struct {{ name }} {
+    pub(crate) inner: Arc<{{ rust_path }}>,
+}
+
+#[pymethods]
+impl {{ name }} {}

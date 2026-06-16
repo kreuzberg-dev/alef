@@ -1,3 +1,11 @@
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+pub(super) fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 pub(super) fn js_bytes_def() -> &'static str {
     r#"
 /// Wrapper for byte arrays that implements custom FromNapiValue to accept Buffer.from(...).

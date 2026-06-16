@@ -384,11 +384,11 @@ fn snapshot_method_with_param() {
         !do_thing.contains("serde_json::to_string(&v)"),
         "do_thing returns a plain String and must not JSON-serialize it; got:\n{content}"
     );
-    // jni 0.22+: helpers take `&mut Env<'_>`, shim wraps body in
-    // `env.with_env(|env| ...)`, so inner calls pass the already-mutable
-    // reference `env` (no extra `&mut`).
+    // jni 0.22+: helpers take `&mut Env<'_>`, and `string_to_jstring` accepts
+    // any `impl AsRef<str>`, so the generated `String` return value can be
+    // passed directly.
     assert!(
-        do_thing.contains("string_to_jstring(env, &v)"),
+        do_thing.contains("string_to_jstring(env, v)"),
         "do_thing must return jstring; got:\n{content}"
     );
     insta::assert_snapshot!("snapshot_method_with_param", content);

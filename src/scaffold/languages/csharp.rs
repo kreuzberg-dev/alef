@@ -79,7 +79,7 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
     <InformationalVersion>{version}</InformationalVersion>
     <Description>{description}</Description>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
-{repository}{authors}    <Company>Kreuzberg Team</Company>
+{repository}{authors}    <Company>Alef Team</Company>
     <Product>{namespace}</Product>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>

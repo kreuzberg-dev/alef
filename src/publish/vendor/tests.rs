@@ -615,7 +615,7 @@ fn scrub_lock_seed_copy_runs_before_failed_regen() {
 //
 // Reproduces the CI failure pattern from tslp v1.9.0-rc.48 where
 // `scrub_or_regenerate_lock` received a relative `manifest_dir` (e.g.
-// `./packages/elixir/native/tree_sitter_language_pack_nif`). With
+// `./packages/elixir/native/example_language_pack_nif`). With
 // `current_dir(manifest_dir)` set on cargo subprocesses, the relative
 // `--manifest-path` (computed as `manifest_dir.join("Cargo.toml")`) was
 // evaluated relative to the NEW cwd (i.e. relative to itself), producing

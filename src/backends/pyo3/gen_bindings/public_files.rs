@@ -90,6 +90,7 @@ pub(super) fn generate_public_api(
         &config.trait_bridges,
         &config.dto,
         &capsule_types,
+        &config.opaque_types,
         &config.adapters,
         &reexported_types,
         &exclude_functions,

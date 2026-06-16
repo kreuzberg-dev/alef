@@ -28,6 +28,14 @@ use errors::{gen_error_converter, gen_error_methods};
 use functions::{gen_env_shims, gen_function_with_emitted_dtos};
 use types::{gen_opaque_struct, gen_opaque_struct_methods, gen_struct, gen_struct_methods};
 
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 pub struct WasmBackend;
 
 impl Backend for WasmBackend {
@@ -487,7 +495,7 @@ impl Backend for WasmBackend {
                             .any(|f| f.cfg.is_none() && f.name == field_name)
                     });
                 if let Some((param_idx, bridge_cfg)) = bridge_param {
-                    builder.add_item(&crate::backends::wasm::trait_bridge::gen_bridge_function(
+                    let item = crate::backends::wasm::trait_bridge::gen_bridge_function(
                         api,
                         func,
                         param_idx,
@@ -496,9 +504,11 @@ impl Backend for WasmBackend {
                         &opaque_types,
                         &core_import,
                         &prefix,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 } else if let Some((param_idx, bridge_cfg)) = options_field_bridge {
-                    builder.add_item(&crate::backends::wasm::trait_bridge::gen_options_field_bridge_function(
+                    let item = crate::backends::wasm::trait_bridge::gen_options_field_bridge_function(
                         api,
                         func,
                         param_idx,
@@ -507,9 +517,11 @@ impl Backend for WasmBackend {
                         &opaque_types,
                         &core_import,
                         &prefix,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 } else {
-                    builder.add_item(&gen_function_with_emitted_dtos(
+                    let item = gen_function_with_emitted_dtos(
                         func,
                         &mapper,
                         &core_import,
@@ -518,7 +530,9 @@ impl Backend for WasmBackend {
                         &mutex_types,
                         api,
                         &emitted_input_dtos,
-                    ));
+                    );
+                    let item = prepend_cfg(func.cfg.as_deref(), item);
+                    builder.add_item(&item);
                 }
             }
         }

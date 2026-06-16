@@ -258,6 +258,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         "napi_bridge_struct.jinja",
         include_str!("templates/napi_bridge_struct.jinja"),
     ),
+    (
+        "config_opaque_wrapper.rs.jinja",
+        include_str!("templates/config_opaque_wrapper.rs.jinja"),
+    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

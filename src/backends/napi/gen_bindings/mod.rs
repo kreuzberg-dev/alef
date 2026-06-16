@@ -1,6 +1,7 @@
 //! NAPI-RS (Node.js) backend: orchestration and `Backend` trait implementation.
 
 pub mod capsule;
+mod config_opaque;
 mod constructors;
 pub mod enums;
 pub mod errors;
@@ -9,6 +10,7 @@ pub mod methods;
 mod public_api;
 pub mod service_api;
 mod support;
+mod type_stubs;
 pub mod types;
 
 #[cfg(test)]
@@ -192,17 +194,7 @@ impl Backend for NapiBackend {
             }
         }
 
-        // Check if we have opaque types and trait types (visitors)
-        // Exclude trait types from opaque_types since they use JsVisitorRef instead of Object<'static>
-        // Also exclude capsule types — they do not get #[napi] class wrappers.
-        // Only treat explicitly-opaque types as opaque in NAPI. Types with has_default but not
-        // explicitly opaque (e.g., config DTOs like QueryOnlyConfig) use #[napi(object)] pattern.
-        let opaque_types: AHashSet<String> = api
-            .types
-            .iter()
-            .filter(|t| t.is_opaque && !t.is_trait && !capsule_types.contains_key(&t.name))
-            .map(|t| t.name.clone())
-            .collect();
+        let opaque_types = config_opaque::collect_opaque_types(api, config, &capsule_types);
         let mutex_types: AHashSet<String> = api
             .types
             .iter()
@@ -222,10 +214,7 @@ impl Backend for NapiBackend {
             .as_ref()
             .map(|c| c.exclude_types.iter().cloned().collect())
             .unwrap_or_default();
-        // Declared opaque types are external host-runtime references — bindings cannot
-        // wrap them as #[napi] classes because their actual Rust type carries generic
-        // parameters that the injected IR cannot model.
-        exclude_types.extend(config.opaque_types.keys().cloned());
+        config_opaque::exclude_capsule_opaque_types(&mut exclude_types, config, &capsule_types);
 
         // Build adapter body map before type iteration so bodies are available for method generation.
         let adapter_bodies = crate::adapters::build_adapter_bodies(config, Language::Node)?;
@@ -399,6 +388,7 @@ impl Backend for NapiBackend {
                 }
             }
         }
+        config_opaque::emit_wrappers(&mut builder, api, config, &capsule_types, &prefix);
 
         // Collect struct names so tagged enum codegen knows which Named types have binding structs
         let struct_names: ahash::AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
@@ -458,7 +448,7 @@ impl Backend for NapiBackend {
             // When both exist, options_field provides the correct API surface (visitor
             // embedded in options object, not a separate parameter).
             if let Some((param_idx, bridge_cfg)) = options_field_bridge {
-                builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
+                let item = crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
                     api,
                     func,
                     param_idx,
@@ -467,9 +457,11 @@ impl Backend for NapiBackend {
                     &cfg,
                     &opaque_types,
                     &core_import,
-                ));
+                );
+                let item = support::prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             } else if let Some((param_idx, bridge_cfg)) = bridge_param {
-                builder.add_item(&crate::backends::napi::trait_bridge::gen_bridge_function(
+                let item = crate::backends::napi::trait_bridge::gen_bridge_function(
                     api,
                     func,
                     param_idx,
@@ -479,8 +471,10 @@ impl Backend for NapiBackend {
                     &Default::default(),
                     &opaque_types,
                     &core_import,
-                ));
-                builder.add_item(&crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
+                );
+                let item = support::prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
+                let item = crate::backends::napi::trait_bridge::gen_options_field_bridge_function(
                     api,
                     func,
                     param_idx,
@@ -489,14 +483,18 @@ impl Backend for NapiBackend {
                     &cfg,
                     &opaque_types,
                     &core_import,
-                ));
+                );
+                let item = support::prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             } else if !capsule_types.is_empty() && capsule::function_involves_capsule(func, &capsule_types) {
                 // Function returns a capsule type — emit a napi shim that returns JsObject
                 // with __parser = External<T>(ptr from value.into_raw()).
                 // JsObjectValue provides set_named_property; imported once below.
-                builder.add_item(&capsule::gen_capsule_function(func, &capsule_types, &core_import));
+                let item = capsule::gen_capsule_function(func, &capsule_types, &core_import);
+                let item = support::prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             } else {
-                builder.add_item(&functions::gen_function(
+                let item = functions::gen_function(
                     func,
                     &mapper,
                     &cfg,
@@ -505,7 +503,9 @@ impl Backend for NapiBackend {
                     &prefix,
                     &capsule_types,
                     &mutex_types,
-                ));
+                );
+                let item = support::prepend_cfg(func.cfg.as_deref(), item);
+                builder.add_item(&item);
             }
         }
 
@@ -897,61 +897,7 @@ impl Backend for NapiBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let prefix = config.node_type_prefix();
-        let exclude_functions: ahash::AHashSet<String> = config
-            .node
-            .as_ref()
-            .map(|c| c.exclude_functions.iter().cloned().collect())
-            .unwrap_or_default();
-        let capsule_types: HashMap<String, NodeCapsuleTypeConfig> = config
-            .node
-            .as_ref()
-            .map(|c| c.capsule_types.clone())
-            .unwrap_or_default();
-        let streaming_item_types: ahash::AHashMap<String, String> = config
-            .adapters
-            .iter()
-            .filter(|a| matches!(a.pattern, crate::core::config::AdapterPattern::Streaming))
-            .filter_map(|a| {
-                let owner = a.owner_type.as_deref()?;
-                let item = a.item_type.as_deref()?;
-                Some((format!("{owner}.{}", a.name), item.to_string()))
-            })
-            .collect();
-        let default_types: ahash::AHashSet<String> = api
-            .types
-            .iter()
-            .filter(|t| t.has_default)
-            .map(|t| t.name.clone())
-            .collect();
-        let content = errors::gen_dts(
-            api,
-            &prefix,
-            &exclude_functions,
-            &config.trait_bridges,
-            &capsule_types,
-            &streaming_item_types,
-            &default_types,
-        );
-
-        // `output_for("node")` points to the `src/` directory (e.g., `crates/{name}-node/src/`).
-        // `index.d.ts` belongs at the crate root, one level up from `src/`.
-        // When the configured path ends in `src/` or `src`, strip that suffix to get the crate root.
-        // Falls back to `crates/{name}-node/` if no node output is configured.
-        let src_dir = resolve_output_dir(config.output_paths.get("node"), &config.name, "crates/{name}-node/src/");
-        let crate_root = {
-            let p = PathBuf::from(&src_dir);
-            match p.file_name().and_then(|n| n.to_str()) {
-                Some("src") => p.parent().map(|parent| parent.to_path_buf()).unwrap_or(p),
-                _ => p,
-            }
-        };
-
-        Ok(vec![GeneratedFile {
-            path: crate_root.join("index.d.ts"),
-            content,
-            generated_header: false,
-        }])
+        type_stubs::generate(api, config)
     }
 
     fn generate_public_api(

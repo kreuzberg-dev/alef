@@ -178,7 +178,7 @@ mod tests {
 
     /// Two-payload case (`Custom`, `Error`) routes bare strings to `Custom` —
     /// the documented output channel; `Error` requires the explicit dict form.
-    /// Regression for h2m v3.6.7 Python visitor tests where bare-string return
+    /// Regression for markdown-visitor v3.6.7 Python visitor tests where bare-string return
     /// was silently dropped to `Continue` (default).
     #[test]
     fn unknown_string_result_expr_prefers_custom_when_multiple_string_payloads() {

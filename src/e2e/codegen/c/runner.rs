@@ -433,22 +433,22 @@ mod tests {
     #[test]
     fn render_env_block_emits_setdefault_with_sorted_keys() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("ALEF_FOO".to_string(), "bar".to_string());
         let block = render_env_block(&env);
         assert!(block.contains("if (getenv(\"ALEF_FOO\") == NULL)"), "got: {block}");
         assert!(block.contains("setenv(\"ALEF_FOO\", \"bar\", 0);"), "got: {block}");
         assert!(
-            block.contains("if (getenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\") == NULL)"),
+            block.contains("if (getenv(\"E2E_ALLOW_PRIVATE_NETWORK\") == NULL)"),
             "got: {block}"
         );
         assert!(
-            block.contains("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\", \"true\", 0);"),
+            block.contains("setenv(\"E2E_ALLOW_PRIVATE_NETWORK\", \"true\", 0);"),
             "got: {block}"
         );
         let alef_pos = block.find("ALEF_FOO").unwrap();
-        let kreuz_pos = block.find("KREUZCRAWL_ALLOW_PRIVATE_NETWORK").unwrap();
-        assert!(alef_pos < kreuz_pos, "keys must be sorted alphabetically; got: {block}");
+        let e2e_pos = block.find("E2E_ALLOW_PRIVATE_NETWORK").unwrap();
+        assert!(alef_pos < e2e_pos, "keys must be sorted alphabetically; got: {block}");
     }
 
     #[test]
@@ -460,15 +460,12 @@ mod tests {
     #[test]
     fn render_main_c_includes_env_block_at_start_of_main() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let main_c = render_main_c(&[], &[], &env);
-        assert!(
-            main_c.contains("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\""),
-            "got: {main_c}"
-        );
+        assert!(main_c.contains("setenv(\"E2E_ALLOW_PRIVATE_NETWORK\""), "got: {main_c}");
         // Env injection happens before any test invocation.
         let main_pos = main_c.find("int main(void)").unwrap();
-        let env_pos = main_c.find("setenv(\"KREUZCRAWL_ALLOW_PRIVATE_NETWORK\"").unwrap();
+        let env_pos = main_c.find("setenv(\"E2E_ALLOW_PRIVATE_NETWORK\"").unwrap();
         let return_pos = main_c.find("return 0;").unwrap();
         assert!(main_pos < env_pos && env_pos < return_pos);
     }

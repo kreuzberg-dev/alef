@@ -68,11 +68,22 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
         .as_ref()
         .map(|c| c.exclude_types.iter().cloned().collect())
         .unwrap_or_default();
-    // Declared opaque types from `[workspace.opaque_types]` are external host-runtime
-    // references — the per-binding wrapper loop skips emitting `#[pyclass]` structs for
-    // them, so the module-init loop must also skip the corresponding `m.add_class::<T>`
-    // call to avoid `cannot find type` errors.
-    mod_exclude_types.extend(config.opaque_types.keys().cloned());
+    // Declared opaque types from `[workspace.opaque_types]` that have a per-language
+    // capsule_types override are external host-runtime references — the per-binding wrapper
+    // loop skips emitting `#[pyclass]` structs for them, so the module-init loop must also
+    // skip the corresponding `m.add_class::<T>` call to avoid `cannot find type` errors.
+    // Opaque types WITHOUT a capsule override get a binding-side wrapper struct emitted
+    // in mod.rs and MUST be registered here.
+    let python_capsule_types: AHashSet<String> = config
+        .python
+        .as_ref()
+        .map(|c| c.capsule_types.keys().cloned().collect())
+        .unwrap_or_default();
+    for name in config.opaque_types.keys() {
+        if python_capsule_types.contains(name) {
+            mod_exclude_types.insert(name.clone());
+        }
+    }
     // Capsule types have no #[pyclass] struct — emitting m.add_class::<T>() for them
     // causes a compile error because the struct was never generated.
     let capsule_type_names: AHashSet<String> = config
@@ -106,6 +117,15 @@ pub(super) fn gen_module_init(module_name: &str, api: &ApiSurface, config: &Reso
     for enum_def in &api.enums {
         if registered.insert(enum_def.name.clone()) {
             lines.push(format!("    m.add_class::<{}>()?;", enum_def.name));
+        }
+    }
+
+    // Register binding-side wrapper structs for opaque_types that have no capsule override.
+    // These are emitted as #[pyclass(unsendable)] structs in mod.rs and must be registered
+    // here so Python callers can inspect their type (e.g. `isinstance(lang, Language)`).
+    for name in config.opaque_types.keys() {
+        if !python_capsule_types.contains(name) && registered.insert(name.clone()) {
+            lines.push(format!("    m.add_class::<{}>()?;", name));
         }
     }
 

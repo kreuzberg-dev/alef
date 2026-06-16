@@ -424,7 +424,7 @@ mod env_setup_tests {
     #[test]
     fn non_empty_env_produces_sorted_lines() {
         let mut env = HashMap::new();
-        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         env.insert("FOO".to_string(), "bar".to_string());
         env.insert("BAZ".to_string(), "qux".to_string());
 
@@ -438,12 +438,12 @@ mod env_setup_tests {
             "first line should be BAZ (alphabetically first), got: {}",
             lines[0]
         );
-        assert!(lines[1].contains("FOO"), "second line should be FOO, got: {}", lines[1]);
         assert!(
-            lines[2].contains("KREUZCRAWL_ALLOW_PRIVATE_NETWORK"),
-            "third line should be KREUZCRAWL_ALLOW_PRIVATE_NETWORK, got: {}",
-            lines[2]
+            lines[1].contains("E2E_ALLOW_PRIVATE_NETWORK"),
+            "second line should be E2E_ALLOW_PRIVATE_NETWORK, got: {}",
+            lines[1]
         );
+        assert!(lines[2].contains("FOO"), "third line should be FOO, got: {}", lines[2]);
 
         // Each line must use ||= form with proper quoting
         for line in lines {

@@ -20,6 +20,14 @@ use crate::core::ir::{ApiSurface, TypeRef};
 use ahash::AHashSet;
 use std::path::PathBuf;
 
+/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
+fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
+    match cfg {
+        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
+        _ => item,
+    }
+}
+
 pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let mapper = RustlerMapper;
     let core_import = config.core_import_name();
@@ -283,7 +291,7 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             continue;
         }
         if let Some((param_idx, bridge_cfg)) = bridge_param {
-            builder.add_item(&crate::backends::rustler::trait_bridge::gen_bridge_function(
+            let item = crate::backends::rustler::trait_bridge::gen_bridge_function(
                 api,
                 func,
                 param_idx,
@@ -292,9 +300,11 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &opaque_types,
                 &default_types,
                 &core_import,
-            ));
+            );
+            let item = prepend_cfg(func.cfg.as_deref(), item);
+            builder.add_item(&item);
         } else if let Some(ref bm) = bridge_field {
-            builder.add_item(&crate::backends::rustler::trait_bridge::gen_bridge_field_function(
+            let item = crate::backends::rustler::trait_bridge::gen_bridge_field_function(
                 api,
                 func,
                 bm,
@@ -303,18 +313,22 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &opaque_types,
                 &default_types,
                 &core_import,
-            ));
+            );
+            let item = prepend_cfg(func.cfg.as_deref(), item);
+            builder.add_item(&item);
         } else if func.is_async {
-            builder.add_item(&gen_nif_async_function(
+            let item = gen_nif_async_function(
                 func,
                 &mapper,
                 &opaque_types,
                 &default_types,
                 &core_import,
                 &types_by_name,
-            ));
+            );
+            let item = prepend_cfg(func.cfg.as_deref(), item);
+            builder.add_item(&item);
         } else {
-            builder.add_item(&gen_nif_function(
+            let item = gen_nif_function(
                 func,
                 &mapper,
                 &opaque_types,
@@ -322,7 +336,9 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
                 &core_import,
                 &cpu_bound_functions,
                 &types_by_name,
-            ));
+            );
+            let item = prepend_cfg(func.cfg.as_deref(), item);
+            builder.add_item(&item);
         }
     }
 

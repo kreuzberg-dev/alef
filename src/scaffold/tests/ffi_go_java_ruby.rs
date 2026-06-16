@@ -478,7 +478,7 @@ fn test_scaffold_csharp_csproj_at_package_root() {
         "csproj must NOT suppress SDK AssemblyInfo so version stays in sync with <Version> tag"
     );
     assert!(
-        csproj.content.contains("<Company>Kreuzberg Team</Company>"),
+        csproj.content.contains("<Company>Alef Team</Company>"),
         "csproj must set Company to provide SDK-generated AssemblyCompanyAttribute"
     );
     assert!(

@@ -187,6 +187,7 @@ pub(super) fn emit_from_impl_for_struct(out: &mut String, ty: &TypeDef, source_c
         minijinja::context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
+            source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
 
@@ -476,6 +477,7 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         minijinja::context! {
             core_ty => core_ty.as_str(),
             name => name.as_str(),
+            source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
 
