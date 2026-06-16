@@ -164,8 +164,10 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
 pub(crate) fn normalize_feature_label_versions(doc: &str) -> String {
     static FEATURE_LABEL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = FEATURE_LABEL_RE.get_or_init(|| {
-        regex::Regex::new(r"\b(Since|Changed in|Available by) v([0-9]+)\.([0-9]+)\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
-            .expect("feature label version regex must compile")
+        regex::Regex::new(
+            r"\b(Since|Changed in|Available by) v([0-9]+)\.([0-9]+)\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+        )
+        .expect("feature label version regex must compile")
     });
     re.replace_all(doc, "$1 v$2.$3").into_owned()
 }
