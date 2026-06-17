@@ -12,10 +12,7 @@ use super::primitives::{core_prim_str, needs_i64_cast};
 ///
 /// Returns a tuple describing the wrapping shape so the caller can emit the
 /// correct conversion expression: `(direct, optional_named, vec_named, optional_vec_named)`.
-fn untagged_data_enum_shape(
-    ty: &TypeRef,
-    untagged_data_enum_names: &AHashSet<String>,
-) -> Option<UntaggedShape> {
+fn untagged_data_enum_shape(ty: &TypeRef, untagged_data_enum_names: &AHashSet<String>) -> Option<UntaggedShape> {
     let is_untagged = |n: &str| untagged_data_enum_names.contains(n);
     match ty {
         TypeRef::Named(n) if is_untagged(n) => Some(UntaggedShape::Direct),
