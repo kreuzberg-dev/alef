@@ -25,7 +25,7 @@ pub(super) fn render_env_block(env: &HashMap<String, String>) -> String {
 }
 
 /// Render the main `run_tests.sh` runner script.
-pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, String>) -> String {
+pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, String>, binary_name: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "#!/usr/bin/env bash");
     out.push_str(&hash::header(CommentStyle::Hash));
@@ -141,12 +141,16 @@ pub(super) fn render_run_tests(categories: &[String], env: &HashMap<String, Stri
     // The brew test_app exercises the formula-installed CLI binary; emit a
     // pre-flight check so the failure is reported as "install via brew" rather
     // than a stream of opaque `command not found` errors from each category
-    // test script. CLI binary name is mirrored from the formula's `bin.install`
-    // — we look for any `kreuzcrawl*` or `kreuzberg*` formula binary on PATH.
+    // test script. CLI binary name is the resolved package name for the brew
+    // language entry; require exactly that binary on PATH so another installed
+    // CLI cannot mask a missing configured binary.
     let _ = writeln!(out, "# Verify the brew-installed CLI is on PATH.");
-    let _ = writeln!(out, "if ! command -v kreuzcrawl &>/dev/null && ! command -v kreuzberg &>/dev/null; then");
-    let _ = writeln!(out, "  echo 'error: brew test_app requires the Homebrew formula to be installed' >&2");
-    let _ = writeln!(out, "  echo '       run: brew install kreuzberg-dev/kreuzcrawl/kreuzcrawl' >&2");
+    let _ = writeln!(out, "if ! command -v {binary_name} &>/dev/null; then");
+    let _ = writeln!(
+        out,
+        "  echo 'error: brew test_app requires the Homebrew formula to be installed' >&2"
+    );
+    let _ = writeln!(out, "  echo '       run: brew install {binary_name}' >&2");
     let _ = writeln!(out, "  exit 1");
     let _ = writeln!(out, "fi");
     let _ = writeln!(out);
@@ -309,7 +313,7 @@ mod tests {
     #[test]
     fn render_run_tests_uses_two_space_indent() {
         let categories = vec!["auth".to_string(), "crawl".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new());
+        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
         assert_shfmt_canonical_indent(&script, "render_run_tests");
         assert!(
             script.lines().any(|l| l.starts_with("  ") && !l.starts_with("   ")),
@@ -344,7 +348,7 @@ mod tests {
     #[test]
     fn render_run_tests_omits_env_block_when_env_empty() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new());
+        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
         assert!(
             !script.contains("Suite-level environment defaults"),
             "no env block when env empty; got: {script}"
@@ -353,19 +357,47 @@ mod tests {
 
     /// Regression: the brew test_app must check that the formula-installed CLI is
     /// on PATH before invoking it from category tests. Without this preflight the
-    /// failure surfaces as a cascade of `kreuzcrawl: command not found` lines from
+    /// failure surfaces as a cascade of `sample-cli: command not found` lines from
     /// each test, drowning the actionable signal (run `brew install …`).
     #[test]
     fn render_run_tests_emits_brew_cli_preflight_check() {
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &HashMap::new());
+        let script = render_run_tests(&categories, &HashMap::new(), "sample-cli");
         assert!(
             script.contains("Verify the brew-installed CLI is on PATH"),
             "expected brew CLI preflight check; got:\n{script}"
         );
         assert!(
-            script.contains("brew install kreuzberg-dev/kreuzcrawl/kreuzcrawl"),
+            script.contains("brew install sample-cli"),
             "expected install instruction in brew CLI preflight; got:\n{script}"
+        );
+        // The check must require only the configured binary name so another
+        // installed CLI cannot mask a missing configured binary.
+        assert!(
+            script.contains("if ! command -v sample-cli &>/dev/null; then"),
+            "expected single-binary preflight; got:\n{script}"
+        );
+        assert!(
+            !script.contains("command -v sibling-cli "),
+            "preflight must not OR with sibling CLI; got:\n{script}"
+        );
+    }
+
+    #[test]
+    fn render_run_tests_preflight_uses_parameterized_binary_name() {
+        let categories = vec!["smoke".to_string()];
+        let script = render_run_tests(&categories, &HashMap::new(), "mytool");
+        assert!(
+            script.contains("if ! command -v mytool &>/dev/null; then"),
+            "expected preflight to use parameterized binary; got:\n{script}"
+        );
+        assert!(
+            script.contains("brew install mytool"),
+            "expected install hint to use parameterized binary; got:\n{script}"
+        );
+        assert!(
+            !script.contains("sample-cli") && !script.contains("sibling-cli"),
+            "preflight must not leak hardcoded sibling names; got:\n{script}"
         );
     }
 
@@ -374,7 +406,7 @@ mod tests {
         let mut env = HashMap::new();
         env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
         let categories = vec!["smoke".to_string()];
-        let script = render_run_tests(&categories, &env);
+        let script = render_run_tests(&categories, &env, "sample-cli");
         assert!(
             script.contains(": \"${E2E_ALLOW_PRIVATE_NETWORK:=true}\""),
             "got: {script}"

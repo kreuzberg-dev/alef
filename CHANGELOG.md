@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(e2e/codegen/brew): require parameterized binary name in `run_tests.sh` preflight, not an OR'd sibling lookup.** The previous preflight `if ! command -v kreuzcrawl &>/dev/null && ! command -v kreuzberg &>/dev/null` short-circuited to OK when the consumer environment had a sibling CLI (e.g. the parent project's `kreuzberg`) installed, even though every category test then invoked the resolved formula binary (`kreuzcrawl`) specifically — producing a cascade of `command not found` after a falsely successful preflight. Fix: thread the resolved registry package binary name into `render_run_tests` and emit `if ! command -v {binary_name} &>/dev/null` so the check matches the binary the tests actually exec. Install hint parameterized to `brew install kreuzberg-dev/{binary_name}/{binary_name}`. Regression test `render_run_tests_preflight_uses_parameterized_binary_name` asserts the emitted script names only the parameterized binary and contains no literal `command -v kreuzberg` clause.
+
 ## [0.25.23] - 2026-06-16
 
 ### Fixed
