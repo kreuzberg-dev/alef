@@ -56,6 +56,16 @@ pub(super) fn generate_public_api(
         .filter_map(|b| b.param_name.as_deref())
         .collect();
 
+    // Functions excluded from the PHP binding via `[crates.php].exclude_functions`.
+    // The ext-php-rs Rust binding correctly omits these, but the user-facing PHP
+    // wrapper class must also skip them — otherwise it emits a forwarder that
+    // calls a non-existent native method (PHPStan `staticMethod.notFound`).
+    let php_exclude_functions: AHashSet<String> = config
+        .php
+        .as_ref()
+        .map(|c| c.exclude_functions.iter().cloned().collect())
+        .unwrap_or_default();
+
     // Config types whose PHP constructors can be called with zero arguments.
     // Only qualifies when ALL fields are optional (PHP constructor needs no required args).
     // `has_default` (Rust Default impl) is NOT sufficient — the PHP constructor is
@@ -77,6 +87,13 @@ pub(super) fn generate_public_api(
         // emits its own static method, and duplicating it here would cause a
         // PHP fatal "Cannot redeclare" at load time.
         if crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&func.name, &config.trait_bridges) {
+            continue;
+        }
+        // Skip functions explicitly excluded via `[crates.php].exclude_functions`.
+        // Emitting a forwarder for an excluded function calls a static method that
+        // doesn't exist on the native extension class, breaking PHPStan and
+        // raising a fatal at first invocation.
+        if php_exclude_functions.contains(&func.name) {
             continue;
         }
         // PHP method names are based on the Rust source name (camelCased).
