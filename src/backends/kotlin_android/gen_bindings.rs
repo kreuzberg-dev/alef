@@ -310,6 +310,10 @@ pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, bod
         // Generated code; collapsing to a single return would require a different
         // dispatch shape than the consistent one-branch-per-variant emission.
         "ReturnCount",
+        // Instance method stubs for bridged methods throw UnsupportedOperationException
+        // without using their parameters, triggering detekt's UnusedParameter rule.
+        // Suppressed here since these stubs are generated graceful error messages.
+        "UnusedParameter",
     ];
     let imports = imports.iter().cloned().collect::<Vec<_>>();
     template_env::render(
