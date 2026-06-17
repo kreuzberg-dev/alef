@@ -16,6 +16,30 @@ use toml_edit::{DocumentMut, InlineTable, Item, Table, Value};
 /// The dependency-table section names that can carry path dependencies.
 const DEP_SECTIONS: [&str; 3] = ["dependencies", "dev-dependencies", "build-dependencies"];
 
+/// Maximum attempts for the per-member `cargo update` + final `cargo metadata`
+/// validation block in `scrub_or_regenerate_lock`. Crates.io's sparse-registry
+/// index can lag behind a fresh `cargo publish` by a few minutes; in strict
+/// (CI/release) mode we sleep and retry that block on errors that look like
+/// the lookup-not-yet-propagated case so the publish workflow does not have to
+/// hand-author a wait loop in every per-language job.
+const REGISTRY_PROPAGATION_ATTEMPTS: usize = 6;
+
+/// Sleep between attempts on registry-propagation-lag retries. 30 s × 6
+/// attempts ≈ 3 min total wall clock, which covers the worst observed sparse
+/// index lag without holding the publish workflow open for unbounded retries
+/// when the registry is genuinely missing the requested version.
+const REGISTRY_PROPAGATION_SLEEP_SECS: u64 = 30;
+
+/// Match `cargo update` / `cargo metadata` stderr against the patterns cargo
+/// emits when the registry index does not yet know about a requested version.
+/// Matching here keeps the retry tight — a genuine resolver / manifest error
+/// still surfaces immediately rather than waiting through six 30 s sleeps.
+fn looks_like_registry_propagation_lag(stderr: &str) -> bool {
+    stderr.contains("failed to select a version for the requirement")
+        || stderr.contains("no matching package named")
+        || (stderr.contains("could not find") && stderr.contains("in registry"))
+}
+
 /// Result of a vendoring operation.
 pub struct VendorResult {
     /// Path to the vendored crate directory.
@@ -576,8 +600,19 @@ pub(crate) fn scrub_or_regenerate_lock(
         // version of every package — defeating the seed entirely — which caused
         // the broken `brotli-decompressor 5.0.1` release to leak into downstream
         // macos-arm64 NIF / PHP builds.
-        let mut last_failure: Option<(i32, String, String)> = None;
-        for member in &members.names {
+        //
+        // Wrap the per-member update + metadata validation in an outer retry loop
+        // to tolerate crates.io registry-index propagation lag. When the publish
+        // workflow ships the core crate to crates.io and immediately kicks off the
+        // language-package build, the freshly-published version can take a few
+        // minutes to appear in the sparse index — `cargo update -p` and
+        // `cargo metadata` bail with "failed to select a version for the requirement"
+        // until propagation lands. Sleep 30 s between attempts, up to 6 attempts
+        // (~3 minutes wall clock); only retry on patterns that look like registry
+        // lag so genuine resolver errors still surface fast.
+        'retry: for attempt in 0..REGISTRY_PROPAGATION_ATTEMPTS {
+            let mut last_failure: Option<(i32, String, String)> = None;
+            for member in &members.names {
             // Disambiguate the package spec. The seed Cargo.lock (copied from
             // the workspace) carries a `source = "path+file:///…"` entry for
             // every workspace member. The rewritten binding manifest references
@@ -702,6 +737,22 @@ pub(crate) fn scrub_or_regenerate_lock(
             }
         }
 
+        if let Some((_, _, ref stderr)) = last_failure
+            && strict
+            && attempt + 1 < REGISTRY_PROPAGATION_ATTEMPTS
+            && looks_like_registry_propagation_lag(stderr)
+        {
+            tracing::warn!(
+                attempt = attempt + 1,
+                max_attempts = REGISTRY_PROPAGATION_ATTEMPTS,
+                sleep_secs = REGISTRY_PROPAGATION_SLEEP_SECS,
+                "cargo update / metadata failed with apparent crates.io registry-index \
+                 propagation lag; sleeping and retrying",
+            );
+            std::thread::sleep(std::time::Duration::from_secs(REGISTRY_PROPAGATION_SLEEP_SECS));
+            continue 'retry;
+        }
+
         if let Some((code, member, stderr)) = last_failure {
             if strict {
                 bail!(
@@ -719,6 +770,8 @@ pub(crate) fn scrub_or_regenerate_lock(
             );
         } else {
             return Ok(());
+        }
+        break 'retry;
         }
     }
 
