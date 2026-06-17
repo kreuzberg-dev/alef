@@ -25,7 +25,7 @@ use self::helpers::{
     extract_version_annotation, is_pub, is_thiserror_enum,
 };
 use self::paths::{apply_parent_reexport_shortening, derive_module_path};
-use self::postprocess::{merge_same_named_function_cfgs, resolve_newtypes, resolve_trait_sources};
+use self::postprocess::{resolve_newtypes, resolve_trait_sources};
 use self::reexports::{extract_module, resolve_use_tree};
 use self::types::{extract_enum, extract_error_enum, extract_struct};
 
@@ -119,15 +119,18 @@ pub fn extract(
         }
     }
 
-    // Post-processing: merge function entries that share the same name but carry disjoint
-    // cfg gates.  When a crate exposes a real implementation under `#[cfg(feature = "X")]`
-    // and a stub/fallback under `#[cfg(all(feature = "X-presets", not(feature = "X")))]`,
-    // both are extracted as separate FunctionDefs with identical `name` fields.  The FFI
-    // emitter would otherwise pick one and gate the C symbol under its narrow cfg, making
-    // the symbol disappear whenever the other branch's cfg is satisfied.  This pass
-    // collapses same-named groups into a single canonical entry whose cfg is the OR
-    // (`any(...)`) of all members' cfgs.
-    merge_same_named_function_cfgs(&mut surface);
+    // NOTE: Same-named function entries with disjoint cfg gates (e.g. a `pub use real::fn` under
+    // `#[cfg(feature = "X")]` plus a stub `pub fn fn(...) -> Err(...)` under
+    // `#[cfg(all(feature = "X-presets", not(feature = "X")))]`) are intentionally NOT collapsed
+    // here. Collapsing in the shared surface would (a) drop one of the two `rust_path` values
+    // (the crate-root stub path and the real-module re-export path are both required by
+    // downstream codegen and e2e call validation), and (b) inherit the `alef(skip)` annotation
+    // from whichever entry was picked as canonical, stripping the merged entry entirely.
+    //
+    // The FFI backend has its own same-name dedup pass (see
+    // `backends::ffi::gen_bindings::functions::cfg_dedup`) that operates locally on the FFI
+    // function list at emit time. All other backends and the e2e validator see the original
+    // multi-entry surface untouched.
 
     // Post-processing: resolve unresolved trait sources.
     // When a file containing `impl Trait for Type` is processed before the file defining

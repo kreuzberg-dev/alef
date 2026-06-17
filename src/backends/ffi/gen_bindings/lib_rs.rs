@@ -518,8 +518,17 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
         .map(|c| c.exclude_functions.iter().cloned().collect())
         .unwrap_or_default();
 
-    // Free functions (async functions are wrapped with block_on via the runtime helper)
-    for func in &api.functions {
+    // Free functions (async functions are wrapped with block_on via the runtime helper).
+    //
+    // Same-named entries with disjoint cfg gates (e.g. a `pub use real::fn` under
+    // `#[cfg(feature = "X")]` plus a stub fallback under
+    // `#[cfg(all(feature = "X-presets", not(feature = "X")))]`) are collapsed locally for the
+    // FFI emit, so the single emitted C symbol is gated under the OR of all group members' cfgs.
+    // This dedup is FFI-specific because both entries map to the same `{prefix}_<name>` C symbol;
+    // other backends and the e2e call-export validator see the original multi-entry surface.
+    let ffi_functions =
+        crate::backends::ffi::gen_bindings::functions::dedup_same_name_functions(&api.functions);
+    for func in &ffi_functions {
         if ffi_exclude_functions.contains(&func.name) {
             continue;
         }
