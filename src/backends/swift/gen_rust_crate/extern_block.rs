@@ -359,9 +359,31 @@ pub(crate) fn emit_extern_block_for_functions(
     functions: &[FunctionDef],
     handle_returned_types: &HashSet<String>,
     enum_names: &HashSet<String>,
+    deferred_empty_handle_types: &HashSet<String>,
 ) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
+
+    // Declare opaque types that were deferred from their own (would-be-empty) type
+    // blocks. Co-locating the declaration here — in the same extern block as the
+    // by-value returns that own them (e.g. `create_engine() -> Result<CrawlEngineHandle, _>`)
+    // — is the ownership signal swift-bridge needs to synthesize the type's `$_free`
+    // destructor and its Ref/RefMut class triple. No method or no-op shim is
+    // required; the by-value return alone marks the type owned. The type is declared
+    // exactly ONCE in the module (here) — streaming blocks that reference it by
+    // `&OwnerType` resolve it module-wide and must NOT re-declare it (a second
+    // declaration, even `#[swift_bridge(already_declared)]`, suppresses `$_free`).
+    for ty_name in deferred_empty_handle_types {
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_type_decl.jinja",
+            minijinja::context! {
+                name => ty_name,
+            },
+        ));
+    }
+    if !deferred_empty_handle_types.is_empty() {
+        block.push('\n');
+    }
 
     for f in functions {
         // Escape Swift reserved keywords; swift-bridge emits the bridge fn name
@@ -550,28 +572,17 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
-    // 0. Owner-type forward declarations. swift-bridge requires every type
-    //    referenced inside an `extern "Rust"` block to be declared in that
-    //    same block. Each `_start(client: &{OwnerType}, …)` references the
-    //    owner type, so we must declare it here even though it's also declared
-    //    in the main extern block emitted by `emit_extern_block_for_type`.
-    //
-    //    The `#[swift_bridge(already_declared)]` attribute tells swift-bridge
-    //    to treat this as a forward reference and NOT regenerate the
-    //    `_free` / Drop trampolines for the type — those live with the
-    //    primary declaration. Without the attribute, swift-bridge emits
-    //    duplicate `__swift_bridge__{Type}__free` symbols and the binding
-    //    crate fails to compile with E0428.
-    let mut owner_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-    for adapter in &streaming {
-        if let Some(owner) = adapter.owner_type.as_deref() {
-            owner_types.insert(owner.to_string());
-        }
-    }
-    for owner in &owner_types {
-        block.push_str("        #[swift_bridge(already_declared)]\n");
-        block.push_str(&format!("        type {owner};\n"));
-    }
+    // NOTE: the streaming owner type (e.g. `CrawlEngineHandle`) is NOT declared
+    // here. It is already declared once, canonically, in the functions extern block
+    // (co-located with its by-value `create_engine` return). swift-bridge resolves
+    // type references across all `extern "Rust"` blocks within the same bridge
+    // module, so `_start(client: &OwnerType, …)` below resolves fine. Re-declaring
+    // the owner here — even with `#[swift_bridge(already_declared)]` — would land a
+    // second entry in swift-bridge's per-module type map that clobbers the canonical
+    // one; `$_free` generation is gated on `!already_declared`, so the destructor
+    // would never be emitted and the binding fails to link
+    // (`cannot find '__swift_bridge__$OwnerType$_free'`). `already_declared` is for
+    // cross-MODULE sharing, not multiple blocks in one module.
 
     // 1. Opaque handle type declarations. The methods that take `&mut self`
     //    must appear in the same extern block as the type declaration.
@@ -648,21 +659,17 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
 #[cfg(test)]
 mod streaming_extern_tests {
     //! Regression coverage for the `extern "Rust"` block emitted for streaming
-    //! adapters. swift-bridge's `__swift_bridge__{Type}__free` symbol is generated
-    //! once per `type {Type};` declaration. When the same opaque handle (e.g.
-    //! `CrawlEngineHandle`) is declared both in the main bridge block AND in the
-    //! streaming block — without `#[swift_bridge(already_declared)]` on the second
-    //! occurrence — the binding crate fails to compile with E0428:
-    //!
-    //! ```text
-    //! error[E0428]: the name `__swift_bridge__CrawlEngineHandle__free`
-    //!               is defined multiple times
-    //! ```
-    //!
-    //! The streaming emitter MUST reference the owner type inside its own block
-    //! (swift-bridge resolves `client: &Owner` against the enclosing extern block
-    //! only), so the right fix is to forward-declare the owner with the
-    //! `already_declared` attribute that suppresses the duplicate free trampoline.
+    //! adapters. swift-bridge synthesizes a type's `$_free` destructor (and its
+    //! class triple) from the single CANONICAL `type {Type};` declaration, gated on
+    //! `!already_declared`. The owner handle (e.g. `CrawlEngineHandle`) is declared
+    //! once in the functions extern block (co-located with its by-value return).
+    //! swift-bridge resolves type references across ALL extern blocks in the same
+    //! bridge module, so the streaming block references `client: &Owner` WITHOUT
+    //! re-declaring the owner. A second declaration here — even
+    //! `#[swift_bridge(already_declared)]` — would clobber the canonical entry in
+    //! swift-bridge's per-module type map and suppress `$_free`, breaking the link
+    //! with `cannot find '__swift_bridge__$Owner$_free'`. (`already_declared` is for
+    //! sharing a type across separate bridge MODULES, not multiple blocks in one.)
 
     use super::emit_extern_block_for_streaming_adapters;
     use crate::core::config::{AdapterConfig, AdapterParam, AdapterPattern};
@@ -691,47 +698,29 @@ mod streaming_extern_tests {
     }
 
     #[test]
-    fn streaming_extern_block_forward_declares_owner_with_already_declared() {
+    fn streaming_extern_block_does_not_redeclare_owner() {
         let adapters = vec![streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle")];
         let block =
             emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapter should produce a block");
 
+        // The owner is declared canonically in the functions block; the streaming
+        // block must NOT re-declare it (that would clobber `$_free` generation).
         assert!(
-            block.contains("#[swift_bridge(already_declared)]"),
-            "streaming extern block must mark owner forward-decl with already_declared \
-             to avoid duplicate __swift_bridge__{{Owner}}__free symbols:\n{block}"
+            !block.contains("#[swift_bridge(already_declared)]"),
+            "streaming extern block must not re-declare the owner with already_declared:\n{block}"
         );
-
-        let attr_idx = block
-            .find("#[swift_bridge(already_declared)]")
-            .expect("already_declared attribute must be present");
-        let owner_decl = "type CrawlEngineHandle;";
-        let owner_idx = block
-            .find(owner_decl)
-            .expect("owner forward declaration must be present");
         assert!(
-            attr_idx < owner_idx,
-            "already_declared attribute must immediately precede the owner `type` declaration:\n{block}"
+            !block.contains("type CrawlEngineHandle;"),
+            "streaming extern block must not declare the owner handle at all:\n{block}"
         );
-    }
-
-    #[test]
-    fn streaming_extern_block_emits_owner_only_once_per_unique_owner() {
-        // Two streaming adapters that share an owner — the forward declaration
-        // must be emitted exactly once, not duplicated across adapters.
-        let adapters = vec![
-            streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle"),
-            streaming_adapter_with_owner("batch_crawl_stream", "CrawlEngineHandle"),
-        ];
-        let block =
-            emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapters should produce a block");
-
-        let occurrences = block.matches("type CrawlEngineHandle;").count();
-        assert_eq!(
-            occurrences, 1,
-            "owner handle `CrawlEngineHandle` must appear exactly once in the streaming \
-             extern block (regardless of how many adapters share the owner); \
-             found {occurrences} occurrences in:\n{block}"
+        // It still references the owner by reference and declares the stream handle.
+        assert!(
+            block.contains("client: &CrawlEngineHandle"),
+            "streaming `_start` must reference the owner by `&` reference:\n{block}"
+        );
+        assert!(
+            block.contains("type CrawlEngineHandleCrawlStreamStreamHandle;"),
+            "streaming block must declare its stream handle type:\n{block}"
         );
     }
 }

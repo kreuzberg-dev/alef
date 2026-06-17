@@ -444,9 +444,18 @@ fn scrub_lock_strict_errors_when_lockfile_cannot_resolve() {
     let err =
         scrub_regenerate(&crate_dir, true).expect_err("strict mode must return Err when the lockfile cannot resolve");
     let msg = err.to_string();
+    // The fixture's failure is a broken path-dep (`ghost = ../does-not-exist`),
+    // NOT a registry-propagation issue, so the error must surface the raw cargo
+    // stderr generically rather than misattributing it to an unpublished member
+    // version. The "not yet published to the registry" hint is reserved for
+    // stderr that actually matches `looks_like_registry_propagation_lag`.
     assert!(
-        msg.contains("not yet published to the registry"),
-        "error must be actionable about unpublished member versions; got: {msg}"
+        msg.contains("see the cargo stderr below"),
+        "non-registry failures must surface the generic stderr message; got: {msg}"
+    );
+    assert!(
+        !msg.contains("not yet published to the registry"),
+        "a broken path-dep must not be misattributed to an unpublished registry version; got: {msg}"
     );
     assert!(
         msg.contains(&crate_dir.join("Cargo.toml").display().to_string()),

@@ -639,8 +639,17 @@ pub(crate) fn scrub_or_regenerate_lock(
                 // and bails with "cannot update the lock file ... because --locked
                 // was passed". Explicitly clear it for this command so the seeded
                 // lockfile can be aligned with the rewritten manifest.
+                // This is a resolver-only call (it never compiles), so a compiler
+                // wrapper is pointless here. CI runners that export
+                // `RUSTC_WRAPPER=sccache` make cargo exit 101 if sccache cannot
+                // reach its server (`Timed out waiting for server startup`); that
+                // exit then falls through to the generic "not yet published" bail
+                // below, masquerading as a registry-propagation failure. Clear the
+                // wrapper env so resolution never depends on sccache.
                 let output = std::process::Command::new("cargo")
                     .env_remove("CARGO_BUILD_LOCKED")
+                    .env_remove("RUSTC_WRAPPER")
+                    .env_remove("RUSTC_WORKSPACE_WRAPPER")
                     .current_dir(manifest_dir.as_ref())
                     .arg("update")
                     .arg("--manifest-path")
@@ -705,6 +714,10 @@ pub(crate) fn scrub_or_regenerate_lock(
                 // would silently re-enable `--locked` and defeat this; clear it.
                 let validation = std::process::Command::new("cargo")
                     .env_remove("CARGO_BUILD_LOCKED")
+                    // Resolver-only call — see the matching RUSTC_WRAPPER removal on
+                    // `cargo update` above; a hung sccache must not fail validation.
+                    .env_remove("RUSTC_WRAPPER")
+                    .env_remove("RUSTC_WORKSPACE_WRAPPER")
                     .current_dir(manifest_dir.as_ref())
                     .arg("metadata")
                     .arg("--format-version")
@@ -756,11 +769,23 @@ pub(crate) fn scrub_or_regenerate_lock(
 
             if let Some((code, member, stderr)) = last_failure {
                 if strict {
+                    // Only attribute the failure to registry-propagation lag when the
+                    // stderr actually matches a registry-resolution error. Other exit-101
+                    // causes (a hung sccache wrapper, a broken toolchain, a manifest parse
+                    // error) previously surfaced this same "not yet published" message and
+                    // sent investigators down the wrong path.
+                    if looks_like_registry_propagation_lag(&stderr) {
+                        bail!(
+                            "cargo update -p {member} (or final cargo metadata validation) failed \
+                         (exit code {code}) for {} — the referenced workspace-member version is \
+                         likely not yet published to the registry. Publish the core crate(s) before \
+                         the language packages, then retry.\n{stderr}",
+                            manifest.display()
+                        );
+                    }
                     bail!(
                         "cargo update -p {member} (or final cargo metadata validation) failed \
-                     (exit code {code}) for {} — the referenced workspace-member version is \
-                     likely not yet published to the registry. Publish the core crate(s) before \
-                     the language packages, then retry.\n{stderr}",
+                     (exit code {code}) for {}; see the cargo stderr below.\n{stderr}",
                         manifest.display()
                     );
                 }

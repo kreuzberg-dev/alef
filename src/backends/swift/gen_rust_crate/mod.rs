@@ -30,6 +30,15 @@ use std::path::PathBuf;
 
 /// Top-level entry point: emit all three files for the swift-bridge crate.
 pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    // Collapse same-named cfg-variant functions into one canonical entry. The swift-bridge Rust
+    // mirror declares each function in a `#[cfg(...)] extern "Rust"` block; two same-named entries
+    // under disjoint cfg gates make swift-bridge emit a colliding `__swift_bridge__<fn>` symbol
+    // (E0428) — e.g. `ensure_crypto_provider` (native-http `not(windows)` + `windows` no-op). The
+    // swift host-side `gen_bindings` already dedups; the mirror crate needs the same. Matches the
+    // pyo3/napi/wasm/ffi/dart/zig backends; see codegen::fn_dedup.
+    let deduped_api = api.with_deduped_functions();
+    let api = &deduped_api;
+
     let base = PathBuf::from("packages/swift/rust");
     let crate_name = &api.crate_name;
     let version = &api.version;
@@ -365,7 +374,27 @@ fn emit_lib_rs(
     // Build a HashSet<String> from enum_names (&str) for the enum-aware bridge type helper.
     let enum_names_owned: std::collections::HashSet<String> = enum_names.iter().map(|s| s.to_string()).collect();
     let mut extern_blocks: Vec<String> = Vec::new();
+    // Track opaque handle types that are deferred to the functions block because
+    // they would have empty type blocks. These need their canonical declaration
+    // co-located with the function that returns them (for swift-bridge to emit $_free).
+    let mut deferred_empty_handle_types: std::collections::HashSet<String> = std::collections::HashSet::new();
     for ty in &visible_types {
+        // Skip opaque types that are returned by value from functions and would emit
+        // an empty type block. swift-bridge only generates the `$_free` destructor
+        // when a type declaration is in the same extern block as a by-value return or method.
+        // For types like CrawlEngineHandle (returned by create_engine but with no direct
+        // getters/constructor/methods), emit the canonical declaration in the functions
+        // block instead to co-locate it with its owning function.
+        let is_handle_returned = handle_returned_types.contains(&ty.name);
+        let would_be_empty_type_block = ty.fields.is_empty()
+            && !extern_block::has_constructor_extern(ty, exclude_fields)
+            && ty.methods.iter().all(|m| m.binding_excluded || m.sanitized || m.is_static);
+        if is_handle_returned && would_be_empty_type_block {
+            // Defer this type's declaration to the functions block (where it's returned by value).
+            deferred_empty_handle_types.insert(ty.name.clone());
+            continue;
+        }
+
         // Wrap each extern block in `#[cfg(feature = "...")]` when the type carries a
         // cfg condition.  swift-bridge 0.1.59 cannot parse `#[cfg(...)]` *inside* an
         // extern block, but `#[cfg(...)] extern "Rust" { ... }` at the module item
@@ -454,6 +483,7 @@ fn emit_lib_rs(
                 &non_cfg_fns,
                 &handle_returned_types,
                 &enum_names_owned,
+                &deferred_empty_handle_types,
             ));
         }
         // Group cfg-gated functions by their cfg condition, then emit one
@@ -463,7 +493,10 @@ fn emit_lib_rs(
             cfg_groups.entry(f.cfg.clone().unwrap()).or_default().push((*f).clone());
         }
         for (cfg_cond, fns) in &cfg_groups {
-            let block = extern_block::emit_extern_block_for_functions(fns, &handle_returned_types, &enum_names_owned);
+            // Don't pass deferred_empty_handle_types to cfg-gated blocks — they've already
+            // been emitted in the non-cfg block. Passing them again would create duplicates.
+            let empty_set = std::collections::HashSet::new();
+            let block = extern_block::emit_extern_block_for_functions(fns, &handle_returned_types, &enum_names_owned, &empty_set);
             extern_blocks.push(format!("    #[cfg({cfg_cond})]\n{block}"));
         }
     }
@@ -793,24 +826,6 @@ fn emit_lib_rs(
                 &enum_names,
             ));
             out.push('\n');
-        }
-        // For opaque types with no visible (non-excluded) methods, emit a no-op method
-        // shim to signal ownership to swift-bridge (which only generates destructors
-        // for opaque types with at least one method). This is needed even when
-        // ty.methods is non-empty but all methods are binding_excluded (e.g.,
-        // CrawlEngineHandle with streaming-only methods).
-        // This is called OUTSIDE the above conditional so it fires even when no
-        // regular methods are emitted.
-        let has_visible_methods = ty
-            .methods
-            .iter()
-            .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
-        if ty.is_opaque && !has_visible_methods {
-            let noop_shim = wrappers::emit_type_noop_shim(ty);
-            if !noop_shim.is_empty() {
-                out.push_str(&noop_shim);
-                out.push('\n');
-            }
         }
     }
     for en in &visible_enums {

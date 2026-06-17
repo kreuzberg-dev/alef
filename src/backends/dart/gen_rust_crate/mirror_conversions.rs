@@ -465,13 +465,23 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         ty.rust_path.replace('-', "_")
     };
 
-    // When the core struct has cfg-gated fields stripped from the IR, the generated
-    // body ends with `..Default::default()` to fill them in. clippy flags this as
-    // `needless_update` even though the field list is otherwise complete from the
-    // mirror's perspective — silence it with an allow. Only emit the allow when
-    // the spread itself is emitted (i.e. core type derives Default); otherwise the
-    // annotation is dead and risks unused_attributes warnings.
-    if ty.has_stripped_cfg_fields && ty.has_default {
+    // The generated literal ends with `..Default::default()` whenever some core
+    // fields are intentionally omitted from the explicit field list AND the core
+    // type derives Default (the spread itself requires Default — otherwise E0277).
+    // Fields are omitted in two cases, both of which need the spread to fill them:
+    //   1. cfg-gated fields stripped from the IR (`has_stripped_cfg_fields`);
+    //   2. binding-excluded (`alef(skip)`) fields, which are skipped from the
+    //      literal in the `has_default` branch below so the core Default supplies
+    //      them (e.g. `SsrfPolicy::scheme_allowlist`/`allowlist`).
+    // Gating only on (1) left binding-excluded-only types (no cfg-stripped fields)
+    // with neither the field nor a spread — a hard E0063. Cover both cases.
+    let omits_core_fields =
+        ty.has_stripped_cfg_fields || ty.fields.iter().any(|field| field.binding_excluded);
+    let needs_default_spread = omits_core_fields && ty.has_default;
+    // clippy flags the spread as `needless_update` when the field list looks
+    // complete from the mirror's perspective; silence it only when the spread is
+    // actually emitted, otherwise the annotation is dead (unused_attributes).
+    if needs_default_spread {
         out.push_str("#[allow(clippy::needless_update)]\n");
     }
     out.push_str(&crate::backends::dart::template_env::render(
@@ -533,15 +543,11 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
         }
     }
 
-    // Use ..Default::default() only when the core struct has cfg-gated fields that
-    // are absent from the IR (and therefore absent from the mirror struct). Without
-    // this guard, types that don't implement Default would fail to compile.
-    // Also gate on `has_default` — the spread itself requires the core type to
-    // derive Default, so emitting it for non-Default types produces E0277. When
-    // `!has_default && has_stripped_cfg_fields` the type is fundamentally
-    // unconstructible from the mirror; the struct literal will fail with a more
-    // diagnostic missing-fields error (E0063) instead of a confusing E0277.
-    if ty.has_stripped_cfg_fields && ty.has_default {
+    // Emit ..Default::default() when core fields were omitted from the literal
+    // (cfg-stripped or binding-excluded) and the core type derives Default — see
+    // `needs_default_spread` above. Without Default the spread would E0277; such a
+    // type is unconstructible from the mirror and surfaces a diagnostic E0063.
+    if needs_default_spread {
         out.push_str("            ..Default::default()\n");
     }
     out.push_str(&crate::backends::dart::template_env::render(

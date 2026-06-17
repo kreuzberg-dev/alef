@@ -363,20 +363,3 @@ pub(crate) fn emit_type_method_shims(
     out
 }
 
-/// Emit a no-op method shim for opaque types with no visible methods.
-/// This signals ownership to swift-bridge so it generates the destructor.
-/// Called separately from emit_type_method_shims so it fires even when all
-/// methods are binding_excluded.
-pub(crate) fn emit_type_noop_shim(ty: &TypeDef) -> String {
-    // Note: noop method emission is disabled. For streaming adapter owners like
-    // CrawlEngineHandle, the type is returned by value (from create_engine), so
-    // swift-bridge generates `$_free` automatically without needing a method.
-    // For other opaque types with no methods, a noop would be needed, but those
-    // don't currently exist in the codebase.
-    //
-    // If such a case appears in the future, the noop pattern should be:
-    //   extern: fn crawl_engine_handle_noop(self: &CrawlEngineHandle);
-    //   impl:  impl CrawlEngineHandle { pub fn crawl_engine_handle_noop(&self) {} }
-    let _ = ty;
-    String::new()
-}
