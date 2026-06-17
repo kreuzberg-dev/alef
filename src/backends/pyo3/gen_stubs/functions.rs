@@ -59,8 +59,14 @@ pub(super) fn gen_function_stub(
         Some((*kwarg_name, *type_alias, *trait_name))
     });
     if let Some((kwarg_name, type_alias, trait_name)) = bridge_kwarg {
+        // Widen the kwarg type to accept any duck-typed object: the Rust dispatch checks
+        // each visit_* method via `hasattr()`, so all methods are runtime-optional. A strict
+        // Protocol-only annotation rejects classes that implement only the subset of
+        // methods they care about (see https://github.com/kreuzberg-dev/html-to-markdown/issues/403).
+        // Keep the Protocol name in the union so editors still suggest `HtmlVisitor` for
+        // callers who want autocomplete via explicit annotation.
         let visitor_type = trait_name.or(type_alias).unwrap_or("object");
-        params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
+        params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
     }
 
     // Check whether this function has a streaming adapter (free-function form: owner_type == None).

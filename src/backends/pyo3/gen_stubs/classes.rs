@@ -233,7 +233,7 @@ fn gen_type_init_stub(
 
     // When this struct is the options-type of a trait bridge with `bind_via=OptionsField`,
     // the PyO3 `#[new]` constructor accepts an additional `{kwarg_name}: {trait_name} = None`
-    // kwarg (e.g. `visitor: HtmlVisitor | None = None`). The bridge field is cfg-gated in
+    // kwarg (e.g. `visitor: HtmlVisitor | object | None = None`). The bridge field is cfg-gated in
     // the IR, so the partition above strips it, but the PyO3 macro keeps it via
     // `never_skip_cfg_field_names`. Surface it here so api.py callers type-check.
     //
@@ -241,8 +241,10 @@ fn gen_type_init_stub(
     // `type_alias` (e.g. `VisitorHandle`) because the runtime bridge wraps any object that
     // implements the protocol methods — callers should pass an `HtmlVisitor`, not a handle.
     if let Some((kwarg_name, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
+        // Widen the constructor kwarg to accept any duck-typed object — see the matching
+        // comment in `functions.rs` and h2m issue #403.
         let visitor_type = trait_name.or(*type_alias).unwrap_or("object");
-        params.push(format!("{kwarg_name}: {visitor_type} | None = None"));
+        params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
     }
 
     // If any parameter shadows a Python builtin we must use the multi-line form so we can
