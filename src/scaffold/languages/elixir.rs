@@ -154,6 +154,24 @@ pub(crate) fn scaffold_elixir_cargo(
     // under `-D warnings`. Mirrors the dart 0.25.9 + swift 0.25.11 check-cfg
     // allow-lists for backends that don't (yet) implement Option B feature forwarding.
     let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
+
+    // Emit a [features] block with `default = [...]` and forwarding entries like
+    // `download = ["<core-pkg>/download"]` so the rustler NIF crate can forward
+    // features to the core crate. Without this, #[cfg(feature = "X")] arms fail
+    // when the binding crate's Cargo.toml doesn't declare those features.
+    // Mirrors the ruby/swift/dart/napi/php pattern (see commit 3b8aa6fc9 for ruby).
+    let features_table = if referenced_features.is_empty() {
+        String::new()
+    } else {
+        let mut lines: Vec<String> = Vec::with_capacity(referenced_features.len() + 1);
+        let default_list: Vec<String> = referenced_features.iter().map(|name| format!("\"{name}\"")).collect();
+        lines.push(format!("default = [{}]", default_list.join(", ")));
+        for name in &referenced_features {
+            lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#, core_dep_key = config.name));
+        }
+        format!("[features]\n{}\n\n", lines.join("\n"))
+    };
+
     // Emit `[lints.rust]` at end of file (after `[dependencies]`) to match
     // cargo-sort's canonical ordering. Emitting it before `[dependencies]`
     // matches the template but cargo-sort (run by consumer repos' prek) moves
@@ -182,12 +200,13 @@ name = "{nif_name}"
 {lib_path_line}
 crate-type = ["cdylib"]
 
-[dependencies]
+{features_table}[dependencies]
 {deps_section}{check_cfg_block}"#,
         pkg_header = pkg_header,
         machete_section = machete_section,
         nif_name = nif_name,
         lib_path_line = lib_path_line,
+        features_table = features_table,
         check_cfg_block = check_cfg_block,
         deps_section = deps_section,
     );
