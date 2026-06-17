@@ -656,3 +656,52 @@ fn configurator_survives_exclude_methods_post_service_pass() {
         "configurator name must be `setup`"
     );
 }
+
+/// Regression: the function-dedup pass in `dedup_api_surface` must key on
+/// `(name, cfg)`, not `name` alone. The pub-use-clears-skip extractor pass
+/// synthesises a paired entry under a disjoint cfg for `#[cfg(X)] pub use mod::fn`
+/// patterns whose source is generic/skipped (e.g. `embed_texts_async`: a real
+/// `#[cfg(feature="embeddings")]` clone plus a `#[cfg(not(feature="embeddings"))]`
+/// stub). Both must survive dedup because exactly one compiles under any feature
+/// combination; collapsing by name alone dropped one and made the symbol vanish
+/// from every binding whenever the surviving entry's cfg was inactive.
+#[test]
+fn dedup_keeps_same_named_functions_with_disjoint_cfgs() {
+    let mut real = make_funcdef("embed_texts_async", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    real.cfg = Some("all (feature = \"embeddings\" , feature = \"tokio-runtime\")".to_string());
+    let mut stub = make_funcdef("embed_texts_async", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    stub.cfg = Some(
+        "all (feature = \"embedding-presets\" , not (feature = \"embeddings\") , feature = \"tokio-runtime\")".to_string(),
+    );
+
+    let mut surface = surface_with(vec![], vec![real, stub]);
+    super::type_helpers::dedup_api_surface(&mut surface);
+
+    let entries: Vec<_> = surface.functions.iter().filter(|f| f.name == "embed_texts_async").collect();
+    assert_eq!(
+        entries.len(),
+        2,
+        "both cfg-gated alternatives must survive dedup; got {entries:?}"
+    );
+    let cfgs: Vec<&str> = entries.iter().filter_map(|f| f.cfg.as_deref()).collect();
+    assert!(cfgs.iter().any(|c| c.contains("\"embeddings\"") && !c.contains("not")));
+    assert!(cfgs.iter().any(|c| c.contains("not") && c.contains("\"embeddings\"")));
+}
+
+/// Same-named functions sharing an identical cfg (or both `None`) at different
+/// rust_paths are genuine duplicates — dedup must still collapse them to the
+/// entry with the shortest rust_path (closest to crate root).
+#[test]
+fn dedup_collapses_same_named_functions_with_identical_cfg() {
+    let mut near = make_funcdef("clean_text", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    near.rust_path = "my_crate::clean_text".to_string();
+    let mut far = make_funcdef("clean_text", TypeRef::Primitive(crate::core::ir::PrimitiveType::Bool), vec![]);
+    far.rust_path = "my_crate::text::quality::clean_text".to_string();
+
+    let mut surface = surface_with(vec![], vec![far, near]);
+    super::type_helpers::dedup_api_surface(&mut surface);
+
+    let entries: Vec<_> = surface.functions.iter().filter(|f| f.name == "clean_text").collect();
+    assert_eq!(entries.len(), 1, "identical-cfg duplicates must collapse to one");
+    assert_eq!(entries[0].rust_path, "my_crate::clean_text", "shortest rust_path wins");
+}

@@ -197,15 +197,23 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
         });
     }
 
-    // Dedup functions by name — prefer shorter rust_path (closer to crate root).
+    // Dedup functions by (name, cfg) — prefer shorter rust_path (closer to crate root).
     // This resolves C2: when the same function name exists at multiple definition
     // sites (e.g. sample_core::utils::clean_extracted_text and
     // sample_core::text::quality::clean_extracted_text), prefer the one re-exported
     // nearest to the crate root, which is the one users call via module = sample_core.
+    //
+    // The cfg is part of the dedup key so that the pub-use-clears-skip extractor pass
+    // (which synthesises a paired entry under a disjoint cfg for `#[cfg(X)] pub use mod::fn`
+    // patterns whose source is skipped or generic) is preserved here. Two entries sharing
+    // the same name but carrying different cfg predicates are cfg-gated alternatives, not
+    // duplicates — exactly one survives under any feature combination. Keying on name alone
+    // dropped one and made the symbol vanish from every binding whenever the surviving
+    // entry's cfg was inactive (e.g. `embed_texts_async`, `rerank_async`).
     {
-        let mut best: AHashMap<String, usize> = AHashMap::new();
+        let mut best: AHashMap<(String, Option<String>), usize> = AHashMap::new();
         for (i, f) in api.functions.iter().enumerate() {
-            best.entry(f.name.clone())
+            best.entry((f.name.clone(), f.cfg.clone()))
                 .and_modify(|prev_i| {
                     if api.functions[i].rust_path.len() < api.functions[*prev_i].rust_path.len() {
                         *prev_i = i;
