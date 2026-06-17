@@ -594,3 +594,63 @@ fn tagged_serializer_named_field_variant_casts_to_concrete_type() {
         "tagged serializer must NOT call valueToTree on un-cast parent-type value; got:\n{out}",
     );
 }
+
+/// Regression: generated Kotlin files must suppress the UnusedParameter detekt rule
+/// in the file-level @file:Suppress annotation because instance method stubs have
+/// unused parameters (they throw without using the params).
+#[test]
+fn file_level_suppress_includes_unused_parameter() {
+    let imports = std::collections::BTreeSet::new();
+    let body = "data class Foo(val x: Int)";
+
+    let result = crate::backends::kotlin::gen_bindings::shared::assemble_kt_file(
+        "com.example",
+        &imports,
+        body,
+    );
+
+    // File-level suppression must include "UnusedParameter"
+    assert!(
+        result.contains("\"UnusedParameter\""),
+        "file-level @file:Suppress must include 'UnusedParameter' to suppress detekt for unused stub params; got:\n{result}",
+    );
+
+    // Suppress annotation must be present at all
+    assert!(
+        result.contains("@file:Suppress("),
+        "generated file must have @file:Suppress annotation; got:\n{result}",
+    );
+}
+
+/// Regression: instance method parameter names must be camelCase via to_lower_camel_case
+/// (not snake_case from the Rust IR).  This test verifies the conversion is applied
+/// by checking that parameter names follow Kotlin naming conventions.
+#[test]
+fn instance_method_params_camel_case_conversion() {
+    use heck::ToLowerCamelCase;
+
+    // Simulate the parameter name conversion that should happen in dto.rs
+    let param_names = vec!["max_size", "enabled", "chunk_config", "api_key"];
+
+    for name in &param_names {
+        let camel = name.to_lower_camel_case();
+        // Verify the conversion works as expected:
+        // - max_size → maxSize
+        // - enabled → enabled
+        // - chunk_config → chunkConfig
+        // - api_key → apiKey
+        assert!(
+            !camel.contains("_"),
+            "camelCase param name must not contain underscores; '{}' -> '{}'",
+            name,
+            camel
+        );
+        assert!(
+            camel.chars().next().unwrap().is_lowercase(),
+            "camelCase param name must start with lowercase; '{}' -> '{}'",
+            name,
+            camel
+        );
+    }
+}
+

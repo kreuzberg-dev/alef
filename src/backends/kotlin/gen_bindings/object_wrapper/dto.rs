@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use super::types::{escape_kotlin_string, fits_single_line, kotlin_field_default, kotlin_type_with_string_imports};
 use crate::backends::kotlin::gen_bindings::helpers::emit_cleaned_kdoc;
 use crate::backends::kotlin::gen_bindings::shared::kotlin_field_name;
+use heck::ToLowerCamelCase;
 
 pub(crate) fn emit_type_with_imports(
     ty: &TypeDef,
@@ -205,7 +206,8 @@ pub(crate) fn emit_type_with_imports(
             .iter()
             .map(|p| {
                 let ptype = kotlin_type_with_string_imports(&p.ty, p.optional, imports);
-                format!("{}: {ptype}", p.name)
+                let pname = p.name.to_lower_camel_case();
+                format!("{pname}: {ptype}")
             })
             .collect();
 
