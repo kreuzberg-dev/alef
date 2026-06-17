@@ -355,3 +355,117 @@ fn test_tagged_enum_encoder_emits_per_variant_clauses() {
         "encode_page_action must be emitted exactly once; got {occurrences} occurrences; body:\n{body}"
     );
 }
+
+/// Bug 2: Multi-clause defp functions must have blank lines between clauses.
+/// When `mix format --check-formatted` runs on generated elixir code, it requires
+/// blank lines between consecutive function clauses in multi-clause definitions.
+/// This test ensures the encoder emits proper formatting that passes mix format.
+#[test]
+fn test_tagged_enum_encoder_blank_lines_between_clauses() {
+    let config = test_config();
+    let api = tagged_enum_api_surface();
+    let backend = RustlerBackend;
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrapper = files.iter().find(|f| f.path.ends_with("my_lib.ex")).unwrap();
+    let body = &wrapper.content;
+
+    // Extract the defp encode_page_action section from the generated code
+    let encoder_start = body.find("defp encode_page_action").expect("encoder must exist");
+    let encoder_end = body[encoder_start..].rfind("end\n").expect("encoder must have an end");
+    let encoder_section = &body[encoder_start..encoder_start + encoder_end + 4];
+
+    // Count how many distinct defp clauses exist (line starting with "  defp encode_page_action")
+    let clause_count = encoder_section.matches("  defp encode_page_action").count();
+    assert!(clause_count >= 2, "test requires at least 2 defp clauses; got {}", clause_count);
+
+    // Verify that unit variant clauses (:scrape and {:scrape, _}) have a blank line between them.
+    // Look for the pattern that indicates proper formatting with blank line.
+    let has_unit_spacing = encoder_section.contains(":scrape), do: %{\"type\" => \"scrape\"}\n\n  defp");
+    assert!(
+        has_unit_spacing,
+        "unit variant clauses must have a blank line between them; got:\n{}",
+        encoder_section
+    );
+
+    // Verify that struct variant clauses have blank lines between them.
+    // Look for `end\n\n  defp` pattern which shows blank line before next clause.
+    let has_struct_spacing = encoder_section.contains("end\n\n  defp");
+    assert!(
+        has_struct_spacing,
+        "struct variant clauses must have a blank line between them; got:\n{}",
+        encoder_section
+    );
+}
+
+/// Bug 1: NIF [features] section respects nif_features config parameter.
+/// When `[crates.elixir] nif_features = []` is set in alef.toml, the generated
+/// Cargo.toml must use an empty [features] default instead of forwarding missing core features.
+#[test]
+fn test_elixir_config_parses_nif_features() {
+    // Test 1: Empty nif_features should parse correctly
+    let toml_empty = r#"
+[workspace]
+languages = ["elixir"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.elixir]
+app_name = "my_lib"
+nif_features = []
+"#;
+    let cfg_empty: NewAlefConfig = toml::from_str(toml_empty).expect("config must parse");
+    let config_empty = cfg_empty.resolve().expect("config must resolve").remove(0);
+
+    // Verify nif_features was parsed as empty list
+    assert!(
+        config_empty.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).map(|f| f.is_empty()).unwrap_or(false),
+        "nif_features = [] should be parsed as empty list; got: {:?}",
+        config_empty.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
+    );
+
+    // Test 2: Default (no nif_features set) should be None
+    let toml_default = r#"
+[workspace]
+languages = ["elixir"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.elixir]
+app_name = "my_lib"
+"#;
+    let cfg_default: NewAlefConfig = toml::from_str(toml_default).expect("config must parse");
+    let config_default = cfg_default.resolve().expect("config must resolve").remove(0);
+
+    // When nif_features is not set, should be None (uses default behavior)
+    assert!(
+        config_default.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).is_none(),
+        "unset nif_features should be None; got: {:?}",
+        config_default.elixir.as_ref().and_then(|e| e.nif_features.as_ref())
+    );
+
+    // Test 3: Custom nif_features list
+    let toml_custom = r#"
+[workspace]
+languages = ["elixir"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.elixir]
+app_name = "my_lib"
+nif_features = ["foo", "bar"]
+"#;
+    let cfg_custom: NewAlefConfig = toml::from_str(toml_custom).expect("config must parse");
+    let config_custom = cfg_custom.resolve().expect("config must resolve").remove(0);
+
+    // Verify custom features were parsed
+    let nif_features = config_custom.elixir.as_ref().and_then(|e| e.nif_features.as_ref()).expect("should parse custom features");
+    assert_eq!(nif_features.len(), 2, "should have 2 custom features");
+    assert!(nif_features.contains(&"foo".to_string()), "should contain foo");
+    assert!(nif_features.contains(&"bar".to_string()), "should contain bar");
+}

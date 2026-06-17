@@ -139,6 +139,7 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
     let rename_all = enum_def.serde_rename_all.as_deref();
 
     let mut out = String::with_capacity(1024);
+    let mut first_clause = true;
 
     // No `@doc` on `defp` — Elixir warns on @doc attached to private functions.
     // The clauses below collectively define the encoder; no function head is needed
@@ -155,12 +156,18 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
 
         if variant.fields.is_empty() {
             // Unit variant: accept both bare atom and tuple form with an empty/any map.
+            if !first_clause {
+                out.push_str("\n");
+            }
             out.push_str(&format!(
                 "  defp {fn_name}(:{atom}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
             ));
+            // Blank line between the two unit variant clauses (atom form vs tuple form).
+            out.push_str("\n");
             out.push_str(&format!(
                 "  defp {fn_name}({{:{atom}, _}}), do: %{{\"{tag}\" => \"{wire_escaped}\"}}\n"
             ));
+            first_clause = false;
             continue;
         }
 
@@ -169,6 +176,9 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         // Field-level rename_all on variants is not currently captured in the IR — only
         // explicit `#[serde(rename = "...")]` per field is honored. Unknown keys are
         // passed through as their string form, preserving forwards compatibility.
+        if !first_clause {
+            out.push_str("\n");
+        }
         out.push_str(&format!("  defp {fn_name}({{:{atom}, %{{}} = data}}) do\n"));
         out.push_str("    data\n");
         out.push_str("    |> Enum.reduce(%{}, fn {k, v}, acc ->\n");
@@ -193,11 +203,16 @@ pub(in crate::backends::rustler::gen_bindings) fn emit_tagged_enum_encoder(enum_
         out.push_str("    end)\n");
         out.push_str(&format!("    |> Map.put(\"{tag}\", \"{wire_escaped}\")\n"));
         out.push_str("  end\n");
+        first_clause = false;
     }
 
     // Map passthrough: caller already produced a wire-shaped map.
+    if !first_clause {
+        out.push_str("\n");
+    }
     out.push_str(&format!("  defp {fn_name}(%{{}} = m), do: m\n"));
     // Error path: anything else is a programming error — be loud about it.
+    out.push_str("\n");
     out.push_str(&format!(
         "  defp {fn_name}(other),\n    do: raise(ArgumentError, \"expected {} (atom, {{atom, map}}, or map), got: \" <> inspect(other))\n\n",
         enum_def.name

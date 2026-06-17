@@ -155,14 +155,17 @@ pub(crate) fn scaffold_elixir_cargo(
     // allow-lists for backends that don't (yet) implement Option B feature forwarding.
     let referenced_features = crate::codegen::cfg::collect_cfg_features(api);
 
-    // Hard-code the canonical core features that the rustler backend uses for
-    // conditional method generation (config, download, serde) even if cfg-only
-    // detection returns empty. The rustler codegen emits #[cfg(feature = "X")]
-    // guards post-hoc during NIF function generation, not as IR-level features,
-    // so collect_cfg_features(api) returns empty. Ensure these are always present
-    // in the [features] block so the NIF crate can forward them to the core crate.
+    // Use `nif_features` from config if set (including empty list), otherwise default to
+    // canonical features ["download", "serde", "config"] for backward compatibility.
+    // If the core crate doesn't have these features, set `nif_features = []` in alef.toml.
+    let default_nif_features = vec!["download".to_string(), "serde".to_string(), "config".to_string()];
+    let base_features = config
+        .elixir
+        .as_ref()
+        .and_then(|e| e.nif_features.clone())
+        .unwrap_or(default_nif_features);
     let mut always_features: std::collections::BTreeSet<String> =
-        ["download", "serde", "config"].iter().map(|s| s.to_string()).collect();
+        base_features.into_iter().collect();
     always_features.extend(referenced_features.clone());
 
     // Emit a [features] block with `default = [...]` and forwarding entries like
