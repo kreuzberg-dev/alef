@@ -90,15 +90,12 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
         },
     ));
+    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
     for field in &typ.fields {
         if field.binding_excluded {
-            out.push_str(&crate::backends::php::template_env::render(
-                "php_struct_field_assignment.jinja",
-                context! {
-                    field_name => field.name.as_str(),
-                    field_expr => "Default::default()",
-                },
-            ));
+            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
+            // spread fills them with the core type's Default impl. Emitting
+            // `<field>: Default::default()` would shadow custom defaults.
             continue;
         }
         // cfg-gated fields are absent from the binding struct and must not appear in the
@@ -285,7 +282,7 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
     out.push_str(&crate::backends::php::template_env::render(
         "php_impl_from_end.jinja",
         context! {
-            has_stripped_cfg_fields => typ.has_stripped_cfg_fields,
+            has_stripped_cfg_fields => typ.has_stripped_cfg_fields || has_binding_excluded_fields,
         },
     ));
     out

@@ -83,6 +83,42 @@ pub(crate) fn demote_headings(doc: &str, levels: usize) -> String {
     out.trim_end().to_string()
 }
 
+/// Demote markdown headings so the first heading starts at `target_level`.
+///
+/// This keeps rustdoc headings nested under a generated parent heading without
+/// introducing skips when the source doc starts at `##` or deeper.
+pub(crate) fn demote_headings_to_start_at(doc: &str, target_level: usize) -> String {
+    let Some(first_level) = first_heading_level(doc) else {
+        return doc.to_string();
+    };
+    let target_level = target_level.clamp(1, 6);
+    if first_level >= target_level {
+        return doc.to_string();
+    }
+    demote_headings(doc, target_level - first_level)
+}
+
+fn first_heading_level(doc: &str) -> Option<usize> {
+    let mut in_code_block = false;
+
+    for line in doc.lines() {
+        if line.trim_start().starts_with("```") {
+            in_code_block = !in_code_block;
+            continue;
+        }
+        if in_code_block || !line.starts_with('#') {
+            continue;
+        }
+
+        let heading_level = line.chars().take_while(|&c| c == '#').count();
+        if heading_level > 0 && heading_level <= 6 {
+            return Some(heading_level);
+        }
+    }
+
+    None
+}
+
 /// Wrap bare `http://` and `https://` URLs in angle brackets to satisfy MD034.
 /// Skips URLs already inside markdown links `[...](url)` or angle brackets `<url>`.
 pub(crate) fn wrap_bare_urls(text: &str) -> String {
@@ -165,7 +201,7 @@ pub(crate) fn normalize_feature_label_versions(doc: &str) -> String {
     static FEATURE_LABEL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let re = FEATURE_LABEL_RE.get_or_init(|| {
         regex::Regex::new(
-            r"\b(Since|Changed in|Available by) v([0-9]+)\.([0-9]+)\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?",
+            r"\b(Since|Changed in|Available by) v([0-9]+)\.([0-9]+)\.[0-9]+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
         )
         .expect("feature label version regex must compile")
     });

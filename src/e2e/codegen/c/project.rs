@@ -337,19 +337,28 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
         out,
         "for candidate in ../../crates/*-ffi/include ../../crates/*ffi*/include; do"
     );
-    let _ = writeln!(out, "  if [ -d \"$candidate\" ] && ls \"$candidate\"/*.h >/dev/null 2>&1; then");
+    let _ = writeln!(
+        out,
+        "  if [ -d \"$candidate\" ] && ls \"$candidate\"/*.h >/dev/null 2>&1; then"
+    );
     let _ = writeln!(out, "    LOCAL_INCLUDE_DIR=\"$candidate\"");
     let _ = writeln!(out, "    break");
     let _ = writeln!(out, "  fi");
     let _ = writeln!(out, "done");
     let _ = writeln!(out);
-    let _ = writeln!(out, "if [ -d \"$LOCAL_TARGET_DIR\" ] && [ -n \"$LOCAL_INCLUDE_DIR\" ]; then");
+    let _ = writeln!(
+        out,
+        "if [ -d \"$LOCAL_TARGET_DIR\" ] && [ -n \"$LOCAL_INCLUDE_DIR\" ]; then"
+    );
     let _ = writeln!(out, "  HAS_LIB=\"\"");
     let _ = writeln!(
         out,
         "  for libpat in \"lib${{FFI_PKG_NAME}}.so\" \"lib${{FFI_PKG_NAME}}.dylib\" \"lib${{FFI_PKG_NAME}}.a\" \"${{FFI_PKG_NAME}}.dll\" \"${{FFI_PKG_NAME}}.lib\"; do"
     );
-    let _ = writeln!(out, "    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then HAS_LIB=1; break; fi");
+    let _ = writeln!(
+        out,
+        "    if [ -f \"$LOCAL_TARGET_DIR/$libpat\" ]; then HAS_LIB=1; break; fi"
+    );
     let _ = writeln!(out, "  done");
     let _ = writeln!(out, "  if [ -n \"$HAS_LIB\" ]; then");
     let _ = writeln!(

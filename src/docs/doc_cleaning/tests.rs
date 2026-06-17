@@ -482,6 +482,31 @@ fn test_demote_headings_preserves_trailing_content() {
 }
 
 #[test]
+fn test_demote_headings_to_start_at_demotes_h1_to_target() {
+    let doc = "# Details\n\n## More Details";
+    let demoted = demote_headings_to_start_at(doc, 5);
+    assert!(demoted.contains("##### Details"));
+    assert!(demoted.contains("###### More Details"));
+}
+
+#[test]
+fn test_demote_headings_to_start_at_uses_first_heading_level() {
+    let doc = "## Default Behavior\n\n### Edge Cases";
+    let demoted = demote_headings_to_start_at(doc, 5);
+    assert!(demoted.contains("##### Default Behavior"));
+    assert!(demoted.contains("###### Edge Cases"));
+    assert!(!demoted.contains("###### Default Behavior"));
+}
+
+#[test]
+fn test_demote_headings_to_start_at_ignores_code_blocks() {
+    let doc = "```markdown\n# Not a heading\n```\n\n## Real Heading";
+    let demoted = demote_headings_to_start_at(doc, 5);
+    assert!(demoted.contains("# Not a heading"));
+    assert!(demoted.contains("##### Real Heading"));
+}
+
+#[test]
 fn test_check_monotonic_headings_valid_increments() {
     let doc = "## Page\n\n### Section\n\n#### Item\n\n##### Subitem";
     assert!(check_monotonic_headings(doc).is_ok());

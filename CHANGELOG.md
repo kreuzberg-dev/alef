@@ -7,14 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **(backends/php): drop explicit `field: Default::default()` for `binding_excluded` fields in `gen_php_lossy_binding_to_core_fields`.** The PHP binding's `From<BindingCrawlConfig> for kreuzcrawl::CrawlConfig` emitted `ssrf: Default::default()` before the trailing `..Default::default()` spread. The explicit field shadowed the spread and produced `<SsrfPolicy as Default>::default()` (deny_private=true) instead of `kreuzcrawl::CrawlConfig::default().ssrf` (which calls `SsrfPolicy::from_env()` honoring `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`). Every PHP e2e test that hit loopback failed: the redirect cluster's `final_url` lost the path because crawl SSRF-rejected the seed and returned origin only; SSRF-cluster errors surfaced verbatim. Other bindings (Python/Node/Ruby/WASM/FFI) already use `let mut __result = kreuzcrawl::CrawlConfig::default();` + field overrides and were unaffected. Fix: skip `binding_excluded` fields in the struct-literal loop and emit the `..Default::default()` spread whenever any `binding_excluded` field exists (in addition to the existing `has_stripped_cfg_fields` trigger). Verified by `cargo test --lib backends::php` (24 passed). Affects all polyglot repos that use the PHP backend with `alef(skip)` fields whose core type has a non-trivial `Default` impl.
-
 ## [0.25.26] - 2026-06-17
 
 ### Fixed
 
+- **(backends/php): preserve core type defaults for `binding_excluded` fields in lossy conversions.** PHP binding-to-core struct literals now skip `binding_excluded` fields and emit the trailing `..Default::default()` spread when needed, so fields hidden from the binding surface inherit the core type's custom `Default` behavior instead of shadowing it with the field type's default.
 - **(backends/dart): omit explicit `-> ()` from FRB bridge functions that return unit without an error type.** Unit-returning bridge bodies are now emitted as statements, avoiding Rust `unused_unit` warnings in generated Dart bridge crates.
 - **(backends/dart): skip redundant primitive casts in FRB bridge return expressions.** Primitive return casts are now omitted when the source and target Rust types are identical, avoiding clippy warnings such as `bool as bool`.
 - **(backends/java): fix PMD warnings in sealed-interface and deserializer codegen.** Generated Java now uses a descriptive pattern variable name, marks Jackson deserializer parameters and locals as `final`, scopes the PMD complexity suppression to the generated deserializer method, and avoids unnecessary blanket suppressions on records and exception classes.

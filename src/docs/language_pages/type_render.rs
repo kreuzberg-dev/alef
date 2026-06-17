@@ -2,13 +2,15 @@ use crate::codegen::shared::binding_fields;
 use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, TypeDef};
 use crate::docs::descriptions::generate_field_description;
-use crate::docs::doc_cleaning::{clean_doc_inline, demote_headings};
+use crate::docs::doc_cleaning::{clean_doc_inline, demote_headings_to_start_at};
 use crate::docs::formatting::{doc_type_with_optional, escape_table_cell, format_field_default};
 use crate::docs::naming::{field_name, type_name};
 use crate::docs::{clean_doc, template_env};
 
 use super::function_render::push_version_annotation;
 use super::streaming::{method_visible_in_lang, render_method};
+
+const TYPE_DOC_FIRST_HEADING_LEVEL: usize = 5;
 
 pub(super) fn render_type(
     ty: &TypeDef,
@@ -28,13 +30,7 @@ pub(super) fn render_type(
     push_version_annotation(&mut out, &ty.version);
 
     let doc = clean_doc(&ty.doc, lang);
-    // Demote any embedded headings in the type documentation by 4 levels so
-    // that the doc's top-level `#` lands at `#####` — one step below the type
-    // heading (`####`) and at the same level as the `Methods` heading emitted
-    // below. Demoting by only 2 produced `### Doc Heading` (h3) **above** the
-    // type's `####` heading (h4), triggering MD001 ("heading level skipped")
-    // when the next sibling `##### Methods` appeared.
-    let doc = demote_headings(&doc, 4);
+    let doc = demote_headings_to_start_at(&doc, TYPE_DOC_FIRST_HEADING_LEVEL);
     if !doc.is_empty() {
         out.push_str(&doc);
         out.push('\n');
@@ -110,7 +106,7 @@ mod tests {
     fn type_doc_headings_stay_under_type_heading() {
         let ty = TypeDef {
             name: "ReportConfig".to_string(),
-            doc: "# Details\n\nConfiguration notes.".to_string(),
+            doc: "## Default Behavior\n\nConfiguration notes.".to_string(),
             methods: vec![MethodDef {
                 name: "validate".to_string(),
                 receiver: Some(ReceiverKind::Ref),
@@ -133,7 +129,7 @@ mod tests {
             "type heading should render at h4; got:\n{rendered}"
         );
         assert!(
-            rendered.contains("##### Details"),
+            rendered.contains("##### Default Behavior"),
             "type rustdoc heading should be demoted below h4; got:\n{rendered}"
         );
         assert!(
@@ -141,7 +137,11 @@ mod tests {
             "methods heading should remain at h5; got:\n{rendered}"
         );
         assert!(
-            !rendered.contains("\n### Details"),
+            !rendered.contains("\n###### Default Behavior"),
+            "type rustdoc H2 heading must start at h5, not skip to h6; got:\n{rendered}"
+        );
+        assert!(
+            !rendered.contains("\n### Default Behavior"),
             "type rustdoc heading must not be promoted above the type heading; got:\n{rendered}"
         );
     }
