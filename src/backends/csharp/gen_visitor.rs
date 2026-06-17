@@ -13,7 +13,6 @@
 /// - `ConvertWithVisitor`: static method on the wrapper class that creates the delegate
 ///   struct, calls `htm_visitor_create`, `htm_convert_with_visitor`, deserialises JSON.
 use crate::core::hash::{self, CommentStyle};
-use heck::ToSnakeCase;
 
 // ---------------------------------------------------------------------------
 // Callback specification table
@@ -290,12 +289,10 @@ pub fn gen_native_methods_visitor(
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
-    // Generate function names:
-    // htm_htm_html_visitor_bridge_new, htm_htm_html_visitor_bridge_free, htm_options_set_visitor
-    let trait_snake = trait_name.to_snake_case();
-    let bridge_snake = format!("{prefix}_{trait_snake}_bridge");
-    let fn_bridge_new = format!("{prefix}_{bridge_snake}_new");
-    let fn_bridge_free = format!("{prefix}_{bridge_snake}_free");
+    // Canonical visitor FFI functions (Path 1: callbacks struct approach used by Go/Java):
+    // - htm_visitor_create(HtmVisitorCallbacks* callbacks) -> HtmVisitor*
+    // - htm_visitor_free(HtmVisitor* visitor)
+    // - htm_options_set_visitor(HtmConversionOptions* opts, HtmVisitor* visitor)
     let fn_options_set = format!("{prefix}_options_set_{options_field}");
     let bridge_name = crate::codegen::naming::csharp_type_name(trait_name) + "Bridge";
     let options_name = crate::codegen::naming::csharp_type_name(options_type);
@@ -305,8 +302,6 @@ pub fn gen_native_methods_visitor(
     out.push_str(&render(
         "native_methods_visitor.jinja",
         Value::from_serialize(serde_json::json!({
-            "fn_bridge_new": fn_bridge_new,
-            "fn_bridge_free": fn_bridge_free,
             "fn_options_set": fn_options_set,
             "bridge_name": bridge_name,
             "options_name": options_name,
@@ -316,6 +311,8 @@ pub fn gen_native_methods_visitor(
 
     let _ = namespace;
     let _ = lib_name;
+    let _ = prefix;
+    let _ = trait_name;
     out
 }
 

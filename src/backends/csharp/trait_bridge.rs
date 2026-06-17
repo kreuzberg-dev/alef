@@ -145,6 +145,13 @@ pub fn gen_trait_bridges_file(
             continue;
         }
 
+        // Skip visitor bridges (context_type + result_type present) — they use dedicated visitor codegen
+        // that handles the callbacks-struct ABI (Path 1). The generic trait_bridge machinery generates
+        // incorrect Path-2 (vtable) code that is incompatible with Go/Java patterns.
+        if bridge_cfg.context_type.is_some() && bridge_cfg.result_type.is_some() {
+            continue;
+        }
+
         gen_single_trait_bridge(&mut out, trait_name, bridge_cfg, trait_def, prefix, visible_type_names);
         out.push('\n');
     }
