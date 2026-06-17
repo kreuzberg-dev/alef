@@ -29,6 +29,15 @@ use trait_bridge::{emit_excluded_bridge_types, emit_trait_bridge, needs_excluded
 /// - `packages/dart/rust/build.rs`
 /// - `packages/dart/rust/flutter_rust_bridge.yaml`
 pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+    // Collapse same-named cfg-variant functions into one canonical entry. The FRB Rust mirror
+    // emits a plain `pub fn` per function that delegates to the core crate (which resolves the
+    // cfg itself) with no `#[cfg]` gate, so two same-named entries under disjoint cfg gates would
+    // otherwise produce duplicate `pub fn` definitions (E0428) — e.g. `ensure_crypto_provider`.
+    // The dart host-side `gen_bindings` already dedups; the mirror crate needs the same. See
+    // codegen::fn_dedup.
+    let deduped_api = api.with_deduped_functions();
+    let api = &deduped_api;
+
     let rust_dir = resolve_output_dir(None, &config.name, "packages/dart/rust");
     let module_name = dart_module_name(&config.name);
     let source_crate_name = config.name.replace('-', "_");
