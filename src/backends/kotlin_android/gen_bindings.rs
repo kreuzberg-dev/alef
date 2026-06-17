@@ -305,6 +305,11 @@ pub(super) fn assemble_kt_content(package: &str, imports: &BTreeSet<String>, bod
         // the deserializer added by 2bdbb0db8). Generated code; restructuring
         // would obscure the readNode → match → readNode flow.
         "NestedBlockDepth",
+        // Untagged-enum (serde) deserializers emit one `if (node.isFoo) return ...`
+        // per variant. detekt's `ReturnCount` default limit (2) flags 3+ variants.
+        // Generated code; collapsing to a single return would require a different
+        // dispatch shape than the consistent one-branch-per-variant emission.
+        "ReturnCount",
     ];
     let imports = imports.iter().cloned().collect::<Vec<_>>();
     template_env::render(

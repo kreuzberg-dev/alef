@@ -155,10 +155,7 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                     "const {name}Config = {config_type}.default();",
                     name = arg.name
                 ));
-                setup_lines.push(format!(
-                    "{name}Config.ssrf.denyPrivate = false;",
-                    name = arg.name
-                ));
+                setup_lines.push(format!("{name}Config.ssrf.denyPrivate = false;", name = arg.name));
                 setup_lines.push(format!(
                     "const {} = {constructor_name}({name}Config);",
                     arg.name,
@@ -212,12 +209,9 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                     }
                     // WASM: inject ssrf.denyPrivate=false if the binding exposes SsrfPolicy.
                     // E2e suites hit localhost; std::env::var is unavailable on wasm32 so
-                    // SsrfPolicy::from_env() cannot read KREUZCRAWL_ALLOW_PRIVATE_NETWORK.
+                    // SsrfPolicy::from_env() cannot read private-network override environment.
                     if wasm_has_ssrf_field {
-                        setup_lines.push(format!(
-                            "{name}Config.ssrf.denyPrivate = false;",
-                            name = arg.name
-                        ));
+                        setup_lines.push(format!("{name}Config.ssrf.denyPrivate = false;", name = arg.name));
                     }
                 } else {
                     // Other languages: pass config object directly or via constructor

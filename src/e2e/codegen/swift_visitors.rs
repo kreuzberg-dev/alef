@@ -125,7 +125,7 @@ pub(super) fn build_swift_visitor(
     let class_suffix = fixture_id.replace('-', "_").to_upper_camel_case();
     let class_name = format!("LocalVisitor_{class_suffix}");
 
-    // The test file imports both the host module (e.g. `HtmlToMarkdown`) and
+    // The test file imports both the host module (for example, `SampleModule`) and
     // `RustBridge`. Visitor context types like `NodeContext` are emitted into
     // both modules (the user-facing wrapper in the host, the swift-bridge raw
     // type in RustBridge), so an unqualified reference is ambiguous and Swift
@@ -365,10 +365,7 @@ mod tests {
         assert!(block.contains("LocalVisitor_AudioSkip"), "got: {block}");
         assert!(block.contains("RenderVisitorProtocol"), "got: {block}");
         assert!(block.contains("visitAudio"), "got: {block}");
-        assert!(
-            block.contains("_ ctx: MyModule.SyntaxContext"),
-            "got: {block}"
-        );
+        assert!(block.contains("_ ctx: MyModule.SyntaxContext"), "got: {block}");
         assert!(block.contains(".custom(field0: \"[AUDIO]\")"), "got: {block}");
     }
 

@@ -36,9 +36,7 @@ use ahash::{AHashMap, AHashSet};
 /// The relative order of canonical entries follows the position of each group's first member
 /// in the input slice, matching the behavior the FFI emitter previously got from the extract
 /// post-pass.
-pub(in crate::backends::ffi::gen_bindings) fn dedup_same_name_functions(
-    functions: &[FunctionDef],
-) -> Vec<FunctionDef> {
+pub(in crate::backends::ffi::gen_bindings) fn dedup_same_name_functions(functions: &[FunctionDef]) -> Vec<FunctionDef> {
     let groups = collect_function_groups(functions);
     let groups_to_merge = groups_to_merge(&groups, functions);
     if groups_to_merge.is_empty() {

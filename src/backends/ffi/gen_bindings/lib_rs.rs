@@ -526,8 +526,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     // FFI emit, so the single emitted C symbol is gated under the OR of all group members' cfgs.
     // This dedup is FFI-specific because both entries map to the same `{prefix}_<name>` C symbol;
     // other backends and the e2e call-export validator see the original multi-entry surface.
-    let ffi_functions =
-        crate::backends::ffi::gen_bindings::functions::dedup_same_name_functions(&api.functions);
+    let ffi_functions = crate::backends::ffi::gen_bindings::functions::dedup_same_name_functions(&api.functions);
     for func in &ffi_functions {
         if ffi_exclude_functions.contains(&func.name) {
             continue;

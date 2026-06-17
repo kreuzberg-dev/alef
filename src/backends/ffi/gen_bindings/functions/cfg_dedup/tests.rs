@@ -38,8 +38,8 @@ fn normalize_cfg(s: &str) -> String {
 }
 
 /// Two entries sharing a name with disjoint cfg gates collapse to one canonical entry with
-/// `cfg = any(<a>, <b>)`. This mirrors the kreuzberg `rerank_async` and `embed_texts_async`
-/// pattern where a `pub use real::fn` re-export is paired with an `Err(...)` stub fallback.
+/// `cfg = any(<a>, <b>)`. This mirrors the pattern where a `pub use real::fn` re-export is
+/// paired with an `Err(...)` stub fallback.
 #[test]
 fn merges_disjoint_cfgs_for_same_ffi_name_functions() {
     let cfg_real = r#"all(feature = "embeddings", feature = "tokio-runtime")"#;
@@ -202,7 +202,7 @@ fn does_not_mutate_input_function_list() {
     let cfg_real = r#"all(feature = "reranker", feature = "tokio-runtime")"#;
     let cfg_stub = r#"all(feature = "reranker-presets", not(feature = "reranker"), feature = "tokio-runtime")"#;
 
-    // Mirror the kreuzberg pattern: the re-export-resolved entry and the crate-root stub may
+    // Mirror the re-export pattern: the re-export-resolved entry and the crate-root stub may
     // share rust_path (after re-export shortening) — assert both are still present in the input
     // slice after the dedup pass returns.
     let input = vec![
