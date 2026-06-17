@@ -84,6 +84,21 @@ pub struct SwiftConfig {
     /// targets and is not on the Windows runner image's library path.
     #[serde(default)]
     pub target_dep_overrides: Vec<SwiftTargetDepOverride>,
+    /// Feature names that should be declared as opt-in flags in the wrapper's
+    /// `[features]` table but excluded from the `default = [...]` array.
+    ///
+    /// The named features are still emitted as forwarding entries
+    /// (`<name> = ["<core>/<name>"]`) so `cargo build -p <crate>-swift --features <name>`
+    /// continues to work on desktop targets. They are simply not auto-enabled
+    /// by `cargo build` against default features.
+    ///
+    /// Use this to keep native cross-compile targets (iOS, Android NDK) green
+    /// when a feature pulls in a system library (e.g. `libheif-sys` via `heic`)
+    /// whose `build.rs` cannot satisfy `pkg-config` under cross-compilation.
+    /// The target-conditional `[target.'cfg(...)'.dependencies]` block alone
+    /// is insufficient because cargo unions feature sets across dep instances.
+    #[serde(default)]
+    pub excluded_default_features: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -122,6 +122,11 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         .as_ref()
         .map(|c| c.target_dep_overrides.as_slice())
         .unwrap_or(&[]);
+    let excluded_default_features = config
+        .swift
+        .as_ref()
+        .map(|c| c.excluded_default_features.as_slice())
+        .unwrap_or(&[]);
     let cargo_toml = cargo::emit_cargo_toml(
         crate_name,
         &core_dep_key,
@@ -136,6 +141,7 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
         has_streaming_adapters,
         target_overrides,
         api,
+        excluded_default_features,
     );
     let configured_features: HashSet<&str> = features.iter().map(String::as_str).collect();
     let lib_rs = emit_lib_rs(

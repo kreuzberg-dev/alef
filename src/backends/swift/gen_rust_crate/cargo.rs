@@ -46,6 +46,7 @@ pub(crate) fn emit_cargo_toml(
     has_streaming_adapters: bool,
     target_overrides: &[crate::core::config::languages::SwiftTargetDepOverride],
     api: &ApiSurface,
+    excluded_default_features: &[String],
 ) -> String {
     let source_crate_name = core_dep_key;
     let features_block = if features.is_empty() {
@@ -181,8 +182,24 @@ pub(crate) fn emit_cargo_toml(
     let features_table = if cfg_features.is_empty() {
         String::new()
     } else {
+        // Feature names listed under `[crates.swift.excluded_default_features]`
+        // are still declared as opt-in flags (forwarding to the core dep) but
+        // are omitted from `default = [...]`. This lets desktop builds opt
+        // into a feature explicitly via `--features <name>` while keeping
+        // cross-compile targets (iOS / Android NDK) green: the wrapper's
+        // default build does not auto-activate features that pull in system
+        // libraries like `libheif-sys` whose `build.rs` cannot satisfy
+        // `pkg-config` under cross-compilation. The target-conditional
+        // `[target.'cfg(...)'.dependencies]` block alone is insufficient
+        // because cargo unions feature sets across dep instances.
+        let excluded: std::collections::HashSet<&str> =
+            excluded_default_features.iter().map(String::as_str).collect();
         let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
-        let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
+        let default_list: Vec<String> = cfg_features
+            .iter()
+            .filter(|name| !excluded.contains(name.as_str()))
+            .map(|name| format!("\"{name}\""))
+            .collect();
         lines.push(format!("default = [{}]", default_list.join(", ")));
         for name in &cfg_features {
             lines.push(format!(r#"{name} = ["{core_dep_key}/{name}"]"#));
@@ -306,6 +323,7 @@ mod tests {
             false,
             &[],
             &api,
+            &[],
         );
 
         assert!(
@@ -365,6 +383,7 @@ mod tests {
             false,
             &[],
             &api,
+            &[],
         );
 
         assert!(
@@ -414,12 +433,80 @@ mod tests {
             false,
             &[],
             &api,
+            &[],
         );
 
         assert!(
             content.contains(r#"pdf = ["sample_lib/pdf"]"#),
             "Cargo.toml must forward `pdf` feature from type-level cfg; got:\n{}",
             content
+        );
+        toml::from_str::<toml::Value>(&content).expect("generated Cargo.toml must be valid TOML");
+    }
+
+    /// Features listed under `excluded_default_features` must still be declared
+    /// as opt-in forwarding entries, but must NOT appear in the `default = [...]`
+    /// array. This keeps `cargo build --features <name>` working on desktop
+    /// while preventing default builds (e.g. iOS / Android NDK cross-compiles)
+    /// from auto-activating features that pull in system libraries with
+    /// cross-compile-hostile `build.rs` scripts (e.g. `libheif-sys` via `heic`).
+    #[test]
+    fn cargo_toml_excludes_named_features_from_default_but_keeps_forwarding_entries() {
+        let api = ApiSurface {
+            enums: vec![EnumDef {
+                name: "ImageOutputFormat".to_string(),
+                variants: vec![
+                    make_unit_variant("Heif", Some("feature = \"heic\"")),
+                    make_unit_variant("Svg", Some("feature = \"svg\"")),
+                ],
+                excluded_variants: vec![],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let content = emit_cargo_toml(
+            "sample-lib",
+            "sample_lib",
+            "sample-lib",
+            "0.1.0",
+            "0.1.0",
+            "0.1.0",
+            "../..",
+            &[],
+            "",
+            "MIT",
+            false,
+            &[],
+            &api,
+            &["heic".to_string()],
+        );
+
+        // Forwarding entry still present so `--features heic` works.
+        assert!(
+            content.contains(r#"heic = ["sample_lib/heic"]"#),
+            "Cargo.toml must keep `heic` forwarding entry; got:\n{}",
+            content
+        );
+        // `svg` is not excluded — must still appear in default.
+        assert!(
+            content.contains(r#"svg = ["sample_lib/svg"]"#),
+            "Cargo.toml must keep `svg` forwarding entry; got:\n{}",
+            content
+        );
+        // Locate the `default = [...]` line and assert `heic` is NOT in it,
+        // while `svg` IS.
+        let default_line = content
+            .lines()
+            .find(|l| l.starts_with("default = ["))
+            .expect("default = [...] line must be emitted");
+        assert!(
+            !default_line.contains("\"heic\""),
+            "default = [...] must NOT contain excluded `heic`; got: {default_line}"
+        );
+        assert!(
+            default_line.contains("\"svg\""),
+            "default = [...] must still contain non-excluded `svg`; got: {default_line}"
         );
         toml::from_str::<toml::Value>(&content).expect("generated Cargo.toml must be valid TOML");
     }
