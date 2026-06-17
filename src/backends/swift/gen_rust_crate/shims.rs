@@ -374,15 +374,19 @@ pub(crate) fn emit_function_shim(
     let params_str = params.join(", ");
 
     // Mirror the extern-block return mapper so the shim signature matches.
-    let return_ty = if f.error_type.is_some() {
+    // For Unit return type without error_type, we omit the return type annotation
+    // entirely to avoid clippy's `unused_unit` warning.
+    let (return_ty, has_explicit_return) = if f.error_type.is_some() {
         let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
         if matches!(f.return_type, TypeRef::Unit) {
-            "Result<(), String>".to_string()
+            ("Result<(), String>".to_string(), true)
         } else {
-            format!("Result<{ok_ty}, String>")
+            (format!("Result<{ok_ty}, String>"), true)
         }
+    } else if matches!(f.return_type, TypeRef::Unit) {
+        (String::new(), false)
     } else {
-        bridge_type_with_handles(&f.return_type, handle_returned_types)
+        (bridge_type_with_handles(&f.return_type, handle_returned_types), true)
     };
 
     // Collect pre-call `let` bindings for params that require a two-step conversion
@@ -592,7 +596,13 @@ pub(crate) fn emit_function_shim(
     } else if f.error_type.is_some() {
         format!("{source_call}.map_err(|e| e.to_string()){value_map}")
     } else {
-        direct_wrap(source_call)
+        // For Unit returns without error_type, turn the expression into a statement
+        // to avoid returning the () value implicitly.
+        if matches!(f.return_type, TypeRef::Unit) {
+            format!("{source_call};")
+        } else {
+            direct_wrap(source_call)
+        }
     };
 
     // The wrapper is always sync — swift-bridge 0.1.59 doesn't support async
@@ -621,13 +631,19 @@ pub(crate) fn emit_function_shim(
 
     let cfg_prefix = f.cfg.as_deref().map(|c| format!("#[cfg({c})]\n")).unwrap_or_default();
 
+    let return_annotation = if has_explicit_return {
+        format!(" -> {return_ty}")
+    } else {
+        String::new()
+    };
+
     if f.is_async {
         format!(
-            "{cfg_prefix}pub fn {fn_name}({params_str}) -> {return_ty} {{\n    \
+            "{cfg_prefix}pub fn {fn_name}({params_str}){return_annotation} {{\n    \
             {bindings_str}{ALEF_TOKIO_RUNTIME_ACCESSOR}.block_on(async {{ {body} }})\n}}\n"
         )
     } else {
-        format!("{cfg_prefix}pub fn {fn_name}({params_str}) -> {return_ty} {{\n    {bindings_str}{body}\n}}\n")
+        format!("{cfg_prefix}pub fn {fn_name}({params_str}){return_annotation} {{\n    {bindings_str}{body}\n}}\n")
     }
 }
 
