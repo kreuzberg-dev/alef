@@ -226,19 +226,13 @@ prek run --all-files
 
 ## Part of Kreuzberg.dev
 
-- [Kreuzberg](https://github.com/kreuzberg-dev/kreuzberg) - document intelligence for text,
-  tables, metadata, OCR, and code intelligence.
-- [Kreuzberg Cloud](https://github.com/kreuzberg-dev/kreuzberg-cloud) - managed extraction API
-  with SDKs, dashboards, and observability.
-- [kreuzcrawl](https://github.com/kreuzberg-dev/kreuzcrawl) - web crawling and scraping with
-  HTML-to-Markdown and headless Chrome fallback.
-- [html-to-markdown](https://github.com/kreuzberg-dev/html-to-markdown) - fast, lossless
-  HTML-to-Markdown conversion.
-- [liter-llm](https://github.com/kreuzberg-dev/liter-llm) - universal LLM API client with native
-  bindings.
-- [tree-sitter-language-pack](https://github.com/kreuzberg-dev/tree-sitter-language-pack) -
-  tree-sitter grammars and code-intelligence primitives.
-- [Discord](https://discord.gg/xt9WY3GnKR) - community, roadmap, and release discussion.
+- [Kreuzberg](https://github.com/kreuzberg-dev/kreuzberg) — document intelligence: text, tables, metadata from 91+ formats with optional OCR.
+- [Kreuzberg Cloud](https://github.com/kreuzberg-dev/kreuzberg-cloud) — managed extraction API with SDKs, dashboards, and observability.
+- [kreuzcrawl](https://github.com/kreuzberg-dev/kreuzcrawl) — web crawling and scraping with HTML→Markdown and headless-Chrome fallback.
+- [html-to-markdown](https://github.com/kreuzberg-dev/html-to-markdown) — fast, lossless HTML→Markdown engine.
+- [liter-llm](https://github.com/kreuzberg-dev/liter-llm) — universal LLM API client with native bindings for 14 languages and 143 providers.
+- [tree-sitter-language-pack](https://github.com/kreuzberg-dev/tree-sitter-language-pack) — tree-sitter grammars and code-intelligence primitives.
+- [Discord](https://discord.gg/xt9WY3GnKR) — community, roadmap, announcements.
 
 ## License
 
