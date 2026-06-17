@@ -90,14 +90,36 @@ fn gen_lossy_binding_to_core_fields_inner(
         ""
     };
     let mut out = format!("{allow}let {mut_kw}core_self = {core_path} {{\n");
-    let has_binding_excluded_fields = typ.fields.iter().any(|f| f.binding_excluded);
+    // Track whether any binding-excluded field was skipped (vs emitted per-field).
+    // Only when at least one is skipped do we need the `..Default::default()` trailer.
+    // When the core type does NOT implement Default, the trailer would not compile
+    // (E0277), so emit `field: Default::default()` per-field instead — there is no
+    // bespoke core Default whose semantics we could be bypassing. Mirrors the
+    // parallel fix in `codegen/conversions/binding_to_core/render.rs` (096eb298c).
+    let core_has_default = typ.has_default;
+    let mut skipped_binding_excluded = false;
     for field in &typ.fields {
         if field.binding_excluded {
+            if !core_has_default {
+                // Core type has no Default — emit per-field fallback so the method
+                // body compiles. Concrete case: `spikard::UploadFile` carries a
+                // `cursor: Cursor<Bytes>` field annotated `#[cfg_attr(alef, alef(skip))]`,
+                // but the struct itself derives only Clone/Debug/Serialize/Deserialize.
+                out.push_str(&crate::codegen::template_env::render(
+                    "binding_helpers/struct_field_default.jinja",
+                    minijinja::context! {
+                        name => &field.name,
+                    },
+                ));
+                out.push('\n');
+                continue;
+            }
             // Skip binding_excluded fields entirely; the trailing `..Default::default()`
             // spread fills them with the CORE type's Default impl, preserving custom
             // defaults that derive field values from environment or runtime configuration.
             // Emitting `<field>: Default::default()` would shadow that with the sub-type's
             // (often stricter) default value.
+            skipped_binding_excluded = true;
             continue;
         }
         // Skip cfg-gated fields — they are absent from the binding struct.
@@ -391,7 +413,13 @@ fn gen_lossy_binding_to_core_fields_inner(
     }
     // Use ..Default::default() to fill cfg-gated fields stripped from the IR,
     // and binding-excluded fields (alef(skip)) so they pick up the core's Default.
-    if typ.has_stripped_cfg_fields || has_binding_excluded_fields {
+    // The binding-excluded trailer is only emitted when the core type impls Default
+    // (otherwise the per-field fallback above emits explicit `Default::default()`
+    // per skipped field); the cfg-stripped trailer is unconditional because the
+    // `#[cfg(...)]` gates make the spread a no-op when the feature is disabled
+    // and the gated paths rely on the core type being Default-constructible when
+    // the feature is enabled.
+    if typ.has_stripped_cfg_fields || (skipped_binding_excluded && typ.has_default) {
         out.push_str("            ..Default::default()\n");
     }
     out.push_str("        };\n        ");

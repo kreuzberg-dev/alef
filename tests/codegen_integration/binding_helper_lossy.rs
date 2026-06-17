@@ -605,3 +605,108 @@ fn test_has_named_params_vec_opaque_named_no_binding_needed() {
         "Vec<Opaque> should not require let bindings"
     );
 }
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_binding_excluded_no_default_per_field_fallback() {
+    // Regression: spikard rc.25 — `spikard::UploadFile` has an internal
+    // `cursor: Cursor<Bytes>` field annotated `#[cfg_attr(alef, alef(skip))]` but
+    // the struct derives only Clone/Debug/Serialize/Deserialize (no Default).
+    // Previously this helper unconditionally appended `..Default::default()`
+    // whenever any binding-excluded field was skipped, producing a struct literal
+    // that failed to compile with E0277 against no-Default core types. Mirrors
+    // the parallel fix in `binding_to_core/render.rs` (096eb298c).
+    let mut typ = simple_type_def();
+    typ.has_default = false;
+    typ.fields.push(FieldDef {
+        name: "cursor".to_string(),
+        ty: TypeRef::Named("Cursor".to_string()),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: true,
+        binding_exclusion_reason: Some("internal read cursor".to_string()),
+        original_type: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(
+        &typ,
+        "my_crate",
+        false,
+        &ahash::AHashSet::new(),
+        false,
+        false,
+        &[],
+    );
+
+    assert!(
+        result.contains("cursor: Default::default()"),
+        "binding-excluded field on a no-Default core type must fall back to per-field \
+         `Default::default()`; got:\n{result}"
+    );
+    assert!(
+        !result.contains("..Default::default()"),
+        "must not emit `..Default::default()` trailer when the core type lacks Default — \
+         it fails to compile (E0277); got:\n{result}"
+    );
+}
+
+#[test]
+fn test_gen_lossy_binding_to_core_fields_binding_excluded_with_default_uses_spread() {
+    // Companion to the no-Default test above: when the core type DOES impl Default,
+    // skipping the binding-excluded field and emitting `..Default::default()` is the
+    // correct behavior (preserves bespoke core Default invariants like env-derived
+    // policy values that an explicit per-field `Default::default()` would bypass).
+    let mut typ = simple_type_def();
+    typ.has_default = true;
+    typ.fields.push(FieldDef {
+        name: "policy".to_string(),
+        ty: TypeRef::Named("SsrfPolicy".to_string()),
+        optional: false,
+        default: None,
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: false,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: None,
+        core_wrapper: CoreWrapper::None,
+        vec_inner_core_wrapper: CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: true,
+        binding_exclusion_reason: Some("derived from env".to_string()),
+        original_type: None,
+    });
+
+    let result = binding_helpers::gen_lossy_binding_to_core_fields(
+        &typ,
+        "my_crate",
+        false,
+        &ahash::AHashSet::new(),
+        false,
+        false,
+        &[],
+    );
+
+    assert!(
+        result.contains("..Default::default()"),
+        "binding-excluded field on a has_default core type must use the spread trailer to \
+         preserve bespoke core Default semantics; got:\n{result}"
+    );
+    assert!(
+        !result.contains("policy: Default::default()"),
+        "must not emit per-field Default::default() for binding-excluded fields when the core \
+         type has Default — would bypass bespoke Default semantics; got:\n{result}"
+    );
+}
