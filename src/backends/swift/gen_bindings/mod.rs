@@ -17,7 +17,7 @@ mod dto;
 mod enums;
 mod errors;
 mod forwarders;
-mod opaque_handles;
+pub(crate) mod opaque_handles;
 mod overloads;
 pub mod plugin_marshal;
 pub mod service_api;

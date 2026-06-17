@@ -14,7 +14,12 @@ use std::path::Path;
 
 /// Collect all unique streaming adapter owner types that require a Swift class
 /// declaration because they are marked with `#[swift_bridge(already_declared)]`.
-fn collect_already_declared_owner_types(config: &ResolvedCrateConfig) -> std::collections::BTreeSet<String> {
+///
+/// Exposed `pub(crate)` so the Rust-glue phantom-Vec emitter can SKIP these
+/// types — `Vec<AlreadyDeclaredType>` cannot be constructed in Swift because
+/// swift-bridge will not synthesize a `Vectorizable` conformance for the type
+/// (the `already_declared` marker exists precisely to suppress that synthesis).
+pub(crate) fn collect_already_declared_owner_types(config: &ResolvedCrateConfig) -> std::collections::BTreeSet<String> {
     let mut owner_types = std::collections::BTreeSet::new();
     for adapter in &config.adapters {
         if matches!(adapter.pattern, AdapterPattern::Streaming) {
@@ -101,7 +106,11 @@ pub(crate) fn emit_opaque_class_declarations(
     content.push_str("// #[swift_bridge(already_declared)] in the Rust extern blocks.\n");
     content.push_str("// These classes are referenced by swift-bridge-generated code but are not\n");
     content.push_str("// auto-generated when the type is marked already_declared.\n\n");
-    content.push_str("import Foundation\n\n");
+    content.push_str("import Foundation\n");
+    // RustBridgeC exports the swift-bridge C symbols (`__swift_bridge__$Type$_free`,
+    // etc.) emitted by the Rust glue. The `deinit` here calls `_free`, which must
+    // be in scope for Swift to find the C symbol.
+    content.push_str("import RustBridgeC\n\n");
 
     for owner_type in &owner_types {
         emit_opaque_class_triple(owner_type, &mut content);

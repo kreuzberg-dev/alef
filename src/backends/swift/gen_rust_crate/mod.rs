@@ -680,8 +680,21 @@ fn emit_lib_rs(
         .filter(|en| !result_type_enums.contains(&en.name))
         .copied()
         .collect();
+    // Skip types marked `#[swift_bridge(already_declared)]` (streaming-adapter
+    // owners) from the phantom-Vec emission. swift-bridge does NOT synthesize a
+    // `Vectorizable` conformance for already_declared types, so any
+    // `Vec<DefaultClient>` reference would fail to compile with
+    // "type 'T' does not conform to protocol 'Vectorizable'". A Vec of an
+    // opaque streaming owner is not useful in practice — callers cannot
+    // construct one without owning a live Rust handle.
+    let already_declared =
+        crate::backends::swift::gen_bindings::opaque_handles::collect_already_declared_owner_types(config);
     // Non-cfg-gated types go into a single aggregate phantom Vec extern block.
-    let non_cfg_types: Vec<&TypeDef> = visible_types.iter().copied().filter(|t| t.cfg.is_none()).collect();
+    let non_cfg_types: Vec<&TypeDef> = visible_types
+        .iter()
+        .copied()
+        .filter(|t| t.cfg.is_none() && !already_declared.contains(&t.name))
+        .collect();
     let non_cfg_enums: Vec<&EnumDef> = vec_accessible_enums
         .iter()
         .copied()
@@ -692,7 +705,7 @@ fn emit_lib_rs(
         out.push_str(&vec_accessors_block);
     }
     // cfg-gated types each get their own `#[cfg(...)] extern "Rust" { }` block.
-    for ty in visible_types.iter().filter(|t| t.cfg.is_some()) {
+    for ty in visible_types.iter().filter(|t| t.cfg.is_some() && !already_declared.contains(&t.name)) {
         let cfg = ty.cfg.as_deref().unwrap();
         let block = extern_block::emit_extern_block_for_vec_accessors(&[ty], &[]);
         if !block.is_empty() {
@@ -711,7 +724,16 @@ fn emit_lib_rs(
 
     // Emit phantom Vec accessor implementations paired with extern declarations inside the bridge module.
     // swift-bridge-build generates Vec ABI symbols when it sees these implementations.
-    let phantom_impl = extern_block::emit_phantom_vec_impl(&visible_types, &vec_accessible_enums);
+    // Skip already_declared types — see comment above the matching filter for the
+    // phantom-extern emission. The two must stay in sync or the Rust impl would
+    // be orphaned (no extern decl referring to it) or the extern would be
+    // dangling (no impl backing it).
+    let vec_impl_types: Vec<&TypeDef> = visible_types
+        .iter()
+        .copied()
+        .filter(|t| !already_declared.contains(&t.name))
+        .collect();
+    let phantom_impl = extern_block::emit_phantom_vec_impl(&vec_impl_types, &vec_accessible_enums);
     if !phantom_impl.is_empty() {
         out.push_str(&phantom_impl);
     }
