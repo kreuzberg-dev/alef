@@ -39,7 +39,13 @@ pub(crate) fn emit_options_field_factory(
 
     let type_alias_snake = heck::AsSnakeCase(type_alias).to_string();
     let fn_name = format!("make_{trait_snake}_{type_alias_snake}");
-    let swift_name = heck::AsLowerCamelCase(fn_name.as_str()).to_string();
+    // The Rust function name keeps `make_{trait}_{type_alias}` to avoid colliding when
+    // multiple traits share an alias, but the Swift-side name must use `make{Trait}Handle`.
+    // This matches the wrapper call shape, the e2e generator, and the docs snippets.
+    // Without this override the swift-bridge layer exports `make{Trait}{TypeAlias}` and the
+    // wrapper layer fails to link.
+    let trait_camel = heck::AsUpperCamelCase(trait_name.as_str()).to_string();
+    let swift_name = format!("make{trait_camel}Handle");
 
     // extern "Rust" declaration (goes inside the ffi module).
     let extern_decl = format!(

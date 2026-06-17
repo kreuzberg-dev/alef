@@ -64,7 +64,7 @@ mod ffi {
 
     extern "Rust" {
 
-         #[swift_bridge(swift_name = "makeMarkupVisitorCallbackHandle")]
+         #[swift_bridge(swift_name = "makeMarkupVisitorHandle")]
          fn make_markup_visitor_callback_handle(swift_box: SwiftMarkupVisitorBox) -> CallbackHandle;
 
     }
@@ -208,7 +208,7 @@ impl From<demo::options::RenderOptions> for RenderOptions {
 }
 
 /// Construct a `CallbackHandle` from a Swift `SwiftMarkupVisitorBox` handle.
-/// Called by Swift e2e tests via `makeMarkupVisitorCallbackHandle(...)` to build a
+/// Called by Swift e2e tests via `makeMarkupVisitorHandle(...)` to build a
 /// `CallbackHandle` that can be passed to the options-with-visitor helper.
 pub fn make_markup_visitor_callback_handle(swift_box: ffi::SwiftMarkupVisitorBox) -> CallbackHandle {
     let __wrapper = SwiftMarkupVisitorWrapper::new(swift_box);
