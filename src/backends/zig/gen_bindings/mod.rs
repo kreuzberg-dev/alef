@@ -63,6 +63,7 @@ impl Backend for ZigBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        let api = api.with_deduped_functions();
         let module_name = zig_module_name(&config.name);
         let header = config.ffi_header_name();
         let prefix = config.ffi_prefix();
@@ -103,25 +104,21 @@ impl Backend for ZigBackend {
             !signature_references_excluded(&method.params, &method.return_type, &exclude_types)
         };
 
-        let visible_api;
         let api = if exclude_types.is_empty() {
             api
         } else {
-            visible_api = {
-                let mut filtered = api.clone();
-                filtered.types.retain(|typ| type_is_visible(&typ.name));
-                for typ in &mut filtered.types {
-                    typ.fields
-                        .retain(|field| !type_references_excluded(&field.ty, &exclude_types));
-                    typ.methods.retain(method_is_visible);
-                }
-                filtered.enums.retain(|en| !exclude_types.contains(&en.name));
-                filtered
-                    .functions
-                    .retain(|func| !signature_references_excluded(&func.params, &func.return_type, &exclude_types));
-                filtered
-            };
-            &visible_api
+            let mut filtered = api.clone();
+            filtered.types.retain(|typ| type_is_visible(&typ.name));
+            for typ in &mut filtered.types {
+                typ.fields
+                    .retain(|field| !type_references_excluded(&field.ty, &exclude_types));
+                typ.methods.retain(method_is_visible);
+            }
+            filtered.enums.retain(|en| !exclude_types.contains(&en.name));
+            filtered
+                .functions
+                .retain(|func| !signature_references_excluded(&func.params, &func.return_type, &exclude_types));
+            filtered
         };
 
         let mut content = String::new();

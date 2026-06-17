@@ -349,11 +349,77 @@ pub(in crate::backends::rustler::gen_bindings) fn elixir_typespec(
             }
         }
         TypeRef::Optional(inner) => {
-            format!("{} | nil", elixir_typespec(inner, opaque_types, default_types))
+            let inner_spec = elixir_typespec(inner, opaque_types, default_types);
+            // Guard against double "| nil" when inner is already nilable (e.g., default_types with "String.t() | nil")
+            if inner_spec.ends_with("| nil") {
+                inner_spec
+            } else {
+                format!("{} | nil", inner_spec)
+            }
         }
         TypeRef::Vec(inner) => {
             format!("[{}]", elixir_typespec(inner, opaque_types, default_types))
         }
         TypeRef::Map(_, _) => "map()".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_elixir_typespec_optional_default_type_no_double_nil() {
+        // Simulate default_types containing "SomeType"
+        let mut default_types = AHashSet::new();
+        default_types.insert("SomeType".to_string());
+
+        let opaque_types = AHashSet::new();
+
+        // Test: Optional(Named("SomeType")) should produce "String.t() | nil", not "String.t() | nil | nil"
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("SomeType".to_string())));
+        let result = elixir_typespec(&ty, &opaque_types, &default_types);
+
+        assert_eq!(result, "String.t() | nil", "Optional default_type should not produce double nil: got {}", result);
+    }
+
+    #[test]
+    fn test_elixir_typespec_named_default_type() {
+        // Simulate default_types containing "Options"
+        let mut default_types = AHashSet::new();
+        default_types.insert("Options".to_string());
+
+        let opaque_types = AHashSet::new();
+
+        // Test: Named("Options") (not Optional) should produce "String.t() | nil"
+        let ty = TypeRef::Named("Options".to_string());
+        let result = elixir_typespec(&ty, &opaque_types, &default_types);
+
+        assert_eq!(result, "String.t() | nil");
+    }
+
+    #[test]
+    fn test_elixir_typespec_optional_non_default_type() {
+        // Simulate default_types NOT containing "RegularType"
+        let default_types = AHashSet::new();
+        let opaque_types = AHashSet::new();
+
+        // Test: Optional(Named("RegularType")) should produce "map() | nil"
+        let ty = TypeRef::Optional(Box::new(TypeRef::Named("RegularType".to_string())));
+        let result = elixir_typespec(&ty, &opaque_types, &default_types);
+
+        assert_eq!(result, "map() | nil");
+    }
+
+    #[test]
+    fn test_elixir_typespec_optional_string() {
+        let default_types = AHashSet::new();
+        let opaque_types = AHashSet::new();
+
+        // Test: Optional(String) should produce "String.t() | nil"
+        let ty = TypeRef::Optional(Box::new(TypeRef::String));
+        let result = elixir_typespec(&ty, &opaque_types, &default_types);
+
+        assert_eq!(result, "String.t() | nil");
     }
 }
