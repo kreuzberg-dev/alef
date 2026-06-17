@@ -24,6 +24,7 @@ expression: "&file.content"
     "LongMethod",
     "MagicNumber",
     "NestedBlockDepth",
+    "ReturnCount",
 )
 
 package dev.sample_crate

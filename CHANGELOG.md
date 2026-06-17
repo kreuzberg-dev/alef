@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   builds simply lose the conversion, which `frb_generated.rs` does not reference.
   (`src/backends/dart/templates/rust_mirror_enum_attribute.jinja`,
   `src/backends/dart/templates/rust_mirror_struct_attribute.jinja`)
+- **(tests/backends/kotlin): refresh snapshot fixtures for generated file-level suppressions.**
+  The Kotlin and Kotlin Android snapshot fixtures now include the shared `ReturnCount` and
+  `NestedBlockDepth` suppressions emitted by the current backend templates.
 
 ## [0.25.32] - 2026-06-17
 

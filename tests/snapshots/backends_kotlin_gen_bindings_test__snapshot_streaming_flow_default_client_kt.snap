@@ -23,6 +23,8 @@ expression: "&client_file.content"
     "CyclomaticComplexMethod",
     "LongMethod",
     "MagicNumber",
+    "ReturnCount",
+    "NestedBlockDepth",
 )
 
 package dev.sample_crate.kt
