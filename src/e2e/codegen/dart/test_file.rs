@@ -439,7 +439,13 @@ pub(super) fn render_test_file(
         let _ = writeln!(out, "  final keyPtr = key.toNativeUtf8();");
         let _ = writeln!(out, "  final valuePtr = value.toNativeUtf8();");
         let _ = writeln!(out, "  try {{");
-        let _ = writeln!(out, "    setenv(keyPtr, valuePtr, 0);");
+        let _ = writeln!(out, "    final result = setenv(keyPtr, valuePtr, 1);");
+        let _ = writeln!(out, "    if (result != 0) {{");
+        let _ = writeln!(
+            out,
+            "      throw StateError('setenv failed for ${{key}}=${{value}} with return code $result');"
+        );
+        let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "  }} finally {{");
         let _ = writeln!(out, "    calloc.free(keyPtr);");
         let _ = writeln!(out, "    calloc.free(valuePtr);");

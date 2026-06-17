@@ -195,3 +195,75 @@ fn dart_stub_uses_fixture_input_name_for_plugin_name() {
         "fixture id must not appear as plugin name when input.name is set, got:\n{output}"
     );
 }
+
+/// Verify that _setEnv helper forces overwrite=1 and checks return code.
+/// Regression test for the bug where setenv(..., 0) silently no-ops when the
+/// env var is already set, causing KREUZCRAWL_ALLOW_PRIVATE_NETWORK to be
+/// invisible to Rust FFI dylib in dart e2e tests.
+#[test]
+fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
+    use crate::e2e::config::E2eConfig;
+    use std::collections::HashMap;
+
+    // Create a minimal E2eConfig with an env var to trigger _setEnv emission.
+    let mut env = HashMap::new();
+    env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+
+    let e2e_config = E2eConfig {
+        env,
+        ..Default::default()
+    };
+
+    // Build a minimal test file just to check the _setEnv helper.
+    // We'll use a dummy fixture and configuration.
+    let fixture = make_fixture("test_fixture");
+    let bridge = make_trait_bridge("TestTrait");
+    let config = crate::core::config::ResolvedCrateConfig::default();
+    let type_defs = [];
+    let enums = [];
+    let adapters = [];
+    let dart_first_class_map = crate::e2e::field_access::DartFirstClassMap::default();
+
+    let output = super::test_file::render_test_file(
+        "smoke",
+        &[&fixture],
+        &e2e_config,
+        "dart",
+        "kreuzcrawl",
+        "RustLib",
+        "RustLibBridge",
+        &dart_first_class_map,
+        &adapters,
+        &config,
+        &type_defs,
+        &enums,
+    );
+
+    // Verify that the generated setenv call uses overwrite=1 (third argument).
+    assert!(
+        output.contains("setenv(keyPtr, valuePtr, 1)"),
+        "setenv must use overwrite=1, got:\n{output}"
+    );
+
+    // Verify that the old buggy pattern is NOT in the output.
+    assert!(
+        !output.contains("setenv(keyPtr, valuePtr, 0)"),
+        "setenv must NOT use overwrite=0, got:\n{output}"
+    );
+
+    // Verify that return code is captured and checked.
+    assert!(
+        output.contains("final result = setenv(keyPtr, valuePtr, 1)"),
+        "setenv result must be captured, got:\n{output}"
+    );
+
+    assert!(
+        output.contains("if (result != 0)"),
+        "return code must be checked with 'if (result != 0)', got:\n{output}"
+    );
+
+    assert!(
+        output.contains("throw StateError"),
+        "must throw StateError on non-zero return code, got:\n{output}"
+    );
+}
