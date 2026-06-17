@@ -3,23 +3,24 @@
 /** Exception thrown by {{ class_name }}. */
 @SuppressWarnings({"checkstyle:LineLength", "PMD"})
 public class {{ class_name }}Exception extends Exception {
-    /** The error code. */
-    private final int code;
+  private static final long serialVersionUID = 1L;
+  /** The error code. */
+  private final int code;
 
-    /** Creates a new {{ class_name }}Exception. */
-    public {{ class_name }}Exception(final int code, final String message) {
-        super(message);
-        this.code = code;
-    }
+  /** Creates a new {{ class_name }}Exception. */
+  public {{ class_name }}Exception(final int code, final String message) {
+    super(message);
+    this.code = code;
+  }
 
-    /** Creates a new {{ class_name }}Exception with a cause. */
-    public {{ class_name }}Exception(final String message, final Throwable cause) {
-        super(message, cause);
-        this.code = -1;
-    }
+  /** Creates a new {{ class_name }}Exception with a cause. */
+  public {{ class_name }}Exception(final String message, final Throwable cause) {
+    super(message, cause);
+    this.code = -1;
+  }
 
-    /** Returns the error code. */
-    public int getCode() {
-        return code;
-    }
+  /** Returns the error code. */
+  public int getCode() {
+    return code;
+  }
 }

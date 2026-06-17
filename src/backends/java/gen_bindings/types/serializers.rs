@@ -26,45 +26,46 @@ pub(crate) fn gen_byte_array_serializer(package: &str) -> String {
 pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, enum_def: &EnumDef, tag_field: &str) {
     // Generate the deserializer class inline in the same file
     // Start indentation at class level (not nested in the interface)
-    out.push_str("// Custom deserializer for sealed interface with unwrapped variants\n");
+    out.push_str("/** Custom deserializer for sealed interface with unwrapped variants. */\n");
     out.push_str("class ");
     out.push_str(&enum_def.name);
     out.push_str("Deserializer extends StdDeserializer<");
     out.push_str(&enum_def.name);
     out.push_str("> {\n");
-    out.push_str("    ");
+    out.push_str("  private static final long serialVersionUID = 1L;\n\n");
+    out.push_str("  ");
     out.push_str(&enum_def.name);
     out.push_str("Deserializer() {\n");
-    out.push_str("        super(");
+    out.push_str("    super(");
     out.push_str(&enum_def.name);
     out.push_str(".class);\n");
-    out.push_str("    }\n\n");
+    out.push_str("  }\n\n");
 
-    out.push_str("    @Override\n");
-    out.push_str("    public ");
+    out.push_str("  @Override\n");
+    out.push_str("  public ");
     out.push_str(&enum_def.name);
     out.push_str(" deserialize(JsonParser parser, DeserializationContext ctx)\n");
-    out.push_str("            throws java.io.IOException {\n");
-    out.push_str("        ObjectNode node = parser.getCodec().readTree(parser);\n");
-    out.push_str("        com.fasterxml.jackson.databind.JsonNode tagNode = node.get(\"");
+    out.push_str("      throws java.io.IOException {\n");
+    out.push_str("    ObjectNode node = parser.getCodec().readTree(parser);\n");
+    out.push_str("    com.fasterxml.jackson.databind.JsonNode tagNode = node.get(\"");
     out.push_str(tag_field);
     out.push_str("\");\n");
-    out.push_str("        if (tagNode == null || tagNode.isNull()) {\n");
-    out.push_str("            throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
-    out.push_str("                parser, \"Missing discriminator field: ");
+    out.push_str("    if (tagNode == null || tagNode.isNull()) {\n");
+    out.push_str("      throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+    out.push_str("          parser, \"Missing discriminator field: ");
     out.push_str(tag_field);
     out.push_str("\");\n");
-    out.push_str("        }\n");
-    out.push_str("        String tagValue = tagNode.asText();\n");
+    out.push_str("    }\n");
+    out.push_str("    String tagValue = tagNode.asText();\n");
     // Remove the discriminator field before deserialising the inner type so that
     // the target builder (e.g. TextMetadataBuilder) does not encounter an
     // unrecognised property and throw UnrecognizedPropertyException.
-    out.push_str("        node.remove(\"");
+    out.push_str("    node.remove(\"");
     out.push_str(tag_field);
     out.push_str("\");\n\n");
 
     // Generate a switch/case based on the tag value
-    out.push_str("        return switch (tagValue) {\n");
+    out.push_str("    return switch (tagValue) {\n");
     for variant in &enum_def.variants {
         // Skip excluded variants from the deserializer switch arms
         if variant.binding_excluded {
@@ -81,7 +82,7 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
                 .unwrap_or_else(|| java_apply_rename_all(name, None))
         });
 
-        out.push_str("            case \"");
+        out.push_str("      case \"");
         out.push_str(&discriminator);
         out.push_str("\" -> ");
 
@@ -143,9 +144,9 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
         })
         .collect();
 
-    out.push_str("            default -> {\n");
+    out.push_str("      default -> {\n");
     if !excluded_variants.is_empty() {
-        out.push_str("                if (");
+        out.push_str("        if (");
         for (i, variant_discriminator) in excluded_variants.iter().enumerate() {
             if i > 0 {
                 out.push_str(" || ");
@@ -155,19 +156,19 @@ pub(super) fn gen_sealed_union_deserializer(out: &mut String, _package: &str, en
             out.push(')');
         }
         out.push_str(") {\n");
-        out.push_str("                    throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
-        out.push_str("                        parser, \"");
+        out.push_str("          throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+        out.push_str("              parser, \"");
         out.push_str(&enum_def.name);
         out.push_str(" variant '\" + tagValue + \"' is not available in this binding\");\n");
-        out.push_str("                }\n");
+        out.push_str("        }\n");
     }
-    out.push_str("                throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
-    out.push_str("                    parser, \"Unknown ");
+    out.push_str("        throw new com.fasterxml.jackson.databind.JsonMappingException(\n");
+    out.push_str("            parser, \"Unknown ");
     out.push_str(&enum_def.name);
     out.push_str(" discriminator: \" + tagValue);\n");
-    out.push_str("            }\n");
-    out.push_str("        };\n");
-    out.push_str("    }\n");
+    out.push_str("      }\n");
+    out.push_str("    };\n");
+    out.push_str("  }\n");
     out.push_str("}\n");
 }
 

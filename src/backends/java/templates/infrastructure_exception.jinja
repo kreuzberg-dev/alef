@@ -3,13 +3,15 @@
 /** {{ doc }} */
 @SuppressWarnings({"checkstyle:LineLength", "PMD"})
 public class {{ class_name }} extends {{ main_class }}Exception {
-    /** Creates a new {{ class_name }}. */
-    public {{ class_name }}(final String message) {
-        super({{ code }}, message);
-    }
+  private static final long serialVersionUID = 1L;
 
-    /** Creates a new {{ class_name }} with a cause. */
-    public {{ class_name }}(final String message, final Throwable cause) {
-        super(message, cause);
-    }
+  /** Creates a new {{ class_name }}. */
+  public {{ class_name }}(final String message) {
+    super({{ code }}, message);
+  }
+
+  /** Creates a new {{ class_name }} with a cause. */
+  public {{ class_name }}(final String message, final Throwable cause) {
+    super(message, cause);
+  }
 }

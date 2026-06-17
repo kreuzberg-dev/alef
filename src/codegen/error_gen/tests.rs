@@ -450,8 +450,8 @@ fn test_gen_java_error_types_with_methods() {
         "statusCode field: {base}"
     );
     assert!(
-        base.contains("private final boolean isTransient;"),
-        "isTransient field: {base}"
+        base.contains("private final boolean isTransientFlag;"),
+        "isTransientFlag field: {base}"
     );
     assert!(
         base.contains("private final String errorType;"),
@@ -476,7 +476,7 @@ fn test_gen_java_error_types_with_methods() {
     );
     // Full constructor with introspection params
     assert!(
-            base.contains("public SampleAppErrorException(final String message, final int statusCode, final boolean isTransient, final String errorType)"),
+            base.contains("public SampleAppErrorException(final String message, final int statusCode, final boolean isTransientFlag, final String errorType)"),
             "full ctor: {base}"
         );
 }
@@ -522,7 +522,7 @@ fn test_gen_csharp_error_types_with_methods() {
     );
     // Full constructor
     assert!(
-            base.contains("public SampleAppErrorException(string message, ushort statusCode, bool isTransient, string errorType) : base(message)"),
+            base.contains("public SampleAppErrorException(string message, ushort statusCode, bool isTransientFlag, string errorType) : base(message)"),
             "full ctor: {base}"
         );
 }

@@ -275,7 +275,8 @@ fn java_getter_name(snake: &str) -> String {
 }
 
 /// Convert a snake_case method name to a Java field name (camelCase).
-/// E.g. `status_code` → `statusCode`, `is_transient` → `isTransient`.
+/// E.g. `status_code` → `statusCode`, `is_transient` → `isTransientFlag`.
+/// Fields that conflict with Serializable interface methods get a suffix.
 fn java_field_name(snake: &str) -> String {
     let parts: Vec<&str> = snake.split('_').collect();
     if parts.is_empty() {
@@ -292,6 +293,13 @@ fn java_field_name(snake: &str) -> String {
             }
         }
     }
+
+    // PMD rule AvoidFieldNameMatchingMethodName: rename fields that match Serializable interface methods
+    // isTransient, readObject, writeObject are methods in Serializable/ObjectInputStream/ObjectOutputStream
+    if out == "isTransient" {
+        out.push_str("Flag");
+    }
+
     out
 }
 
