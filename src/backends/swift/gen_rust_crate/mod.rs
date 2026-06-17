@@ -794,6 +794,24 @@ fn emit_lib_rs(
             ));
             out.push('\n');
         }
+        // For opaque types with no visible (non-excluded) methods, emit a no-op method
+        // shim to signal ownership to swift-bridge (which only generates destructors
+        // for opaque types with at least one method). This is needed even when
+        // ty.methods is non-empty but all methods are binding_excluded (e.g.,
+        // CrawlEngineHandle with streaming-only methods).
+        // This is called OUTSIDE the above conditional so it fires even when no
+        // regular methods are emitted.
+        let has_visible_methods = ty
+            .methods
+            .iter()
+            .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+        if ty.is_opaque && !has_visible_methods {
+            let noop_shim = wrappers::emit_type_noop_shim(ty);
+            if !noop_shim.is_empty() {
+                out.push_str(&noop_shim);
+                out.push('\n');
+            }
+        }
     }
     for en in &visible_enums {
         out.push_str(&enums::emit_enum_wrapper(en, &source_crate, &type_paths));

@@ -179,16 +179,27 @@ pub(crate) fn emit_extern_block_for_type(
         ));
     }
 
-    // For opaque types with no methods, swift-bridge does not generate a destructor
-    // (the `$_free` symbol). The C ABI handle becomes unleak-able, breaking linking.
-    // A no-op method (returning unit) makes swift-bridge recognize the type as owned
-    // and generate the destructor. Callers never invoke it — it exists only to signal
-    // ownership to the swift-bridge codegen.
-    if ty.is_opaque && ty.methods.is_empty() {
+    // For opaque types with no visible (non-excluded, non-sanitized) methods,
+    // swift-bridge does not generate a destructor (the `$_free` symbol). The C ABI
+    // handle becomes unleak-able, breaking linking. A no-op method (returning unit)
+    // makes swift-bridge recognize the type as owned and generate the destructor.
+    // Callers never invoke it — it exists only to signal ownership to swift-bridge.
+    //
+    // Note: a type may have methods in the IR (e.g., CrawlEngineHandle.crawl_stream,
+    // batch_crawl_stream) but all be binding_excluded for streaming adapters.
+    // In that case, ty.methods is not empty but no methods will appear in this
+    // extern block, so the noop is still required.
+    let has_visible_methods = ty
+        .methods
+        .iter()
+        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+    if ty.is_opaque && !has_visible_methods {
+        let type_snake = ty.name.to_snake_case();
+        let noop_fn_name = format!("{type_snake}_noop");
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_fn_noop.jinja",
             minijinja::context! {
-                name => &ty.name,
+                fn_name => &noop_fn_name,
             },
         ));
     }

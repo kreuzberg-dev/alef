@@ -360,17 +360,32 @@ pub(crate) fn emit_type_method_shims(
         ));
     }
 
-    // For opaque types with no methods, emit a no-op method to signal ownership
-    // to swift-bridge. swift-bridge only generates destructors (`$_free`) for
-    // opaque types that have at least one method. The no-op method (returning unit)
-    // makes the type "owned" and generates the destructor. This prevents leaks when
-    // handles are dropped in Swift.
-    if ty.is_opaque && ty.methods.is_empty() {
+    out
+}
+
+/// Emit a no-op method shim for opaque types with no visible methods.
+/// This signals ownership to swift-bridge so it generates the destructor.
+/// Called separately from emit_type_method_shims so it fires even when all
+/// methods are binding_excluded.
+pub(crate) fn emit_type_noop_shim(ty: &TypeDef) -> String {
+    // For opaque types with no visible (non-excluded, non-sanitized) methods, emit a
+    // no-op method to signal ownership to swift-bridge. swift-bridge only generates
+    // destructors (`$_free`) for opaque types that have at least one method in their
+    // extern block. The no-op method (returning unit) makes the type "owned" and
+    // generates the destructor. This prevents leaks when handles are dropped in Swift.
+    //
+    // Note: a type may have methods in the IR (e.g., CrawlEngineHandle.crawl_stream,
+    // batch_crawl_stream) but all be binding_excluded for streaming adapters.
+    // In that case, no methods will be emitted in the extern block, so the noop is required.
+    let has_visible_methods = ty
+        .methods
+        .iter()
+        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+    if ty.is_opaque && !has_visible_methods {
         let type_snake = ty.name.to_snake_case();
         let noop_name = format!("{type_snake}_noop");
-        let noop_fn = format!("pub fn {noop_name}(client: &{}) {{}}\n", ty.name);
-        out.push_str(&noop_fn);
+        format!("pub fn {noop_name}(client: &{}) {{}}\n", ty.name)
+    } else {
+        String::new()
     }
-
-    out
 }

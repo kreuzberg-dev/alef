@@ -13,6 +13,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         include_str!("../templates/extern_fn_getter.jinja"),
     ),
     (
+        "extern_fn_noop.jinja",
+        include_str!("../templates/extern_fn_noop.jinja"),
+    ),
+    (
         "extern_enum_type.jinja",
         include_str!("../templates/extern_enum_type.jinja"),
     ),
