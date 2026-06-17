@@ -199,11 +199,17 @@ pub(super) fn emit_inbound_protocols(
         let adapter_name = format!("_{trait_name}ProtocolAdapter");
         let protocol_name = format!("{trait_name}Protocol");
         let delegate_protocol_name = format!("_Swift{trait_name}BoxDelegate");
-        let factory_fn = format!(
-            "make{}{}",
-            trait_name.to_upper_camel_case(),
-            type_alias.to_upper_camel_case()
-        );
+        // Factory function name: `make{TraitCamel}Handle`, matching the spec
+        // in `mod.rs` ("A factory func `make{TraitCamel}Handle(...)`") and the
+        // identical convention used by the e2e test generator
+        // (`swift_visitors::build_swift_visitor` → `make{Trait}Handle`) and the
+        // user-facing snippets under `docs/snippets/swift/visitor/`. Naming this
+        // `make{Trait}{TypeAlias}` (e.g. `makeHtmlVisitorVisitorHandle` because
+        // type_alias is `VisitorHandle`) silently doubles the trait stem and
+        // means every e2e + snippet reference fails at compile time with
+        // `cannot find 'make{Trait}Handle' in scope`. `type_alias` is still used
+        // downstream as the return type.
+        let factory_fn = format!("make{}Handle", trait_name.to_upper_camel_case());
 
         out.push_str(&crate::backends::swift::template_env::render(
             "swift_bridge_protocol_open.swift.jinja",

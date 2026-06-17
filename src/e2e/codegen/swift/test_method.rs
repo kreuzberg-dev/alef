@@ -196,7 +196,13 @@ pub(super) fn render_test_method(
     let visitor_handle_expr: Option<String> = fixture.visitor.as_ref().map(|spec| {
         let visitor_config =
             super::super::swift_visitors::resolve_swift_visitor_config(config, call_overrides, type_defs, spec);
-        super::super::swift_visitors::build_swift_visitor(&mut visitor_setup_lines, spec, &fixture.id, &visitor_config)
+        super::super::swift_visitors::build_swift_visitor(
+            &mut visitor_setup_lines,
+            spec,
+            &fixture.id,
+            &visitor_config,
+            module_name,
+        )
     });
 
     // Resolve extra_args from per-call swift overrides (e.g. `nil` for optional

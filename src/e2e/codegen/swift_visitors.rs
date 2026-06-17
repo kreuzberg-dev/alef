@@ -119,10 +119,19 @@ pub(super) fn build_swift_visitor(
     visitor_spec: &VisitorSpec,
     fixture_id: &str,
     visitor_config: &SwiftVisitorConfig,
+    module_name: &str,
 ) -> String {
     // Build a Swift-safe class name from the fixture id.
     let class_suffix = fixture_id.replace('-', "_").to_upper_camel_case();
     let class_name = format!("LocalVisitor_{class_suffix}");
+
+    // The test file imports both the host module (e.g. `HtmlToMarkdown`) and
+    // `RustBridge`. Visitor context types like `NodeContext` are emitted into
+    // both modules (the user-facing wrapper in the host, the swift-bridge raw
+    // type in RustBridge), so an unqualified reference is ambiguous and Swift
+    // rejects the test with `'NodeContext' is ambiguous for type lookup`.
+    // Qualifying the context type with the host module name resolves it.
+    let qualified_context = format!("{module_name}.{}", visitor_config.context_type);
 
     let mut block = String::new();
     let protocol_name = format!("{}Protocol", visitor_config.trait_name);
@@ -141,7 +150,7 @@ pub(super) fn build_swift_visitor(
         };
 
         let method_camel = method.to_lower_camel_case();
-        let params = swift_visitor_params(method, &visitor_config.context_type);
+        let params = swift_visitor_params(method, &qualified_context);
         let body = swift_action_body(action, method, &visitor_config.result_type);
         let _ = writeln!(
             block,
@@ -348,6 +357,7 @@ mod tests {
             ),
             "audio_skip",
             &visitor_config(&["visit_audio"]),
+            "MyModule",
         );
         assert!(expr.starts_with("makeRenderVisitorHandle("), "got: {expr}");
         assert_eq!(lines.len(), 1);
@@ -355,7 +365,10 @@ mod tests {
         assert!(block.contains("LocalVisitor_AudioSkip"), "got: {block}");
         assert!(block.contains("RenderVisitorProtocol"), "got: {block}");
         assert!(block.contains("visitAudio"), "got: {block}");
-        assert!(block.contains("_ ctx: SyntaxContext"), "got: {block}");
+        assert!(
+            block.contains("_ ctx: MyModule.SyntaxContext"),
+            "got: {block}"
+        );
         assert!(block.contains(".custom(field0: \"[AUDIO]\")"), "got: {block}");
     }
 
@@ -367,6 +380,7 @@ mod tests {
             &spec("visit_button", CallbackAction::Skip),
             "btn_skip",
             &visitor_config(&["visit_button"]),
+            "MyModule",
         );
         assert!(lines[0].contains(".skip"), "got: {}", lines[0]);
     }
@@ -379,6 +393,7 @@ mod tests {
             &spec("visit_iframe", CallbackAction::PreserveHtml),
             "iframe_preserve",
             &visitor_config(&["visit_iframe"]),
+            "MyModule",
         );
         assert!(lines[0].contains(".preserveHtml"), "got: {}", lines[0]);
     }
@@ -391,6 +406,7 @@ mod tests {
             &spec("visit_strong", CallbackAction::Continue),
             "strong_cont",
             &visitor_config(&["visit_strong"]),
+            "MyModule",
         );
         assert!(lines[0].contains(".`continue`"), "got: {}", lines[0]);
     }
@@ -409,6 +425,7 @@ mod tests {
             ),
             "link_template",
             &visitor_config(&["visit_link"]),
+            "MyModule",
         );
         // Placeholder names should be camelCased and use Swift interpolation syntax.
         assert!(
@@ -427,6 +444,7 @@ mod tests {
             &spec("visit_text", CallbackAction::Skip),
             "text_only",
             &visitor_config(&["visit_text", "visit_audio"]),
+            "MyModule",
         );
         let block = &lines[0];
         // Only visit_text is overridden.
