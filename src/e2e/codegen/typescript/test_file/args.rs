@@ -131,10 +131,39 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
             let constructor_name = format!("create{}", arg.name.to_upper_camel_case());
             let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
             let config_value = input.get(field).unwrap_or(&serde_json::Value::Null);
-            if config_value.is_null()
-                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty())
-            {
+            let is_null_config = config_value.is_null()
+                || config_value.is_object() && config_value.as_object().is_some_and(|o| o.is_empty());
+            // WASM: std::env::var is unavailable on wasm32 so SsrfPolicy::from_env()
+            // always returns deny_private=true. E2e suites target localhost (mock server),
+            // so we must override ssrf.denyPrivate=false on every engine config.
+            // Detect whether the config type exposes an `ssrf` field by checking the
+            // WASM type-prefix: if the type_defs include an SsrfPolicy struct, we know
+            // the binding exposes it. Emit the override whenever lang=="wasm" and the
+            // handle has a config type.
+            let wasm_has_ssrf_field = lang == "wasm"
+                && handle_config_type.is_some()
+                && type_defs.iter().any(|td| {
+                    (td.name == "SsrfPolicy" || td.name.ends_with("SsrfPolicy"))
+                        && td.fields.iter().any(|f| f.name == "deny_private")
+                });
+            if is_null_config && !wasm_has_ssrf_field {
                 setup_lines.push(format!("const {} = {constructor_name}(null);", arg.name));
+            } else if is_null_config && wasm_has_ssrf_field {
+                // Null config but WASM needs SSRF override — materialise a default config.
+                let config_type = handle_config_type.unwrap();
+                setup_lines.push(format!(
+                    "const {name}Config = {config_type}.default();",
+                    name = arg.name
+                ));
+                setup_lines.push(format!(
+                    "{name}Config.ssrf.denyPrivate = false;",
+                    name = arg.name
+                ));
+                setup_lines.push(format!(
+                    "const {} = {constructor_name}({name}Config);",
+                    arg.name,
+                    name = arg.name,
+                ));
             } else {
                 // WASM: if handle_config_type is set, use factory pattern + setters
                 if let Some(config_type) = handle_config_type {
@@ -180,6 +209,15 @@ pub(in crate::e2e::codegen::typescript::test_file) fn build_args_and_setup(
                             };
                             setup_lines.push(format!("{name}Config.{camel_key} = {value_expr};", name = arg.name));
                         }
+                    }
+                    // WASM: inject ssrf.denyPrivate=false if the binding exposes SsrfPolicy.
+                    // E2e suites hit localhost; std::env::var is unavailable on wasm32 so
+                    // SsrfPolicy::from_env() cannot read KREUZCRAWL_ALLOW_PRIVATE_NETWORK.
+                    if wasm_has_ssrf_field {
+                        setup_lines.push(format!(
+                            "{name}Config.ssrf.denyPrivate = false;",
+                            name = arg.name
+                        ));
                     }
                 } else {
                     // Other languages: pass config object directly or via constructor
