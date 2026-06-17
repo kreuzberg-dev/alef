@@ -485,7 +485,22 @@ pub(super) fn emit_from_mirror_to_core_struct(out: &mut String, ty: &TypeDef, so
 
     for field in &ty.fields {
         if field.binding_excluded {
-            emit_rust_struct_field(out, None, &field.name, "Default::default()");
+            if !ty.has_default {
+                // The core type does not derive Default, so the trailing
+                // `..Default::default()` spread would fail with E0277. Emit
+                // `<field>: Default::default()` explicitly for each binding-excluded
+                // field. This loses any custom core-level Default behaviour for
+                // these fields, but is the only way to construct the struct literal
+                // when the core type lacks a Default impl.
+                emit_rust_struct_field(out, None, &field.name, "Default::default()");
+                continue;
+            }
+            // Skip binding_excluded fields entirely; the trailing `..Default::default()`
+            // spread fills them with the CORE type's Default impl. Emitting
+            // `<field>: Default::default()` would override that — and is wrong when
+            // the core's Default calls a custom function (e.g. `CrawlConfig::default()`
+            // sets `ssrf: SsrfPolicy::from_env()`, whereas `<SsrfPolicy as Default>`
+            // is the static `deny_private = true` policy).
             continue;
         }
         // Sanitized String fields with a non-Cow core_wrapper indicate the core type
@@ -902,21 +917,17 @@ mod tests {
             out.contains("#[allow(clippy::needless_update)]"),
             "needless_update allow should accompany the emitted spread; got:\n{out}"
         );
-        // binding_excluded fields are still emitted explicitly by the loop (existing behaviour)
+        // When has_default is true, binding_excluded fields are skipped; the spread
+        // fills them with the core type's Default impl (which may have custom defaults).
         assert!(
-            out.contains("internal: Default::default()"),
-            "binding-excluded field is still emitted explicitly; got:\n{out}"
+            !out.contains("internal: Default::default()"),
+            "binding-excluded field should be skipped when has_default is true; got:\n{out}"
         );
     }
 
     #[test]
     fn mirror_to_core_stripped_cfg_without_default_omits_spread() {
-        let ty = typ(
-            "NoDefaultStripped",
-            false,
-            true,
-            vec![field("name", false)],
-        );
+        let ty = typ("NoDefaultStripped", false, true, vec![field("name", false)]);
         let mut out = String::new();
         emit_from_mirror_to_core_struct(&mut out, &ty, "source");
 
