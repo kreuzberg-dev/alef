@@ -303,16 +303,22 @@ pub(super) fn render_download_script(github_repo: &str, version: &str, ffi_pkg_n
     let _ = writeln!(out, "MARKER=\"$FFI_DIR/.alef-ffi-version\"");
     let _ = writeln!(out, "EXPECTED=\"${{ASSET_STEM}}\"");
     let _ = writeln!(out);
-    // Override: if TSLP_FFI_LOCAL_DIR is set and contains the FFI structure,
+    // Override: if ALEF_FFI_LOCAL_DIR is set and contains the FFI structure,
     // use it instead of downloading from GitHub. This allows CI to reuse
     // locally-built FFI artifacts (e.g. from a prior build-ffi job) and
     // avoids the 404 race when the GitHub release hasn't been created yet.
-    let _ = writeln!(out, "if [ -n \"${{TSLP_FFI_LOCAL_DIR:-}}\" ] && [ -d \"${{TSLP_FFI_LOCAL_DIR}}/include\" ] && [ -d \"${{TSLP_FFI_LOCAL_DIR}}/lib\" ]; then");
-    let _ = writeln!(out, "  echo \"Using FFI from TSLP_FFI_LOCAL_DIR=${{TSLP_FFI_LOCAL_DIR}}\"");
+    let _ = writeln!(
+        out,
+        "if [ -n \"${{ALEF_FFI_LOCAL_DIR:-}}\" ] && [ -d \"${{ALEF_FFI_LOCAL_DIR}}/include\" ] && [ -d \"${{ALEF_FFI_LOCAL_DIR}}/lib\" ]; then"
+    );
+    let _ = writeln!(
+        out,
+        "  echo \"Using FFI from ALEF_FFI_LOCAL_DIR=${{ALEF_FFI_LOCAL_DIR}}\""
+    );
     let _ = writeln!(out, "  rm -rf \"${{FFI_DIR:?}}\"/include \"${{FFI_DIR:?}}\"/lib");
     let _ = writeln!(out, "  mkdir -p \"$FFI_DIR\"");
-    let _ = writeln!(out, "  cp -R \"${{TSLP_FFI_LOCAL_DIR}}/include\" \"$FFI_DIR/include\"");
-    let _ = writeln!(out, "  cp -R \"${{TSLP_FFI_LOCAL_DIR}}/lib\" \"$FFI_DIR/lib\"");
+    let _ = writeln!(out, "  cp -R \"${{ALEF_FFI_LOCAL_DIR}}/include\" \"$FFI_DIR/include\"");
+    let _ = writeln!(out, "  cp -R \"${{ALEF_FFI_LOCAL_DIR}}/lib\" \"$FFI_DIR/lib\"");
     let _ = writeln!(out, "  echo \"$EXPECTED\" > \"$MARKER\"");
     let _ = writeln!(out, "  echo \"FFI library staged into $FFI_DIR/ from local override.\"");
     let _ = writeln!(out, "  exit 0");
@@ -465,19 +471,32 @@ mod tests {
     }
 
     #[test]
+    fn download_script_uses_generic_local_ffi_override() {
+        let script = render_download_script(
+            "https://github.com/fixture-dev/example-language-pack",
+            "1.9.0-rc.48",
+            "example-pack-core-ffi",
+        );
+        assert!(
+            script.contains("ALEF_FFI_LOCAL_DIR"),
+            "local FFI override must use a generic Alef variable; got: {script}"
+        );
+    }
+
+    #[test]
     fn download_script_uses_lib_name_with_underscores() {
         // Verify that FFI_PKG_NAME is derived from lib_name (with underscores)
         // rather than from a kebab-cased package name.
         // The publish workflow stages tarballs as "${lib_name}-v${VERSION}-${TRIPLE}.tar.gz",
         // so the download script must match that naming.
         let script = render_download_script(
-            "https://github.com/kreuzberg-dev/liter-llm",
+            "https://github.com/example-org/example-language-pack",
             "1.6.3",
-            "liter_llm_ffi", // lib_name with underscores, matching alef.toml lib_name = "..."
+            "example_language_pack_ffi", // lib_name with underscores
         );
         // Verify FFI_PKG_NAME is set with underscores
         assert!(
-            script.contains("FFI_PKG_NAME=\"liter_llm_ffi\""),
+            script.contains("FFI_PKG_NAME=\"example_language_pack_ffi\""),
             "FFI_PKG_NAME must use underscores (lib_name format); got: {script}"
         );
         // Verify ASSET_STEM is computed from FFI_PKG_NAME

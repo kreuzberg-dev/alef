@@ -630,3 +630,78 @@ fn test_sanitized_function_generates_stub_not_direct_call() {
         "split_code must not emit PhpException (no error_type); content:\n{content}"
     );
 }
+
+#[test]
+fn php_exclude_functions_omits_facade_method() {
+    let backend = PhpBackend;
+    let api = ApiSurface {
+        crate_name: "test-lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            FunctionDef {
+                name: "hidden_function".to_string(),
+                rust_path: "test_lib::hidden_function".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::Unit,
+                is_async: false,
+                error_type: None,
+                doc: "Function excluded from the PHP facade.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+            FunctionDef {
+                name: "visible_function".to_string(),
+                rust_path: "test_lib::visible_function".to_string(),
+                original_rust_path: String::new(),
+                params: vec![],
+                return_type: TypeRef::String,
+                is_async: false,
+                error_type: None,
+                doc: "Function emitted into the PHP facade.".to_string(),
+                cfg: None,
+                sanitized: false,
+                return_sanitized: false,
+                returns_ref: false,
+                returns_cow: false,
+                return_newtype_wrapper: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                version: Default::default(),
+            },
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config_with_php_excludes();
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let facade = files
+        .iter()
+        .find(|file| file.path.ends_with("TestLib.php"))
+        .expect("public API should include TestLib.php");
+
+    assert!(
+        !facade.content.contains("hiddenFunction"),
+        "excluded function must not appear in PHP facade; content:\n{}",
+        facade.content
+    );
+    assert!(
+        facade.content.contains("visibleFunction"),
+        "non-excluded function must still appear in PHP facade; content:\n{}",
+        facade.content
+    );
+}

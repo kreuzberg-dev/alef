@@ -184,7 +184,7 @@ impl E2eCodegen for CCodegen {
         let lib_name = config.ffi_lib_name();
 
         // ffi_pkg_name is the release artifact package name (for downloads).
-        // Derived from lib_name (e.g., "liter_llm_ffi" → "liter_llm_ffi") because
+        // Derived from lib_name (for example, "sample_ffi" stays "sample_ffi") because
         // the publish workflow stages tarballs as "${lib_name}-v${VERSION}-${TRIPLE}.tar.gz".
         // The explicit e2e package name is a fallback for edge cases where the release
         // artifact name differs from the library name.

@@ -280,7 +280,12 @@ impl E2eCodegen for WasmCodegen {
         if needs_setup_ts {
             files.push(GeneratedFile {
                 path: output_base.join("setup.ts"),
-                content: render_setup(&e2e_config.test_documents_dir, has_file_fixtures, &pkg_name),
+                content: render_setup(
+                    &e2e_config.test_documents_dir,
+                    has_file_fixtures,
+                    &pkg_name,
+                    &e2e_config.env,
+                ),
                 generated_header: true,
             });
         }
@@ -536,7 +541,12 @@ fn render_vitest_config(with_global_setup: bool, with_file_setup: bool) -> Strin
 /// When `include_file_setup` is true, also patches the CommonJS loader for
 /// wasm-pack `--target nodejs` WASI/env stubs and chdir's to
 /// `test_documents_dir` so file-path fixture arguments resolve.
-fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &str) -> String {
+fn render_setup(
+    test_documents_dir: &str,
+    include_file_setup: bool,
+    pkg_name: &str,
+    env: &std::collections::HashMap<String, String>,
+) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let mut out = header;
 
@@ -548,6 +558,16 @@ fn render_setup(test_documents_dir: &str, include_file_setup: bool, pkg_name: &s
         out.push_str("import { dirname, join } from 'path';\n");
     }
     out.push('\n');
+
+    // Emit e2e env var assignments, alphabetically sorted by key.
+    if !env.is_empty() {
+        let mut entries: Vec<_> = env.iter().collect();
+        entries.sort_by_key(|(k, _)| *k);
+        for (key, value) in entries {
+            let _ = writeln!(out, "process.env.{key} ??= {value:?};");
+        }
+        out.push('\n');
+    }
 
     // Wasm module init — must run before any wasm export is called.
     // Published wasm-bindgen packages export `initSync` (synchronous, takes a
@@ -866,7 +886,7 @@ mod tests {
     fn test_setup_ts_no_duplicate_imports() {
         // Test that setup.ts with file_setup does not emit duplicate imports.
         // Both createRequire and fileURLToPath should appear exactly once.
-        let setup = render_setup("fixtures", true, "@sample_core/wasm");
+        let setup = render_setup("fixtures", true, "@sample_core/wasm", &std::collections::HashMap::new());
 
         let create_require_count = setup.matches("import { createRequire }").count();
         let file_url_to_path_count = setup.matches("import { fileURLToPath }").count();
@@ -965,6 +985,66 @@ mod tests {
         assert!(
             !pkg_json.contains("^^"),
             "must not double the `^` prefix; got:\n{pkg_json}"
+        );
+    }
+
+    #[test]
+    fn render_setup_emits_e2e_env_assignments_alphabetically() {
+        // Test that env vars are emitted as `process.env.KEY ??= "VALUE";`
+        // assignments, sorted alphabetically by key.
+
+        // Test with non-empty env map
+        let mut env = std::collections::HashMap::new();
+        env.insert("ZEBRA".to_string(), "last_alphabetically".to_string());
+        env.insert("APPLE".to_string(), "first_alphabetically".to_string());
+        env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+
+        let setup = render_setup("fixtures", true, "@sample_core/wasm", &env);
+
+        // Verify all env keys are present
+        assert!(
+            setup.contains("process.env.APPLE ??= \"first_alphabetically\";"),
+            "APPLE env var should be emitted, got:\n{setup}"
+        );
+        assert!(
+            setup.contains("process.env.KREUZCRAWL_ALLOW_PRIVATE_NETWORK ??= \"true\";"),
+            "KREUZCRAWL_ALLOW_PRIVATE_NETWORK env var should be emitted, got:\n{setup}"
+        );
+        assert!(
+            setup.contains("process.env.ZEBRA ??= \"last_alphabetically\";"),
+            "ZEBRA env var should be emitted, got:\n{setup}"
+        );
+
+        // Verify alphabetical order: APPLE < KREUZCRAWL < ZEBRA
+        let apple_idx = setup.find("APPLE").expect("APPLE should be present");
+        let kreuzcrawl_idx = setup.find("KREUZCRAWL").expect("KREUZCRAWL should be present");
+        let zebra_idx = setup.find("ZEBRA").expect("ZEBRA should be present");
+        assert!(
+            apple_idx < kreuzcrawl_idx && kreuzcrawl_idx < zebra_idx,
+            "env vars must be sorted alphabetically; got positions: APPLE={}, KREUZCRAWL={}, ZEBRA={}",
+            apple_idx,
+            kreuzcrawl_idx,
+            zebra_idx
+        );
+
+        // Verify env block appears after imports but before wasm init
+        let imports_end = setup
+            .find("import { dirname, join }")
+            .expect("imports should be present");
+        let env_block = setup.find("process.env.APPLE").expect("env block should be present");
+        let wasm_init = setup
+            .find("// Pre-initialize the wasm")
+            .expect("wasm init should be present");
+        assert!(
+            imports_end < env_block && env_block < wasm_init,
+            "env block must come after imports and before wasm init"
+        );
+
+        // Test with empty env map — should emit no env block
+        let empty_setup = render_setup("fixtures", true, "@sample_core/wasm", &std::collections::HashMap::new());
+        assert!(
+            !empty_setup.contains("process.env."),
+            "empty env map should not emit any env assignments, got:\n{empty_setup}"
         );
     }
 }

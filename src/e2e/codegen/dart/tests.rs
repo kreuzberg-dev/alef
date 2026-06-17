@@ -198,7 +198,7 @@ fn dart_stub_uses_fixture_input_name_for_plugin_name() {
 
 /// Verify that _setEnv helper forces overwrite=1 and checks return code.
 /// Regression test for the bug where setenv(..., 0) silently no-ops when the
-/// env var is already set, causing KREUZCRAWL_ALLOW_PRIVATE_NETWORK to be
+/// env var is already set, causing SAMPLE_ALLOW_PRIVATE_NETWORK to be
 /// invisible to Rust FFI dylib in dart e2e tests.
 #[test]
 fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
@@ -207,7 +207,7 @@ fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
 
     // Create a minimal E2eConfig with an env var to trigger _setEnv emission.
     let mut env = HashMap::new();
-    env.insert("KREUZCRAWL_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+    env.insert("SAMPLE_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
 
     let e2e_config = E2eConfig {
         env,
@@ -217,7 +217,7 @@ fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
     // Build a minimal test file just to check the _setEnv helper.
     // We'll use a dummy fixture and configuration.
     let fixture = make_fixture("test_fixture");
-    let bridge = make_trait_bridge("TestTrait");
+    let _bridge = make_trait_bridge("TestTrait");
     let config = crate::core::config::ResolvedCrateConfig::default();
     let type_defs = [];
     let enums = [];
@@ -229,7 +229,7 @@ fn dart_emit_setenv_forces_overwrite_and_checks_return_code() {
         &[&fixture],
         &e2e_config,
         "dart",
-        "kreuzcrawl",
+        "samplecli",
         "RustLib",
         "RustLibBridge",
         &dart_first_class_map,

@@ -58,7 +58,7 @@ pub(super) fn generate_public_api(
 
     // Functions excluded from the PHP binding via `[crates.php].exclude_functions`.
     // The ext-php-rs Rust binding correctly omits these, but the user-facing PHP
-    // wrapper class must also skip them — otherwise it emits a forwarder that
+    // wrapper class must also skip them; otherwise it emits a forwarder that
     // calls a non-existent native method (PHPStan `staticMethod.notFound`).
     let php_exclude_functions: AHashSet<String> = config
         .php

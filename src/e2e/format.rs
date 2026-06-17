@@ -43,7 +43,9 @@ fn default_formatter(lang: &str) -> Option<&'static str> {
         "rust" => Some("(cd {dir} && cargo fmt --all)"),
         "python" => Some("ruff check --fix {dir} && ruff format {dir}"),
         "node" | "wasm" => Some("pnpm dlx oxfmt {dir}"),
-        "go" => Some("(cd {dir} && go mod tidy && gofmt -s -w . && (command -v goimports >/dev/null 2>&1 && goimports -w . || true))"),
+        "go" => Some(
+            "(cd {dir} && go mod tidy && gofmt -s -w . && (command -v goimports >/dev/null 2>&1 && goimports -w . || true))",
+        ),
         _ => None,
     }
 }
