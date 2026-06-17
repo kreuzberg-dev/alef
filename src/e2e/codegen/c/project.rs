@@ -463,4 +463,27 @@ mod tests {
             "script must write the marker after a successful download; got: {script}"
         );
     }
+
+    #[test]
+    fn download_script_uses_lib_name_with_underscores() {
+        // Verify that FFI_PKG_NAME is derived from lib_name (with underscores)
+        // rather than from a kebab-cased package name.
+        // The publish workflow stages tarballs as "${lib_name}-v${VERSION}-${TRIPLE}.tar.gz",
+        // so the download script must match that naming.
+        let script = render_download_script(
+            "https://github.com/kreuzberg-dev/liter-llm",
+            "1.6.3",
+            "liter_llm_ffi", // lib_name with underscores, matching alef.toml lib_name = "..."
+        );
+        // Verify FFI_PKG_NAME is set with underscores
+        assert!(
+            script.contains("FFI_PKG_NAME=\"liter_llm_ffi\""),
+            "FFI_PKG_NAME must use underscores (lib_name format); got: {script}"
+        );
+        // Verify ASSET_STEM is computed from FFI_PKG_NAME
+        assert!(
+            script.contains("ASSET_STEM=\"${FFI_PKG_NAME}-v${VERSION}-${TRIPLE}\""),
+            "asset stem must use FFI_PKG_NAME variable; got: {script}"
+        );
+    }
 }

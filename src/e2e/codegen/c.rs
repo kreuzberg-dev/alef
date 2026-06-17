@@ -183,18 +183,16 @@ impl E2eCodegen for CCodegen {
         // lib_name is the actual Rust library name (for linking)
         let lib_name = config.ffi_lib_name();
 
-        // ffi_pkg_name is the release artifact package name (for downloads, may differ from lib_name).
-        // Falls back to "{base_package_name}-ffi" when not explicitly configured in the package registry.
+        // ffi_pkg_name is the release artifact package name (for downloads).
+        // Derived from lib_name (e.g., "liter_llm_ffi" → "liter_llm_ffi") because
+        // the publish workflow stages tarballs as "${lib_name}-v${VERSION}-${TRIPLE}.tar.gz".
+        // The explicit e2e package name is a fallback for edge cases where the release
+        // artifact name differs from the library name.
         let ffi_pkg_name = c_pkg
             .as_ref()
             .and_then(|p| p.name.as_ref())
             .cloned()
-            .unwrap_or_else(|| {
-                // Derive from the base package name (e.g., "<lib>" → "<lib>-ffi")
-                // rather than from the cargo crate name (which may differ when
-                // the C ffi crate uses a non-default suffix).
-                format!("{}-ffi", config.name)
-            });
+            .unwrap_or_else(|| lib_name.clone());
 
         // Filter active groups (with non-skipped fixtures).
         let active_groups: Vec<(&FixtureGroup, Vec<&Fixture>)> = groups
