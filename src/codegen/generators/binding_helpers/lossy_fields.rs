@@ -95,7 +95,7 @@ fn gen_lossy_binding_to_core_fields_inner(
         if field.binding_excluded {
             // Skip binding_excluded fields entirely; the trailing `..Default::default()`
             // spread fills them with the CORE type's Default impl, preserving custom
-            // defaults like `kreuzcrawl::CrawlConfig::default().ssrf = SsrfPolicy::from_env()`.
+            // defaults that derive field values from environment or runtime configuration.
             // Emitting `<field>: Default::default()` would shadow that with the sub-type's
             // (often stricter) default value.
             continue;

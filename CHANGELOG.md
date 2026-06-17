@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **(codegen/binding_helpers): keep `binding_excluded` conversion comments project-agnostic.**
+  The lossy conversion implementation note now describes custom core defaults generically instead
+  of referencing a downstream consumer type.
+
 ### Fixed
 
 - **(codegen/binding_helpers): skip `binding_excluded` fields in the shared `gen_lossy_binding_to_core_fields_inner` and emit the `..Default::default()` spread when any binding-excluded field exists.** Same bug as the 0.25.26 PHP-backend fix, but in the SHARED method-body lossy helper used by Python/Node/Ruby/WASM/extendr/etc. The shared helper still emitted `<field>: Default::default()` per binding-excluded field inside method bodies (e.g. `pub fn validate(&self)` in `crates/kreuzcrawl-py/src/lib.rs:694`), shadowing the core type's custom `Default` impl (e.g. `CrawlConfig::default()` calls `SsrfPolicy::from_env()` to honor `KREUZCRAWL_ALLOW_PRIVATE_NETWORK`). With this fix, every binding's method-body lossy `let core_self = CoreType { ... }` correctly inherits the core's bespoke defaults via the trailing spread.
