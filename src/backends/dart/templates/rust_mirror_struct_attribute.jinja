@@ -1,4 +1,2 @@
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
+{# Mirror declarations stay unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
 #[frb(mirror({{ name }}))]

@@ -1,4 +1,6 @@
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
+{# The mirror enum is a DTO/wire type that frb_generated.rs references unconditionally; #}
+{# the variant policy in `mirror.rs` already emits every variant regardless of feature flags. #}
+{# Propagating `source_cfg` to the outer enum would gate the whole declaration, leaving #}
+{# frb_generated.rs with dangling `crate::{Name}` paths whenever the feature is off. #}
+{# Always emit the mirror; feature differences are handled in the From impl arms instead. #}
 #[frb(mirror({{ name }}), unignore)]

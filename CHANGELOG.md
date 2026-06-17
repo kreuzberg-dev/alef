@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and record static factories no longer synthesize fallback javadocs when the Rust method has none.
 - **(maintenance): remove downstream project references from generator source comments.**
   Source comments now describe the generic codegen cases, keeping the project-agnostic guard clean.
+- **(backends/dart/templates): stop propagating `source_cfg` to the mirror enum/struct attribute templates.**
+  When an upstream type carried `#[cfg(feature = "X")]`, the generator copied that gate onto the
+  local `#[frb(mirror(T))]` declaration in the dart Rust crate's `lib.rs`. The companion
+  `frb_generated.rs` (emitted by `flutter_rust_bridge` itself) references `crate::T` unconditionally,
+  so any build that disabled the upstream feature — e.g. `cargo test --no-default-features --workspace`
+  in h2m's `task rust:test` — produced `E0433: cannot find 'T' in 'crate'`. The same policy already
+  applied to mirror variants per the long-standing comment in `mirror.rs`; this aligns the outer
+  declaration with that policy. The `From<CoreType>` impl retains its `source_cfg` gate so feature-off
+  builds simply lose the conversion, which `frb_generated.rs` does not reference.
+  (`src/backends/dart/templates/rust_mirror_enum_attribute.jinja`,
+  `src/backends/dart/templates/rust_mirror_struct_attribute.jinja`)
 
 ## [0.25.32] - 2026-06-17
 
