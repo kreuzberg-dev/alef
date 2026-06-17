@@ -92,6 +92,9 @@ pub(super) fn gen_builder_nested_class(
     // Annotation tells Jackson to use this builder when deserializing the record.
     // Builder defaults (e.g., enabled=true) are applied during deserialization.
     // Explicitly specify buildMethodName="build" to ensure Jackson calls the build() method.
+    body.push_str("    /** Jackson builder for ");
+    body.push_str(&typ.name);
+    body.push_str(" deserialization. */\n");
     body.push_str("    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)\n");
     body.push_str("    @JsonPOJOBuilder(withPrefix = \"with\", buildMethodName = \"build\")\n");
     body.push_str("    public static final class Builder {\n");
@@ -328,8 +331,21 @@ pub(super) fn gen_builder_nested_class(
         body.push_str(&field_type);
         body.push(' ');
         body.push_str(&field_name);
-        body.push_str(" = ");
-        body.push_str(&default_value);
+
+        // Emit field initializer only when it's not Java's default.
+        // Java defaults: null for references, 0 for numeric, false for boolean, etc.
+        // Suppress redundant initializers to fix PMD RedundantFieldInitializer rule.
+        let is_redundant_default = default_value == "null"
+            || default_value == "false"
+            || default_value == "0"
+            || default_value == "0L"
+            || default_value == "0.0"
+            || default_value == "0.0f"
+            || default_value == "\"\"";
+        if !is_redundant_default {
+            body.push_str(" = ");
+            body.push_str(&default_value);
+        }
         body.push_str(";\n");
     }
 
@@ -475,9 +491,9 @@ pub(super) fn gen_builder_nested_class(
     }
 
     // Generate build() method
-    body.push_str("        /** Builds the ");
+    body.push_str("        /** Constructs a ");
     body.push_str(&typ.name);
-    body.push_str(" instance. */\n");
+    body.push_str(" instance from the builder's current state. */\n");
     body.push_str("        public ");
     body.push_str(&typ.name);
     body.push_str(" build() {\n");

@@ -865,7 +865,9 @@ fn generate_jvm(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Resul
          \"LongParameterList\",\n    \
          \"CyclomaticComplexMethod\",\n    \
          \"LongMethod\",\n    \
-         \"MagicNumber\",\n\
+         \"MagicNumber\",\n    \
+         \"ReturnCount\",\n    \
+         \"NestedBlockDepth\",\n\
          )\n\n",
     );
     content.push_str(&crate::backends::kotlin::template_env::render(

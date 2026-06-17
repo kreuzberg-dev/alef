@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.30] - 2026-06-17
+
+### Fixed
+
+- **(backends/kotlin): add `ReturnCount` and `NestedBlockDepth` to the SHARED kotlin file-level `@file:Suppress` emission used by `emit_enum_pub`/`emit_error_type_pub`/`emit_type_pub_with_defaults_sealed_and_constructible`.** 0.25.29 only added them to the kotlin_android-specific `assemble_kt_content` suppression list; the SHARED kotlin emission (used by data classes and error types in kotlin_android too) still emitted the legacy list. Untagged-enum sealed-class deserializers and Jackson nested-when deserializers therefore tripped detekt's defaults. Both lists now include both rules — applies to every generated kotlin file via either path.
+- **(backends/java): eliminate redundant field initializers and add javadoc to generated record builders.** Generated Java builder classes now omit redundant field initializers (= null, = false, = 0, etc.) that match Java's default values, satisfying PMD's RedundantFieldInitializer rule. Builder classes and builder() factory methods now include javadoc; record declarations without rustdoc receive auto-generated documentation. The build() method javadoc updated to be more descriptive.
+
 ## [0.25.29] - 2026-06-17
 
 ### Changed

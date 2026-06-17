@@ -204,7 +204,9 @@ pub fn assemble_kt_file(package: &str, imports: &std::collections::BTreeSet<Stri
          \"LongParameterList\",\n    \
          \"CyclomaticComplexMethod\",\n    \
          \"LongMethod\",\n    \
-         \"MagicNumber\",\n\
+         \"MagicNumber\",\n    \
+         \"ReturnCount\",\n    \
+         \"NestedBlockDepth\",\n\
          )\n\n",
     );
     content.push_str(&crate::backends::kotlin::template_env::render(
