@@ -118,10 +118,16 @@ pub(super) fn gen_bridge_field_wrapper_function(
             trait_pascal,
         },
     ));
-    out.push_str(&render(
-        "bridge_field_register.jinja",
-        minijinja::context! { trait_pascal },
-    ));
+    // Visitor bridges (context_type + result_type) use the callbacks-struct ABI (Path 1):
+    // wrap the HtmVisitorCallbacks struct in an opaque handle via htm_visitor_create and free
+    // it with htm_visitor_free, instead of the generic trait-bridge new/free (Path 2).
+    let is_visitor_bridge = bridge_match.bridge.context_type.is_some() && bridge_match.bridge.result_type.is_some();
+    let register_template = if is_visitor_bridge {
+        "bridge_field_register_visitor.jinja"
+    } else {
+        "bridge_field_register.jinja"
+    };
+    out.push_str(&render(register_template, minijinja::context! { trait_pascal }));
     out.push_str("                if (bridgeHandle == IntPtr.Zero) throw GetLastError();\n");
     out.push_str("                try\n                {\n");
 
@@ -184,10 +190,12 @@ pub(super) fn gen_bridge_field_wrapper_function(
     out.push_str("                }\n");
     out.push_str("                finally\n");
     out.push_str("                {\n");
-    out.push_str(&render(
-        "bridge_field_unregister.jinja",
-        minijinja::context! { trait_pascal },
-    ));
+    let unregister_template = if is_visitor_bridge {
+        "bridge_field_unregister_visitor.jinja"
+    } else {
+        "bridge_field_unregister.jinja"
+    };
+    out.push_str(&render(unregister_template, minijinja::context! { trait_pascal }));
     out.push_str("                }\n");
     out.push_str("            }\n");
     out.push_str("            else\n");

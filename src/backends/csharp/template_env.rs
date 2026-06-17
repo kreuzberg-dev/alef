@@ -464,6 +464,14 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/bridge_field_register.jinja"),
     ),
     (
+        "bridge_field_register_visitor.jinja",
+        include_str!("templates/bridge_field_register_visitor.jinja"),
+    ),
+    (
+        "bridge_field_unregister_visitor.jinja",
+        include_str!("templates/bridge_field_unregister_visitor.jinja"),
+    ),
+    (
         "bridge_field_inject.jinja",
         include_str!("templates/bridge_field_inject.jinja"),
     ),

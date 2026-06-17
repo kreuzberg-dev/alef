@@ -16,6 +16,11 @@ use std::collections::HashSet;
 /// Maps a TypeRef to its C# representation, substituting non-visible Named types with string.
 /// This prevents internal types like `PrivatePayload` or `SyncExtractor` from appearing
 /// in the generated trait interface signatures.
+/// Public re-export of [`csharp_type_visible`] for the dedicated visitor-bridge generator.
+pub(crate) fn csharp_type_visible_pub(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
+    csharp_type_visible(ty, visible_type_names)
+}
+
 fn csharp_type_visible(ty: &TypeRef, visible_type_names: &HashSet<&str>) -> String {
     match ty {
         TypeRef::Named(name) => {
@@ -145,10 +150,18 @@ pub fn gen_trait_bridges_file(
             continue;
         }
 
-        // Skip visitor bridges (context_type + result_type present) — they use dedicated visitor codegen
-        // that handles the callbacks-struct ABI (Path 1). The generic trait_bridge machinery generates
-        // incorrect Path-2 (vtable) code that is incompatible with Go/Java patterns.
+        // Visitor bridges (context_type + result_type present) use the dedicated callbacks-struct
+        // generator (Path 1, shared with Go/Java) instead of the generic trait-bridge vtable
+        // (Path 2, `{prefix}_register_{trait}`). The generic machinery emits a JSON-context vtable
+        // whose ABI does not match `htm_visitor_create` / `htm_options_set_visitor`.
         if bridge_cfg.context_type.is_some() && bridge_cfg.result_type.is_some() {
+            crate::backends::csharp::gen_visitor_bridge::gen_visitor_bridge(
+                &mut out,
+                trait_name,
+                trait_def,
+                visible_type_names,
+            );
+            out.push('\n');
             continue;
         }
 
