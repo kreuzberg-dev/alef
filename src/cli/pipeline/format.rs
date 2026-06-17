@@ -141,11 +141,23 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
                 work_dir: "packages/elixir/".to_owned(),
             })
         }
+        // Go formatting must match prek's `go-fmt` hook byte-for-byte so
+        // regenerated bindings survive prek without re-rewrites. The upstream
+        // hook runs `gofmt -s -w` and, when available, additionally runs
+        // `goimports -w`. Mirror exactly: `-s` enables simplifications and
+        // `goimports` handles import grouping that `gofmt` does not.
+        // `is_tool_available` skips a missing goimports with a warning.
         Language::Go => Some(FormatterSpec {
-            commands: vec![FormatterCommand {
-                command: "gofmt".to_owned(),
-                args: vec!["-w".to_owned(), ".".to_owned()],
-            }],
+            commands: vec![
+                FormatterCommand {
+                    command: "gofmt".to_owned(),
+                    args: vec!["-s".to_owned(), "-w".to_owned(), ".".to_owned()],
+                },
+                FormatterCommand {
+                    command: "goimports".to_owned(),
+                    args: vec!["-w".to_owned(), ".".to_owned()],
+                },
+            ],
             work_dir: "packages/go/".to_owned(),
         }),
         // google-java-format requires explicit file paths — no recursive flag.
@@ -269,22 +281,25 @@ fn get_default_formatter(config: &ResolvedCrateConfig, lang: Language) -> Option
             ],
             work_dir: String::new(),
         }),
+        // Kotlin (JVM, non-Android) formatting matches prek's `ktfmt` hook
+        // byte-for-byte: ktfmt + `--kotlinlang-style` is Google's reference
+        // formatter and produces a different canonical shape than ktlint
+        // (parameter wrapping, expression body inference, single-line bodies).
+        // Files are appended dynamically in `format_generated` to match
+        // prek's per-file invocation pattern; ktlint stays at the linter layer.
         Language::Kotlin => Some(FormatterSpec {
             commands: vec![FormatterCommand {
-                command: "ktlint".to_owned(),
-                args: vec!["--format".to_owned()],
+                command: "ktfmt".to_owned(),
+                args: vec!["--kotlinlang-style".to_owned()],
             }],
-            work_dir: "packages/kotlin/src/".to_owned(),
+            work_dir: "packages/kotlin/src".to_owned(),
         }),
         Language::KotlinAndroid => Some(FormatterSpec {
             commands: vec![FormatterCommand {
                 command: "ktfmt".to_owned(),
-                args: vec![
-                    "--kotlinlang-style".to_owned(),
-                    "packages/kotlin-android/src".to_owned(),
-                ],
+                args: vec!["--kotlinlang-style".to_owned()],
             }],
-            work_dir: String::new(),
+            work_dir: "packages/kotlin-android/src".to_owned(),
         }),
         Language::Swift => Some(FormatterSpec {
             commands: vec![FormatterCommand {
@@ -354,6 +369,29 @@ fn collect_java_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
         return vec![];
     };
     entries.flatten().filter(|p| p.is_file()).take(limit).collect()
+}
+
+/// Collect all `.kt` and `.kts` files under `dir` recursively (up to `limit` paths).
+/// Returns an empty vec if the directory does not exist or cannot be read.
+///
+/// ktfmt requires explicit per-file arguments to produce byte-stable output that
+/// matches prek's ktfmt hook (which is also invoked per-file by pre-commit).
+/// Without per-file invocation the two passes drift even with identical version+flags.
+fn collect_kotlin_files(dir: &Path, limit: usize) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for ext in ["kt", "kts"] {
+        let pattern = format!("{}/**/*.{ext}", dir.display());
+        let Ok(entries) = glob::glob(&pattern) else { continue };
+        for entry in entries.flatten() {
+            if entry.is_file() {
+                out.push(entry);
+                if out.len() >= limit {
+                    return out;
+                }
+            }
+        }
+    }
+    out
 }
 
 /// Run language-native formatters on emitted packages after generation.
@@ -472,6 +510,11 @@ pub fn format_generated(
             // For Java, google-java-format requires explicit file paths: collect them now.
             // Spotless and other Maven-driven formatters operate on the pom and don't
             // take per-file arguments, so the collection is skipped for them.
+            //
+            // For Kotlin-Android, ktfmt also requires explicit per-file paths to produce
+            // byte-stable output that matches prek's ktfmt hook (also per-file). Without
+            // this, alef's post-format pass and prek's hook drift even with identical
+            // version + flag set.
             let extra_args: Vec<String> = if *lang == Language::Java && step.command == "google-java-format" {
                 const JAVA_FILE_BATCH_LIMIT: usize = 200;
                 let java_files = collect_java_files(&work_dir, JAVA_FILE_BATCH_LIMIT);
@@ -483,6 +526,20 @@ pub fn format_generated(
                     break;
                 }
                 java_files
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .collect()
+            } else if (*lang == Language::KotlinAndroid || *lang == Language::Kotlin) && step.command == "ktfmt" {
+                const KOTLIN_FILE_BATCH_LIMIT: usize = 500;
+                let kotlin_files = collect_kotlin_files(&work_dir, KOTLIN_FILE_BATCH_LIMIT);
+                if kotlin_files.is_empty() {
+                    debug!(
+                        "  [{lang_str}] no .kt/.kts files found in {}, skipping",
+                        work_dir.display()
+                    );
+                    break;
+                }
+                kotlin_files
                     .into_iter()
                     .map(|p| p.to_string_lossy().into_owned())
                     .collect()
@@ -506,6 +563,44 @@ pub fn format_generated(
         }
 
         formatted_langs.insert(*lang);
+    }
+
+    // Workspace-wide shell-script normalization. Several backends emit shell
+    // scripts (`download_ffi.sh` for C/Go FFI bootstrap, `install.sh` for PHP
+    // PIE setup, `run_tests.sh` for homebrew e2e). Without an explicit shfmt
+    // pass, prek's `shfmt` hook rewrites the redirection spacing (`>"$M"` vs
+    // `> "$M"`) after generation, then `alef verify` keeps reporting drift on
+    // every regen. Mirror prek's invocation (`shfmt -w -i 2`) so alef's
+    // output is already canonical at the moment hashes are finalised.
+    shfmt_emitted_scripts(files, base_dir);
+}
+
+/// Run `shfmt -w -i 2` on every emitted `.sh` file across all backends.
+///
+/// Path arguments are batched into a single invocation. `shfmt` rewrites files
+/// in place and returns non-zero only for unrecoverable parse errors; we log
+/// any non-success exit as a warning and continue — matching
+/// `format_generated`'s best-effort contract. Missing `shfmt` is a warning,
+/// not a fatal error.
+fn shfmt_emitted_scripts(files: &[(Language, Vec<crate::core::backend::GeneratedFile>)], base_dir: &Path) {
+    let scripts: Vec<String> = files
+        .iter()
+        .flat_map(|(_, lang_files)| lang_files.iter())
+        .filter(|f| f.path.extension().is_some_and(|e| e == "sh"))
+        .map(|f| base_dir.join(&f.path).to_string_lossy().into_owned())
+        .collect();
+    if scripts.is_empty() {
+        return;
+    }
+    if !is_tool_available("shfmt") {
+        warn!("shfmt not found on PATH (skipping shell-script format)");
+        return;
+    }
+    let mut args: Vec<&str> = vec!["-w", "-i", "2"];
+    args.extend(scripts.iter().map(String::as_str));
+    match run_formatter("shfmt", &args, base_dir) {
+        Ok(()) => debug!("  [shell] shfmt over {} script(s) ok", scripts.len()),
+        Err(e) => warn!("[shell] shfmt failed: {e}"),
     }
 }
 
@@ -571,376 +666,4 @@ fn resolve_crate_dir(output_path: &Path) -> PathBuf {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::core::config::{Language, NewAlefConfig, ResolvedCrateConfig};
-
-    fn make_config(crate_name: &str) -> ResolvedCrateConfig {
-        let cfg: NewAlefConfig = toml::from_str(&format!(
-            r#"
-[workspace]
-languages = ["rust"]
-[[crates]]
-name = "{crate_name}"
-sources = ["src/lib.rs"]
-"#
-        ))
-        .expect("valid config");
-        cfg.resolve().unwrap().remove(0)
-    }
-
-    fn make_config_with_csharp_project(crate_name: &str, project_file: &str) -> ResolvedCrateConfig {
-        let cfg: NewAlefConfig = toml::from_str(&format!(
-            r#"
-[workspace]
-languages = ["csharp"]
-[[crates]]
-name = "{crate_name}"
-sources = ["src/lib.rs"]
-[crates.csharp]
-project_file = "{project_file}"
-"#
-        ))
-        .expect("valid config");
-        cfg.resolve().unwrap().remove(0)
-    }
-
-    #[test]
-    fn formatter_error_includes_stdout_and_stderr() {
-        let err = run_formatter(
-            "sh",
-            &["-c", "printf 'stdout text'; printf 'stderr text' >&2; exit 7"],
-            Path::new("."),
-        )
-        .expect_err("formatter should fail");
-        let msg = err.to_string();
-        assert!(msg.contains("stdout text"), "missing stdout in error: {msg}");
-        assert!(msg.contains("stderr text"), "missing stderr in error: {msg}");
-    }
-
-    #[test]
-    fn test_wasm_formatter_uses_manifest_path() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
-        // Two commands: cargo fmt (rs files), cargo sort (Cargo.toml table order).
-        // No oxfmt step — oxfmt's default TOML style fights cargo-sort's preserved
-        // indent and produces an infinite format/regen loop on the embedded hash.
-        assert_eq!(spec.commands.len(), 2, "WASM must have cargo fmt + cargo sort steps");
-        let fmt_cmd = &spec.commands[0];
-        assert_eq!(fmt_cmd.command, "cargo");
-        assert_eq!(
-            fmt_cmd.args,
-            vec!["fmt", "--manifest-path", "crates/sample-model-wasm/Cargo.toml"]
-        );
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(sort_cmd.command, "cargo");
-        assert_eq!(
-            sort_cmd.args,
-            vec!["sort", "crates/sample-model-wasm"],
-            "cargo sort arg must be the crate directory, not the manifest path"
-        );
-        assert!(spec.work_dir.is_empty(), "WASM formatter must run at workspace root");
-    }
-
-    #[test]
-    fn test_wasm_formatter_uses_configured_output_path() {
-        let cfg: NewAlefConfig = toml::from_str(
-            r#"
-[workspace]
-languages = ["wasm"]
-[[crates]]
-name = "sample-language-pack"
-sources = ["crates/sample-pack-core/src/lib.rs"]
-[crates.output]
-wasm = "crates/sample-pack-core-wasm/src/"
-"#,
-        )
-        .expect("valid config");
-        let config = cfg.resolve().unwrap().remove(0);
-        let spec = get_default_formatter(&config, Language::Wasm).expect("should have formatter");
-        let fmt_cmd = &spec.commands[0];
-        assert_eq!(
-            fmt_cmd.args,
-            vec!["fmt", "--manifest-path", "crates/sample-pack-core-wasm/Cargo.toml"]
-        );
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(
-            sort_cmd.args,
-            vec!["sort", "crates/sample-pack-core-wasm"],
-            "cargo sort arg must match the crate dir derived from the configured output path"
-        );
-    }
-
-    #[test]
-    fn test_node_formatter_excludes_toml_from_oxfmt() {
-        // oxfmt also reformats TOML (collapsing arrays, stripping inner-bracket
-        // spaces), which fights the consumer's pyproject-fmt (`[ "x" ]`) and
-        // cargo-sort, breaking `alef verify` post-finalize. The whole-repo oxfmt
-        // run must exclude `**/*.toml`.
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Node).expect("should have formatter");
-        let oxfmt_cmd = spec
-            .commands
-            .iter()
-            .find(|c| c.args.iter().any(|a| a == "oxfmt"))
-            .expect("Node formatter must run oxfmt");
-        assert!(
-            oxfmt_cmd.args.iter().any(|a| a == "!**/*.toml"),
-            "oxfmt must exclude TOML so it does not fight pyproject-fmt/cargo-sort, got: {:?}",
-            oxfmt_cmd.args
-        );
-    }
-
-    #[test]
-    fn test_ffi_formatter_includes_cargo_sort() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Ffi).expect("should have formatter");
-        // Two commands: cargo fmt --all (rs files) + cargo sort -w (Cargo.toml table
-        // order across the workspace). No oxfmt step here — the shared fixture
-        // pre-commit `oxfmt` hook is JS/TS/JSON/CSS only, and running oxfmt on `.`
-        // additionally reformats every workspace TOML (including hand-maintained
-        // Cargo.toml files) into oxfmt's 2-space style, fighting cargo-sort's
-        // preserved indent and breaking the embedded hash.
-        assert_eq!(spec.commands.len(), 2, "FFI must have cargo fmt + cargo sort steps");
-        let fmt_cmd = &spec.commands[0];
-        assert_eq!(fmt_cmd.command, "cargo");
-        assert_eq!(fmt_cmd.args, vec!["fmt", "--all"]);
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(sort_cmd.command, "cargo");
-        assert_eq!(
-            sort_cmd.args,
-            vec!["sort", "-w"],
-            "cargo sort must run workspace-wide so all binding crate Cargo.toml files are normalised"
-        );
-        assert!(spec.work_dir.is_empty(), "FFI formatter must run at workspace root");
-    }
-
-    // The Ruby native crate (`packages/ruby/ext/<gem>/native/`) lives outside the
-    // consumer cargo workspace, so the FFI formatter's `cargo sort -w` skips it.
-    // The Ruby formatter must therefore run cargo sort directly against the
-    // native crate, otherwise prek's `cargo-sort` hook rewrites feature-array
-    // indentation post-finalize and breaks `alef verify`.
-    #[test]
-    fn test_ruby_formatter_includes_cargo_sort_for_native_crate() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Ruby).expect("should have formatter");
-        assert_eq!(spec.commands.len(), 2, "Ruby must have rubocop + cargo sort steps");
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(sort_cmd.command, "cargo");
-        assert_eq!(sort_cmd.args[0], "sort");
-        assert!(
-            sort_cmd.args[1].contains("ext/") && sort_cmd.args[1].contains("/native"),
-            "cargo sort arg must target the native crate dir, got: {:?}",
-            sort_cmd.args
-        );
-        assert_eq!(spec.work_dir, "packages/ruby/");
-    }
-
-    // The Elixir NIF crate (`packages/elixir/native/<app>_nif/`) lives outside the
-    // cargo workspace, so cargo sort must be invoked directly.
-    #[test]
-    fn test_elixir_formatter_includes_cargo_sort_for_nif_crate() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Elixir).expect("should have formatter");
-        assert_eq!(spec.commands.len(), 2, "Elixir must have mix format + cargo sort steps");
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(sort_cmd.command, "cargo");
-        assert_eq!(sort_cmd.args[0], "sort");
-        assert!(
-            sort_cmd.args[1].starts_with("native/") && sort_cmd.args[1].ends_with("_nif"),
-            "cargo sort arg must target native/<app>_nif, got: {:?}",
-            sort_cmd.args
-        );
-        assert_eq!(spec.work_dir, "packages/elixir/");
-    }
-
-    // The extendr R crate (`packages/r/src/rust/`) is workspace-excluded and so
-    // needs its own cargo sort invocation.
-    #[test]
-    fn test_r_formatter_includes_cargo_sort_for_extendr_crate() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::R).expect("should have formatter");
-        assert_eq!(spec.commands.len(), 2, "R must have styler + cargo sort steps");
-        let sort_cmd = &spec.commands[1];
-        assert_eq!(sort_cmd.command, "cargo");
-        assert_eq!(sort_cmd.args, vec!["sort", "packages/r/src/rust"]);
-        assert!(spec.work_dir.is_empty(), "R formatter runs at project root");
-    }
-
-    // Bug 2: C# formatter must include project_file when configured to avoid workspace ambiguity.
-    #[test]
-    fn test_csharp_formatter_with_project_file() {
-        let config = make_config_with_csharp_project("sample-model", "packages/csharp/SampleModel.csproj");
-        let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
-        assert_eq!(spec.commands.len(), 1);
-        let cmd = &spec.commands[0];
-        assert_eq!(cmd.command, "dotnet");
-        assert!(cmd.args.contains(&"format".to_owned()), "args must contain 'format'");
-        assert!(
-            cmd.args.contains(&"SampleModel.csproj".to_owned()),
-            "args must contain the relative project file, got: {:?}",
-            cmd.args
-        );
-        assert_eq!(spec.work_dir, "packages/csharp/");
-    }
-
-    #[test]
-    fn test_csharp_formatter_without_project_file() {
-        let config = make_config("sample-model");
-        let spec = get_default_formatter(&config, Language::Csharp).expect("should have formatter");
-        let cmd = &spec.commands[0];
-        assert_eq!(cmd.command, "dotnet");
-        assert_eq!(
-            cmd.args,
-            vec!["format"],
-            "without project_file, args must be just ['format']"
-        );
-    }
-
-    // KotlinAndroid formatter must use ktfmt (Google style) with --kotlinlang-style to match prek.
-    // ktfmt and ktlint produce different formatting, so alef must use the same tool as prek
-    // to ensure generated code is byte-identical to what prek's hook would produce.
-    #[test]
-    fn test_kotlin_android_formatter_uses_ktfmt() {
-        let config = make_config("sample-markdown");
-        let spec =
-            get_default_formatter(&config, Language::KotlinAndroid).expect("KotlinAndroid should have formatter");
-        assert_eq!(
-            spec.commands.len(),
-            1,
-            "KotlinAndroid must have exactly one formatter command"
-        );
-        let cmd = &spec.commands[0];
-        assert_eq!(
-            cmd.command, "ktfmt",
-            "KotlinAndroid must use ktfmt, not ktlint or gradle"
-        );
-        assert_eq!(
-            cmd.args,
-            vec![
-                "--kotlinlang-style".to_owned(),
-                "packages/kotlin-android/src".to_owned()
-            ],
-            "KotlinAndroid must include --kotlinlang-style flag and target src directory"
-        );
-        assert!(
-            spec.work_dir.is_empty(),
-            "KotlinAndroid formatter must run at project root"
-        );
-    }
-
-    // Bug 3: Java file collection — only .java files are returned, non-.java files are excluded.
-    #[test]
-    fn test_collect_java_files_returns_only_java_files() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path();
-
-        // Create a nested structure with .java and other files
-        std::fs::create_dir_all(root.join("com/example")).unwrap();
-        std::fs::write(root.join("com/example/Foo.java"), "class Foo {}").unwrap();
-        std::fs::write(root.join("com/example/Bar.java"), "class Bar {}").unwrap();
-        std::fs::write(root.join("com/example/readme.txt"), "ignore me").unwrap();
-        std::fs::write(root.join("com/example/Baz.class"), "ignore me").unwrap();
-
-        let files = collect_java_files(root, 200);
-        assert_eq!(files.len(), 2, "expected 2 .java files, got: {:?}", files);
-        assert!(files.iter().all(|p| p.extension().is_some_and(|e| e == "java")));
-    }
-
-    #[test]
-    fn test_collect_java_files_empty_dir() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let files = collect_java_files(dir.path(), 200);
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn test_collect_java_files_nonexistent_dir() {
-        let files = collect_java_files(Path::new("/nonexistent/path/to/src"), 200);
-        assert!(files.is_empty());
-    }
-
-    #[test]
-    fn test_collect_java_files_respects_limit() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let root = dir.path();
-        for i in 0..10 {
-            std::fs::write(root.join(format!("File{i}.java")), "class Foo {}").unwrap();
-        }
-        let files = collect_java_files(root, 5);
-        assert_eq!(files.len(), 5);
-    }
-
-    // Regression: custom format_override commands must run even when the language
-    // is absent from the only_languages filter (i.e., files were not re-written
-    // this run). The only_languages filter is an optimization for default formatters
-    // (skip when nothing changed), but a custom command must always run to ensure
-    // the embedded alef:hash: is computed over formatter-normalized content.
-    // Without this, adding [workspace.format_overrides.php] and running
-    // `alef all --format` on an already-generated repo would skip php-cs-fixer,
-    // leaving hashes computed over raw (pre-formatter) content; prek's own
-    // php-cs-fixer hook would then reformat and break alef verify.
-    #[test]
-    fn format_generated_custom_override_runs_when_lang_absent_from_only_languages_filter() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        let sentinel = dir.path().join("was_run.txt");
-        let sentinel_str = sentinel.to_string_lossy().replace('\\', "/");
-
-        // Config with a custom format_override for php that writes a sentinel file.
-        let cfg: NewAlefConfig = toml::from_str(&format!(
-            r#"
-[workspace]
-languages = ["php"]
-
-[workspace.format_overrides.php]
-command = "touch {sentinel_str}"
-
-[[crates]]
-name = "my-lib"
-sources = ["src/lib.rs"]
-"#
-        ))
-        .expect("valid config");
-        let config = cfg.resolve().expect("resolve").remove(0);
-
-        // Simulate bindings for php — language appears in files but is NOT in only_languages.
-        let files: Vec<(Language, Vec<crate::core::backend::GeneratedFile>)> = vec![(Language::Php, vec![])];
-
-        // only_languages is empty — simulates "nothing was written this run".
-        let only_languages: std::collections::HashSet<Language> = std::collections::HashSet::new();
-
-        assert!(!sentinel.exists(), "sentinel must not exist before format_generated");
-
-        format_generated(&files, &config, dir.path(), Some(&only_languages));
-
-        assert!(
-            sentinel.exists(),
-            "custom format_override command must run even when php is absent from only_languages"
-        );
-    }
-
-    // Complement: default formatters must still respect the only_languages filter
-    // so that a warm cache (no file writes) skips unnecessary ruff/mix-format/etc.
-    // invocations for default formatters.
-    #[test]
-    fn format_generated_default_formatter_skipped_when_lang_absent_from_only_languages() {
-        let dir = tempfile::tempdir().expect("tempdir");
-        // Config with no format_overrides — python uses the default ruff formatter.
-        let config = make_config("my-lib");
-
-        let files: Vec<(Language, Vec<crate::core::backend::GeneratedFile>)> = vec![(Language::Python, vec![])];
-
-        // only_languages is empty — simulates "nothing was written this run".
-        let only_languages: std::collections::HashSet<Language> = std::collections::HashSet::new();
-
-        // This should complete without error (ruff not present on the test box is fine —
-        // the point is that format_generated skips python entirely without reaching the
-        // is_tool_available check, so no warning is emitted and no external process runs).
-        // We verify by ensuring format_generated returns without calling any tool.
-        // Since python has a default formatter (ruff), skipping means the tool is never
-        // looked up — we can't assert negatively on tool invocation, but the test
-        // documents the intent: no-op when only_languages filter excludes the language.
-        format_generated(&files, &config, dir.path(), Some(&only_languages));
-        // If we reach here without error the skip path worked correctly.
-    }
-}
+mod tests;

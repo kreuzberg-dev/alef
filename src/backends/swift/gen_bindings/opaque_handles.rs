@@ -7,10 +7,10 @@
 //! hierarchy. Currently, this only applies to owner types of streaming adapters,
 //! which are forward-declared in the streaming extern block.
 
-use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use crate::core::backend::GeneratedFile;
+use crate::core::config::{AdapterPattern, ResolvedCrateConfig};
 use heck::ToPascalCase;
-use std::path::PathBuf;
+use std::path::Path;
 
 /// Collect all unique streaming adapter owner types that require a Swift class
 /// declaration because they are marked with `#[swift_bridge(already_declared)]`.
@@ -89,7 +89,7 @@ fn emit_opaque_class_triple(owner_type: &str, out: &mut String) {
 /// Returns `None` if there are no such types.
 pub(crate) fn emit_opaque_class_declarations(
     config: &ResolvedCrateConfig,
-    rust_bridge_sources: &PathBuf,
+    rust_bridge_sources: &Path,
 ) -> Option<GeneratedFile> {
     let owner_types = collect_already_declared_owner_types(config);
     if owner_types.is_empty() {
@@ -174,12 +174,14 @@ mod tests {
 
     #[test]
     fn collect_already_declared_owner_types_deduplicates() {
-        let mut config: ResolvedCrateConfig = Default::default();
-        config.adapters = vec![
-            streaming_adapter_with_owner("chat_stream", "DefaultClient"),
-            streaming_adapter_with_owner("batch_stream", "DefaultClient"),
-            streaming_adapter_with_owner("crawl_stream", "CrawlEngine"),
-        ];
+        let config = ResolvedCrateConfig {
+            adapters: vec![
+                streaming_adapter_with_owner("chat_stream", "DefaultClient"),
+                streaming_adapter_with_owner("batch_stream", "DefaultClient"),
+                streaming_adapter_with_owner("crawl_stream", "CrawlEngine"),
+            ],
+            ..Default::default()
+        };
 
         let owners = collect_already_declared_owner_types(&config);
         assert_eq!(owners.len(), 2);
@@ -189,11 +191,11 @@ mod tests {
 
     #[test]
     fn collect_already_declared_owner_types_skips_non_streaming() {
-        let mut config: ResolvedCrateConfig = Default::default();
         // Only create a streaming adapter; it will be the only one with owner_type
-        config.adapters = vec![
-            streaming_adapter_with_owner("stream", "StreamClient"),
-        ];
+        let config = ResolvedCrateConfig {
+            adapters: vec![streaming_adapter_with_owner("stream", "StreamClient")],
+            ..Default::default()
+        };
 
         let owners = collect_already_declared_owner_types(&config);
         assert_eq!(owners.len(), 1);
