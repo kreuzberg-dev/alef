@@ -59,6 +59,13 @@ impl Backend for WasmBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Collapse same-named cfg-variant functions into one canonical entry. The wasm-bindgen
+        // wrapper delegates to the core crate (which resolves the cfg) and emits no `#[cfg]` gate,
+        // so two same-named entries would otherwise produce duplicate `#[wasm_bindgen]` fns.
+        // Matches the FFI/pyo3/napi backends; see codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let wasm_config = config.wasm.as_ref();
         let mut exclude_functions = wasm_config.map(|c| c.exclude_functions.clone()).unwrap_or_default();
         let mut exclude_types = wasm_config.map(|c| c.exclude_types.clone()).unwrap_or_default();

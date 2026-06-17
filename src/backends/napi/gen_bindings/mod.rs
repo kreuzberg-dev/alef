@@ -93,6 +93,13 @@ impl Backend for NapiBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Collapse same-named cfg-variant functions into one canonical entry. The napi `#[napi]`
+        // wrapper delegates to the core crate (which resolves the cfg) and emits no `#[cfg]` gate,
+        // so two same-named entries would otherwise produce duplicate `#[napi]` fn definitions.
+        // Matches the FFI/pyo3 backends; see codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let prefix = config.node_type_prefix();
         let trait_type_names: AHashSet<String> = api
             .types

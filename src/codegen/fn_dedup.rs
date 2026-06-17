@@ -7,19 +7,20 @@
 //! intentionally NOT collapsed because:
 //!
 //! 1. The two entries usually carry distinct `rust_path` values (the crate-root stub path vs.
-//!    the real-module re-export path), and Rust-cfg-gated backends (FFI, napi, pyo3, wasm) plus
-//!    the e2e call-export validator depend on both being visible.
+//!    the real-module re-export path), and the e2e call-export validator depends on both being
+//!    visible in the shared surface.
 //! 2. Collapsing in the extract pass would inherit `#[cfg_attr(alef, alef(skip))]` from
 //!    whichever entry was selected as canonical, causing the merged result to be silently
 //!    stripped by the exclusion filter and disappearing from every backend.
 //!
-//! Rust-cfg-gated backends emit one `#[cfg]`-guarded item per entry, and `rustc` compiles exactly
-//! one per feature set — so they need both entries. **Single-surface** backends (Java, C#, Go,
-//! Kotlin, Swift, Dart, PHP, Ruby, Elixir) instead produce ONE non-cfg-gated host method per
-//! function, all delegating to the same FFI symbol / Rust entry. Emitting both cfg-variants there
-//! produces two methods with identical signatures — a duplicate-method compile error.
+//! Every emitting backend therefore deduplicates locally instead. Both the Rust-cfg-gated backends
+//! (FFI, napi, pyo3, wasm) and the **single-surface** backends (Java, C#, Go, Kotlin, Swift, Dart,
+//! PHP, Ruby, Elixir) emit ONE non-`#[cfg]`-gated wrapper per function that delegates to the core
+//! crate (which resolves the cfg itself) or to a single FFI symbol. Emitting both cfg-variants
+//! there produces two items with identical signatures — a duplicate-definition compile error
+//! (`#[pyfunction]`/`#[napi]`/`#[wasm_bindgen]` E0428, or duplicate host methods).
 //!
-//! [`dedup_same_name_functions`] resolves this for single-surface backends: it groups by `name`,
+//! [`dedup_same_name_functions`] resolves this for every emitting backend: it groups by `name`,
 //! picks the canonical entry (preferring real impls — entries whose params are not all
 //! `_`-prefixed), and rewrites its `cfg` to the OR of every group member's cfg. The pass is a
 //! pure transformation on the input slice and never mutates it.

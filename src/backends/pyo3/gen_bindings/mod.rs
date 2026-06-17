@@ -52,6 +52,15 @@ impl Backend for Pyo3Backend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // Collapse same-named cfg-variant functions (e.g. a `not(windows)` real impl plus a
+        // `windows` variant of the same fn) into one canonical entry. The pyo3 wrapper delegates
+        // to the core crate — which resolves the cfg itself — and emits no `#[cfg]` gate on the
+        // wrapper, so two same-named entries would otherwise produce duplicate `#[pyfunction]`
+        // definitions (E0428) plus duplicate `m.add_function` registrations. Matches the FFI
+        // backend's dedup; see codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         // Build trait type names set so the mapper can emit Py<PyAny> for trait parameters
         // instead of bare trait names (which cause E0782 "bare trait used as type").
         //
