@@ -1,5 +1,3 @@
 
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
+{# Error mirror impl stays unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
 impl {{ error_name }} {

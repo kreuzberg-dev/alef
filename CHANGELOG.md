@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/dart/templates): extend the unconditional-emission policy from mirror declarations to every From/impl block that references core types.**
+  Companion to the 0.25.32 `[Unreleased]` fix that dropped `source_cfg` from `rust_mirror_{enum,struct}_attribute.jinja`. The mirror declarations were unconditional, but the bidirectional `impl From<Core> for Mirror` / `impl From<Mirror> for Core` blocks were still gated on `source_cfg`. Downstream bridge code (e.g. `impl html_to_markdown_rs::visitor::HtmlVisitor for HtmlVisitorDartImpl` in h2m's dart wrapper) calls `__result.into()` unconditionally, so a `--no-default-features` build dropped the gated `From` impl and produced `E0277: From<crate::VisitResult> not implemented for html_to_markdown_rs::VisitResult` even though the mirror existed. The dart wrapper crate pins its upstream with `features = ["full"]`, so the core types it converts to/from are always available — the local cfg gate on each conversion was redundant and actively harmful. Dropping it lets the wrapper crate compile under any feature subset (default, none, or all). Templates touched: `rust_from_core_enum_open.jinja`, `rust_from_mirror_enum_open.jinja`, `rust_from_core_struct_open.jinja`, `rust_from_mirror_struct_open.jinja`, `rust_error_impl_open.rs.jinja`, `rust_mirror_error_from_impl_open.rs.jinja`, `rust_opaque_wrapper_struct.jinja`. Verified by `cargo check -p html-to-markdown-rs-dart` under `--no-default-features`, default, and `--all-features` against a fresh h2m regen.
+
 ## [0.25.33] - 2026-06-17
 
 ### Fixed

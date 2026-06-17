@@ -1,23 +1,15 @@
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
+{# Opaque wrapper + conversions stay unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
 #[frb(opaque)]
 pub struct {{ name }} {
     pub(crate) inner: {{ inner_path }},
 }
 
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
 impl From<{{ inner_path }}> for {{ name }} {
     fn from(inner: {{ inner_path }}) -> Self {
         Self { inner }
     }
 }
 
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
 impl From<{{ name }}> for {{ inner_path }} {
     fn from(value: {{ name }}) -> Self {
         value.inner

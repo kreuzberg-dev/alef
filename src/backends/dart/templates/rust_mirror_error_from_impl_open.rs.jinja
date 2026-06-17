@@ -1,7 +1,5 @@
 
-{% if source_cfg -%}
-#[cfg({{ source_cfg }})]
-{% endif -%}
+{# Mirror conversions stay unconditional — see rust_mirror_enum_attribute.jinja for rationale. #}
 #[allow(unreachable_patterns)]
 impl From<&{{ name }}> for {{ core_path }} {
     fn from(m: &{{ name }}) -> Self {
