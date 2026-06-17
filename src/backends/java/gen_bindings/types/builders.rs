@@ -325,13 +325,37 @@ pub(super) fn gen_builder_nested_class(
                 || (has_serde_default && !matches!(resolved_field_ty, TypeRef::Optional(_))));
 
         body.push_str("        ");
-        if needs_nullable_annotation {
+        // For fully-qualified types (e.g., java.nio.file.Path), @Nullable must appear
+        // at the simple-name segment per Java spec:
+        //   wrong:   @Nullable java.nio.file.Path
+        //   right:   java.nio.file.@Nullable Path
+        // For unqualified types, the leading-position annotation is fine.
+        let nullable_at_leading_pos = needs_nullable_annotation && !field_type.contains('.');
+        if nullable_at_leading_pos {
             body.push_str("@Nullable ");
         }
         body.push_str("private ");
-        body.push_str(&field_type);
-        body.push(' ');
-        body.push_str(&field_name);
+        if needs_nullable_annotation && !nullable_at_leading_pos {
+            // Fully-qualified type: insert @Nullable at the last package boundary.
+            if let Some(idx) = field_type.rfind('.') {
+                let (pkg, simple) = field_type.split_at(idx);
+                let simple = simple.trim_start_matches('.');
+                body.push_str(pkg);
+                body.push_str(".@Nullable ");
+                body.push_str(simple);
+                body.push(' ');
+                body.push_str(&field_name);
+            } else {
+                body.push_str("@Nullable ");
+                body.push_str(&field_type);
+                body.push(' ');
+                body.push_str(&field_name);
+            }
+        } else {
+            body.push_str(&field_type);
+            body.push(' ');
+            body.push_str(&field_name);
+        }
 
         // Emit field initializer only when it's not Java's default.
         // Java defaults: null for references, 0 for numeric, false for boolean, etc.
