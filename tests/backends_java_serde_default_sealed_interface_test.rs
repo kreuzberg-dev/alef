@@ -238,12 +238,12 @@ package = "dev.demo"
 
     let content = &config_file.content;
 
-    // The builder should declare the model field as a nullable type (@Nullable),
-    // It should be initialized to `null`, not `new EmbeddingModelType.Preset()`.
+    // The builder should declare the model field as a nullable type (@Nullable).
+    // Java's default null value is enough; it must not emit `new EmbeddingModelType.Preset()`.
     // Because the Preset variant has a required field (name: String), it cannot be instantiated without args.
     assert!(
-        content.contains("@Nullable private EmbeddingModelType model = null;"),
-        "Builder field should be @Nullable EmbeddingModelType initialized to null. Got:\n{content}"
+        content.contains("@Nullable private EmbeddingModelType model;"),
+        "Builder field should be nullable without an invalid default. Got:\n{content}"
     );
 
     // Ensure it does NOT try to instantiate the sealed interface record without arguments

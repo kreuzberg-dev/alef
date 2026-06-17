@@ -102,9 +102,9 @@ fn gen_lossy_binding_to_core_fields_inner(
         if field.binding_excluded {
             if !core_has_default {
                 // Core type has no Default — emit per-field fallback so the method
-                // body compiles. Concrete case: `spikard::UploadFile` carries a
-                // `cursor: Cursor<Bytes>` field annotated `#[cfg_attr(alef, alef(skip))]`,
-                // but the struct itself derives only Clone/Debug/Serialize/Deserialize.
+                // body compiles. For example, a struct can carry a binding-excluded
+                // field whose type does not implement Default, while the struct itself
+                // only derives Clone/Debug/Serialize/Deserialize.
                 out.push_str(&crate::codegen::template_env::render(
                     "binding_helpers/struct_field_default.jinja",
                     minijinja::context! {

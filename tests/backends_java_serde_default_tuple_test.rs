@@ -119,11 +119,11 @@ package = "dev.demo"
 
     let content = &type_file.content;
 
-    // The builder should declare the field as a boxed type (List<Long>), not primitive,
-    // so it can be initialized to null.
+    // The builder should declare the field as a nullable boxed type (List<Long>).
+    // Java's default null value is enough, and it lets Rust's serde default apply.
     assert!(
-        content.contains("private List<Long> ngramRange = null;"),
-        "Builder field should be nullable and initialized to null, but got:\n{content}"
+        content.contains("@Nullable private List<Long> ngramRange;"),
+        "Builder field should be nullable without an eager collection default, but got:\n{content}"
     );
 
     // The builder field should NOT be initialized to List.of()

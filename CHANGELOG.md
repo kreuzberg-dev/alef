@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **(backends/pyo3/gen_stubs): widen the `visitor` kwarg type on `convert()` and `ConversionOptions`/`ConversionOptionsUpdate` `__init__` from `HtmlVisitor | None` to `HtmlVisitor | object | None`.** The Rust dispatch path uses `hasattr(obj, "visit_X")` for every visit method emitted by the trait bridge, so every method is runtime-optional. The strict Protocol-only annotation forced pyright/pylance to reject duck-typed visitor classes that only override the subset of methods they care about (e.g. a class with `visit_image` and `visit_link` failed structural conformance because the Protocol declares ~40 other methods). The `| object` arm matches the hasattr-based semantics — every Python instance satisfies it — while the Protocol name remains in the union so editors still suggest `HtmlVisitor` for callers who annotate locals explicitly. Surfaced by h2m issue [#403](https://github.com/kreuzberg-dev/html-to-markdown/issues/403). (`src/backends/pyo3/gen_stubs/functions.rs`, `src/backends/pyo3/gen_stubs/classes.rs`)
+- **(backends/swift): export options-field visitor factories under the `make{Trait}Handle` Swift name.**
+  The Rust symbol still includes both trait and alias names to avoid collisions, but the
+  `swift_bridge(swift_name = ...)` override now matches the wrapper and e2e call shape.
+- **(backends/java): simplify generated record and builder PMD cleanup.**
+  Builder fields now stay per-instance without `final`, redundant field/component docs are omitted,
+  and record static factories no longer synthesize fallback javadocs when the Rust method has none.
+- **(maintenance): remove downstream project references from generator source comments.**
+  Source comments now describe the generic codegen cases, keeping the project-agnostic guard clean.
 
 ## [0.25.32] - 2026-06-17
 

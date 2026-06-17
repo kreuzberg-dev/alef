@@ -242,7 +242,7 @@ fn gen_type_init_stub(
     // implements the protocol methods — callers should pass an `HtmlVisitor`, not a handle.
     if let Some((kwarg_name, type_alias, trait_name)) = options_field_bridges.get(typ.name.as_str()) {
         // Widen the constructor kwarg to accept any duck-typed object — see the matching
-        // comment in `functions.rs` and h2m issue #403.
+        // comment in `functions.rs` for the runtime dispatch behavior.
         let visitor_type = trait_name.or(*type_alias).unwrap_or("object");
         params.push(format!("{kwarg_name}: {visitor_type} | object | None = None"));
     }

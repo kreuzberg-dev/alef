@@ -111,11 +111,6 @@ pub(super) fn gen_builder_nested_class(
             continue;
         }
 
-        // Emit javadoc for the field to satisfy PMD.CommentRequired
-        body.push_str("        /** ");
-        body.push_str(&field_name);
-        body.push_str(". */\n");
-
         let visitor_trait_name =
             options_field_bridge_trait_name(typ.name.as_str(), field.name.as_str(), &field.ty, trait_bridges);
         let is_visitor_field = visitor_trait_name.is_some();
@@ -322,17 +317,18 @@ pub(super) fn gen_builder_nested_class(
             body.push_str("\")\n");
         }
 
-        // Add @Nullable for fields that are boxed for serde(default) or Duration
-        // When a non-optional field uses a boxed type to represent "not set" via null,
-        // it needs the @Nullable annotation for proper static analysis.
-        let needs_nullable_annotation =
-            has_serde_default && matches!(&field.ty, TypeRef::Named(_)) || matches!(field.ty, TypeRef::Duration);
+        // Add @Nullable for fields that store a plain boxed value with null as the "not set"
+        // sentinel. Optional<T>-backed fields keep Optional.empty() as their sentinel instead.
+        let needs_nullable_annotation = !is_visitor_field
+            && (field_is_optional_in_binding
+                || matches!(resolved_field_ty, TypeRef::Duration)
+                || (has_serde_default && !matches!(resolved_field_ty, TypeRef::Optional(_))));
 
+        body.push_str("        ");
         if needs_nullable_annotation {
-            body.push_str("        @Nullable ");
+            body.push_str("@Nullable ");
         }
-
-        body.push_str("        private final ");
+        body.push_str("private ");
         body.push_str(&field_type);
         body.push(' ');
         body.push_str(&field_name);
