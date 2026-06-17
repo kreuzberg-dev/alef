@@ -802,3 +802,91 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
         "enum class env must still be emitted:\n{content}"
     );
 }
+
+#[test]
+fn extendr_module_registration_gates_cfg_functions() {
+    // Regression: registration entries inside `extendr_module! { ... }` must inherit the
+    // `cfg` predicate from their underlying FunctionDef. Without the gate, when the cfg
+    // is false at build time the proc-macro elides `meta__<fn>`, but the registration
+    // still references it — producing `cannot find function 'meta__<fn>'` E0425 errors.
+    //
+    // Couples to the upstream pub-use-clears-skip fix (alef 0.25.33) which allows two
+    // same-named functions to coexist in the surface under disjoint cfgs (stub clone +
+    // paired implementation). Both must register, each under its own cfg.
+    let backend = ExtendrBackend;
+    let config = make_config();
+    let mut api = make_api_surface();
+
+    let paired_fn = FunctionDef {
+        name: "embed_texts_async".to_string(),
+        rust_path: "test_lib::embed_texts_async".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: Some("feature = \"embeddings\"".to_string()),
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    let stub_fn = FunctionDef {
+        name: "embed_texts_async".to_string(),
+        rust_path: "test_lib::embed_texts_async".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: Some("not(feature = \"embeddings\")".to_string()),
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+    api.functions.push(paired_fn);
+    api.functions.push(stub_fn);
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    let module_block_start = content
+        .find("extendr_module!")
+        .expect("must emit extendr_module! macro");
+    let module_block = &content[module_block_start..];
+
+    // Both registration entries must be present and each must carry its own cfg gate.
+    let paired_entry = "#[cfg(feature = \"embeddings\")]\n    fn embed_texts_async;\n";
+    let stub_entry = "#[cfg(not(feature = \"embeddings\"))]\n    fn embed_texts_async;\n";
+    assert!(
+        module_block.contains(paired_entry),
+        "registration must gate the paired entry under its cfg, got:\n{module_block}"
+    );
+    assert!(
+        module_block.contains(stub_entry),
+        "registration must gate the stub entry under its inverted cfg, got:\n{module_block}"
+    );
+
+    // Sanity: the un-gated `fn embed_texts_async;` form (the bug) must NOT be present.
+    assert!(
+        !module_block.contains("\n    fn embed_texts_async;\n    "),
+        "registration must never emit ungated `fn embed_texts_async;` between other entries:\n{module_block}"
+    );
+
+    // Sanity: a function without a cfg gate keeps the bare registration form.
+    assert!(
+        module_block.contains("    fn process;\n"),
+        "cfg-less function must register without a #[cfg(...)] prefix:\n{module_block}"
+    );
+}

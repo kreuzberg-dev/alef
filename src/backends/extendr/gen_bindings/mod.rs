@@ -818,7 +818,7 @@ impl Backend for ExtendrBackend {
                 .iter()
                 .filter(|f| !bridge_fn_names.contains(&f.name))
                 .filter(|f| !r_exclude_functions.contains(&f.name))
-                .map(|f| format!("    fn {};\n", f.name))
+                .map(|f| prepend_cfg(f.cfg.as_deref(), format!("    fn {};\n", f.name)))
                 .collect::<String>()
                 + &collect_trait_bridge_functions(config)
                     .iter()
