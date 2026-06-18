@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(scaffold/languages/java): use `waitUntil=validated` in central-publishing-maven-plugin to prevent CI job timeout.** The generated `pom.xml` configured `central-publishing-maven-plugin` with `<waitUntil>published</waitUntil>`, which causes `mvn deploy` to block until Maven Central reports the artifact's PUBLISHED state — a process that routinely exceeds GitHub Actions' job timeout. With `<waitUntil>validated</waitUntil>`, mvn returns as soon as validation succeeds (typically a few minutes), and `autoPublish=true` completes the release server-side asynchronously, preventing CI hangs even when Central's publish pipeline is slow. (`src/scaffold/languages/java.rs`)
+
 ## [0.25.41] - 2026-06-18
 
 ### Fixed

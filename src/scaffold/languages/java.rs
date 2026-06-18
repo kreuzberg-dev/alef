@@ -498,7 +498,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
                         <configuration>
                             <publishingServerId>ossrh</publishingServerId>
                             <autoPublish>true</autoPublish>
-                            <waitUntil>published</waitUntil>
+                            <waitUntil>validated</waitUntil>
                             <waitMaxTime>7200</waitMaxTime>
                         </configuration>
                     </plugin>
