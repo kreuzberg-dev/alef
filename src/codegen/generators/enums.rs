@@ -93,7 +93,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
 /// becomes a `#[staticmethod]` inside the `#[pymethods]` impl block.
 ///
 /// The generated body calls the core function and wraps the result using the `From` impl:
-/// ```rust
+/// ```text
 /// #[staticmethod]
 /// pub fn text(s: String) -> Self {
 ///     Self { inner: core_crate::types::ContentPart::text(s) }

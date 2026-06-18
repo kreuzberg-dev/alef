@@ -1412,6 +1412,89 @@ fn test_no_standalone_builder_java_file_emitted() {
     );
 }
 
+/// Regression: a non-optional `#[serde(default)]` boolean field that defaults to `true`
+/// must restore that default in the record's compact constructor. Boxed `@Nullable Boolean`
+/// fields arrive as `null` when JSON omits them, so without the null-check the accessor would
+/// return `null` instead of `true` (mirrors the boxed-numeric default handling and Kotlin's
+/// `= true`). Primitive bool fields stay skipped — covered separately.
+#[test]
+fn test_serde_default_boxed_boolean_true_restored_in_compact_ctor() {
+    let backend = JavaBackend;
+
+    let fields = vec![FieldDef {
+        name: "deny_private".to_string(),
+        ty: TypeRef::Primitive(PrimitiveType::Bool),
+        optional: false,
+        default: Some("/* serde(default) */".to_string()),
+        doc: String::new(),
+        sanitized: false,
+        is_boxed: true,
+        type_rust_path: None,
+        cfg: None,
+        typed_default: Some(alef::core::ir::DefaultValue::BoolLiteral(true)),
+        core_wrapper: alef::core::ir::CoreWrapper::None,
+        vec_inner_core_wrapper: alef::core::ir::CoreWrapper::None,
+        newtype_wrapper: None,
+        serde_rename: None,
+        serde_flatten: false,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        original_type: None,
+    }];
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "SsrfPolicy".to_string(),
+            rust_path: "test_lib::SsrfPolicy".to_string(),
+            original_rust_path: String::new(),
+            fields,
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_test_config("com.example");
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let record = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("SsrfPolicy.java"))
+        .expect("SsrfPolicy.java must be generated");
+
+    assert!(
+        record
+            .content
+            .contains("if (denyPrivate == null) { denyPrivate = true; }"),
+        "compact constructor must restore the serde-default `true` for boxed Boolean fields, got:\n{}",
+        record.content
+    );
+}
+
 #[test]
 fn test_tagged_union_newtype_variants_produce_valid_java() {
     // Regression: internally tagged enums whose variants are newtypes (single unnamed

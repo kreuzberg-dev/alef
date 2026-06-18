@@ -8,7 +8,7 @@ use ahash::AHashSet;
 use super::builders::{gen_builder_nested_class, should_emit_builder};
 use super::shared::{options_field_bridge_trait_name, resolve_field_type};
 use crate::backends::java::gen_bindings::helpers::{
-    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name, safe_java_method_name,
+    RECORD_LINE_WRAP_THRESHOLD, emit_javadoc, safe_java_field_name,
 };
 
 #[allow(clippy::too_many_arguments)]
@@ -355,6 +355,14 @@ pub(crate) fn gen_record_type(
                     };
                     Some(format!("        if ({cond}) {{ {jname} = {n}{suffix}; }}"))
                 }
+                Some(DefaultValue::BoolLiteral(true)) if has_serde_default => {
+                    // Boxed `@Nullable Boolean` serde(default) fields arrive as null when JSON
+                    // omits them; restore the Rust-side `true` default so the accessor reflects it
+                    // (matches the boxed-numeric handling above and the Kotlin `= true` default).
+                    // Primitive bool is intentionally skipped: its Java zero value `false` is a
+                    // valid explicit value indistinguishable from "omitted".
+                    Some(format!("        if ({jname} == null) {{ {jname} = true; }}"))
+                }
                 _ => None,
             }
         })
@@ -405,69 +413,16 @@ pub(crate) fn gen_record_type(
     // Static methods with no receiver and Self return type become `public static T method(params)`.
     // Instance methods with a ref receiver and Self return type become `public T withX(params)`.
     // The Java reserved word `default` is remapped to `defaultConfig`.
-    let non_excluded_methods: Vec<&MethodDef> = typ
+    //
+    // NOTE: FFM marshaling for DTO methods is not yet implemented. We skip all Self-returning
+    // record methods rather than emitting throwing stubs — stubs break callers that rely on
+    // compilation succeeding and mislead users. Once FFM marshaling lands, restore emission.
+    let _non_excluded_methods: Vec<&MethodDef> = typ
         .methods
         .iter()
         .filter(|m| !m.binding_excluded && !m.sanitized)
         .collect();
-    for method in &non_excluded_methods {
-        // Only emit Self-returning methods here; other signatures need more complex bridging.
-        let returns_self = matches!(&method.return_type, TypeRef::Named(n) if n == &typ.name);
-        if !returns_self {
-            continue;
-        }
-        let is_static_method = method.receiver.is_none();
-        let java_method_name = safe_java_method_name(&method.name);
-        // Build parameter list.
-        let params_str = method
-            .params
-            .iter()
-            .map(|p| {
-                let ptype = if p.optional {
-                    java_boxed_type(&p.ty).to_string()
-                } else {
-                    java_type(&p.ty).to_string()
-                };
-                let pname = safe_java_field_name(&p.name);
-                format!("{ptype} {pname}")
-            })
-            .collect::<Vec<_>>()
-            .join(", ");
-        // Javadoc from the IR method doc.
-        emit_javadoc(&mut record_block, &method.doc, "    ");
-        if is_static_method {
-            // Body: delegate via the Jackson ObjectMapper round-trip so the native static
-            // method on the core type is invoked.  Use fromJson(toJson(core_result)) to stay
-            // consistent with the rest of the Java binding's serde-based FFI pattern.
-            // We cannot call the Rust static method directly from Java (no JNI symbol for
-            // DTO methods); instead we rely on the fact that all preset factory methods are
-            // expressible as combinations of the Builder and known field values.
-            // Emit `throw new UnsupportedOperationException` as a honest placeholder rather
-            // than silently omitting the method.
-            record_block.push_str(&crate::backends::java::template_env::render(
-                "record_unsupported_method.jinja",
-                minijinja::context! {
-                    is_static => true,
-                    type_name => &typ.name,
-                    method_name => java_method_name,
-                    params_str => params_str,
-                    guidance => "use the Builder instead",
-                },
-            ));
-        } else {
-            // Instance wither: reconstruct via builder with updated field.
-            record_block.push_str(&crate::backends::java::template_env::render(
-                "record_unsupported_method.jinja",
-                minijinja::context! {
-                    is_static => false,
-                    type_name => &typ.name,
-                    method_name => java_method_name,
-                    params_str => params_str,
-                    guidance => "reconstruct via Builder",
-                },
-            ));
-        }
-    }
+    // Methods intentionally not emitted here — see NOTE above.
 
     record_block.push_str("}\n");
 
