@@ -270,8 +270,14 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
             }
         }
         Language::Zig => {
-            let format_cmd = wrap(format!("cd {output_dir} && zig fmt src"), ctx.run_wrapper);
-            let check_cmd = wrap(format!("cd {output_dir} && zig fmt --check src"), ctx.run_wrapper);
+            // Format `build.zig` (package root) as well as `src/`. `zig fmt src`
+            // alone misses the scaffolded `build.zig`, leaving it for the consumer's
+            // own `zig fmt` hook to reformat — a spurious post-generation diff.
+            let format_cmd = wrap(format!("cd {output_dir} && zig fmt src build.zig"), ctx.run_wrapper);
+            let check_cmd = wrap(
+                format!("cd {output_dir} && zig fmt --check src build.zig"),
+                ctx.run_wrapper,
+            );
             LintConfig {
                 precondition: Some(require_tool("zig")),
                 before: None,
@@ -654,12 +660,12 @@ mod tests {
         let fmt = c.format.unwrap().commands().join(" ");
         let check = c.check.unwrap().commands().join(" ");
         assert!(
-            fmt.contains("zig fmt src"),
-            "Zig format should use zig fmt src, got: {fmt}"
+            fmt.contains("zig fmt src build.zig"),
+            "Zig format should use zig fmt src build.zig, got: {fmt}"
         );
         assert!(
-            check.contains("zig fmt --check src"),
-            "Zig check should use zig fmt --check src, got: {check}"
+            check.contains("zig fmt --check src build.zig"),
+            "Zig check should use zig fmt --check src build.zig, got: {check}"
         );
         assert_eq!(c.precondition.as_deref(), Some("command -v zig >/dev/null 2>&1"));
     }

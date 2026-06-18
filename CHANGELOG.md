@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(core/config/lint_defaults): format the scaffolded `build.zig`, not just `src/`.** The Zig default format/check commands were `zig fmt src` / `zig fmt --check src`, which skip the package-root `build.zig` alef scaffolds. The unformatted `build.zig` then surfaced as a post-generation diff whenever the consumer's own `zig fmt` hook reformatted it. Fix: format/check `src build.zig` together. (`src/core/config/lint_defaults.rs`)
+
 ## [0.25.43] - 2026-06-18
 
 ### Fixed
