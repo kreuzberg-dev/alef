@@ -33,11 +33,20 @@
   <a href="https://discord.gg/xt9WY3GnKR">
     <img height="22" src="https://img.shields.io/badge/Discord-Chat-007ec6?logo=discord&logoColor=white" alt="Discord">
   </a>
+  <a href="https://github.com/kreuzberg-dev/alef/stargazers">
+    <img height="22" src="https://img.shields.io/github/stars/kreuzberg-dev/alef?style=social" alt="GitHub Stars">
+  </a>
 </div>
 
 Alef is the polyglot binding generator behind Kreuzberg.dev projects. It extracts a Rust API surface
 and emits language-native bindings, package scaffolding, type stubs, README files, API docs, e2e
 tests, and release metadata from one `alef.toml`.
+
+<div align="center">
+
+**If alef saves you time, please [⭐ star it on GitHub](https://github.com/kreuzberg-dev/alef/stargazers) — every star helps more developers find this project.**
+
+</div>
 
 **[Installation](#installation)** | **[Quick Start](#quick-start)** | **[Supported Targets](#supported-targets)** |
 **[CLI Reference](#cli-reference)**
