@@ -228,6 +228,14 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
                     format!("{expr}.map(Into::into)")
                 }
             }
+            TypeRef::Map(_, _) => {
+                // Optional map return: wrap the map conversion in .map(...)
+                if returns_ref {
+                    format!("{expr}.map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())")
+                } else {
+                    format!("{expr}.map(|m| m.into_iter().collect())")
+                }
+            }
             TypeRef::Vec(inner) => match inner.as_ref() {
                 TypeRef::Named(n) if opaque_types.contains(n.as_str()) => {
                     if returns_ref {
@@ -264,6 +272,17 @@ pub(in crate::backends::napi::gen_bindings) fn napi_wrap_return_fn(
             TypeRef::Bytes => format!("{expr}.map(Into::into)"),
             _ => expr.to_string(),
         },
+        TypeRef::Map(_, _) => {
+            // Map returns: core may return &BTreeMap or &HashMap.
+            // The NAPI binding maps to HashMap<K, V> (owned).
+            // When core returns a reference (returns_ref=true), iterate and clone both keys and values.
+            if returns_ref {
+                format!("{expr}.iter().map(|(k, v)| (k.clone(), v.clone())).collect()")
+            } else {
+                // Owned map: collect into HashMap (works for BTreeMap and HashMap via IntoIterator).
+                format!("{expr}.into_iter().collect()")
+            }
+        }
         TypeRef::Vec(inner) => match inner.as_ref() {
             TypeRef::Primitive(p) if needs_napi_cast(p) => {
                 // Vec<usize>, Vec<f32>, etc. need element-wise casting to i64 or f64
