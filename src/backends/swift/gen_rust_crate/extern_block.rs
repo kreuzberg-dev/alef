@@ -12,7 +12,7 @@ use crate::core::config::AdapterConfig;
 use crate::core::ir::{EnumDef, FieldDef, FunctionDef, TypeDef, TypeRef};
 use crate::core::keywords::swift_ident;
 use heck::{ToLowerCamelCase, ToPascalCase, ToSnakeCase};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// Returns the subset of `ty.fields` that appear in the swift-bridge constructor extern
 /// (filters out fields marked `binding_excluded` and any field key listed in `exclude_fields`).
@@ -192,11 +192,7 @@ pub(crate) fn emit_extern_block_for_type(
     // Emit a no-op method in such cases. The noop is declared once in the type's primary
     // extern block and resolved module-wide by swift-bridge when referenced from cfg-gated
     // function blocks.
-    let has_visible_methods = ty
-        .methods
-        .iter()
-        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
-    if ty.is_opaque && !has_visible_methods {
+    if type_needs_own_block_noop(ty) {
         let type_snake = ty.name.to_snake_case();
         let noop_fn_name = format!("{type_snake}_noop");
         block.push_str(&crate::backends::swift::template_env::render(
@@ -210,6 +206,21 @@ pub(crate) fn emit_extern_block_for_type(
 
     block.push_str("    }\n\n");
     block
+}
+
+/// Whether an opaque type emitted in its OWN extern block needs a no-op shim method to
+/// make swift-bridge synthesize its `$_free` destructor.
+///
+/// True for opaque types with no visible (non-excluded, non-sanitized, non-static) methods.
+/// When true, the extern block declares `fn <type>_noop(client: &Type);` and the matching
+/// `pub fn <type>_noop` definition MUST be emitted in `super` (see `deferred_noop::emit_shims`),
+/// otherwise the bridge declaration fails to resolve with E0425.
+pub(super) fn type_needs_own_block_noop(ty: &TypeDef) -> bool {
+    let has_visible_methods = ty
+        .methods
+        .iter()
+        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+    ty.is_opaque && !has_visible_methods
 }
 
 pub(crate) fn emit_extern_block_for_enum(en: &EnumDef) -> String {
@@ -388,10 +399,10 @@ pub(crate) fn emit_extern_block_for_functions(
     // an explicit method declaration to emit the destructor. The noop method is never
     // called by users — it exists only to signal to swift-bridge that the type is owned.
     //
-    // The type is declared exactly ONCE in the module (here) — streaming blocks
-    // that reference it by `&OwnerType` resolve it module-wide and must NOT
-    // re-declare it (a second declaration, even `#[swift_bridge(already_declared)]`,
-    // suppresses `$_free`).
+    // This is the canonical declaration. Streaming blocks that reference the
+    // same owner also emit an `already_declared` forward declaration in their
+    // own block because swift-bridge requires block-local type declarations for
+    // referenced opaque types.
     for ty_name in deferred_empty_handle_types {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",
@@ -602,17 +613,24 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
 
-    // NOTE: the streaming owner type (e.g. `CrawlEngineHandle`) is NOT declared
-    // here. It is already declared once, canonically, in the functions extern block
-    // (co-located with its by-value `create_engine` return). swift-bridge resolves
-    // type references across all `extern "Rust"` blocks within the same bridge
-    // module, so `_start(client: &OwnerType, …)` below resolves fine. Re-declaring
-    // the owner here — even with `#[swift_bridge(already_declared)]` — would land a
-    // second entry in swift-bridge's per-module type map that clobbers the canonical
-    // one; `$_free` generation is gated on `!already_declared`, so the destructor
-    // would never be emitted and the binding fails to link
-    // (`cannot find '__swift_bridge__$OwnerType$_free'`). `already_declared` is for
-    // cross-MODULE sharing, not multiple blocks in one module.
+    let owner_types: BTreeSet<&str> = streaming
+        .iter()
+        .filter_map(|adapter| adapter.owner_type.as_deref())
+        .collect();
+
+    // Declare each streaming owner once in this block. The canonical declaration
+    // lives in the primary type/function block; this block-local forward
+    // declaration keeps swift-bridge's parser happy without asking it to emit
+    // another owner class/destructor.
+    for owner_type in owner_types {
+        block.push_str("        #[swift_bridge(already_declared)]\n");
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_type_decl.jinja",
+            minijinja::context! {
+                name => owner_type,
+            },
+        ));
+    }
 
     // 1. Opaque handle type declarations. The methods that take `&mut self`
     //    must appear in the same extern block as the type declaration.
@@ -692,17 +710,11 @@ mod noop_method_tests {}
 #[cfg(test)]
 mod streaming_extern_tests {
     //! Regression coverage for the `extern "Rust"` block emitted for streaming
-    //! adapters. swift-bridge synthesizes a type's `$_free` destructor (and its
-    //! class triple) from the single CANONICAL `type {Type};` declaration, gated on
-    //! `!already_declared`. The owner handle (e.g. `CrawlEngineHandle`) is declared
-    //! once in the functions extern block (co-located with its by-value return).
-    //! swift-bridge resolves type references across ALL extern blocks in the same
-    //! bridge module, so the streaming block references `client: &Owner` WITHOUT
-    //! re-declaring the owner. A second declaration here — even
-    //! `#[swift_bridge(already_declared)]` — would clobber the canonical entry in
-    //! swift-bridge's per-module type map and suppress `$_free`, breaking the link
-    //! with `cannot find '__swift_bridge__$Owner$_free'`. (`already_declared` is for
-    //! sharing a type across separate bridge MODULES, not multiple blocks in one.)
+    //! adapters. The canonical owner declaration lives in the primary extern
+    //! block, but swift-bridge requires referenced opaque types to be declared
+    //! inside the streaming block too. The streaming block therefore emits one
+    //! `#[swift_bridge(already_declared)] type Owner;` forward declaration per
+    //! owner, deduped across adapters that share the same owner type.
 
     use super::emit_extern_block_for_streaming_adapters;
     use crate::core::config::{AdapterConfig, AdapterParam, AdapterPattern};
@@ -731,22 +743,23 @@ mod streaming_extern_tests {
     }
 
     #[test]
-    fn streaming_extern_block_does_not_redeclare_owner() {
-        let adapters = vec![streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle")];
+    fn streaming_extern_block_declares_owner_once_as_already_declared() {
+        let adapters = vec![
+            streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle"),
+            streaming_adapter_with_owner("event_stream", "CrawlEngineHandle"),
+        ];
         let block =
             emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapter should produce a block");
 
-        // The owner is declared canonically in the functions block; the streaming
-        // block must NOT re-declare it (that would clobber `$_free` generation).
         assert!(
-            !block.contains("#[swift_bridge(already_declared)]"),
-            "streaming extern block must not re-declare the owner with already_declared:\n{block}"
+            block.contains("#[swift_bridge(already_declared)]\n        type CrawlEngineHandle;"),
+            "streaming extern block must forward-declare the owner with already_declared:\n{block}"
         );
-        assert!(
-            !block.contains("type CrawlEngineHandle;"),
-            "streaming extern block must not declare the owner handle at all:\n{block}"
+        assert_eq!(
+            block.matches("type CrawlEngineHandle;").count(),
+            1,
+            "streaming extern block must dedupe shared owner declarations:\n{block}"
         );
-        // It still references the owner by reference and declares the stream handle.
         assert!(
             block.contains("client: &CrawlEngineHandle"),
             "streaming `_start` must reference the owner by `&` reference:\n{block}"
