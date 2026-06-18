@@ -542,7 +542,16 @@ fn emit_lib_rs(
     // `RustBridge.{camelName}(client, …)`, so they must be declared in the
     // swift-bridge module or the Swift compiler will produce
     // "module 'RustBridge' has no member named …".
-    if let Some(streaming_block) = extern_block::emit_extern_block_for_streaming_adapters(&config.adapters) {
+    // Owners already declared earlier in the module (their own type block or the
+    // functions block) are referenced bare; re-declaring would suppress their Swift class.
+    let declared_owner_types: std::collections::HashSet<String> = visible_types
+        .iter()
+        .filter(|ty| ty.is_opaque)
+        .map(|ty| ty.name.clone())
+        .collect();
+    if let Some(streaming_block) =
+        extern_block::emit_extern_block_for_streaming_adapters(&config.adapters, &declared_owner_types)
+    {
         extern_blocks.push(streaming_block);
     }
 

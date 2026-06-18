@@ -1492,19 +1492,19 @@ type = "ChatCompletionRequest"
         "extern block must declare DefaultClientChatStreamStreamHandle; got:\n{}",
         lib.content
     );
-    // The streaming extern block references `&DefaultClient`, so swift-bridge
-    // requires `type DefaultClient;` to also be declared in this block — but
-    // marked `#[swift_bridge(already_declared)]` so swift-bridge doesn't emit
-    // duplicate `_free` symbols.
-    assert!(
-        lib.content.matches("type DefaultClient;").count() >= 2,
-        "owner type must be declared inside the streaming extern block (≥2 total decls); got:\n{}",
+    // The owner `DefaultClient` already has its canonical `type DefaultClient;`
+    // declaration in its own type block, so the streaming block references it bare.
+    // A second declaration (even `already_declared`) would suppress the owner's
+    // Swift class + `$_free`, so exactly one declaration must exist module-wide.
+    assert_eq!(
+        lib.content.matches("type DefaultClient;").count(),
+        1,
+        "owner must be declared exactly once (its own block), referenced bare in streaming; got:\n{}",
         lib.content
     );
     assert!(
-        lib.content
-            .contains("#[swift_bridge(already_declared)]\n        type DefaultClient;"),
-        "streaming extern owner decl must use #[swift_bridge(already_declared)]; got:\n{}",
+        !lib.content.contains("already_declared"),
+        "streaming block must reference the already-declared owner bare, not re-declare it; got:\n{}",
         lib.content
     );
     assert!(
@@ -1572,10 +1572,10 @@ type = "ChatCompletionRequest"
     );
 }
 
-/// Two streaming adapters sharing the same `owner_type` must produce exactly
-/// one `type DefaultClient;` declaration in the streaming extern block — not
-/// one per adapter. Duplicate same-block `type` decls are a swift-bridge parse
-/// error.
+/// Two streaming adapters sharing the same `owner_type`, whose owner is already
+/// declared in its own type block, must not re-declare it in the streaming block.
+/// The owner is referenced bare (deduped across both adapters), leaving exactly
+/// one `type DefaultClient;` declaration module-wide.
 #[test]
 fn streaming_adapters_with_shared_owner_emit_single_owner_decl() {
     use alef::core::ir::ReceiverKind;
@@ -1675,13 +1675,12 @@ type = "CompletionRequest"
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
 
-    // The streaming extern block must declare `type DefaultClient;` exactly
-    // once even though both adapters share the same owner. (The main extern
-    // block emits the second occurrence of `type DefaultClient;`.)
+    // The owner is declared once in its own type block and referenced bare from
+    // both streaming adapters, so exactly one `type DefaultClient;` exists overall.
     let total_decls = lib.content.matches("type DefaultClient;").count();
     assert_eq!(
-        total_decls, 2,
-        "expected 2 `type DefaultClient;` decls (1 streaming + 1 main); got {}; lib.rs:\n{}",
+        total_decls, 1,
+        "expected 1 `type DefaultClient;` decl (own block; streaming refs bare); got {}; lib.rs:\n{}",
         total_decls, lib.content
     );
 

@@ -54,8 +54,6 @@ mod ffi {
     }
 
     extern "Rust" {
-        #[swift_bridge(already_declared)]
-        type DefaultClient;
         type DefaultClientChatStreamStreamHandle;
 
         #[swift_bridge(swift_name = "defaultClientChatStreamStart")]

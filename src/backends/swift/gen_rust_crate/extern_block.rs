@@ -597,7 +597,10 @@ pub(crate) fn emit_phantom_vec_impl(visible_types: &[&TypeDef], visible_enums: &
 ///    stream-level error.
 ///
 /// Returns `None` when `adapters` contains no streaming entries.
-pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig]) -> Option<String> {
+pub(crate) fn emit_extern_block_for_streaming_adapters(
+    adapters: &[AdapterConfig],
+    declared_owner_types: &std::collections::HashSet<String>,
+) -> Option<String> {
     use crate::core::config::AdapterPattern;
 
     let streaming: Vec<&AdapterConfig> = adapters
@@ -618,18 +621,22 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
         .filter_map(|adapter| adapter.owner_type.as_deref())
         .collect();
 
-    // Declare each streaming owner once in this block. The canonical declaration
-    // lives in the primary type/function block; this block-local forward
-    // declaration keeps swift-bridge's parser happy without asking it to emit
-    // another owner class/destructor.
+    // An owner that already has a canonical `type Owner;` declaration elsewhere in
+    // this module is referenced bare here — swift-bridge resolves type references
+    // module-wide. Re-declaring it (even as `already_declared`) would suppress the
+    // owner's Swift class and `$_free` synthesis, breaking every consumer that holds
+    // an owner handle. Only when the owner is NOT declared anywhere else (an owner
+    // used solely by streaming adapters) do we emit a plain canonical declaration
+    // here, so swift-bridge still synthesizes its class + destructor.
     for owner_type in owner_types {
-        block.push_str("        #[swift_bridge(already_declared)]\n");
-        block.push_str(&crate::backends::swift::template_env::render(
-            "extern_type_decl.jinja",
-            minijinja::context! {
-                name => owner_type,
-            },
-        ));
+        if !declared_owner_types.contains(owner_type) {
+            block.push_str(&crate::backends::swift::template_env::render(
+                "extern_type_decl.jinja",
+                minijinja::context! {
+                    name => owner_type,
+                },
+            ));
+        }
     }
 
     // 1. Opaque handle type declarations. The methods that take `&mut self`
@@ -710,14 +717,17 @@ mod noop_method_tests {}
 #[cfg(test)]
 mod streaming_extern_tests {
     //! Regression coverage for the `extern "Rust"` block emitted for streaming
-    //! adapters. The canonical owner declaration lives in the primary extern
-    //! block, but swift-bridge requires referenced opaque types to be declared
-    //! inside the streaming block too. The streaming block therefore emits one
-    //! `#[swift_bridge(already_declared)] type Owner;` forward declaration per
-    //! owner, deduped across adapters that share the same owner type.
+    //! adapters. swift-bridge resolves type references module-wide, so when the
+    //! owner already carries a canonical `type Owner;` declaration elsewhere (its
+    //! own type block, or the functions block for deferred handle-returned types)
+    //! the streaming block references it bare — re-declaring it (even as
+    //! `already_declared`) would suppress the owner's Swift class and `$_free`. Only
+    //! an owner used *solely* by streaming adapters, with no declaration elsewhere,
+    //! gets a plain canonical declaration emitted here.
 
     use super::emit_extern_block_for_streaming_adapters;
     use crate::core::config::{AdapterConfig, AdapterParam, AdapterPattern};
+    use std::collections::HashSet;
 
     fn streaming_adapter_with_owner(name: &str, owner: &str) -> AdapterConfig {
         AdapterConfig {
@@ -743,22 +753,22 @@ mod streaming_extern_tests {
     }
 
     #[test]
-    fn streaming_extern_block_declares_owner_once_as_already_declared() {
+    fn streaming_extern_block_references_declared_owner_bare() {
         let adapters = vec![
             streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle"),
             streaming_adapter_with_owner("event_stream", "CrawlEngineHandle"),
         ];
-        let block =
-            emit_extern_block_for_streaming_adapters(&adapters).expect("streaming adapter should produce a block");
+        let declared: HashSet<String> = HashSet::from(["CrawlEngineHandle".to_string()]);
+        let block = emit_extern_block_for_streaming_adapters(&adapters, &declared)
+            .expect("streaming adapter should produce a block");
 
         assert!(
-            block.contains("#[swift_bridge(already_declared)]\n        type CrawlEngineHandle;"),
-            "streaming extern block must forward-declare the owner with already_declared:\n{block}"
+            !block.contains("already_declared"),
+            "owner declared elsewhere must not be re-declared as already_declared:\n{block}"
         );
-        assert_eq!(
-            block.matches("type CrawlEngineHandle;").count(),
-            1,
-            "streaming extern block must dedupe shared owner declarations:\n{block}"
+        assert!(
+            !block.contains("type CrawlEngineHandle;"),
+            "owner declared elsewhere must be referenced bare, not re-declared:\n{block}"
         );
         assert!(
             block.contains("client: &CrawlEngineHandle"),
@@ -767,6 +777,29 @@ mod streaming_extern_tests {
         assert!(
             block.contains("type CrawlEngineHandleCrawlStreamStreamHandle;"),
             "streaming block must declare its stream handle type:\n{block}"
+        );
+    }
+
+    #[test]
+    fn streaming_extern_block_declares_owner_when_undeclared_elsewhere() {
+        let adapters = vec![
+            streaming_adapter_with_owner("crawl_stream", "CrawlEngineHandle"),
+            streaming_adapter_with_owner("event_stream", "CrawlEngineHandle"),
+        ];
+        // Owner has no canonical declaration elsewhere — the streaming block must
+        // provide one plainly so swift-bridge synthesizes its class + `$_free`.
+        let declared: HashSet<String> = HashSet::new();
+        let block = emit_extern_block_for_streaming_adapters(&adapters, &declared)
+            .expect("streaming adapter should produce a block");
+
+        assert!(
+            !block.contains("already_declared"),
+            "the streaming-block owner declaration must be canonical, not already_declared:\n{block}"
+        );
+        assert_eq!(
+            block.matches("type CrawlEngineHandle;").count(),
+            1,
+            "undeclared owner must be declared exactly once (deduped across adapters):\n{block}"
         );
     }
 }
