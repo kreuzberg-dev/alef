@@ -2004,6 +2004,14 @@
           },
           "type": "array"
         },
+        "extra_features": {
+          "default": [],
+          "description": "Core-crate features that must be *declared* on the generated FFI crate so\nthat `#[cfg(feature = \"X\")]` gates in the FFI source compile cleanly under\n`RUSTFLAGS=\"-D warnings\"`, but must NOT be enabled by default.\n\nUse this for mutually-exclusive alternatives to a default feature — e.g. a\n`wasm-http` HTTP backend that the FFI source references in\n`#[cfg(any(feature = \"native-http\", feature = \"wasm-http\"))]` but which must\nnever be active alongside the default `native-http`. Each entry `X` emits a\n`X = [\"<core-crate>/X\"]` line in `[features]` without adding `X` to `default`.\n\nDefaults to empty — crates that don't reference non-default core features in\ntheir FFI `#[cfg]` gates can ignore this knob entirely.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "features": {
           "default": null,
           "items": {
@@ -6904,7 +6912,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.43/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.44/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7014,6 +7022,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.43",
-  "x-alef-version": "0.25.43"
+  "version": "0.25.44",
+  "x-alef-version": "0.25.44"
 }

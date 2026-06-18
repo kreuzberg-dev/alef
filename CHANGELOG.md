@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.44] - 2026-06-18
+
 ### Added
 
 - **(config/ffi): `[crates.ffi] extra_features` knob.** Declares core-crate features on the generated FFI crate so `#[cfg(feature = "X")]` gates compile under `RUSTFLAGS="-D warnings"`, without adding them to `default`. Intended for mutually-exclusive alternatives to a default feature (e.g. a `wasm-http` HTTP backend referenced in `#[cfg(any(feature = "native-http", feature = "wasm-http"))]` that must not activate alongside the default `native-http`). Each entry `X` emits `X = ["<core-crate>/X"]` in `[features]`. Defaults to empty — no effect on crates that don't set it. (`src/core/config/languages/ffi.rs`, `src/scaffold/languages/ffi.rs`)
