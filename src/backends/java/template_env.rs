@@ -201,6 +201,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/marshal_optional_path.jinja"),
     ),
     (
+        "marshal_optional_bytes.jinja",
+        include_str!("templates/marshal_optional_bytes.jinja"),
+    ),
+    (
         "marshal_optional_opaque_handle.jinja",
         include_str!("templates/marshal_optional_opaque_handle.jinja"),
     ),
