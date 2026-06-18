@@ -177,6 +177,27 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
             core_features_passthrough_block.push_str(&line);
         }
     }
+    // Declare any `extra_features` from [crates.ffi] as passthrough features that
+    // are NOT enabled by default. The FFI source may reference a non-default core
+    // feature in a `#[cfg(feature = "X")]` gate (e.g. a `wasm-http` backend that is
+    // mutually exclusive with the default `native-http`); without a matching
+    // declaration, `RUSTFLAGS="-D warnings"` fails with `unexpected cfg condition
+    // value`. These are declared but excluded from `default` so the alternative
+    // never activates alongside the default backend.
+    if let Some(extra) = config.ffi.as_ref().map(|c| c.extra_features.as_slice()) {
+        for feat in extra {
+            if feat.is_empty() || passthrough_feature_names.contains(&feat.as_str()) {
+                continue;
+            }
+            let line = format!("{feat} = [\"{}/{feat}\"]", config.name);
+            if core_features_passthrough_block.is_empty() {
+                core_features_passthrough_block = line;
+            } else {
+                core_features_passthrough_block.push('\n');
+                core_features_passthrough_block.push_str(&line);
+            }
+        }
+    }
     // Separate the main [dependencies] table from any per-target tables.
     let target_blocks_section = if target_blocks.is_empty() {
         String::new()

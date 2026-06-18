@@ -17,6 +17,20 @@ pub struct FfiConfig {
     pub visitor_callbacks: bool,
     #[serde(default)]
     pub features: Option<Vec<String>>,
+    /// Core-crate features that must be *declared* on the generated FFI crate so
+    /// that `#[cfg(feature = "X")]` gates in the FFI source compile cleanly under
+    /// `RUSTFLAGS="-D warnings"`, but must NOT be enabled by default.
+    ///
+    /// Use this for mutually-exclusive alternatives to a default feature — e.g. a
+    /// `wasm-http` HTTP backend that the FFI source references in
+    /// `#[cfg(any(feature = "native-http", feature = "wasm-http"))]` but which must
+    /// never be active alongside the default `native-http`. Each entry `X` emits a
+    /// `X = ["<core-crate>/X"]` line in `[features]` without adding `X` to `default`.
+    ///
+    /// Defaults to empty — crates that don't reference non-default core features in
+    /// their FFI `#[cfg]` gates can ignore this knob entirely.
+    #[serde(default)]
+    pub extra_features: Vec<String>,
     /// Override the serde rename_all strategy for JSON field names (e.g. "camelCase", "snake_case").
     /// When set, this takes priority over the IR type-level serde_rename_all.
     #[serde(default)]
