@@ -360,6 +360,31 @@ pub(crate) fn emit_type_method_shims(
         ));
     }
 
+    // Emit no-op method shim when no visible methods exist. This signals to
+    // swift-bridge that the type is owned and should generate $_free.
+    // Only emitted here if the type has no visible methods (already checked in extern_block).
+    let has_visible_methods = ty
+        .methods
+        .iter()
+        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+    if ty.is_opaque && !has_visible_methods {
+        let type_snake = ty.name.to_snake_case();
+        let noop_fn_name = format!("{type_snake}_noop");
+        let return_clause = " -> ()";
+        // Propagate the type-level cfg gate to the noop shim.
+        if let Some(cfg) = ty.cfg.as_deref() {
+            out.push_str(&format!("#[cfg({cfg})]\n"));
+        }
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_wrapper_free_fn.rs.jinja",
+            minijinja::context! {
+                fn_name => &noop_fn_name,
+                params => format!("client: &{type_name}"),
+                return_clause => return_clause,
+                body => "    // No-op method for swift-bridge destructor synthesis",
+            },
+        ));
+    }
+
     out
 }
-

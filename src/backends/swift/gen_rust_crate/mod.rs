@@ -24,7 +24,7 @@ use crate::core::config::extras::Language;
 use crate::core::config::{BridgeBinding, ResolvedCrateConfig, TraitBridgeConfig};
 use crate::core::ir::{ApiSurface, EnumDef, FunctionDef, TypeDef};
 use crate::core::template_versions;
-use heck::AsSnakeCase;
+use heck::{AsSnakeCase, ToSnakeCase};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -209,6 +209,38 @@ pub fn emit(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Ve
     Ok(files)
 }
 
+/// Emit no-op method shims for deferred-empty-handle types that have no methods.
+/// These types (e.g., Language) are declared in the functions extern block because
+/// they're returned by value and have empty type blocks. The no-op method in the
+/// extern block signals to swift-bridge to generate $_free, and here we provide
+/// the matching Rust implementation so the declaration compiles.
+fn emit_deferred_noop_shims(
+    deferred_empty_handle_types: &HashSet<String>,
+    visible_types: &[&TypeDef],
+) -> String {
+    let mut out = String::new();
+    for ty_name in deferred_empty_handle_types {
+        let type_snake = ty_name.to_snake_case();
+        let noop_fn_name = format!("{type_snake}_noop");
+        if let Some(ty) = visible_types.iter().find(|t| t.name == *ty_name) {
+            if let Some(cfg) = ty.cfg.as_deref() {
+                out.push_str(&format!("#[cfg({cfg})]\n"));
+            }
+        }
+        out.push_str(&crate::backends::swift::template_env::render(
+            "rust_wrapper_free_fn.rs.jinja",
+            minijinja::context! {
+                fn_name => &noop_fn_name,
+                params => format!("client: &{ty_name}"),
+                return_clause => " -> ()",
+                body => "    // No-op method for swift-bridge destructor synthesis",
+            },
+        ));
+        out.push('\n');
+    }
+    out
+}
+
 fn emit_lib_rs(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
@@ -388,7 +420,10 @@ fn emit_lib_rs(
         let is_handle_returned = handle_returned_types.contains(&ty.name);
         let would_be_empty_type_block = ty.fields.is_empty()
             && !extern_block::has_constructor_extern(ty, exclude_fields)
-            && ty.methods.iter().all(|m| m.binding_excluded || m.sanitized || m.is_static);
+            && ty
+                .methods
+                .iter()
+                .all(|m| m.binding_excluded || m.sanitized || m.is_static);
         if is_handle_returned && would_be_empty_type_block {
             // Defer this type's declaration to the functions block (where it's returned by value).
             deferred_empty_handle_types.insert(ty.name.clone());
@@ -496,7 +531,12 @@ fn emit_lib_rs(
             // Don't pass deferred_empty_handle_types to cfg-gated blocks — they've already
             // been emitted in the non-cfg block. Passing them again would create duplicates.
             let empty_set = std::collections::HashSet::new();
-            let block = extern_block::emit_extern_block_for_functions(fns, &handle_returned_types, &enum_names_owned, &empty_set);
+            let block = extern_block::emit_extern_block_for_functions(
+                fns,
+                &handle_returned_types,
+                &enum_names_owned,
+                &empty_set,
+            );
             extern_blocks.push(format!("    #[cfg({cfg_cond})]\n{block}"));
         }
     }
@@ -828,6 +868,9 @@ fn emit_lib_rs(
             out.push('\n');
         }
     }
+
+    out.push_str(&emit_deferred_noop_shims(&deferred_empty_handle_types, &visible_types));
+
     for en in &visible_enums {
         out.push_str(&enums::emit_enum_wrapper(en, &source_crate, &type_paths));
         out.push('\n');

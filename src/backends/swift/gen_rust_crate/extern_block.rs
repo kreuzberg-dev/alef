@@ -180,21 +180,33 @@ pub(crate) fn emit_extern_block_for_type(
     }
 
     // For opaque types with no visible (non-excluded, non-sanitized) methods,
-    // swift-bridge does not generate a destructor (the `$_free` symbol) UNLESS the type
-    // is returned by value from a bridged function.
+    // swift-bridge does not generate a destructor (the `$_free` symbol) unless the type
+    // is returned by value from a bridged function OR has at least one method declared.
     //
-    // For streaming adapter owners like CrawlEngineHandle: the type IS returned by value
-    // (create_engine returns Result<CrawlEngineHandle, _>), so swift-bridge should
-    // generate `$_free` automatically even with no methods declared. The methods appear
-    // in the streaming adapter block (on the already_declared re-declaration), not here.
+    // When a type has no methods but IS returned by value (like CrawlEngineHandle), the
+    // by-value return alone signals ownership. However, when a type is returned by value
+    // but ALL its methods are binding_excluded (e.g., streaming adapter owners), OR when
+    // a type is neither returned by value nor has visible methods, swift-bridge needs at
+    // least one method declaration to synthesize $_free.
     //
-    // For non-streaming opaque types with no methods: we would need a noop method to
-    // trigger `$_free`. However, checking whether a type is a streaming adapter owner
-    // requires passing additional context. For now, rely on the "returned by value"
-    // signal which covers the known case (CrawlEngineHandle).
-    //
-    // TODO: if non-streaming opaque types with no visible methods appear in the future,
-    // revisit this and add a noop method declaration for them.
+    // Emit a no-op method in such cases. The noop is declared once in the type's primary
+    // extern block and resolved module-wide by swift-bridge when referenced from cfg-gated
+    // function blocks.
+    let has_visible_methods = ty
+        .methods
+        .iter()
+        .any(|m| !m.binding_excluded && !m.sanitized && !m.is_static);
+    if ty.is_opaque && !has_visible_methods {
+        let type_snake = ty.name.to_snake_case();
+        let noop_fn_name = format!("{type_snake}_noop");
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_fn_noop.jinja",
+            minijinja::context! {
+                fn_name => &noop_fn_name,
+                type_name => &ty.name,
+            },
+        ));
+    }
 
     block.push_str("    }\n\n");
     block
@@ -368,16 +380,34 @@ pub(crate) fn emit_extern_block_for_functions(
     // blocks. Co-locating the declaration here — in the same extern block as the
     // by-value returns that own them (e.g. `create_engine() -> Result<CrawlEngineHandle, _>`)
     // — is the ownership signal swift-bridge needs to synthesize the type's `$_free`
-    // destructor and its Ref/RefMut class triple. No method or no-op shim is
-    // required; the by-value return alone marks the type owned. The type is declared
-    // exactly ONCE in the module (here) — streaming blocks that reference it by
-    // `&OwnerType` resolve it module-wide and must NOT re-declare it (a second
-    // declaration, even `#[swift_bridge(already_declared)]`, suppresses `$_free`).
+    // destructor and its Ref/RefMut class triple.
+    //
+    // When the type has NO methods at all, we emit a no-op method to guarantee
+    // swift-bridge generates $_free. Some types (e.g. Language, returned by get_language())
+    // have no visible methods and no by-value constructor, so swift-bridge needs
+    // an explicit method declaration to emit the destructor. The noop method is never
+    // called by users — it exists only to signal to swift-bridge that the type is owned.
+    //
+    // The type is declared exactly ONCE in the module (here) — streaming blocks
+    // that reference it by `&OwnerType` resolve it module-wide and must NOT
+    // re-declare it (a second declaration, even `#[swift_bridge(already_declared)]`,
+    // suppresses `$_free`).
     for ty_name in deferred_empty_handle_types {
         block.push_str(&crate::backends::swift::template_env::render(
             "extern_type_decl.jinja",
             minijinja::context! {
                 name => ty_name,
+            },
+        ));
+        // Emit noop for deferred types with no methods. This ensures swift-bridge
+        // synthesizes $_free even when there are no other methods to declare.
+        let type_snake = ty_name.to_snake_case();
+        let noop_fn_name = format!("{type_snake}_noop");
+        block.push_str(&crate::backends::swift::template_env::render(
+            "extern_fn_noop.jinja",
+            minijinja::context! {
+                fn_name => &noop_fn_name,
+                type_name => ty_name,
             },
         ));
     }
@@ -655,6 +685,9 @@ pub(crate) fn emit_extern_block_for_streaming_adapters(adapters: &[AdapterConfig
     block.push_str("    }\n\n");
     Some(block)
 }
+
+#[cfg(test)]
+mod noop_method_tests {}
 
 #[cfg(test)]
 mod streaming_extern_tests {
