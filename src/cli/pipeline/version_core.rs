@@ -160,8 +160,16 @@ pub(crate) fn patch_workspace_dep_versions(
         };
         let mut any = false;
         for (key, item) in table.iter_mut() {
-            // Only touch deps whose name is a workspace member.
-            if !workspace_members.contains(key.get()) {
+            // A dep entry matches if its key is a workspace member name OR if it
+            // carries a `package = "..."` field whose value is a workspace member
+            // name (aliased deps like `liter_llm = { package = "liter-llm", ... }`).
+            let is_member = workspace_members.contains(key.get())
+                || item
+                    .as_table_like()
+                    .and_then(|t| t.get("package"))
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|pkg| workspace_members.contains(pkg));
+            if !is_member {
                 continue;
             }
             // The dep value can be an inline table `{ path = "...", version = "X" }`.

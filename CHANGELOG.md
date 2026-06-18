@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(sync-versions): update core-crate dep version in aliased-key manifests.** `patch_workspace_dep_versions` skipped deps whose TOML key is an underscore alias for a workspace member (e.g. `liter_llm = { package = "liter-llm", version = "X" }`). The guard now also inspects the `package = "..."` field, so `packages/swift/rust/Cargo.toml` and any other generated manifest that renames the core dep stays in sync on every `alef sync-versions` run. (`src/cli/pipeline/version_core.rs`, `src/cli/pipeline/version_tests/sync_versions.rs`)
+
 - **(core/config/lint_defaults): format the scaffolded `build.zig`, not just `src/`.** The Zig default format/check commands were `zig fmt src` / `zig fmt --check src`, which skip the package-root `build.zig` alef scaffolds. The unformatted `build.zig` then surfaced as a post-generation diff whenever the consumer's own `zig fmt` hook reformatted it. Fix: format/check `src build.zig` together. (`src/core/config/lint_defaults.rs`)
 
 ## [0.25.43] - 2026-06-18

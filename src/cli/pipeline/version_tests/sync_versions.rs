@@ -373,6 +373,96 @@ fn patch_workspace_dep_versions_skips_path_only_deps() {
     assert!(!changed, "path-only deps without version= must not be touched");
 }
 
+/// patch_workspace_dep_versions updates aliased deps whose `package = "..."` field
+/// names a workspace member, even when the dep key itself is an underscore alias.
+///
+/// Regression test for the `packages/swift/rust/Cargo.toml` drift where
+/// `liter_llm = { version = "1.7.0", path = "...", package = "liter-llm" }`
+/// was skipped because the key `liter_llm` was not in workspace_members
+/// (which held `liter-llm` with a hyphen). After the fix, `patch_dep_table`
+/// also consults the `package = "..."` field.
+#[test]
+fn patch_workspace_dep_versions_updates_package_alias_dep() {
+    use std::collections::HashSet;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    // Mirrors the packages/swift/rust/Cargo.toml pattern: the dep key uses
+    // underscores but `package = "liter-llm"` points at the real crate name.
+    let cargo_toml = r#"[package]
+name = "mylib-swift"
+version = "1.7.0"
+
+[dependencies]
+mylib_core = { version = "1.7.0", path = "../../../crates/mylib", features = ["full"], package = "mylib-core" }
+serde = "1"
+"#;
+
+    let path = dir.path().join("Cargo.toml");
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    // workspace_members holds the real crate name (hyphen form), not the alias.
+    let members: HashSet<String> = std::iter::once("mylib-core".to_string()).collect();
+
+    let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "1.7.1", &members).expect("patch ok");
+    assert!(changed, "aliased dep version must be updated");
+
+    let result = std::fs::read_to_string(&path).expect("read");
+
+    // The version inside the aliased dep must be bumped.
+    assert!(
+        result.contains(r#"mylib_core = { version = "1.7.1""#),
+        "aliased dep version must be bumped to 1.7.1:\n{result}"
+    );
+    // The `package` renaming key and other fields must be preserved.
+    assert!(
+        result.contains(r#"package = "mylib-core""#),
+        "package rename key must be preserved:\n{result}"
+    );
+    assert!(
+        result.contains(r#"features = ["full"]"#),
+        "features must be preserved:\n{result}"
+    );
+    // External crate must be untouched.
+    assert!(result.contains(r#"serde = "1""#), "serde must not be touched:\n{result}");
+    // [package] version must not be touched by patch_workspace_dep_versions.
+    assert!(
+        result.contains("version = \"1.7.0\""),
+        "[package] version must remain at 1.7.0:\n{result}"
+    );
+}
+
+/// patch_workspace_dep_versions is a no-op when an aliased dep's `package` field
+/// does NOT name a workspace member — external aliased crates must be left intact.
+#[test]
+fn patch_workspace_dep_versions_skips_external_package_alias() {
+    use std::collections::HashSet;
+
+    let dir = tempfile::tempdir().expect("tempdir");
+
+    let cargo_toml = r#"[package]
+name = "crate-a"
+version = "1.0.0"
+
+[dependencies]
+openssl_sys = { version = "0.9", package = "openssl-sys" }
+"#;
+
+    let path = dir.path().join("Cargo.toml");
+    std::fs::write(&path, cargo_toml).expect("write");
+
+    let members: HashSet<String> = std::iter::once("crate-b".to_string()).collect();
+
+    let changed = patch_workspace_dep_versions(path.to_str().unwrap(), "2.0.0", &members).expect("patch ok");
+    assert!(!changed, "external aliased dep must not be touched");
+
+    let result = std::fs::read_to_string(&path).expect("read");
+    assert!(
+        result.contains(r#"openssl_sys = { version = "0.9", package = "openssl-sys" }"#),
+        "external aliased dep must be preserved:\n{result}"
+    );
+}
+
 // -----------------------------------------------------------------------
 // sync_versions dep-table end-to-end test
 // -----------------------------------------------------------------------

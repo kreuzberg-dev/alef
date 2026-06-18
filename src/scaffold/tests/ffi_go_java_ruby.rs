@@ -174,6 +174,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         lib_name: None,
         visitor_callbacks: false,
         features: None,
+        extra_features: vec![],
         serde_rename_all: None,
         exclude_functions: vec![],
         exclude_types: vec![],
