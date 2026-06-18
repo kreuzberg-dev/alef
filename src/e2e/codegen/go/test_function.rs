@@ -134,7 +134,8 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         &std::collections::HashSet::new(),
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let lang = "go";
     let overrides = call_config.overrides.get(lang);
@@ -491,13 +492,25 @@ pub(super) fn render_test_function(out: &mut String, fixture: &Fixture, context:
                 if field_resolver.is_optional(resolved) && !optional_locals.contains_key(f.as_str()) {
                     let is_string_field = assertion.value.as_ref().is_some_and(|v| v.is_string());
                     let is_array_field = field_resolver.is_array(resolved);
+                    // Both plain-string and display_as_text optional fields only need a
+                    // local binding when the assertion value is a string. Non-string
+                    // assertions (numeric, boolean) and array fields are handled elsewhere.
                     if !is_string_field || is_array_field {
                         continue;
                     }
+                    let is_dat = field_resolver.is_display_as_text(f);
                     let field_expr = field_resolver.accessor(f, "go", &effective_result_var);
                     let local_var = go_param_name(&resolved.replace(['.', '[', ']'], "_"));
                     if field_resolver.has_map_access(f) {
                         let _ = writeln!(out, "\t{local_var} := {field_expr}");
+                    } else if is_dat {
+                        // Non-String inner type with a .Text() accessor: calling
+                        // `string(*field_expr)` would fail to compile because the pointer
+                        // element is not a primitive string. Use the text accessor instead.
+                        let _ = writeln!(out, "\tvar {local_var} string");
+                        let _ = writeln!(out, "\tif {field_expr} != nil {{");
+                        let _ = writeln!(out, "\t\t{local_var} = {field_expr}.Text()");
+                        let _ = writeln!(out, "\t}}");
                     } else {
                         let _ = writeln!(out, "\tvar {local_var} string");
                         let _ = writeln!(out, "\tif {field_expr} != nil {{");

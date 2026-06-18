@@ -166,7 +166,8 @@ impl E2eCodegen for CSharpCodegen {
             &e2e_config.result_fields,
             &e2e_config.fields_array,
             &std::collections::HashSet::new(),
-        );
+        )
+        .with_display_as_text_fields(e2e_config.fields_display_as_text.clone());
 
         // Resolve enum_fields, assert_enum_fields and nested_types from C# override config,
         // falling back to top-level call config.
@@ -420,7 +421,8 @@ fn render_test_method(
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         &std::collections::HashSet::new(),
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let lang = "csharp";
     let cs_overrides = call_config.overrides.get(lang);

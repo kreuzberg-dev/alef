@@ -29,6 +29,7 @@ impl FieldResolver {
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
+            display_as_text_fields: HashSet::new(),
         }
     }
 
@@ -55,6 +56,7 @@ impl FieldResolver {
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
+            display_as_text_fields: HashSet::new(),
         }
     }
 
@@ -91,6 +93,7 @@ impl FieldResolver {
             php_getter_map,
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map: DartFirstClassMap::default(),
+            display_as_text_fields: HashSet::new(),
         }
     }
 
@@ -133,6 +136,7 @@ impl FieldResolver {
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map,
             dart_first_class_map: DartFirstClassMap::default(),
+            display_as_text_fields: HashSet::new(),
         }
     }
 
@@ -159,6 +163,7 @@ impl FieldResolver {
             php_getter_map: PhpGetterMap::default(),
             swift_first_class_map: SwiftFirstClassMap::default(),
             dart_first_class_map,
+            display_as_text_fields: HashSet::new(),
         }
     }
 
@@ -168,6 +173,33 @@ impl FieldResolver {
         let mut clone = self.clone();
         clone.dart_first_class_map.root_type = root_type;
         clone
+    }
+
+    /// Return a clone of this resolver with `display_as_text_fields` set.
+    ///
+    /// Fields in this set have an `Option<T>` inner type (e.g. `RichTextContent`)
+    /// that is NOT a plain `String`. Language generators will call the language-idiomatic
+    /// text accessor (`.Text()` in Go/Java/C#, `.text()` in PHP) instead of generic
+    /// object stringification (`string(*ptr)`, `Objects::toString()`, `.ToString()`).
+    pub fn with_display_as_text_fields(mut self, fields: HashSet<String>) -> Self {
+        self.display_as_text_fields = fields;
+        self
+    }
+
+    /// Returns `true` when `fixture_field` (or its resolved alias, or a
+    /// normalised form) is configured as a display-as-text field.
+    ///
+    /// Accepts both the raw fixture field path and the alias-resolved path so
+    /// callers don't need to resolve first.
+    pub fn is_display_as_text(&self, fixture_field: &str) -> bool {
+        if self.display_as_text_fields.is_empty() {
+            return false;
+        }
+        if self.display_as_text_fields.contains(fixture_field) {
+            return true;
+        }
+        let resolved = self.resolve(fixture_field);
+        self.display_as_text_fields.contains(resolved)
     }
 
     /// Resolve a fixture field path to the actual struct path.

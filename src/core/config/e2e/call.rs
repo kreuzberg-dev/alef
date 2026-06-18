@@ -38,6 +38,9 @@ pub struct CallConfig {
     /// Per-call override for `[e2e].fields_enum`.
     #[serde(default)]
     pub fields_enum: HashSet<String>,
+    /// Per-call override for `[e2e].fields_display_as_text`.
+    #[serde(default)]
+    pub fields_display_as_text: HashSet<String>,
     /// Per-call override for `[e2e].fields_c_types`.
     #[serde(default)]
     pub fields_c_types: HashMap<String, String>,

@@ -80,7 +80,8 @@ pub fn render_test_function(
         e2e_config.effective_result_fields(call_config),
         e2e_config.effective_fields_array(call_config),
         e2e_config.effective_fields_method_calls(call_config),
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let function_name = resolve_function_name_for_call(call_config);
     let function_name_snake = function_name.to_snake_case();

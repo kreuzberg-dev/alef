@@ -435,8 +435,17 @@ pub(super) fn render_assertion(
         }
     };
     // Build the string representation of field_expr for substring-based assertions.
+    // For display_as_text fields, use the `.Text()` text accessor instead of
+    // `.ToString()` to get the textual content rather than the type-name representation.
     let field_as_str = if field_needs_json_serialize {
         format!("JsonSerializer.Serialize({field_expr})")
+    } else if assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| field_resolver.is_display_as_text(f))
+    {
+        format!("({field_expr}?.Text() ?? \"\")")
     } else {
         format!("{field_expr}.ToString()")
     };
@@ -448,6 +457,26 @@ pub(super) fn render_assertion(
         let resolved = field_resolver.resolve(f);
         fields_enum.contains(f) || fields_enum.contains(resolved)
     });
+
+    // Detect display-as-text fields (e.g. `RichTextContent?`). Their C# binding
+    // exposes a `.Text()` method returning `string?`. Wrap the accessor so that
+    // string equality and substring assertions compare the textual representation
+    // rather than the C# object reference, which `.ToString()` / `!.Trim()` would
+    // mishandle for non-String types.
+    let field_is_display_as_text = assertion
+        .field
+        .as_deref()
+        .filter(|f| !f.is_empty())
+        .is_some_and(|f| field_resolver.is_display_as_text(f));
+    // For display_as_text fields, produce a string expression via `.Text()` so
+    // `equals` and `contains` assertions see a plain string. The `?.` null-safe
+    // chain means a `null` field yields `null`, which both `Assert.Equal` (with
+    // explicit null expected) and string methods handle gracefully.
+    let field_expr_for_text = if field_is_display_as_text {
+        format!("{field_expr}?.Text()")
+    } else {
+        field_expr.clone()
+    };
 
     match assertion.assertion_type.as_str() {
         "equals" => {
@@ -477,7 +506,10 @@ pub(super) fn render_assertion(
                     "csharp/assertion.jinja",
                     minijinja::context! {
                         assertion_type => "equals",
-                        field_expr => field_expr.clone(),
+                        // Use the text-accessor expression for display_as_text fields so that
+                        // `Assert.Equal(expected, field_expr!.Trim())` calls `.Text()` instead
+                        // of `.Trim()` on the raw content-union type.
+                        field_expr => field_expr_for_text.clone(),
                         cs_val => cs_val,
                         is_string_val => is_string_val,
                         is_bool_true => is_bool_true,

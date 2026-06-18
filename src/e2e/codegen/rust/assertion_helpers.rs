@@ -30,7 +30,21 @@ pub(super) fn render_equals_assertion(
                 let is_arr = field_resolver.is_array(resolved);
                 is_opt && !is_arr && !is_unwrapped
             });
-            let field_expr = if is_opt_str_not_unwrapped {
+            // For fields whose `Option<T>` inner type is a display/content union (not
+            // plain `String`), `.as_deref()` does not compile because the inner type
+            // does not implement `Deref<Target=str>`. Use `.as_ref().map(|v|
+            // v.to_string()).unwrap_or_default()` instead, which works for any type
+            // that implements `Display` (including `String` itself).
+            let is_display_as_text = assertion
+                .field
+                .as_ref()
+                .is_some_and(|f| field_resolver.is_display_as_text(f));
+            let field_expr = if is_opt_str_not_unwrapped && is_display_as_text {
+                // Optional non-String content field not yet pre-unwrapped: use Display via
+                // `.as_ref().map(|v| v.to_string())` so the inner type need not impl
+                // `Deref<Target=str>`.
+                format!("{field_access}.as_ref().map(|v| v.to_string()).unwrap_or_default().trim()")
+            } else if is_opt_str_not_unwrapped {
                 // Optional string-like field that wasn't pre-unwrapped: use `.as_deref()`
                 // when the inner type is `String`; for inner types that impl Display we
                 // can also do `.as_ref().map(ToString::to_string)`. Default to as_deref
@@ -427,6 +441,22 @@ mod tests {
         )
     }
 
+    /// Resolver with `content` as optional and display_as_text.
+    fn display_as_text_resolver() -> FieldResolver {
+        let mut optional = HashSet::new();
+        optional.insert("content".to_string());
+        let mut dat_fields = HashSet::new();
+        dat_fields.insert("content".to_string());
+        FieldResolver::new(
+            &HashMap::new(),
+            &optional,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_display_as_text_fields(dat_fields)
+    }
+
     fn make_assertion(assertion_type: &str, field: Option<&str>, value: Option<serde_json::Value>) -> Assertion {
         Assertion {
             assertion_type: assertion_type.to_string(),
@@ -443,6 +473,82 @@ mod tests {
         let mut out = String::new();
         render_equals_assertion(&mut out, &assertion, "result", false, &resolver);
         assert!(out.contains(".trim()"), "got: {out}");
+    }
+
+    /// When a field is `Option<String>` (NOT display_as_text) and not pre-unwrapped,
+    /// the assertion must use `.as_deref().unwrap_or("").trim()` — not `map(|v| v.to_string())`.
+    /// This guards against regression where the DAT path is taken for plain strings.
+    #[test]
+    fn render_equals_assertion_plain_optional_string_uses_as_deref_not_to_string() {
+        let mut optional = HashSet::new();
+        optional.insert("content".to_string());
+        let resolver = FieldResolver::new(
+            &HashMap::new(),
+            &optional,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        );
+        let assertion = make_assertion("equals", Some("content"), Some(serde_json::Value::String("hi".into())));
+        let mut out = String::new();
+        // is_unwrapped=false simulates result_is_vec=true where the pre-unwrap pass is skipped.
+        render_equals_assertion(&mut out, &assertion, "result.content", false, &resolver);
+        assert!(out.contains(".as_deref().unwrap_or(\"\").trim()"), "got: {out}");
+        assert!(
+            !out.contains("to_string"),
+            "plain optional string should NOT use to_string(); got: {out}"
+        );
+    }
+
+    /// When the field is `Option<AssistantContent>` (display_as_text) and not pre-unwrapped,
+    /// the assertion must use `.as_ref().map(|v| v.to_string()).unwrap_or_default().trim()`
+    /// so that `AssistantContent` (which implements `Display` but NOT `Deref<Target=str>`)
+    /// compiles correctly.
+    #[test]
+    fn render_equals_assertion_display_as_text_optional_uses_map_to_string_not_as_deref() {
+        let resolver = display_as_text_resolver();
+        let assertion = make_assertion(
+            "equals",
+            Some("content"),
+            Some(serde_json::Value::String("hello".into())),
+        );
+        let mut out = String::new();
+        // is_unwrapped=false — simulates the result_is_vec=true path where pre-unwrapping is skipped.
+        render_equals_assertion(&mut out, &assertion, "result.content", false, &resolver);
+        // Must use .to_string() path via Display, NOT .as_deref() which requires Deref<Target=str>.
+        assert!(
+            out.contains(".as_ref().map(|v| v.to_string()).unwrap_or_default().trim()"),
+            "display_as_text field must use map(|v| v.to_string()) path; got: {out}"
+        );
+        assert!(
+            !out.contains("as_deref"),
+            "display_as_text field must NOT emit as_deref(); got: {out}"
+        );
+    }
+
+    /// When `is_unwrapped=true` (pre-unwrap pass already ran), display_as_text fields
+    /// should fall through to the non-optional path, same as plain strings.
+    #[test]
+    fn render_equals_assertion_display_as_text_already_unwrapped_uses_to_string() {
+        let resolver = display_as_text_resolver();
+        let assertion = make_assertion(
+            "equals",
+            Some("content"),
+            Some(serde_json::Value::String("hello".into())),
+        );
+        let mut out = String::new();
+        // is_unwrapped=true — the pre-unwrap pass already produced a local `_content: String`.
+        render_equals_assertion(&mut out, &assertion, "_content", true, &resolver);
+        // Should use the regular to_string() path for an already-unwrapped value.
+        assert!(out.contains("to_string().as_str().trim()"), "got: {out}");
+        assert!(
+            !out.contains("as_deref"),
+            "unwrapped field must NOT emit as_deref(); got: {out}"
+        );
+        assert!(
+            !out.contains("unwrap_or_default"),
+            "unwrapped field must NOT emit unwrap_or_default(); got: {out}"
+        );
     }
 
     #[test]

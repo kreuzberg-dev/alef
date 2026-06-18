@@ -132,6 +132,28 @@ pub struct E2eConfig {
     /// ```
     #[serde(default)]
     pub fields_enum: HashSet<String>,
+    /// Optional fields whose inner type carries a text accessor rather than
+    /// being a plain `String`.
+    ///
+    /// When a `contains` / `equals` assertion targets one of these fields,
+    /// language generators call the language-idiomatic text accessor:
+    ///
+    /// - Go: `field.Text()` instead of `string(*field)`
+    /// - Java: `.map(v -> v.text()).orElse("")` instead of `Objects::toString`
+    /// - C#: `field?.Text()?.Trim()` instead of `field?.ToString()?.Trim()`
+    /// - PHP: `$result->getText()` instead of raw property access
+    ///
+    /// Use this for fields like `content` whose Rust type is `Option<RichTextContent>`
+    /// (a multimodal union) rather than `Option<String>`. The inner type must
+    /// expose a `text()` / `Text()` method that returns the textual representation.
+    ///
+    /// Example:
+    /// ```toml
+    /// [e2e]
+    /// fields_display_as_text = ["content", "choices[0].message.content"]
+    /// ```
+    #[serde(default)]
+    pub fields_display_as_text: HashSet<String>,
     /// Environment variables every generated e2e suite's setup must set
     /// before the binding's engine is constructed. Keyed by env-var name;
     /// values are passed through verbatim.
@@ -313,6 +335,15 @@ impl E2eConfig {
         }
     }
 
+    /// Return the effective `fields_display_as_text` for `call`.
+    pub fn effective_fields_display_as_text<'a>(&'a self, call: &'a CallConfig) -> &'a HashSet<String> {
+        if !call.fields_display_as_text.is_empty() {
+            &call.fields_display_as_text
+        } else {
+            &self.fields_display_as_text
+        }
+    }
+
     /// Return the effective `fields_c_types` for `call`.
     pub fn effective_fields_c_types<'a>(&'a self, call: &'a CallConfig) -> &'a HashMap<String, String> {
         if !call.fields_c_types.is_empty() {
@@ -375,6 +406,7 @@ impl Default for E2eConfig {
             exclude_categories: HashSet::new(),
             fields_c_types: HashMap::new(),
             fields_enum: HashSet::new(),
+            fields_display_as_text: HashSet::new(),
             env: HashMap::new(),
             harness: HarnessConfig::default(),
             dep_mode: DependencyMode::default(),

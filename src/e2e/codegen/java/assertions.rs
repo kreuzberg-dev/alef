@@ -390,6 +390,12 @@ pub(super) fn render_assertion(
                 // guarantee it returns Optional<T> in Java — nested fields like metadata.twitterCard
                 // return @Nullable String, not Optional<String>. We detect this by checking
                 // if the field path contains a dot (nested access).
+                // Fields in `fields_display_as_text` have an `Option<T>` inner type
+                // that is not a plain `String` (e.g. `AssistantContent`). Their Java
+                // binding exposes a `.text()` accessor returning `String`. Using
+                // `Objects::toString` on these would produce the class-name representation,
+                // not the textual content.
+                let field_is_display_as_text = field_resolver.is_display_as_text(f);
                 if field_resolver.is_optional(resolved) && !field_resolver.has_map_access(f) {
                     // All nullable fields in the Java binding return @Nullable types, not Optional<T>.
                     // Wrap them in Optional.ofNullable() so e2e tests can use .orElse() fallbacks.
@@ -406,6 +412,14 @@ pub(super) fn render_assertion(
                                 // has .getValue() available.
                                 format!("{optional_expr}.map(v -> v.getValue()).orElse(\"\")")
                             }
+                        }
+                    } else if field_is_display_as_text {
+                        // Non-String content union (e.g. AssistantContent): call `.text()`
+                        // to get the textual representation instead of `Objects::toString`
+                        // which would return the class name.
+                        match assertion.assertion_type.as_str() {
+                            "not_empty" | "is_empty" => optional_expr,
+                            _ => format!("{optional_expr}.map(v -> v.text()).orElse(\"\")"),
                         }
                     } else {
                         match assertion.assertion_type.as_str() {
@@ -618,5 +632,104 @@ pub(super) fn build_java_method_call(
         _ => {
             format!("{result_var}.{}()", method_name.to_lower_camel_case())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use super::*;
+    use crate::e2e::field_access::FieldResolver;
+    use crate::e2e::fixture::Assertion;
+
+    fn make_resolver(optional: HashSet<String>, dat: HashSet<String>) -> FieldResolver {
+        FieldResolver::new(
+            &HashMap::new(),
+            &optional,
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashSet::new(),
+        )
+        .with_display_as_text_fields(dat)
+    }
+
+    fn make_equals_assertion(field: &str, value: &str) -> Assertion {
+        Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some(field.to_string()),
+            value: Some(serde_json::Value::String(value.to_string())),
+            ..Default::default()
+        }
+    }
+
+    /// A plain `Option<String>` field should use `Objects::toString` in the
+    /// Java equals expression — NOT `.text()`. Guards against DAT path bleeding
+    /// into regular optional string fields.
+    #[test]
+    fn java_plain_optional_string_uses_objects_to_string() {
+        let mut optional = HashSet::new();
+        optional.insert("content".to_string());
+        let resolver = make_resolver(optional, HashSet::new());
+        let assertion = make_equals_assertion("content", "hello");
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "SampleClass",
+            &resolver,
+            false,
+            false,
+            false,
+            false,
+            None,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        assert!(
+            out.contains("Objects::toString"),
+            "plain optional string field must use Objects::toString; got: {out}"
+        );
+        assert!(
+            !out.contains(".text()"),
+            "plain optional string must NOT use .text(); got: {out}"
+        );
+    }
+
+    /// A `display_as_text` field (e.g. `Option<AssistantContent>`) should use
+    /// `.map(v -> v.text()).orElse("")` so the Java assertion sees the textual
+    /// representation, not the class-name string from `Objects::toString`.
+    #[test]
+    fn java_display_as_text_optional_uses_text_accessor() {
+        let mut optional = HashSet::new();
+        optional.insert("content".to_string());
+        let mut dat = HashSet::new();
+        dat.insert("content".to_string());
+        let resolver = make_resolver(optional, dat);
+        let assertion = make_equals_assertion("content", "Hello, world!");
+        let mut out = String::new();
+        render_assertion(
+            &mut out,
+            &assertion,
+            "result",
+            "SampleClass",
+            &resolver,
+            false,
+            false,
+            false,
+            false,
+            None,
+            &HashSet::new(),
+            &HashMap::new(),
+        );
+        assert!(
+            out.contains(".map(v -> v.text()).orElse(\"\")"),
+            "display_as_text field must use .map(v -> v.text()).orElse(\"\"); got: {out}"
+        );
+        assert!(
+            !out.contains("Objects::toString"),
+            "display_as_text field must NOT use Objects::toString; got: {out}"
+        );
     }
 }

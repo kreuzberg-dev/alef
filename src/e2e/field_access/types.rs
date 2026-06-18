@@ -8,6 +8,14 @@ pub struct FieldResolver {
     pub(super) result_fields: HashSet<String>,
     pub(super) array_fields: HashSet<String>,
     pub(super) method_calls: HashSet<String>,
+    /// Fields whose `Option<T>` inner type is a display/content union (e.g. `RichTextContent`)
+    /// rather than a plain `String`. Language generators that would otherwise emit
+    /// `string(*ptr)` (Go) or `Objects::toString()` (Java) for such fields will instead
+    /// call the language-idiomatic text accessor (`.Text()` in Go/Java/C#, `.text()` in PHP)
+    /// so the assertion compares the textual representation, not an opaque object address.
+    ///
+    /// Populated from `fields_display_as_text` in `alef.toml`.
+    pub(super) display_as_text_fields: HashSet<String>,
     /// Aliases for error-path field access (used when assertion_type == "error").
     /// Maps fixture sub-field names (the part after "error.") to actual field names
     /// on the error type. E.g., `"status_code" -> "status_code"`.
