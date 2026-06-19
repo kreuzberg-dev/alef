@@ -121,6 +121,15 @@ pub(crate) fn gen_php_function_params(
                         "std::collections::HashMap<String, String>".to_string()
                     }
                 }
+                TypeRef::Json => {
+                    // serde_json::Value params: ext-php-rs cannot implement FromZvalMut for serde_json::Value.
+                    // Receive as String (JSON-encoded) and parse in the function body binding.
+                    if p.optional {
+                        "Option<String>".to_string()
+                    } else {
+                        "String".to_string()
+                    }
+                }
                 _ => {
                     if p.optional {
                         format!("Option<{base_ty}>")
@@ -279,6 +288,11 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
                     } else {
                         format!("std::time::Duration::from_millis({php_name}.max(0) as u64)")
                     }
+                }
+                TypeRef::Json => {
+                    // JSON param is received as String from PHP, use the _json binding for parsing.
+                    let bound_name = format!("{php_name}_json");
+                    bound_name
                 }
                 _ => php_name,
             }
@@ -570,6 +584,11 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                     } else {
                         format!("std::time::Duration::from_millis({php_name}.max(0) as u64)")
                     }
+                }
+                TypeRef::Json => {
+                    // JSON param is received as String from PHP, use the _json binding for parsing.
+                    let bound_name = format!("{php_name}_json");
+                    bound_name
                 }
                 _ => php_name,
             }

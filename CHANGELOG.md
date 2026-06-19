@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(backends/php): parse JSON parameters passed through the PHP facade as JSON strings.**
+  `serde_json::Value` parameters now bind as `String`/`Option<String>` on the ext-php-rs
+  boundary and reuse the existing generated JSON parsing let-binding, avoiding unsupported
+  `FromZvalMut` requirements for `serde_json::Value`. (`src/backends/php/gen_bindings/helpers/params.rs`,
+  `src/backends/php/gen_bindings/functions/params.rs`, `src/backends/php/template_env.rs`,
+  `src/backends/php/templates/php_json_let_binding.jinja`,
+  `src/backends/php/templates/php_json_let_binding_optional.jinja`)
 - **(backends/dart): match the freezed mixin clause when injecting the content-union `text()` accessor.** FRB emits `sealed class AssistantContent with _$AssistantContent {`, but the v0.25.48 injection regex required the `{` immediately after the type name, so the `.text()` extension was never emitted and the dart binding/e2e failed to compile (`The method 'text' isn't defined for the type 'AssistantContent'`). The pattern now tolerates an optional `with <mixin>` clause up to the declaration's opening brace. (`src/backends/dart/frb_rewrite/text_transformations.rs`)
 
 ## [0.25.48] - 2026-06-19

@@ -288,6 +288,27 @@ pub(super) fn gen_php_serde_let_bindings(
                     ));
                 }
             }
+            TypeRef::Json => {
+                // JSON param is received as String from PHP; parse it via serde_json
+                let bound_name = format!("{php_param_name}_json");
+                if p.optional {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_json_let_binding_optional.jinja",
+                        context! {
+                            php_name => &php_param_name,
+                            bound_name => &bound_name,
+                        },
+                    ));
+                } else {
+                    out.push_str(&crate::backends::php::template_env::render(
+                        "php_json_let_binding.jinja",
+                        context! {
+                            php_name => &php_param_name,
+                            bound_name => &bound_name,
+                        },
+                    ));
+                }
+            }
             _ => {}
         }
     }
