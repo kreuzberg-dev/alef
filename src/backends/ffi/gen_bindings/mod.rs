@@ -1,3 +1,4 @@
+mod capsule;
 mod functions;
 mod helpers;
 mod lib_rs;
@@ -58,6 +59,11 @@ impl Backend for FfiBackend {
             None
         };
 
+        // Capsule (Language-passthrough) types configured under `[crates.ffi.capsule_types]`.
+        // Drives both the cbindgen forward declarations and the opaque-handle suppression in lib.rs.
+        let ffi_capsule_types: std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig> =
+            config.ffi.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+
         let files = vec![
             GeneratedFile {
                 path: PathBuf::from(&output_dir).join("lib.rs"),
@@ -66,7 +72,7 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("cbindgen.toml"),
-                content: gen_cbindgen_toml(&prefix, api),
+                content: gen_cbindgen_toml(&prefix, api, &ffi_capsule_types),
                 generated_header: false,
             },
             GeneratedFile {

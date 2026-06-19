@@ -180,12 +180,23 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
     // emitted through the service-API path (service.rs); also wrapping them as plain opaques here
     // would collide on the `_new`/`_free` C symbols. Configured opaque handle types that remain
     // present in the IR still need their lifecycle symbols for downstream FFI consumers.
+    // Capsule (Language-passthrough) types. When `[crates.ffi.capsule_types]` lists a type,
+    // it is NOT emitted as an opaque `*mut {Type}` handle; functions returning it instead
+    // return the host runtime's raw grammar pointer via `into_raw()`. We therefore exclude
+    // these types from the opaque `_new`/`_free`/`_to_json` emission below (mirroring how
+    // pyo3/napi suppress their opaque wrappers for capsule types).
+    let ffi_capsule_types: std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig> =
+        config.ffi.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+
     let mut ffi_exclude_types: ahash::AHashSet<&str> = config
         .ffi
         .as_ref()
         .map(|c| c.exclude_types.iter().map(|s| s.as_str()).collect())
         .unwrap_or_default();
     ffi_exclude_types.extend(api.types.iter().filter(|t| t.binding_excluded).map(|t| t.name.as_str()));
+    // Suppress opaque lifecycle symbols for capsule types — the host runtime owns the
+    // returned grammar pointer, so there is no alef opaque box to free or serialize.
+    ffi_exclude_types.extend(ffi_capsule_types.keys().map(|s| s.as_str()));
     // Exclude workspace-declared opaque types whose `rust_path` carries generic parameters
     // (e.g. `Arc<Mutex<dyn Trait>>`), as the C ABI cannot represent them. Simple newtypes
     // (no generics) are left in so the binding layer emits free functions for them.
@@ -557,6 +568,15 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
                 }
             }
         }
+        // When this function returns a configured capsule type by value (bare Named),
+        // emit the host-native passthrough (`into_raw()`) instead of boxing an opaque handle.
+        // Optional capsule returns are not passthrough-eligible (no single owned value to
+        // hand to `into_raw()`), so they fall through to the standard opaque path.
+        let capsule_cfg = if matches!(func.return_type, crate::core::ir::TypeRef::Named(_)) {
+            super::capsule::capsule_return_name(func, &ffi_capsule_types).and_then(|name| ffi_capsule_types.get(name))
+        } else {
+            None
+        };
         builder.add_item(&gen_free_function(
             func,
             prefix,
@@ -564,6 +584,7 @@ pub(super) fn gen_lib_rs(api: &ApiSurface, prefix: &str, config: &ResolvedCrateC
             path_map,
             ffi_param_enums,
             serde_names,
+            capsule_cfg,
         ));
         // Emit a _len() companion for every function whose return type maps to *mut c_char
         // so that Zig and Java FFM Panama consumers get byte length without a NUL-scan.

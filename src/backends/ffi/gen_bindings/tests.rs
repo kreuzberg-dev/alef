@@ -1,4 +1,5 @@
 mod basics;
+mod capsule;
 mod common;
 mod constructors;
 mod doxygen;

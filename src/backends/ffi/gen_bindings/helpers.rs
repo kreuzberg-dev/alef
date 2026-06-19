@@ -357,15 +357,24 @@ pub(super) fn gen_owned_value_to_c(expr: &str, ty: &TypeRef, indent: &str, _enum
 // cbindgen.toml generation
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_cbindgen_toml(prefix: &str, api: &crate::core::ir::ApiSurface) -> String {
+pub(super) fn gen_cbindgen_toml(
+    prefix: &str,
+    api: &crate::core::ir::ApiSurface,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+) -> String {
     let prefix_upper = prefix.to_uppercase();
 
     // Collect (c_name, doc) pairs for every opaque handle that needs a forward
     // declaration in the generated C header. cbindgen renames Rust types using
     // the export prefix, producing e.g. `HTMMetadataConfig` for prefix `HTM`.
+    //
+    // Capsule (Language-passthrough) types are skipped here: they are never emitted
+    // as prefixed opaque handles. Their host-native pointee type (e.g. `TSLanguage`)
+    // is forward-declared unprefixed below so `const TSLanguage *` resolves.
     let mut entries: Vec<(String, String)> = api
         .types
         .iter()
+        .filter(|t| !capsule_types.contains_key(t.name.as_str()))
         // Use the IR type name verbatim (it already comes from Rust source as
         // PascalCase). `to_pascal_case` mangles names containing all-caps
         // abbreviations: e.g. `GraphQLError` becomes `GraphQlError`, which
@@ -373,6 +382,20 @@ pub(super) fn gen_cbindgen_toml(prefix: &str, api: &crate::core::ir::ApiSurface)
         // `MYLIB`) and breaks the C consumer build.
         .map(|t| (format!("{prefix_upper}{}", t.name), t.doc.clone()))
         .collect();
+
+    // Forward-declare each capsule pointee type UNPREFIXED (e.g. `TSLanguage`), so the
+    // `const TSLanguage *` return type cbindgen emits from `*const tree_sitter::ffi::TSLanguage`
+    // resolves in the generated header. Sorted+deduped via the shared `entries` vec below.
+    {
+        let mut c_names: Vec<&str> = capsule_types.values().map(|c| c.c_return_type.as_str()).collect();
+        c_names.sort_unstable();
+        c_names.dedup();
+        for c_name in c_names {
+            if !entries.iter().any(|(n, _)| n == c_name) {
+                entries.push((c_name.to_string(), String::new()));
+            }
+        }
+    }
 
     // Include enum types as well — they may appear as opaque handles in
     // function signatures when used across module boundaries.

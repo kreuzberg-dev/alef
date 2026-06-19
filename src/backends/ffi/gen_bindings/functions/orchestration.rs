@@ -571,6 +571,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_method_wrapper(
 // Free functions
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     func: &FunctionDef,
     prefix: &str,
@@ -578,6 +579,7 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
     path_map: &AHashMap<String, String>,
     enum_names: &AHashSet<String>,
     serde_names: &AHashSet<String>,
+    capsule_cfg: Option<&crate::core::config::FfiCapsuleTypeConfig>,
 ) -> String {
     let fn_name_snake = c_symbol_component(&func.name);
     let ffi_name = format!("{prefix}_{fn_name_snake}");
@@ -617,6 +619,10 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         "i32".to_string()
     } else if has_error && is_void_return(&func.return_type) {
         "i32".to_string()
+    } else if let Some(cfg) = capsule_cfg {
+        // Capsule passthrough: return the host runtime's grammar pointer directly
+        // (e.g. `*const tree_sitter::ffi::TSLanguage`) instead of boxing an opaque handle.
+        super::super::capsule::capsule_c_return_type(cfg)
     } else {
         c_return_type_with_paths(&func.return_type, core_import, path_map).into_owned()
     };
@@ -950,16 +956,26 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
                     } else {
                         "val"
                     };
-                let ok_body = if returns_c_char(&func.return_type) {
+                let ok_body = if let Some(cfg) = capsule_cfg {
+                    format!(
+                        "            {}",
+                        super::super::capsule::capsule_into_raw_expr(val_expr, cfg)
+                    )
+                } else if returns_c_char(&func.return_type) {
                     gen_owned_c_char_to_c_with_len(val_expr, &func.return_type, "            ")
                 } else {
                     gen_owned_value_to_c(val_expr, &func.return_type, "            ", enum_names)
+                };
+                let null_ret = if capsule_cfg.is_some() {
+                    "std::ptr::null()"
+                } else {
+                    null_return_value(&func.return_type)
                 };
                 out.push_str(&crate::backends::ffi::template_env::render(
                     "error_match_non_void.jinja",
                     context! {
                         ok_body => ok_body,
-                        null_ret => null_return_value(&func.return_type),
+                        null_ret => null_ret,
                     },
                 ));
             }
@@ -968,7 +984,9 @@ pub(in crate::backends::ffi::gen_bindings) fn gen_free_function(
         } else if can_inline_fn {
             // Passthrough primitive: call was already emitted as tail expression
         } else {
-            let content = if returns_c_char(&func.return_type) {
+            let content = if let Some(cfg) = capsule_cfg {
+                format!("    {}", super::super::capsule::capsule_into_raw_expr(result_expr, cfg))
+            } else if returns_c_char(&func.return_type) {
                 gen_owned_c_char_to_c_with_len(result_expr, &func.return_type, "    ")
             } else {
                 gen_owned_value_to_c(result_expr, &func.return_type, "    ", enum_names)
