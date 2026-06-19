@@ -488,18 +488,28 @@ pub(crate) fn gen_flat_data_enum_from_impls(enum_def: &EnumDef, core_import: &st
             }
         }
     }
-    // Fallback for unrecognised tags: delegate to `<CorePath>::default()`.
-    // This respects the core type's custom `impl Default` (e.g. `EmbeddingModelType` returns
-    // `Preset { name: "balanced" }`) AND the `#[default]` variant attribute when present.
-    // The prior path constructed the `#[default]`-marked or first variant with field-level
-    // `Default::default()` defaults, which produced invalid sentinel values like
-    // `Preset { name: "" }` for enums whose `Default` is custom rather than derived.
-    out.push_str(&crate::backends::php::template_env::render(
-        "php_flat_enum_default_fallback_match_arm.jinja",
-        minijinja::context! {
-            core_path => &core_path,
-        },
-    ));
+    // The conversion matches on the tag discriminator `&str`, which is never exhaustively
+    // coverable — a wildcard arm is ALWAYS required. Its body depends on whether the core
+    // enum has a visible `Default` impl (a variant with `#[default]`): delegate to
+    // `<CorePath>::default()` when present, otherwise fail loudly. When the core type's
+    // `impl Default` is marked `#[cfg_attr(alef, alef(skip))]` it is invisible to Alef's IR,
+    // so `core_has_default` is false and we must emit a non-`Default` wildcard arm.
+    let core_has_default = enum_def.variants.iter().any(|v| v.is_default);
+    if core_has_default {
+        out.push_str(&crate::backends::php::template_env::render(
+            "php_flat_enum_default_fallback_match_arm.jinja",
+            minijinja::context! {
+                core_path => &core_path,
+            },
+        ));
+    } else {
+        // No visible `Default`: the binding only ever emits known tags, so an unrecognised
+        // tag is unreachable by construction. Emit a panicking wildcard so the `&str` match
+        // stays exhaustive without calling a non-existent `Default` impl.
+        out.push_str(
+            "            _ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\"),\n",
+        );
+    }
     out.push_str(&crate::backends::php::template_env::render(
         "php_flat_enum_impl_match_end.jinja",
         minijinja::Value::default(),
@@ -669,5 +679,97 @@ mod escape_php_reserved_constant_tests {
         assert_eq!(escape_php_reserved_constant("VARIABLE"), "VARIABLE");
         assert_eq!(escape_php_reserved_constant("STRUCT"), "STRUCT");
         assert_eq!(escape_php_reserved_constant("OTHER"), "OTHER");
+    }
+}
+
+#[cfg(test)]
+mod flat_data_enum_from_impls_tests {
+    use super::gen_flat_data_enum_from_impls;
+    use crate::core::ir::{EnumDef, EnumVariant};
+
+    /// Constructs a minimal EnumDef for testing.
+    fn make_enum(name: &str, serde_tag: Option<&str>, has_default_variant: bool, has_excluded: bool) -> EnumDef {
+        let variants = vec![
+            EnumVariant {
+                name: "Variant1".to_string(),
+                is_default: has_default_variant,
+                ..Default::default()
+            },
+            EnumVariant {
+                name: "Variant2".to_string(),
+                is_default: false,
+                ..Default::default()
+            },
+        ];
+
+        let excluded_variants = if has_excluded {
+            vec![EnumVariant {
+                name: "ExcludedVariant".to_string(),
+                is_default: false,
+                ..Default::default()
+            }]
+        } else {
+            vec![]
+        };
+
+        EnumDef {
+            name: name.to_string(),
+            rust_path: format!("module::{}", name),
+            serde_tag: serde_tag.map(|s| s.to_string()),
+            variants,
+            excluded_variants,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn flat_enum_with_default_variant_emits_default_fallback() {
+        let enum_def = make_enum("Message", Some("role"), true, false);
+        let generated = gen_flat_data_enum_from_impls(&enum_def, "crate");
+
+        // When the enum has a #[default] variant, should emit `_ => CorePath::default()`
+        assert!(
+            generated.contains("_ => module::Message::default()"),
+            "Should emit default() fallback for enum with #[default] variant; got:\n{generated}"
+        );
+    }
+
+    #[test]
+    fn flat_enum_without_default_and_with_excluded_emits_unreachable() {
+        let enum_def = make_enum("Message", Some("role"), false, true);
+        let generated = gen_flat_data_enum_from_impls(&enum_def, "crate");
+
+        // When the enum has NO #[default] variant but HAS excluded variants,
+        // should emit a wildcard arm that calls unreachable!() instead of Default::default()
+        assert!(
+            generated.contains("_ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\")"),
+            "Should emit unreachable!() fallback for enum with excluded variants but no default; got:\n{generated}"
+        );
+
+        // Must NOT try to call Default::default() since the core type doesn't have one
+        assert!(
+            !generated.contains("_ => module::Message::default()"),
+            "Should NOT emit default() fallback when core type has no visible Default impl; got:\n{generated}"
+        );
+    }
+
+    #[test]
+    fn flat_enum_without_default_and_no_excluded_emits_unreachable() {
+        let enum_def = make_enum("SimpleEnum", Some("type"), false, false);
+        let generated = gen_flat_data_enum_from_impls(&enum_def, "crate");
+
+        // The binding→core conversion matches on the tag discriminator `&str`, which can never
+        // be matched exhaustively — a wildcard arm is ALWAYS required regardless of whether the
+        // enum has excluded variants. With no visible `Default`, that wildcard must be the
+        // non-`Default` `unreachable!` arm.
+        assert!(
+            generated.contains("_ => unreachable!(\"unrecognised tag for flat enum, not constructible from PHP\")"),
+            "Should emit unreachable!() wildcard for &str match when core has no visible Default; got:\n{generated}"
+        );
+        // Must NOT call a non-existent Default impl.
+        assert!(
+            !generated.contains("_ => module::SimpleEnum::default()"),
+            "Should NOT emit default() fallback when core type has no visible Default impl; got:\n{generated}"
+        );
     }
 }
