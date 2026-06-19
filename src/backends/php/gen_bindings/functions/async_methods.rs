@@ -14,9 +14,9 @@ use super::super::helpers::{
     php_wrap_return,
 };
 use super::params::{
-    PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions, bridge_param_names,
-    gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable, override_bytes_return_type,
-    promote_default_params, promoted_default_param_names, return_type_sig,
+    PhpEnumReturnSets, PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions,
+    bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable,
+    override_bytes_return_type, promote_default_params, promoted_default_param_names, return_type_sig,
 };
 use super::stubs::gen_stub_return;
 
@@ -30,8 +30,10 @@ pub(crate) fn gen_async_function_as_static_method(
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let string_enum_names = &mapper.enum_names;
-    let json_string_enum_names = &mapper.json_string_enum_names;
+    let enum_returns = PhpEnumReturnSets {
+        string_enum_names: &mapper.enum_names,
+        json_string_enum_names: &mapper.json_string_enum_names,
+    };
     let body = gen_async_function_body(
         func,
         &type_sets,
@@ -39,8 +41,7 @@ pub(crate) fn gen_async_function_as_static_method(
         &mapper.enum_names,
         bridges,
         mutex_types,
-        json_string_enum_names,
-        string_enum_names,
+        &enum_returns,
     );
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
@@ -99,8 +100,7 @@ fn gen_async_function_body(
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
-    json_string_enum_names: &ahash::AHashSet<String>,
-    string_enum_names: &ahash::AHashSet<String>,
+    enum_returns: &PhpEnumReturnSets<'_>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
@@ -139,8 +139,8 @@ fn gen_async_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
-                json_string_enum_names,
-                string_enum_names,
+                enum_returns.json_string_enum_names,
+                enum_returns.string_enum_names,
             )
         };
         if func.error_type.is_some() {

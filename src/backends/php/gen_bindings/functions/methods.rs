@@ -15,9 +15,9 @@ use super::super::helpers::{
     gen_php_lossy_binding_to_core_fields, gen_php_named_let_bindings, php_wrap_return,
 };
 use super::params::{
-    PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions, bridge_param_names,
-    gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable, override_bytes_return_type,
-    promote_default_params, promoted_default_param_names, return_type_sig,
+    PhpEnumReturnSets, PhpParamTypeSets, apply_bridge_none_substitutions, apply_default_param_substitutions,
+    bridge_param_names, gen_php_serde_let_bindings, has_ref_named_params, has_sanitized_recoverable,
+    override_bytes_return_type, promote_default_params, promoted_default_param_names, return_type_sig,
 };
 use super::stubs::gen_stub_return;
 
@@ -507,8 +507,10 @@ pub(crate) fn gen_function_as_static_method(
         func,
         &type_sets,
         core_import,
-        &mapper.enum_names,
-        &mapper.json_string_enum_names,
+        &PhpEnumReturnSets {
+            string_enum_names: &mapper.enum_names,
+            json_string_enum_names: &mapper.json_string_enum_names,
+        },
         bridges,
         has_serde,
         mutex_types,
@@ -567,8 +569,7 @@ fn gen_function_body(
     func: &FunctionDef,
     type_sets: &PhpParamTypeSets<'_>,
     core_import: &str,
-    enum_names: &AHashSet<String>,
-    json_string_enum_names: &AHashSet<String>,
+    enum_returns: &PhpEnumReturnSets<'_>,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
     mutex_types: &AHashSet<String>,
@@ -591,7 +592,8 @@ fn gen_function_body(
             }
         };
         let core_call = format!("{core_fn_path}({call_args})");
-        let is_enum_return = matches!(&func.return_type, TypeRef::Named(n) if enum_names.contains(n.as_str()));
+        let is_enum_return =
+            matches!(&func.return_type, TypeRef::Named(n) if enum_returns.string_enum_names.contains(n.as_str()));
         if func.error_type.is_some() {
             if is_enum_return {
                 crate::backends::php::template_env::render(
@@ -611,8 +613,8 @@ fn gen_function_body(
                     func.returns_ref,
                     false,
                     mutex_types,
-                    json_string_enum_names,
-                    enum_names,
+                    enum_returns.json_string_enum_names,
+                    enum_returns.string_enum_names,
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -641,8 +643,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
-                json_string_enum_names,
-                enum_names,
+                enum_returns.json_string_enum_names,
+                enum_returns.string_enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -694,8 +696,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
-                json_string_enum_names,
-                enum_names,
+                enum_returns.json_string_enum_names,
+                enum_returns.string_enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_result_wrapped_body_with_let_bindings.jinja",
@@ -715,8 +717,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
-                json_string_enum_names,
-                enum_names,
+                enum_returns.json_string_enum_names,
+                enum_returns.string_enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",

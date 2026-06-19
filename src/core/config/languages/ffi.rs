@@ -41,7 +41,7 @@ pub struct FfiCapsuleTypeConfig {
     /// injection (e.g. when the pointee type is already reachable).
     #[serde(default)]
     pub package: Option<String>,
-    /// Version requirement for [`package`]. Ignored when `package` is `None`.
+    /// Version requirement for [`Self::package`]. Ignored when `package` is `None`.
     #[serde(default)]
     pub package_version: Option<String>,
 }

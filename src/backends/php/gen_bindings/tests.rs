@@ -86,6 +86,7 @@ fn should_emit_rust_line_doc_comments_when_doc_text_contains_block_comment_seque
         enum_names: AHashSet::new(),
         data_enum_names: AHashSet::new(),
         untagged_data_enum_names: AHashSet::new(),
+        json_string_enum_names: AHashSet::new(),
     };
     let empty = AHashSet::new();
     let type_sets = PhpParamTypeSets {

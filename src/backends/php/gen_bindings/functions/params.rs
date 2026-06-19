@@ -11,6 +11,11 @@ pub(crate) struct PhpParamTypeSets<'a> {
     pub(crate) enums: &'a AHashSet<String>,
 }
 
+pub(crate) struct PhpEnumReturnSets<'a> {
+    pub(crate) string_enum_names: &'a AHashSet<String>,
+    pub(crate) json_string_enum_names: &'a AHashSet<String>,
+}
+
 /// Format the `-> ReturnType` part of a function signature.
 /// Returns an empty string for unit `()` return types to avoid
 /// emitting `-> ()` which triggers `clippy::unused_unit`.
