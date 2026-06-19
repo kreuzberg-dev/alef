@@ -85,6 +85,7 @@ fn return_type_can_be_null(ty: &TypeRef, struct_names: &std::collections::HashSe
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn emit_function(
     f: &FunctionDef,
     prefix: &str,
@@ -92,8 +93,19 @@ pub(crate) fn emit_function(
     top_level_names: &std::collections::HashSet<String>,
     struct_names: &std::collections::HashSet<String>,
     opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     out: &mut String,
 ) {
+    // Host-native capsule (Language) passthrough: construct the host runtime's `Language`
+    // from the raw C grammar pointer instead of an opaque handle. Only bare `Named` returns
+    // are passthrough-eligible.
+    if let TypeRef::Named(name) = &f.return_type {
+        if let Some(cap) = capsule_types.get(name.as_str()) {
+            emit_capsule_function(f, prefix, struct_names, opaque_creator_map, cap, out);
+            return;
+        }
+    }
+
     emit_cleaned_zig_doc(out, &f.doc, "");
 
     // Rename param names that would shadow a top-level decl (Zig 0.16+ rejects
@@ -373,6 +385,84 @@ pub(crate) fn emit_function(
         }
     }
 
+    out.push_str("}\n");
+}
+
+/// Emit a Zig wrapper for a function returning a host-native capsule (Language) type.
+///
+/// The C symbol returns the host runtime's raw grammar pointer; the wrapper constructs the
+/// host `Language` (e.g. `@import("tree_sitter").Language.fromRaw(@ptrCast(_result))`).
+fn emit_capsule_function(
+    f: &FunctionDef,
+    prefix: &str,
+    struct_names: &std::collections::HashSet<String>,
+    opaque_creator_map: &std::collections::HashMap<String, (String, String)>,
+    cap: &crate::core::config::HostCapsuleTypeConfig,
+    out: &mut String,
+) {
+    emit_cleaned_zig_doc(out, &f.doc, "");
+
+    let params: Vec<String> = f
+        .params
+        .iter()
+        .map(|p| format_param_wrapper(p, struct_names, opaque_creator_map))
+        .collect();
+
+    // Wrappers that allocate C strings for params need `error{OutOfMemory}!T`.
+    let body_needs_try = f.params.iter().any(needs_alloc_param);
+    let host_type = if cap.host_type.is_empty() {
+        "?*const tree_sitter.Language".to_string()
+    } else {
+        cap.host_type.clone()
+    };
+    let return_ty = if body_needs_try {
+        format!("error{{OutOfMemory}}!{host_type}")
+    } else {
+        host_type.clone()
+    };
+
+    out.push_str(&crate::backends::zig::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            func_name => &f.name,
+            params => params.join(", "),
+            return_ty => &return_ty,
+        },
+    ));
+
+    for p in &f.params {
+        emit_param_conversion(
+            p,
+            prefix,
+            struct_names,
+            opaque_creator_map,
+            "return error.OutOfMemory;",
+            out,
+        );
+    }
+
+    let c_args: Vec<String> = f
+        .params
+        .iter()
+        .flat_map(|p| c_arg_names(p, struct_names, opaque_creator_map))
+        .collect();
+    let c_call = format!("c.{prefix}_{}({})", f.name, c_args.join(", "));
+    out.push_str(&crate::backends::zig::template_env::render(
+        "function_call_result.jinja",
+        minijinja::context! {
+            c_call => &c_call,
+        },
+    ));
+
+    for p in &f.params {
+        emit_param_free(p, prefix, struct_names, opaque_creator_map, out);
+    }
+
+    // Guard the null pointer (grammar not found) and construct the host Language.
+    // The `{ptr}` placeholder receives the raw C pointer; the default wraps it via @ptrCast.
+    out.push_str("    if (_result == null) return null;\n");
+    let construct = cap.construct("_result", "tree_sitter.Language.fromRaw(@ptrCast({ptr}))");
+    out.push_str(&format!("    return {construct};\n"));
     out.push_str("}\n");
 }
 
@@ -834,5 +924,88 @@ pub(crate) fn zig_return_type(ty: &TypeRef, struct_names: &std::collections::Has
             other => zig_field_type(other, true),
         },
         other => zig_field_type(other, false),
+    }
+}
+
+#[cfg(test)]
+mod capsule_tests {
+    use super::*;
+    use crate::core::config::HostCapsuleTypeConfig;
+    use std::collections::{HashMap, HashSet};
+
+    fn get_language_fn() -> FunctionDef {
+        FunctionDef {
+            name: "get_language".to_string(),
+            rust_path: "ts_pack::get_language".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: true,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: crate::core::ir::CoreWrapper::None,
+            }],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }
+    }
+
+    #[test]
+    fn emit_function_constructs_host_language_for_capsule_return() {
+        let f = get_language_fn();
+        let mut capsule_types: HashMap<String, HostCapsuleTypeConfig> = HashMap::new();
+        capsule_types.insert(
+            "Language".to_string(),
+            HostCapsuleTypeConfig {
+                host_type: "?*const tree_sitter.Language".to_string(),
+                package: "https://github.com/tree-sitter/zig-tree-sitter".to_string(),
+                package_version: String::new(),
+                construct_expr: String::new(),
+            },
+        );
+        let mut out = String::new();
+        emit_function(
+            &f,
+            "tsp",
+            &[],
+            &HashSet::new(),
+            &HashSet::new(),
+            &HashMap::new(),
+            &capsule_types,
+            &mut out,
+        );
+        assert!(
+            out.contains("?*const tree_sitter.Language"),
+            "capsule fn must return the host Language type. Got:\n{out}"
+        );
+        assert!(
+            out.contains("tree_sitter.Language.fromRaw(@ptrCast(_result))"),
+            "capsule fn must construct via fromRaw. Got:\n{out}"
+        );
+        assert!(
+            out.contains("c.tsp_get_language("),
+            "capsule fn must call the C symbol. Got:\n{out}"
+        );
     }
 }

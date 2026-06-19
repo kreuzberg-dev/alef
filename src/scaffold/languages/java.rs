@@ -4,6 +4,34 @@ use crate::core::ir::ApiSurface;
 use crate::{scaffold::parse_author, scaffold::scaffold_meta, scaffold::xml_escape};
 use std::path::PathBuf;
 
+/// Render `<dependency>` blocks for host-native capsule (Language) passthrough.
+/// Each `package` is a Maven `groupId:artifactId` coordinate (e.g.
+/// `io.github.tree-sitter:jtreesitter`); `package_version` is the `<version>`.
+fn java_capsule_dependencies(config: &ResolvedCrateConfig) -> String {
+    let mut deps: Vec<(String, String)> = config
+        .java
+        .as_ref()
+        .map(|c| {
+            c.capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .map(|cap| (cap.package.clone(), cap.package_version.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    deps.sort();
+    deps.dedup();
+    deps.iter()
+        .map(|(coord, ver)| {
+            let (group_id, artifact_id) = coord.split_once(':').unwrap_or((coord.as_str(), ""));
+            format!(
+                "\n        <dependency>\n            <groupId>{group_id}</groupId>\n            \
+                 <artifactId>{artifact_id}</artifactId>\n            <version>{ver}</version>\n        </dependency>"
+            )
+        })
+        .collect()
+}
+
 pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
     let meta = scaffold_meta(config);
     // `name` here is the Maven artifactId. Prefer the explicit `[java] artifact_id`
@@ -152,7 +180,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             <artifactId>assertj-core</artifactId>
             <version>4.0.0-M1</version>
             <scope>test</scope>
-        </dependency>
+        </dependency>{capsule_deps}
     </dependencies>
 
     <build>
@@ -518,6 +546,7 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         developers = developers_xml,
         scm_connection = scm.connection,
         scm_developer_connection = scm.developer_connection,
+        capsule_deps = java_capsule_dependencies(config),
     );
 
     // Generated Java code preserves Rust snake_case identifiers for FFI fidelity.

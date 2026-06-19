@@ -87,6 +87,34 @@ pub(crate) fn scaffold_dart(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         format!("homepage: {}\n", meta.homepage)
     };
 
+    // Host-native capsule (Language) passthrough. Dart has no idiomatic high-level
+    // tree-sitter Language wrapper, so the binding returns the raw `Pointer<TSLanguage>`
+    // via dart:ffi and normally needs no extra package. A capsule entry with a non-empty
+    // `package` still injects a pub dependency line for consumers that wire their own wrapper.
+    let capsule_dependency_lines: String = {
+        let mut deps: Vec<(String, String)> = config
+            .dart
+            .as_ref()
+            .map(|c| {
+                c.capsule_types
+                    .values()
+                    .filter(|cap| !cap.package.is_empty())
+                    .map(|cap| {
+                        let ver = if cap.package_version.is_empty() {
+                            "any".to_string()
+                        } else {
+                            cap.package_version.clone()
+                        };
+                        (cap.package.clone(), ver)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        deps.sort();
+        deps.dedup();
+        deps.iter().map(|(pkg, ver)| format!("  {pkg}: '{ver}'\n")).collect()
+    };
+
     let pubspec_yaml = format!(
         r#"name: {name}
 description: {description}
@@ -97,7 +125,7 @@ executables:
   download_libs:
 dependencies:
   http: '^1.1.0'
-{dependency_block}dev_dependencies:
+{capsule_dependency_lines}{dependency_block}dev_dependencies:
   test: '{test_package}'
   lints: '{lints}'
 {dev_dependency_block}"#,
@@ -106,6 +134,7 @@ dependencies:
         version = version,
         repository_line = repository_line,
         homepage_line = homepage_line,
+        capsule_dependency_lines = capsule_dependency_lines,
     );
 
     let generated_dir = format!("lib/src/{module_name}_bridge_generated/**");

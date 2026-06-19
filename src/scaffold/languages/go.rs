@@ -9,7 +9,40 @@ pub(crate) fn scaffold_go(api: &ApiSurface, config: &ResolvedCrateConfig) -> any
     let _ = version; // go.mod doesn't embed the package version
     let package_dir = config.package_dir(Language::Go);
 
-    let content = format!("module {module}\n\ngo 1.26\n", module = go_module,);
+    // Host-native capsule (Language) passthrough requires the ecosystem tree-sitter Go
+    // module as a runtime dependency. Inject a `require` block for each configured package.
+    let mut require_lines: Vec<String> = config
+        .go
+        .as_ref()
+        .map(|c| {
+            let mut deps: Vec<(String, String)> = c
+                .capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .map(|cap| {
+                    let ver = if cap.package_version.is_empty() {
+                        "latest".to_string()
+                    } else {
+                        cap.package_version.clone()
+                    };
+                    (cap.package.clone(), ver)
+                })
+                .collect();
+            deps.sort();
+            deps.dedup();
+            deps.into_iter().map(|(pkg, ver)| format!("{pkg} {ver}")).collect()
+        })
+        .unwrap_or_default();
+    require_lines.sort();
+    require_lines.dedup();
+
+    let require_block = if require_lines.is_empty() {
+        String::new()
+    } else {
+        format!("\nrequire (\n\t{}\n)\n", require_lines.join("\n\t"))
+    };
+
+    let content = format!("module {module}\n\ngo 1.26\n{require_block}", module = go_module,);
 
     let mut files = vec![
         GeneratedFile {

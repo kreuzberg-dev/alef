@@ -54,6 +54,28 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
     let jni_crate_path = config.jni_crate_path();
     let jni_lib_name = config.jni_lib_name();
 
+    // Host-native capsule (Language) passthrough: depend on ktreesitter so the generated
+    // facade can construct its `Language` from the native pointer. `package` is a Gradle
+    // `group:artifact` coordinate (e.g. `io.github.tree-sitter:ktreesitter`).
+    let capsule_deps: String = {
+        let mut deps: Vec<(String, String)> = config
+            .kotlin_android
+            .as_ref()
+            .map(|c| {
+                c.capsule_types
+                    .values()
+                    .filter(|cap| !cap.package.is_empty())
+                    .map(|cap| (cap.package.clone(), cap.package_version.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        deps.sort();
+        deps.dedup();
+        deps.iter()
+            .map(|(coord, ver)| format!("\n    implementation(\"{coord}:{ver}\")"))
+            .collect()
+    };
+
     // Build pom metadata from config.scaffold
     let meta = scaffold_meta(config);
 
@@ -174,7 +196,7 @@ dependencies {{
     // registers Jdk8Module for Optional<T> / java.util.Optional support.
     implementation("com.fasterxml.jackson.core:jackson-databind:{jackson}")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:{jackson}")
-    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jdk8:{jackson}"){capsule_deps}
     testImplementation("junit:junit:{junit_legacy}")
     androidTestImplementation("androidx.test.ext:junit:{androidx_junit}")
     androidTestImplementation("androidx.test.espresso:espresso-core:{espresso_core}")

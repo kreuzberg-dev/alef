@@ -101,7 +101,7 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
   <ItemGroup>
     <Compile Include="../src/**/*.cs" />
   </ItemGroup>
-</Project>
+{capsule_package_refs}</Project>
 "#,
         target_framework = target_framework,
         namespace = namespace,
@@ -112,7 +112,34 @@ pub fn render_csharp_csproj(config: &ResolvedCrateConfig, version: &str) -> Stri
         description = meta.description,
         repository = repository_csproj,
         authors = authors_csproj,
+        capsule_package_refs = capsule_package_refs(config),
     )
+}
+
+/// Render a `<PackageReference>` ItemGroup for host-native capsule (Language) passthrough
+/// dependencies (e.g. NuGet `TreeSitter.DotNet`). Empty when no capsule types are configured.
+fn capsule_package_refs(config: &ResolvedCrateConfig) -> String {
+    let mut deps: Vec<(String, String)> = config
+        .csharp
+        .as_ref()
+        .map(|c| {
+            c.capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .map(|cap| (cap.package.clone(), cap.package_version.clone()))
+                .collect()
+        })
+        .unwrap_or_default();
+    deps.sort();
+    deps.dedup();
+    if deps.is_empty() {
+        return String::new();
+    }
+    let refs: String = deps
+        .iter()
+        .map(|(pkg, ver)| format!("    <PackageReference Include=\"{pkg}\" Version=\"{ver}\" />\n"))
+        .collect();
+    format!("\n  <ItemGroup>\n{refs}  </ItemGroup>\n")
 }
 
 pub(crate) fn scaffold_csharp(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {

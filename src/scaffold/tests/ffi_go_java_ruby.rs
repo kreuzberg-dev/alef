@@ -178,6 +178,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         serde_rename_all: None,
         exclude_functions: vec![],
         exclude_types: vec![],
+        capsule_types: Default::default(),
         rename_fields: Default::default(),
         capsule_types: Default::default(),
         plugin_error_constructor: None,
@@ -338,6 +339,34 @@ fn test_scaffold_go_production_format() {
     let content = &files[0].content;
     assert!(content.contains("go 1.26"));
     assert!(!content.contains("require ("));
+}
+
+#[test]
+fn test_scaffold_go_injects_capsule_require() {
+    let config = minimal_config_from_toml(
+        r#"
+[crates.go]
+module = "github.com/test/my-lib"
+
+[crates.go.capsule_types.Language]
+host_type = "*tree_sitter.Language"
+package = "github.com/tree-sitter/go-tree-sitter"
+package_version = "v0.25.0"
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::Go]).unwrap();
+    let files = language_files(&all_files);
+    let go_mod = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("go.mod"))
+        .expect("go.mod must be emitted");
+    assert!(
+        go_mod.content.contains("github.com/tree-sitter/go-tree-sitter v0.25.0"),
+        "go.mod must require the go-tree-sitter capsule package, got:\n{}",
+        go_mod.content
+    );
+    assert!(go_mod.content.contains("require ("), "go.mod must have a require block");
 }
 
 #[test]

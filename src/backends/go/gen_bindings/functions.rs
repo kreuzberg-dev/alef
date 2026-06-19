@@ -490,6 +490,84 @@ pub(super) fn gen_function_wrapper(
     out
 }
 
+/// Generate a Go wrapper for a function returning a host-native capsule (Language) type.
+///
+/// The exported C symbol returns the host runtime's raw grammar pointer
+/// (`*C.TSLanguage`). The wrapper converts parameters, calls the C function, and
+/// constructs the host `Language` (e.g. `tree_sitter.NewLanguage(unsafe.Pointer(ptr))`)
+/// from the raw pointer — never an opaque alef handle.
+pub(super) fn gen_capsule_function_wrapper(
+    func: &FunctionDef,
+    ffi_prefix: &str,
+    opaque_names: &std::collections::HashSet<&str>,
+    enum_names: &std::collections::HashSet<String>,
+    ffi_param_enum_names: &std::collections::HashSet<String>,
+    cfg: &crate::core::config::HostCapsuleTypeConfig,
+) -> String {
+    let mut out = String::with_capacity(1024);
+
+    let func_go_name = to_go_name(&func.name);
+    emit_type_doc(&mut out, &func_go_name, &func.doc, "calls the FFI function.");
+
+    // Parameter list (capsule functions take only plain scalar/string params in practice).
+    let mut param_strs: Vec<String> = Vec::new();
+    for p in func.params.iter() {
+        let param_type = if p.optional {
+            go_optional_type(&p.ty).into_owned()
+        } else {
+            go_type(&p.ty).into_owned()
+        };
+        param_strs.push(format!("{} {}", go_param_name(&p.name), param_type));
+    }
+    let params_str = param_strs.join(", ");
+    let ret_type_str = format!(" {}", cfg.host_type);
+
+    out.push_str(&crate::backends::go::template_env::render(
+        "function_signature.jinja",
+        minijinja::context! {
+            func_name => func_go_name,
+            params => &params_str,
+            return_type => &ret_type_str,
+        },
+    ));
+
+    // Convert parameters to C. Capsule functions are infallible at the binding boundary
+    // (a nil pointer signals "not found"), so emit a nil-returning prefix on conversion failure.
+    for param in func.params.iter() {
+        out.push_str(&gen_param_to_c(
+            param,
+            "nil, ",
+            false,
+            ffi_prefix,
+            opaque_names,
+            enum_names,
+            ffi_param_enum_names,
+        ));
+    }
+
+    let func_snake = func.name.to_snake_case();
+    let ffi_name = format!("C.{}_{}", ffi_prefix, func_snake);
+    let c_params: Vec<String> = func
+        .params
+        .iter()
+        .map(|p| go_param_name(&format!("c_{}", p.name)))
+        .collect();
+    let c_call = format!("{}({})", ffi_name, c_params.join(", "));
+
+    // Call the C function, guard nil, then construct the host Language from the raw pointer.
+    // The `{ptr}` placeholder receives the raw cgo pointer; the default wraps it via unsafe.Pointer.
+    let construct = cfg.construct("cLang", "tree_sitter.NewLanguage(unsafe.Pointer({ptr}))");
+    out.push_str(&format!("\tcLang := {c_call}\n"));
+    out.push_str("\tif cLang == nil {\n\t\treturn nil\n\t}\n");
+    out.push_str(&format!("\treturn {construct}\n"));
+
+    out.push_str(&crate::backends::go::template_env::render(
+        "function_body_end.jinja",
+        minijinja::Value::default(),
+    ));
+    out
+}
+
 /// Generate a custom wrapper for an options-field visitor bridge function.
 ///
 /// When the configured options field is not nil, the wrapper delegates to the visitor helper.

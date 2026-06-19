@@ -75,13 +75,48 @@ pub fn build(b: *std.Build) void {{
     // a `.fingerprint` field. We derive a stable 64-bit value from the module name so that
     // regeneration is deterministic.
     let fingerprint = zig_fingerprint(&module_name);
+
+    // Host-native capsule (Language) passthrough: inject the zig-tree-sitter dependency so
+    // generated code can `@import("tree_sitter").Language.fromRaw(...)`. Each capsule entry's
+    // `package` is the dependency URL and `package_version` the URL hash (`.hash = ...`).
+    let zig_capsule_deps: String = config
+        .zig
+        .as_ref()
+        .map(|c| {
+            let mut entries: Vec<String> = c
+                .capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .map(|cap| {
+                    let hash_field = if cap.package_version.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n            .hash = \"{}\",", cap.package_version)
+                    };
+                    format!(
+                        "        .tree_sitter = .{{\n            .url = \"{}\",{}\n        }},",
+                        cap.package, hash_field
+                    )
+                })
+                .collect();
+            entries.sort();
+            entries.dedup();
+            entries.join("\n")
+        })
+        .unwrap_or_default();
+    let dependencies_block = if zig_capsule_deps.is_empty() {
+        ".{}".to_string()
+    } else {
+        format!(".{{\n{zig_capsule_deps}\n    }}")
+    };
+
     let build_zig_zon = format!(
         r#".{{
     .name = .{module_name},
     .version = "{version}",
     .fingerprint = 0x{fingerprint:016x},
     .minimum_zig_version = "{min_zig}",
-    .dependencies = .{{}},
+    .dependencies = {dependencies_block},
     .paths = .{{
         "build.zig",
         "build.zig.zon",
@@ -93,6 +128,7 @@ pub fn build(b: *std.Build) void {{
         version = version,
         fingerprint = fingerprint,
         min_zig = toolchain::MIN_ZIG_VERSION,
+        dependencies_block = dependencies_block,
     );
 
     let gitignore = "zig-cache/\nzig-out/\n.zig-cache/\n";

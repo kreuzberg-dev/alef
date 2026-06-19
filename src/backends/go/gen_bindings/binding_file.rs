@@ -1,5 +1,7 @@
 use super::constructors::gen_go_opaque_constructor;
-use super::functions::{gen_adapter_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper};
+use super::functions::{
+    gen_adapter_wrapper, gen_capsule_function_wrapper, gen_convert_with_visitor_wrapper, gen_function_wrapper,
+};
 use super::methods::{gen_method_wrapper, gen_streaming_method_wrapper};
 use super::types::{
     gen_config_options, gen_enum_type, gen_last_error_helper, gen_opaque_type, gen_opaque_type_free_only,
@@ -128,6 +130,19 @@ fn type_ref_named_type(ty: &TypeRef) -> Option<&str> {
         TypeRef::Named(name) => Some(name.as_str()),
         TypeRef::Optional(inner) => type_ref_named_type(inner),
         _ => None,
+    }
+}
+
+/// Returns the host capsule config when `func` returns a configured capsule type by value
+/// (bare `Named`). Optional capsule returns fall through to the standard opaque path.
+fn go_capsule_return_config<'a>(
+    func: &crate::core::ir::FunctionDef,
+    capsule_types: &'a std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
+) -> Option<&'a crate::core::config::HostCapsuleTypeConfig> {
+    if let crate::core::ir::TypeRef::Named(name) = &func.return_type {
+        capsule_types.get(name.as_str())
+    } else {
+        None
     }
 }
 
@@ -382,6 +397,10 @@ pub(super) fn gen_go_file(
     }
 
     // Generate free function wrappers.
+    // Host-native capsule (Language-passthrough) types configured under `[crates.go.capsule_types]`.
+    let go_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> =
+        config.go.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+
     // Async functions are included — the underlying FFI uses block_on() for synchronous C calls.
     // Skip functions excluded from FFI generation (their C symbols don't exist in the header)
     // and functions whose parameter or return types are enum types without FFI JSON helpers.
@@ -397,6 +416,20 @@ pub(super) fn gen_go_file(
             )
             && !crate::codegen::generators::trait_bridge::is_trait_bridge_managed_fn(&f.name, &config.trait_bridges)
     }) {
+        // Host-native capsule (Language) passthrough: construct the host runtime's
+        // `Language` from the raw C grammar pointer instead of an opaque handle.
+        if let Some(capsule_cfg) = go_capsule_return_config(func, &go_capsule_types) {
+            body.push_str(&gen_capsule_function_wrapper(
+                func,
+                ffi_prefix,
+                &opaque_names,
+                &ffi_enum_names,
+                &ffi_param_enum_names,
+                capsule_cfg,
+            ));
+            body.push_str("\n\n");
+            continue;
+        }
         // For the configured options-field visitor function, wrap it with visitor-awareness
         // logic instead of generating the basic wrapper.
         if visitor_bridge_cfg.is_some_and(|bridge_cfg| options_bridge_function_matches(func, bridge_cfg)) {
@@ -560,10 +593,35 @@ pub(super) fn gen_go_file(
     if !api.errors.is_empty() {
         imports.insert(1.min(imports.len()), "errors");
     }
+    // Capsule (Language) passthrough needs `unsafe` (for unsafe.Pointer) and the host
+    // tree-sitter Go package. Only add when a capsule wrapper was actually emitted.
+    let capsule_packages: Vec<&str> = if go_capsule_types.values().any(|c| !c.package.is_empty())
+        && api
+            .functions
+            .iter()
+            .any(|f| go_capsule_return_config(f, &go_capsule_types).is_some())
+    {
+        if !imports.contains(&"unsafe") {
+            imports.push("unsafe");
+        }
+        go_capsule_types
+            .values()
+            .filter(|c| !c.package.is_empty())
+            .map(|c| c.package.as_str())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let mut all_imports = imports.clone();
+    for pkg in &capsule_packages {
+        if !all_imports.contains(pkg) {
+            all_imports.push(pkg);
+        }
+    }
     let imports_str = crate::backends::go::template_env::render(
         "imports_basic.jinja",
         minijinja::context! {
-            imports => imports,
+            imports => all_imports,
         },
     );
 
