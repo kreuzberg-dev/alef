@@ -104,6 +104,22 @@ pub(crate) fn scaffold_ffi(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     if has_streaming && !extra_dep_lines.iter().any(|l| l.starts_with("futures-util")) {
         extra_dep_lines.push("futures-util = \"0.3\"".to_string());
     }
+    // Inject the crate that provides each capsule type's `into_raw_type` pointee
+    // (e.g. `tree-sitter` for `tree_sitter::ffi::TSLanguage`). The capsule shim
+    // names that type directly, but the FFI crate only depends on it transitively
+    // via the core crate, so it is not in scope without a direct dependency.
+    if let Some(ffi) = config.ffi.as_ref() {
+        for capsule in ffi.capsule_types.values() {
+            let (Some(package), Some(version)) = (capsule.package.as_ref(), capsule.package_version.as_ref())
+            else {
+                continue;
+            };
+            let dep_prefix = format!("{package} ");
+            if !extra_dep_lines.iter().any(|l| l.starts_with(&dep_prefix)) {
+                extra_dep_lines.push(format!("{package} = \"{version}\""));
+            }
+        }
+    }
     extra_dep_lines.sort();
 
     // Build the cargo-machete ignored list. `serde_json` and `tokio` are
@@ -461,6 +477,71 @@ mod tests {
         assert!(
             content.contains("repository = \"https://github.com/example/my-lib\"\n\n# comment"),
             "expected exactly one blank line between repository and comment:\n{content}"
+        );
+    }
+
+    fn resolve_config(toml_text: &str) -> ResolvedCrateConfig {
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(toml_text).expect("valid config");
+        cfg.resolve().expect("resolve").remove(0)
+    }
+
+    /// A capsule type that declares `package`/`package_version` must add that
+    /// crate as a direct FFI dependency so the capsule shim can name the pointee
+    /// type (the core crate's transitive dep is not in scope for generated code).
+    #[test]
+    fn ffi_cargo_toml_injects_capsule_package_dependency() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["ffi"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.ffi.capsule_types.Language]
+into_raw_type = "tree_sitter::ffi::TSLanguage"
+c_return_type = "TSLanguage"
+package = "tree-sitter"
+package_version = "0.26"
+"#,
+        );
+        let api = crate::core::ir::ApiSurface::default();
+        let files = scaffold_ffi(&api, &config).expect("scaffold");
+        let cargo = files
+            .iter()
+            .find(|f| f.path.ends_with("Cargo.toml"))
+            .expect("ffi Cargo.toml emitted");
+        assert!(
+            cargo.content.contains("tree-sitter = \"0.26\""),
+            "capsule package dep must be injected into FFI Cargo.toml, got:\n{}",
+            cargo.content
+        );
+    }
+
+    /// A capsule type without `package` must not inject any dependency.
+    #[test]
+    fn ffi_cargo_toml_omits_capsule_dep_when_package_unset() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["ffi"]
+[[crates]]
+name = "my-lib"
+sources = []
+[crates.ffi.capsule_types.Language]
+into_raw_type = "tree_sitter::ffi::TSLanguage"
+c_return_type = "TSLanguage"
+"#,
+        );
+        let api = crate::core::ir::ApiSurface::default();
+        let files = scaffold_ffi(&api, &config).expect("scaffold");
+        let cargo = files
+            .iter()
+            .find(|f| f.path.ends_with("Cargo.toml"))
+            .expect("ffi Cargo.toml emitted");
+        assert!(
+            !cargo.content.contains("tree-sitter ="),
+            "no capsule dep should be injected when package is unset, got:\n{}",
+            cargo.content
         );
     }
 }

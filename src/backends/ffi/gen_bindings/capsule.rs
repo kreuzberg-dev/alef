@@ -77,6 +77,8 @@ mod tests {
         FfiCapsuleTypeConfig {
             into_raw_type: "tree_sitter::ffi::TSLanguage".to_string(),
             c_return_type: "TSLanguage".to_string(),
+            package: None,
+            package_version: None,
         }
     }
 

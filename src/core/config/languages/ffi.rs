@@ -20,6 +20,8 @@ use std::collections::HashMap;
 /// [crates.ffi.capsule_types.Language]
 /// into_raw_type = "tree_sitter::ffi::TSLanguage"
 /// c_return_type = "TSLanguage"
+/// package = "tree-sitter"
+/// package_version = "0.26"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct FfiCapsuleTypeConfig {
@@ -32,6 +34,16 @@ pub struct FfiCapsuleTypeConfig {
     /// declare the return as `const {c_return_type} *`). Defaults to `"TSLanguage"`.
     #[serde(default = "default_ffi_capsule_c_return_type")]
     pub c_return_type: String,
+    /// Cargo crate that provides `into_raw_type` (e.g. `"tree-sitter"`). When set,
+    /// `scaffold_ffi` injects it as a direct dependency of the FFI crate so the
+    /// capsule shim can name the pointee type. The core crate's transitive
+    /// dependency is not in scope for the generated FFI code. `None` skips
+    /// injection (e.g. when the pointee type is already reachable).
+    #[serde(default)]
+    pub package: Option<String>,
+    /// Version requirement for [`package`]. Ignored when `package` is `None`.
+    #[serde(default)]
+    pub package_version: Option<String>,
 }
 
 fn default_ffi_capsule_into_raw_type() -> String {

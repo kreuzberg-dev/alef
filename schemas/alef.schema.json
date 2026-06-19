@@ -2017,7 +2017,7 @@
       "description": "A single extra-dependency declaration. Accepts either a bare version string\n(`\"tree-sitter\" = \"^0.25.0\"`) or a free-form TOML table for source/feature\nmetadata (`\"foo\" = { version = \"1\", git = \"https://…\" }`).\n\nPer-language emitters decide which table keys they understand. Unknown keys\nare surfaced as warnings but never block emission — the goal is forward\ncompatibility as the alef.toml surface grows."
     },
     "FfiCapsuleTypeConfig": {
-      "description": "Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.\n\nWhen a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend\ndoes NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C\nfunction returns the host ecosystem's native grammar pointer directly by calling\n`value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the\nresult to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`\nsymbols are suppressed for that type.\n\nThis is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,\nSwift, Dart, Zig, Kotlin Android): each of those constructs its own host-native\n`Language` wrapper from this raw pointer.\n\nTOML form:\n```toml\n[crates.ffi.capsule_types.Language]\ninto_raw_type = \"tree_sitter::ffi::TSLanguage\"\nc_return_type = \"TSLanguage\"\n```",
+      "description": "Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.\n\nWhen a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend\ndoes NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C\nfunction returns the host ecosystem's native grammar pointer directly by calling\n`value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the\nresult to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`\nsymbols are suppressed for that type.\n\nThis is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,\nSwift, Dart, Zig, Kotlin Android): each of those constructs its own host-native\n`Language` wrapper from this raw pointer.\n\nTOML form:\n```toml\n[crates.ffi.capsule_types.Language]\ninto_raw_type = \"tree_sitter::ffi::TSLanguage\"\nc_return_type = \"TSLanguage\"\npackage = \"tree-sitter\"\npackage_version = \"0.26\"\n```",
       "properties": {
         "c_return_type": {
           "default": "TSLanguage",
@@ -2028,6 +2028,22 @@
           "default": "tree_sitter::ffi::TSLanguage",
           "description": "Fully-qualified Rust pointee type produced by `value.into_raw()`.\nThe generated body casts to `*const {into_raw_type}`.\nDefaults to `\"tree_sitter::ffi::TSLanguage\"`.",
           "type": "string"
+        },
+        "package": {
+          "default": null,
+          "description": "Cargo crate that provides `into_raw_type` (e.g. `\"tree-sitter\"`). When set,\n`scaffold_ffi` injects it as a direct dependency of the FFI crate so the\ncapsule shim can name the pointee type. The core crate's transitive\ndependency is not in scope for the generated FFI code. `None` skips\ninjection (e.g. when the pointee type is already reachable).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "package_version": {
+          "default": null,
+          "description": "Version requirement for [`package`]. Ignored when `package` is `None`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"
