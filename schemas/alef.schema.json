@@ -2039,7 +2039,7 @@
         },
         "package_version": {
           "default": null,
-          "description": "Version requirement for [`package`]. Ignored when `package` is `None`.",
+          "description": "Version requirement for [`Self::package`]. Ignored when `package` is `None`.",
           "type": [
             "string",
             "null"
