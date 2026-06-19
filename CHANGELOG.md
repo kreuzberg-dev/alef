@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/php/gen_bindings/functions/params.rs`, `src/backends/php/template_env.rs`,
   `src/backends/php/templates/php_json_let_binding.jinja`,
   `src/backends/php/templates/php_json_let_binding_optional.jinja`)
+- **(backends/php): convert `BTreeMap` parameters from PHP hash maps at call sites.**
+  PHP receives map parameters as `HashMap`, but core functions can require `BTreeMap`; the PHP
+  call-argument helpers now collect those values into `BTreeMap` before invoking the core API.
+  (`src/backends/php/gen_bindings/helpers/params.rs`)
 - **(backends/php): serialize string-mapped data-enum returns instead of treating them as DTOs.**
   PHP now distinguishes pure unit string enums from externally-tagged data enums when wrapping
   return values, preserving data-variant payloads as JSON strings while unit enums still return

@@ -282,6 +282,19 @@ pub(crate) fn gen_php_call_args(params: &[crate::core::ir::ParamDef], opaque_typ
                         bound_name
                     }
                 }
+                TypeRef::Map(_, _) if p.map_is_btree => {
+                    // Core expects a `BTreeMap`; PHP receives the hash as `HashMap`. Collect
+                    // into a `BTreeMap` at the call site to match the core signature.
+                    let collect = "iter().map(|(k, v)| (k.clone(), v.clone()))\
+                        .collect::<std::collections::BTreeMap<_, _>>()";
+                    if p.optional {
+                        format!("{php_name}.as_ref().map(|m| m.{collect})")
+                    } else if p.is_ref {
+                        format!("&{php_name}.{collect}")
+                    } else {
+                        format!("{php_name}.{collect}")
+                    }
+                }
                 TypeRef::Duration => {
                     if p.optional {
                         format!("{php_name}.map(|v| std::time::Duration::from_millis(v.max(0) as u64))")
@@ -563,6 +576,20 @@ pub(crate) fn gen_php_call_args_with_let_bindings(
                         format!("{bound_name}.as_ref().unwrap()")
                     } else {
                         bound_name
+                    }
+                }
+                TypeRef::Map(_, _) if p.map_is_btree => {
+                    // Core expects a `BTreeMap`, but PHP receives the hash as `HashMap`.
+                    // Collect into a `BTreeMap` at the call site so the key ordering and
+                    // concrete type match the core signature.
+                    let collect = "iter().map(|(k, v)| (k.clone(), v.clone()))\
+                        .collect::<std::collections::BTreeMap<_, _>>()";
+                    if p.optional {
+                        format!("{php_name}.as_ref().map(|m| m.{collect})")
+                    } else if p.is_ref {
+                        format!("&{php_name}.{collect}")
+                    } else {
+                        format!("{php_name}.{collect}")
                     }
                 }
                 TypeRef::Map(_, _) => {
