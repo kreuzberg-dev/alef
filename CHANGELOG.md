@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(ci): cfg-gate Unix-only test helpers on Windows.** The `before`/`e2e`
+  pipeline-order regression test is Unix-only, and its config helper now uses
+  the same `#[cfg(unix)]` gate so Windows test builds do not fail dead-code
+  linting. (`src/cli/pipeline/commands/test.rs`)
+
 ## [0.25.47] - 2026-06-19
 
 ### Fixed

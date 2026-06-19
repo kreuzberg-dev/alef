@@ -272,7 +272,8 @@ mod tests {
 
     /// Build a ResolvedCrateConfig that has `before` and `e2e` wired for `python`
     /// using the given shell commands.  `command` is intentionally absent so the
-    /// test exercises the `before` → `e2e` path in isolation (no unit-test phase).
+    /// test exercises the `before` -> `e2e` path in isolation (no unit-test phase).
+    #[cfg(unix)]
     fn make_config_with_before_and_e2e(before_cmd: &str, e2e_cmd: &str) -> ResolvedCrateConfig {
         let toml = format!(
             r#"
