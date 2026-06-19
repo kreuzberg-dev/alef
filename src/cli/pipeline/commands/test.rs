@@ -267,7 +267,9 @@ fn get_host_target() -> anyhow::Result<RustTarget> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use super::*;
+    #[cfg(unix)]
     use crate::core::config::NewAlefConfig;
 
     /// Build a ResolvedCrateConfig that has `before` and `e2e` wired for `python`
