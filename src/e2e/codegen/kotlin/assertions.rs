@@ -139,10 +139,10 @@ pub(super) fn render_assertion(
                         format!("        assertTrue({expr}.isEmpty(), \"expected empty\")\n")
                     }
                     "is_true" => {
-                        format!("        assertTrue({expr}, \"expected true\")\n")
+                        format!("        assertTrue({expr} == true, \"expected true\")\n")
                     }
                     "is_false" => {
-                        format!("        assertFalse({expr}, \"expected false\")\n")
+                        format!("        assertTrue({expr} == false, \"expected false\")\n")
                     }
                     "greater_than" => {
                         if let Some(n) = assertion.value.as_ref().and_then(|v| v.as_u64()) {
@@ -609,10 +609,10 @@ pub(super) fn render_assertion(
             }
         }
         "is_true" => {
-            let _ = writeln!(out, "        assertTrue({field_expr}, \"expected true\")");
+            let _ = writeln!(out, "        assertTrue({field_expr} == true, \"expected true\")");
         }
         "is_false" => {
-            let _ = writeln!(out, "        assertFalse({field_expr}, \"expected false\")");
+            let _ = writeln!(out, "        assertTrue({field_expr} == false, \"expected false\")");
         }
         "matches_regex" => {
             if let Some(expected) = &assertion.value {

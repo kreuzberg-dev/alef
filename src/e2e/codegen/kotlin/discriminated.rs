@@ -93,9 +93,15 @@ pub(super) fn render_discriminated_union_assertion(
                         escape_kotlin(expected.as_str().unwrap_or(""))
                     );
                 } else if expected.as_bool() == Some(true) {
-                    let _ = writeln!(out, "                assertTrue({field_expr}, \"expected true\")");
+                    let _ = writeln!(
+                        out,
+                        "                assertTrue({field_expr} == true, \"expected true\")"
+                    );
                 } else if expected.as_bool() == Some(false) {
-                    let _ = writeln!(out, "                assertFalse({field_expr}, \"expected false\")");
+                    let _ = writeln!(
+                        out,
+                        "                assertTrue({field_expr} == false, \"expected false\")"
+                    );
                 } else {
                     let _ = writeln!(
                         out,
