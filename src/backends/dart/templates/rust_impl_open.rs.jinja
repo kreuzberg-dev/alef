@@ -1,1 +1,2 @@
-impl {{ type_name }} {
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}impl {{ type_name }} {

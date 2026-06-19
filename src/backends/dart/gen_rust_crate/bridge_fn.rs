@@ -388,6 +388,11 @@ fn dart_call_arg_with_mirror_transmute(
     // pass a reference to the Vec (which coerces to &[T]).
     if let TypeRef::Vec(inner) = &p.ty {
         if p.is_ref && !p.optional && !matches!(inner.as_ref(), TypeRef::Named(_)) {
+            // Core param is `&[&str]` but the mirror delivers `Vec<String>`: materialize a
+            // `Vec<&str>` and borrow it so it coerces to `&[&str]`.
+            if matches!(inner.as_ref(), TypeRef::String) && p.vec_inner_is_ref {
+                return format!("&{name}.iter().map(|s| s.as_str()).collect::<Vec<_>>()");
+            }
             // Core param is &[T], mirror param is Vec<T>. Pass reference.
             // Only emit leading & here; the inner type conversions (if any) are handled
             // elsewhere and will work with the slice reference.
@@ -404,7 +409,10 @@ fn dart_call_arg_with_mirror_transmute(
                 if p.optional {
                     return format!("{name}.map(|v| v.into_iter().map({core_ty}::from).collect::<Vec<_>>())");
                 }
-                return format!("{name}.into_iter().map({core_ty}::from).collect::<Vec<_>>()");
+                let collected = format!("{name}.into_iter().map({core_ty}::from).collect::<Vec<_>>()");
+                // Core may take `&[CoreT]` (a slice); borrow the materialized `Vec<CoreT>` so it
+                // coerces. The temporary lives to the end of the enclosing call statement.
+                return if p.is_ref { format!("&{collected}") } else { collected };
             }
             if p.optional {
                 return format!(

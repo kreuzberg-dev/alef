@@ -138,6 +138,7 @@ pub(super) fn emit_opaque_impl_block(
             "rust_use.rs.jinja",
             minijinja::context! {
                 path => path.as_str(),
+                source_cfg => ty.cfg.as_deref().unwrap_or(""),
             },
         ));
     }
@@ -146,6 +147,7 @@ pub(super) fn emit_opaque_impl_block(
         "rust_impl_open.rs.jinja",
         minijinja::context! {
             type_name => type_name,
+            source_cfg => ty.cfg.as_deref().unwrap_or(""),
         },
     ));
 

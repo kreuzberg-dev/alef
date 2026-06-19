@@ -1,2 +1,3 @@
-#[allow(unused_imports)]
+{% if source_cfg %}#[cfg({{ source_cfg }})]
+{% endif %}#[allow(unused_imports)]
 use {{ path }};
