@@ -12,6 +12,23 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let module_name = config.zig_module_name();
     let ffi_crate_dir = format!("{}-ffi", config.name);
 
+    // Host-native capsule passthrough: the binding `@import("tree_sitter")`s the zig-tree-sitter
+    // module, so build.zig must add that dependency's module to both the public module and the
+    // test module (the dependency itself is declared in build.zig.zon below). Empty when no
+    // capsule types are configured.
+    let capsule_imports_block: String = config
+        .zig
+        .as_ref()
+        .filter(|c| c.capsule_types.values().any(|cap| !cap.package.is_empty()))
+        .map(|_| {
+            "\n    const tree_sitter_dep = b.dependency(\"tree_sitter\", .{\n        \
+             .target = target,\n        .optimize = optimize,\n    });\n    \
+             module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"));\n    \
+             test_module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"));\n"
+                .to_string()
+        })
+        .unwrap_or_default();
+
     // Generate build.zig with local workspace defaults. `alef publish package --lang zig`
     // rewrites it to use bundled lib/ and include/ paths for fetched consumers.
     let build_zig = format!(
@@ -56,7 +73,7 @@ pub fn build(b: *std.Build) void {{
     test_module.addLibraryPath(.{{ .cwd_relative = ffi_path }});
     test_module.addIncludePath(.{{ .cwd_relative = ffi_include }});
     test_module.linkSystemLibrary("{ffi_lib}", .{{}});
-
+{capsule_imports_block}
     const tests = b.addTest(.{{
         .root_module = test_module,
     }});
@@ -69,6 +86,7 @@ pub fn build(b: *std.Build) void {{
         module_name = module_name,
         ffi_lib = ffi_lib_name,
         ffi_crate_dir = ffi_crate_dir,
+        capsule_imports_block = capsule_imports_block,
     );
 
     // build.zig.zon — Zig 0.14+ requires `.name` to be an enum literal; Zig 0.16+ requires

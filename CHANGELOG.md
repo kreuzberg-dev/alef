@@ -9,11 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(scaffold/zig): wire the host-capsule `tree_sitter` dependency into `build.zig`.** The zig
+  scaffold declared the zig-tree-sitter dependency in `build.zig.zon` (for capsule passthrough) but
+  never `addImport`ed its module in `build.zig`, so the binding's `@import("tree_sitter")` failed to
+  resolve and the package would not compile. `build.zig` now adds the `tree_sitter` module to both
+  the public and test modules when a capsule type is configured. (`src/scaffold/languages/zig.rs`)
+
+- **(backends/swift): recurse `inbound_bridge_type` through Optional and Map types.** The
+  `inbound_bridge_type` function converts Named (opaque) types to JSON-safe `String` at inbound
+  plugin trait boundaries. When recursing through `Optional` or `Map`, the function previously
+  delegated to `swift_bridge_rust_type`, which does not apply inbound JSON-bridging rules. This
+  caused `Optional<Vec<Named>>` to emit `Option<Vec<OpaqueType>>` instead of the swift-bridge-safe
+  `Option<Vec<String>>`, triggering a parse error: `Type must be declared with 'type >'` when the
+  opaque type was not separately declared in an extern block. Now `inbound_bridge_type` handles
+  `Optional`, `Vec`, and `Map` by recursing with itself, ensuring all Named types within complex
+  generics are converted to String. (`src/backends/swift/gen_rust_crate/plugin_inbound.rs`)
 - **(backends/ffi): keep the opaque handle for a capsule type that is still returned as one by a
-  method.** A capsule type's passthrough *function* returns the host runtime's raw pointer (no opaque
+  method.** A capsule type's passthrough _function_ returns the host runtime's raw pointer (no opaque
   box), so the FFI backend suppressed that type's opaque `_new`/`_free`/`_to_json` symbols and its
   cbindgen forward declaration. But the same type can still be returned as an opaque handle by a
-  *method* — `LanguageRegistry.get_language` returns `Language` — and the binding's `Free()` calls
+  _method_ — `LanguageRegistry.get_language` returns `Language` — and the binding's `Free()` calls
   `{prefix}_language_free`. Suppressing both left the generated C header referencing an undefined
   `{PREFIX}Language` type and a missing `_free` symbol, breaking every direct C-header consumer (Go
   cgo, Zig `@cImport`). The suppression now applies only when the capsule type is never a method
@@ -55,19 +70,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   strict lockfile-regeneration failure test now avoids comparing Windows short-user paths against
   verbatim long paths while still asserting the error names the generated manifest.
   (`src/publish/vendor/tests.rs`)
-- **(backends/ffi): keep opaque capsule handles declared when methods return capsule types.**
-  Capsule passthrough functions still return the host-native raw pointee, but methods that return
-  the same type continue to need prefixed opaque handles, lifecycle symbols, and cbindgen forward
-  declarations. (`src/backends/ffi/gen_bindings/helpers.rs`,
-  `src/backends/ffi/gen_bindings/lib_rs.rs`)
+- **(backends/php): use shared visitor-result fallback handling for unknown strings.** PHP visitor
+  result conversion now delegates unknown string values to the shared result metadata policy instead
+  of hard-coding single-payload and default-variant branches.
+  (`src/backends/php/trait_bridge/visitor.rs`,
+  `src/backends/php/templates/visitor_zval_to_visitresult.jinja`)
 - **(backends/swift): recurse optional and map types in inbound plugin bridges.** Swift's generated
   Rust bridge crate now maps nested `Option` and `HashMap` trait method types through the inbound
   bridge type converter instead of falling back to the generic Swift type mapper.
   (`src/backends/swift/gen_rust_crate/plugin_inbound.rs`)
-- **(e2e/php, e2e/ruby): bind visitor callback parameters for template interpolation.** PHP and
-  Ruby e2e visitor callbacks now mirror the core visitor parameter names, allowing custom templates
-  such as `{text}` or `{href}` to interpolate per-callback values. (`src/e2e/codegen/php/visitor.rs`,
-  `src/e2e/codegen/ruby/visitor.rs`)
+- **(scaffold/zig): add capsule package module imports to generated build files.** Zig packages
+  that use configured host-native capsule types now add the capsule dependency module to both the
+  public binding module and test module in generated `build.zig`. (`src/scaffold/languages/zig.rs`)
+- **(e2e/ruby): bind visitor callback parameters for template interpolation.** Ruby e2e visitor
+  callbacks now mirror the core visitor parameter names, allowing custom templates such as `{text}`
+  or `{href}` to interpolate per-callback values. (`src/e2e/codegen/ruby/visitor.rs`)
 
 ## [0.25.49] - 2026-06-19
 
