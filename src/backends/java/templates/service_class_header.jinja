@@ -47,5 +47,20 @@ public class {{ class_name }} implements AutoCloseable {
         // aborts the VM.
         String requestStr = requestPtr.reinterpret(Long.MAX_VALUE).getString(0);
         String responseStr = handler.handle(requestStr);
-        return arena.allocateFrom(responseStr);
+        // Allocate response string using malloc (not Arena) so the pointer remains
+        // valid after this upcall returns. Rust will free() the returned pointer.
+        // Use Arena.ofAuto() for temporary allocation, then malloc and copy.
+        try (Arena autoArena = Arena.ofAuto()) {
+            MemorySegment responseSegment = autoArena.allocateFrom(responseStr);
+            long responseLen = responseSegment.byteSize();
+            // Call malloc to allocate memory that persists beyond this upcall.
+            MethodHandle mallocHandle = LINKER.downcallHandle(
+                    LOOKUP.find("malloc").orElseThrow(),
+                    FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG)
+            );
+            MemorySegment mallocAddr = (MemorySegment) mallocHandle.invoke(responseLen);
+            // Copy the response bytes to malloc'd memory.
+            MemorySegment.copy(responseSegment, 0, mallocAddr, 0, responseLen);
+            return mallocAddr;
+        }
     }
