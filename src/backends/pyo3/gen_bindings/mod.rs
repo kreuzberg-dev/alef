@@ -396,6 +396,23 @@ impl Backend for Pyo3Backend {
         // the same name after dedup has already run on the pre-mapping IR.
         // Also used to skip wrapper emission for opaque_types already covered by the IR loop.
         let mut emitted_pyclass_names: AHashSet<&str> = AHashSet::new();
+        // Opaque types that MUST implement `Default` because a `has_default` struct holds them
+        // as a non-optional, directly-named field. That parent struct derives `Default`, which
+        // only compiles if every non-optional field type is itself `Default`. Optional/collection
+        // fields supply their own `Default` (None / empty) and so do not force it. This catches
+        // core types whose `impl Default` is `#[alef(skip)]`'d (so `has_default` is false on the
+        // type itself) yet are still required to be `Default` by a Default-deriving parent.
+        let default_required_types: AHashSet<&str> = api
+            .types
+            .iter()
+            .filter(|t| t.has_default)
+            .flat_map(|t| t.fields.iter())
+            .filter(|f| !f.optional)
+            .filter_map(|f| match &f.ty {
+                crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                _ => None,
+            })
+            .collect();
         for typ in api
             .types
             .iter()
@@ -471,7 +488,7 @@ impl Backend for Pyo3Backend {
                 }
                 // Emit `impl Default for Type` when the type has a no-arg new() constructor
                 // to satisfy clippy's `new_without_default` lint
-                if opaque_helpers::should_emit_default_impl(typ, &impl_block) {
+                if opaque_helpers::should_emit_default_impl(typ, &impl_block, &default_required_types) {
                     builder.add_item(&opaque_helpers::emit_default_impl(typ));
                 }
                 // Client constructor — emit a separate #[pymethods] impl with #[new]
@@ -623,6 +640,16 @@ impl Backend for Pyo3Backend {
                 // already exposes a native, idiomatic constructor (`ContentPart(type=..., **kwargs)`),
                 // so factory methods would be redundant non-idiomatic sugar. Pass `None`.
                 builder.add_item(&generators::gen_pyo3_data_enum_with_mapper(e, &core_import, None));
+                // A data enum is rendered as an opaque `{ inner: CoreEnum }` wrapper with no
+                // `#[derive(Default)]`. When a `Default`-deriving parent struct holds it as a
+                // non-optional field (tracked in `default_required_types`), the wrapper must
+                // implement `Default` or the parent's derive fails to compile. The core enum is
+                // guaranteed `Default` here (the parent could not derive `Default` otherwise),
+                // so forward it through `inner`. This covers core enums whose `impl Default` is
+                // `#[alef(skip)]`'d (e.g. `OcrDocument`, `ModerationInput`).
+                if default_required_types.contains(e.name.as_str()) {
+                    builder.add_item(&opaque_helpers::emit_inner_default_impl(&e.name));
+                }
             } else {
                 builder.add_item(&generators::gen_enum(e, &cfg));
             }

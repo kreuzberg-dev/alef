@@ -36,24 +36,31 @@ pub(super) fn variant_wrapper_constructor_body(typ: &crate::core::ir::TypeDef, m
 
 /// Whether to emit an `impl Default for Type` block for an opaque wrapper.
 ///
-/// Returns true when:
-/// - The type has `has_default = true` (indicating it has impl Default in core Rust), and
-/// - No existing `impl Default` is already present in the impl_block.
+/// Returns true (when no `impl Default` already exists) if either:
+/// - The type has `has_default = true` (it has an `impl Default` in core Rust), or
+/// - It appears in `default_required` — a Default-deriving parent struct holds it as a
+///   non-optional, directly-named field and therefore requires it to be `Default`.
+///
+/// The second case is essential for core types whose `impl Default` is annotated
+/// `#[cfg_attr(alef, alef(skip))]` (to suppress a Rust-idiom `default()` factory): the
+/// `alef(skip)` clears `has_default` on the type, yet a parent like
+/// `OcrRequest { document: OcrDocument }` still derives `Default` and will not compile
+/// unless the `OcrDocument` wrapper also implements `Default`.
 ///
 /// The body is chosen by [`emit_default_impl`]: a no-arg static `new()` delegates to
 /// `Self::new()` (idiomatic, satisfies clippy's `new_without_default`); otherwise the
-/// core type's own `Default` is forwarded through the `inner` field. The latter case is
-/// required: non-opaque parent structs that derive `Default` and hold this wrapper as a
-/// field (e.g. `OcrRequest { document: OcrDocument }`) will not compile unless the
-/// wrapper also implements `Default`, even when the wrapper has no no-arg constructor.
-pub(super) fn should_emit_default_impl(typ: &crate::core::ir::TypeDef, impl_block: &str) -> bool {
-    // Only emit if the core Rust type has impl Default
-    if !typ.has_default {
+/// core type's own `Default` is forwarded through the `inner` field.
+pub(super) fn should_emit_default_impl(
+    typ: &crate::core::ir::TypeDef,
+    impl_block: &str,
+    default_required: &ahash::AHashSet<&str>,
+) -> bool {
+    // Skip when a Default impl already exists in the block.
+    if impl_block.contains("impl Default") {
         return false;
     }
 
-    // Check if Default impl already exists
-    !impl_block.contains("impl Default")
+    typ.has_default || default_required.contains(typ.name.as_str())
 }
 
 /// True when the type exposes a no-arg static `pub fn new() -> Self`.
@@ -76,6 +83,13 @@ pub(super) fn emit_default_impl(typ: &crate::core::ir::TypeDef) -> String {
         "impl Default for {} {{\n    fn default() -> Self {{\n        {body}\n    }}\n}}\n",
         typ.name
     )
+}
+
+/// Emit `impl Default for {type_name} { fn default() -> Self { Self { inner: Default::default() } } }`.
+/// For opaque `{ inner: CoreType }` wrappers (notably data-enum wrappers) that forward the core
+/// type's own `Default`. The caller must ensure the core type is `Default`.
+pub(super) fn emit_inner_default_impl(type_name: &str) -> String {
+    format!("impl Default for {type_name} {{\n    fn default() -> Self {{\n        Self {{ inner: Default::default() }}\n    }}\n}}\n")
 }
 
 /// Inject a method body into the existing `#[pymethods] impl T { ... }`
