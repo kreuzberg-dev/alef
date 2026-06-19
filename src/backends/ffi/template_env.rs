@@ -270,6 +270,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/param_non_optional_bytes_conversion.jinja"),
     ),
     (
+        "param_optional_bytes_conversion.jinja",
+        include_str!("templates/param_optional_bytes_conversion.jinja"),
+    ),
+    (
         "param_optional_fallback.jinja",
         include_str!("templates/param_optional_fallback.jinja"),
     ),

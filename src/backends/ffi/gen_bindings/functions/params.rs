@@ -219,6 +219,19 @@ pub(super) fn gen_param_conversion_with_enums(
                     },
                 ));
             }
+            TypeRef::Bytes => {
+                // Optional bytes: (*const u8, {name}_len) — a null pointer maps to None,
+                // otherwise reconstruct a `Vec<u8>` from the (ptr, len) pair. The downstream
+                // call-arg applies `.as_deref()` to yield the core's `Option<&[u8]>`.
+                out.push_str(&crate::backends::ffi::template_env::render(
+                    "param_optional_bytes_conversion.jinja",
+                    context! {
+                        rs_name => rs_name.clone(),
+                        name => name.clone(),
+                        fail_ret => fail_ret.to_string(),
+                    },
+                ));
+            }
             _ => {
                 // Fallback: treat as nullable JSON string
                 out.push_str(&crate::backends::ffi::template_env::render(

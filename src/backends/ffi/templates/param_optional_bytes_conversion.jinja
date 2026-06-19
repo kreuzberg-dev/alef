@@ -1,0 +1,10 @@
+    if {{ name }}.is_null() && {{ name }}_len > 0 {
+        set_last_error(1, "Null pointer passed for parameter '{{ name }}'");
+        {{ fail_ret }}
+    }
+    // SAFETY: a null {{ name }} maps to None; otherwise the pointer is valid for {{ name }}_len bytes.
+    let {{ rs_name }} = if {{ name }}.is_null() {
+        None
+    } else {
+        Some(unsafe { std::slice::from_raw_parts({{ name }}, {{ name }}_len) }.to_vec())
+    };
