@@ -19,6 +19,14 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     let binding_crate_name = format!("{crate_name}-swift");
     let binding_crate_underscore = binding_crate_name.replace('-', "_");
 
+    // FFI library name: defaults to "{crate_name}_ffi" or from config.ffi.lib_name if configured.
+    let ffi_lib_name = config
+        .ffi
+        .as_ref()
+        .and_then(|f| f.lib_name.as_ref())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("{}_ffi", crate_name.replace('-', "_")));
+
     // Three-target layout:
     //   RustBridgeC  — pure C/headers target; Swift files import this to see C types
     //   RustBridge   — Swift bridge files + linker settings for the static library
@@ -44,6 +52,46 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // here only support the in-tree `swift test` workflow.
     // 2-space indentation and no trailing comma on single-element array literals match
     // `swift-format` defaults so the generated file is lint-clean without a post-pass.
+    // Host-native capsule (Language) passthrough: depend on SwiftTreeSitter so generated
+    // code can construct `SwiftTreeSitter.Language(OpaquePointer(cPtr))`.
+    let swift_capsule: Vec<(String, String)> = config
+        .swift
+        .as_ref()
+        .map(|c| {
+            let mut deps: Vec<(String, String)> = c
+                .capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .map(|cap| (cap.package.clone(), cap.package_version.clone()))
+                .collect();
+            deps.sort();
+            deps.dedup();
+            deps
+        })
+        .unwrap_or_default();
+    let package_dependencies = if swift_capsule.is_empty() {
+        String::new()
+    } else {
+        let entries: Vec<String> = swift_capsule
+            .iter()
+            .map(|(pkg, ver)| {
+                let ver_clause = if ver.is_empty() {
+                    "branch: \"master\"".to_string()
+                } else {
+                    format!("from: \"{ver}\"")
+                };
+                format!("    .package(url: \"{pkg}\", {ver_clause}),")
+            })
+            .collect();
+        format!("\n  dependencies: [\n{}\n  ],", entries.join("\n"))
+    };
+    // SwiftTreeSitter is the product exposed by the swift-tree-sitter package.
+    let module_target_capsule_deps = if swift_capsule.is_empty() {
+        String::new()
+    } else {
+        ", \"SwiftTreeSitter\"".to_string()
+    };
+
     let package_swift = format!(
         r#"// swift-tools-version: 6.0
 import PackageDescription
@@ -57,7 +105,7 @@ let package = Package(
   platforms: [
     .macOS(.v{min_macos}),
     .iOS(.v{min_ios}),
-  ],
+  ],{package_dependencies}
   products: [
     .library(name: "{module}", targets: ["{module}"])
   ],
@@ -72,10 +120,12 @@ let package = Package(
     ),
     // RustBridge: Swift wrapper around the Rust static library.
     // Depends on RustBridgeC so the generated Swift files can use the C types.
-    // linkerSettings wire the Rust staticlib (lib{binding_underscore}.a) produced by
-    // `cargo build -p {binding_crate}` so `swift build` / `swift test` can resolve
-    // the `__swift_bridge__$*` C symbols. Both target/release and target/debug are
-    // searched so either cargo profile works.
+    // linkerSettings wire the Rust staticlibs (lib{binding_underscore}.a and lib{ffi_lib_name}.a)
+    // produced by `cargo build -p {binding_crate}` and the FFI crate so
+    // `swift build` / `swift test` can resolve the `__swift_bridge__$*` and FFI C symbols.
+    // Both target/release and target/debug are searched so either cargo profile works.
+    // The FFI library is needed because the generated Swift service API code (App.swift)
+    // calls FFI functions directly via @_silgen_name declarations.
     .target(
       name: "RustBridge",
       dependencies: ["RustBridgeC"],
@@ -86,13 +136,14 @@ let package = Package(
           "-L../../target/debug",
         ]),
         .linkedLibrary("{binding_underscore}"),
+        .linkedLibrary("{ffi_lib_name}"),
         .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
         .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
       ]
     ),
     .target(
-      name: "{module}", dependencies: ["RustBridge"],
+      name: "{module}", dependencies: ["RustBridge"{module_target_capsule_deps}],
       path: "Sources/{module}",
       exclude: ["LICENSE"]),
     .testTarget(
@@ -106,6 +157,9 @@ let package = Package(
         min_ios = min_ios_major,
         binding_crate = binding_crate_name,
         binding_underscore = binding_crate_underscore,
+        ffi_lib_name = ffi_lib_name,
+        package_dependencies = package_dependencies,
+        module_target_capsule_deps = module_target_capsule_deps,
     );
 
     let gitignore = ".build/\nPackages/\nxcuserdata/\nDerivedData/\n.swiftpm/\n*.xcodeproj\n";
