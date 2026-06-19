@@ -199,13 +199,16 @@ pub fn default_value_for_field(field: &FieldDef, language: &str) -> String {
         };
     }
 
-    // Fall back to string default if it exists. The extractor sets a
-    // "/* serde(default) */" placeholder for fields with #[serde(default)]
-    // but no explicit value — this is a signal flag for backends that need
-    // to skip required-field markers, NOT a real value to emit. Treat it as
-    // absent and fall through to the type-based zero value below.
+    // Fall back to string default if it exists. The extractor encodes
+    // `#[serde(default)]` as a "/* serde(default) */" placeholder and
+    // `#[serde(default = "path")]` as a `serde(default = "path")` marker. Both are
+    // signal flags for backends that parse them directly (e.g. php, java emit a
+    // dedicated serde_defaults module), NOT value expressions — emitting either
+    // verbatim produces invalid code in every target language. Treat them as absent
+    // here and fall through to the type-based zero value below.
     if let Some(default_str) = &field.default
         && default_str != "/* serde(default) */"
+        && !default_str.starts_with("serde(default = \"")
     {
         return default_str.clone();
     }

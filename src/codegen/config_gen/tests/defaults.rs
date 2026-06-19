@@ -719,3 +719,37 @@ fn test_default_value_fallback_duration() {
     assert_eq!(default_value_for_field(&field, "python"), "None");
     assert_eq!(default_value_for_field(&field, "rust"), "Default::default()");
 }
+
+#[test]
+fn test_serde_default_marker_falls_through_to_type_zero() {
+    // The extractor encodes `#[serde(default = "path")]` as a `serde(default = "...")`
+    // marker string. It is a signal flag, not a value expression — it must never be
+    // emitted verbatim (that produces invalid code in every language). Backends that
+    // do not parse the marker fall through to the type-based zero value.
+    let string_field = FieldDef {
+        default: Some("serde(default = \"crate::serde_defaults::default_jwt_algorithm\")".to_string()),
+        ..make_field("algorithm", TypeRef::String)
+    };
+    assert_eq!(default_value_for_field(&string_field, "rust"), "String::new()");
+    assert_eq!(default_value_for_field(&string_field, "ruby"), "\"\"");
+    assert_eq!(default_value_for_field(&string_field, "python"), "\"\"");
+    assert_eq!(default_value_for_field(&string_field, "java"), "\"\"");
+
+    let bool_field = FieldDef {
+        default: Some("serde(default = \"crate::serde_defaults::default_true\")".to_string()),
+        ..make_field("index_file", TypeRef::Primitive(PrimitiveType::Bool))
+    };
+    assert_eq!(default_value_for_field(&bool_field, "rust"), "false");
+    assert_eq!(default_value_for_field(&bool_field, "ruby"), "false");
+}
+
+#[test]
+fn test_serde_default_bare_placeholder_falls_through_to_type_zero() {
+    // The legacy `#[serde(default)]` placeholder must keep falling through too.
+    let field = FieldDef {
+        default: Some("/* serde(default) */".to_string()),
+        ..make_field("name", TypeRef::String)
+    };
+    assert_eq!(default_value_for_field(&field, "rust"), "String::new()");
+    assert_eq!(default_value_for_field(&field, "python"), "\"\"");
+}
