@@ -379,6 +379,46 @@ fn test_build_rs_sets_macos_install_name_and_loader_rpath() {
 }
 
 #[test]
+fn test_build_rs_rewrites_prefixed_capsule_return_type() {
+    use crate::core::config::FfiCapsuleTypeConfig;
+    let mut capsule_types = std::collections::HashMap::new();
+    capsule_types.insert(
+        "Language".to_string(),
+        FfiCapsuleTypeConfig {
+            into_raw_type: "tree_sitter::ffi::TSLanguage".to_string(),
+            c_return_type: "TSLanguage".to_string(),
+            package: None,
+            package_version: None,
+        },
+    );
+    let build =
+        super::super::helpers::gen_build_rs("ts_pack.h", "libts_pack_core_ffi", None, "ts_pack", &capsule_types);
+    assert!(
+        build.contains(r#"("TS_PACKTSLanguage", "TSLanguage")"#),
+        "build.rs must rewrite the prefixed capsule pointee back to the unprefixed prelude name:\n{build}"
+    );
+    assert!(
+        build.contains("header.replace(prefixed, bare)"),
+        "build.rs must apply the capsule header fixup:\n{build}"
+    );
+}
+
+#[test]
+fn test_build_rs_omits_capsule_fixup_when_no_capsule_types() {
+    let build = super::super::helpers::gen_build_rs(
+        "ts_pack.h",
+        "libts_pack_core_ffi",
+        None,
+        "ts_pack",
+        &std::collections::HashMap::new(),
+    );
+    assert!(
+        !build.contains("header.replace"),
+        "build.rs must not emit a capsule fixup when no capsule types are configured:\n{build}"
+    );
+}
+
+#[test]
 fn test_custom_prefix() {
     let api = sample_api();
     let config = resolved_one(

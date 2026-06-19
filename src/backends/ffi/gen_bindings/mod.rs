@@ -77,7 +77,13 @@ impl Backend for FfiBackend {
             },
             GeneratedFile {
                 path: parent_dir.join("build.rs"),
-                content: gen_build_rs(&header_name, &format!("lib{lib_name}"), go_output_dir.as_deref()),
+                content: gen_build_rs(
+                    &header_name,
+                    &format!("lib{lib_name}"),
+                    go_output_dir.as_deref(),
+                    &prefix,
+                    &ffi_capsule_types,
+                ),
                 generated_header: false,
             },
         ];

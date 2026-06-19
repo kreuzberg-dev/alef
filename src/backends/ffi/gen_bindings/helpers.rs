@@ -467,7 +467,51 @@ fn toml_multiline_basic_string(value: &str) -> String {
 // build.rs generation
 // ---------------------------------------------------------------------------
 
-pub(super) fn gen_build_rs(header_name: &str, lib_name: &str, go_output_dir: Option<&str>) -> String {
+pub(super) fn gen_build_rs(
+    header_name: &str,
+    lib_name: &str,
+    go_output_dir: Option<&str>,
+    prefix: &str,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::FfiCapsuleTypeConfig>,
+) -> String {
+    // cbindgen applies the export prefix to every type it references, including the
+    // host-native capsule pointee types (e.g. `tree_sitter::ffi::TSLanguage`), so
+    // `const TSLanguage *` is emitted as `const {PREFIX}TSLanguage *` — a name cbindgen
+    // never declares. Those pointees are forward-declared UNPREFIXED in the header
+    // prelude, so rewrite the prefixed references back to the bare prelude name.
+    // Longest-first so a prefixed name that is a substring of another is replaced safely.
+    let capsule_header_fixup = {
+        let prefix_upper = prefix.to_uppercase();
+        let mut pairs: Vec<(String, String)> = capsule_types
+            .values()
+            .map(|c| (format!("{prefix_upper}{}", c.c_return_type), c.c_return_type.clone()))
+            .collect();
+        pairs.sort_unstable();
+        pairs.dedup();
+        pairs.sort_by_key(|(prefixed, _)| std::cmp::Reverse(prefixed.len()));
+        if pairs.is_empty() {
+            String::new()
+        } else {
+            let arr = pairs
+                .iter()
+                .map(|(prefixed, bare)| format!("(\"{prefixed}\", \"{bare}\")"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!(
+                "\n    // Rewrite prefixed host-native capsule pointee types back to the unprefixed\n    \
+                 // names forward-declared in the header prelude (cbindgen prefixes all referenced\n    \
+                 // types, but these are external types defined by the host tree-sitter runtime).\n    \
+                 {{\n        \
+                 let header_path = \"include/{header_name}\";\n        \
+                 let mut header = std::fs::read_to_string(header_path).expect(\"read generated header\");\n        \
+                 for (prefixed, bare) in [{arr}] {{\n            \
+                 header = header.replace(prefixed, bare);\n        \
+                 }}\n        \
+                 std::fs::write(header_path, header).expect(\"write patched header\");\n    \
+                 }}\n"
+            )
+        }
+    };
     let go_copy_step = match go_output_dir {
         Some(go_dir) => {
             let go_dir = go_dir.trim_end_matches('/');
@@ -493,6 +537,7 @@ pub(super) fn gen_build_rs(header_name: &str, lib_name: &str, go_output_dir: Opt
             header_name => header_name,
             lib_name => lib_name,
             go_copy_step => go_copy_step,
+            capsule_header_fixup => capsule_header_fixup,
         },
     )
 }

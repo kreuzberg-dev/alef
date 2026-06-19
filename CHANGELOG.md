@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **(backends/ffi): rewrite the prefixed capsule return type in the generated C header so it
+  compiles.** cbindgen applies the export prefix to every type it references, so a capsule
+  function returning `*const tree_sitter::ffi::TSLanguage` emitted `const {PREFIX}TSLanguage *`
+  — a name cbindgen never forward-declares — leaving the header referencing an undefined type
+  and breaking every C-ABI binding build (Go, Zig, Java, C#, Swift, Dart, Kotlin Android). The
+  generated `build.rs` now post-processes the cbindgen output, rewriting each capsule pointee
+  back to the unprefixed name forward-declared in the header prelude (`{PREFIX}TSLanguage` →
+  `TSLanguage`). `gen_build_rs` receives the prefix and capsule type map to emit the fixup; a
+  no-op when no capsule types are configured. (`src/backends/ffi/gen_bindings/mod.rs`,
+  `src/backends/ffi/gen_bindings/helpers.rs`, `src/backends/ffi/templates/build_rs.jinja`,
+  `src/backends/ffi/gen_bindings/tests/doxygen.rs`)
+- **(ci): normalize manifest path assertions in the vendor lockfile regression test.** The
+  strict lockfile-regeneration test now compares normalized path text so Windows verbatim path
+  prefixes do not fail the manifest-path assertion. (`src/publish/vendor/tests.rs`)
+
 ## [0.25.49] - 2026-06-19
 
 ### Changed

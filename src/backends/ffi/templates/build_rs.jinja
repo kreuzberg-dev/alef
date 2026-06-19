@@ -4,7 +4,7 @@ fn main() {
     cbindgen::generate(crate_dir)
         .expect("Unable to generate C bindings")
         .write_to_file("include/{{ header_name }}");
-
+{{ capsule_header_fixup }}
     // Set @rpath-relative install_name on macOS so the cdylib can be relocated
     // (bundled into language packages like packages/go/.lib/<rid>/, packages/
     // java/src/main/resources/natives/<rid>/, etc.) and located via the consumer
