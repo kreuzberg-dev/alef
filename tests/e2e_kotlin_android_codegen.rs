@@ -7,6 +7,7 @@
 //!   and chunk assertions use Kotlin property access throughout.
 
 use alef::core::config::NewAlefConfig;
+use alef::core::template_versions::maven;
 use alef::e2e::codegen::E2eCodegen;
 use alef::e2e::codegen::kotlin_android::KotlinAndroidE2eCodegen;
 use alef::e2e::fixture::{Assertion, Fixture, FixtureGroup, MockResponse};
@@ -519,9 +520,10 @@ fn kotlin_android_emits_host_jvm_test_source_set() {
     );
 }
 
-/// Regression for D: the emitted `build.gradle.kts` must apply the Android
-/// Gradle Plugin so that the `android { }` DSL resolves at Kotlin script compile
-/// time. The e2e app runs host-JVM tests, so it should not require Managed
+/// Regression for D: the emitted `build.gradle.kts` must apply the Android Gradle Plugin
+/// so that the `android { }` DSL resolves at Kotlin script compile time. AGP 9+ supplies
+/// built-in Kotlin support, so the explicit `kotlin("android")` plugin line is omitted
+/// for current pins. The e2e app runs host-JVM tests, so it should not require Managed
 /// Devices or an Android emulator.
 #[test]
 fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
@@ -539,10 +541,22 @@ fn kotlin_android_build_gradle_applies_android_gradle_plugin() {
         content.contains("com.android.library"),
         "build.gradle.kts must apply id(\"com.android.library\"); got:\n{content}"
     );
-    assert!(
-        content.contains("kotlin(\"android\")"),
-        "build.gradle.kts must apply kotlin(\"android\"); got:\n{content}"
-    );
+    let agp_major = maven::ANDROID_GRADLE_PLUGIN
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .expect("ANDROID_GRADLE_PLUGIN must start with a major version");
+    if agp_major >= 9 {
+        assert!(
+            !content.contains("kotlin(\"android\")"),
+            "AGP 9+ must not re-apply kotlin(\"android\"); got:\n{content}"
+        );
+    } else {
+        assert!(
+            content.contains("kotlin(\"android\")"),
+            "AGP 8.x must apply kotlin(\"android\"); got:\n{content}"
+        );
+    }
     assert!(
         content.contains("unitTests"),
         "build.gradle.kts must configure host-JVM unit tests; got:\n{content}"

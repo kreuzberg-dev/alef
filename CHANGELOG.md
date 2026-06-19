@@ -60,7 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `sync_versions` now normalizes existing `packages/kotlin-android/build.gradle.kts` files by
   dropping the explicit `kotlin("android")` plugin line when the centralized Android Gradle
   Plugin version is 9 or newer, matching freshly generated files. (`src/cli/pipeline/version.rs`,
-  `src/cli/pipeline/version_text.rs`, `src/cli/pipeline/version_tests/e2e_manifests.rs`)
+  `src/cli/pipeline/version_text.rs`, `src/cli/pipeline/version_tests/e2e_manifests.rs`,
+  `tests/e2e_kotlin_android_codegen.rs`)
 - **(codegen): keep derived `Default` on binding structs unless a delegating default is emitted.**
   Shared struct generation now preserves the normal `#[derive(Default)]` path for defaultable
   binding DTOs while still suppressing it for PHP-style delegated core defaults.
