@@ -402,3 +402,100 @@ fn test_gen_config_options_emitted_when_in_allowlist() {
         "expected NewDialOptions constructor"
     );
 }
+
+/// Helper: build an AssistantContent-like EnumDef — two tuple variants, one String
+/// and one Vec<Named>, which routes to gen_passthrough_raw_message_enum.
+fn make_passthrough_enum() -> EnumDef {
+    EnumDef {
+        name: "AssistantContent".to_string(),
+        rust_path: String::new(),
+        original_rust_path: String::new(),
+        methods: vec![],
+        doc: "Multimodal assistant content.".to_string(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: true,
+        serde_rename_all: None,
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                doc: String::new(),
+                fields: vec![simple_field("_0", TypeRef::String)],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+            EnumVariant {
+                name: "Parts".to_string(),
+                doc: String::new(),
+                fields: vec![simple_field(
+                    "_0",
+                    TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))),
+                )],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+        ],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+/// When `text_types` is empty, no `Text()` method is emitted.
+#[test]
+fn gen_enum_type_passthrough_without_text_types_does_not_emit_text_accessor() {
+    let enum_def = make_passthrough_enum();
+    // Confirm this routes to gen_passthrough_raw_message_enum
+    assert!(super::enums::is_passthrough_raw_message_enum(&enum_def));
+    let out = gen_enum_type(&enum_def, &[]);
+    assert!(
+        out.contains("type AssistantContent json.RawMessage"),
+        "type declaration must be present:\n{out}"
+    );
+    assert!(out.contains("MarshalJSON"), "MarshalJSON must be present:\n{out}");
+    assert!(
+        !out.contains("func (e AssistantContent) Text()"),
+        "Text() must NOT be emitted when text_types is empty:\n{out}"
+    );
+}
+
+/// When the type name appears in `text_types`, `Text() string` is emitted with the
+/// correct semantics: JSON string path and JSON array path.
+#[test]
+fn gen_enum_type_passthrough_with_text_types_emits_text_accessor() {
+    let enum_def = make_passthrough_enum();
+    let text_types = vec!["AssistantContent".to_string()];
+    let out = gen_enum_type(&enum_def, &text_types);
+    assert!(
+        out.contains("type AssistantContent json.RawMessage"),
+        "type declaration must be present:\n{out}"
+    );
+    assert!(
+        out.contains("func (e AssistantContent) Text() string"),
+        "Text() method must be emitted:\n{out}"
+    );
+    // Must handle string variant
+    assert!(out.contains("e[0] == '\"'"), "must handle JSON string variant:\n{out}");
+    // Must handle array of parts variant
+    assert!(out.contains("e[0] == '['"), "must handle JSON array variant:\n{out}");
+    // Must filter by type == "text"
+    assert!(
+        out.contains("p.Type == \"text\""),
+        "must filter parts by type==\"text\":\n{out}"
+    );
+}

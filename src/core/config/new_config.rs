@@ -303,6 +303,7 @@ impl NewAlefConfig {
             custom_modules: krate.custom_modules.clone(),
             custom_registrations: krate.custom_registrations.clone(),
             suppress_validation_codes: krate.suppress_validation_codes.clone(),
+            untagged_union_text_types: krate.untagged_union_text_types.clone(),
         })
     }
 }

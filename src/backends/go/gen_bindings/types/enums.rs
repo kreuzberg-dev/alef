@@ -5,7 +5,7 @@ use minijinja::context;
 
 use super::helpers::{emit_type_doc, is_tuple_field};
 
-pub(in crate::backends::go::gen_bindings) fn gen_enum_type(enum_def: &EnumDef) -> String {
+pub(in crate::backends::go::gen_bindings) fn gen_enum_type(enum_def: &EnumDef, text_types: &[String]) -> String {
     let is_data_enum = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     if !is_data_enum {
@@ -37,7 +37,7 @@ pub(in crate::backends::go::gen_bindings) fn gen_enum_type(enum_def: &EnumDef) -
             // string, and any decoded JSON must round-trip without rejecting either shape.
             // Emit them as a `json.RawMessage` wrapper that passes the raw bytes through
             // unchanged (mirrors the napi `serde_json::Value` wrapper for the same case).
-            gen_passthrough_raw_message_enum(enum_def)
+            gen_passthrough_raw_message_enum(enum_def, text_types)
         } else {
             gen_newtype_tuple_enum_type(enum_def)
         }
@@ -78,7 +78,12 @@ pub(in crate::backends::go::gen_bindings) fn is_passthrough_raw_message_enum(enu
 /// Generate a Go type that wraps `json.RawMessage` for an untagged enum whose
 /// variants mix scalar and collection shapes — the wire form is whatever shape
 /// the value happened to have, and the Go side passes the bytes through.
-fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
+///
+/// When `enum_def.name` appears in `text_types`, an additional `Text() string`
+/// method is emitted that extracts the display text from the raw JSON bytes:
+/// a JSON string is returned verbatim; a JSON array of `{"type":"text","text":"…"}`
+/// objects has its `"text"` fields concatenated; anything else returns `""`.
+fn gen_passthrough_raw_message_enum(enum_def: &EnumDef, text_types: &[String]) -> String {
     let mut out = String::new();
     let go_enum_name = go_type_name(&enum_def.name);
     let variant_names: Vec<&str> = enum_def.variants.iter().map(|v| v.name.as_str()).collect();
@@ -97,6 +102,17 @@ fn gen_passthrough_raw_message_enum(enum_def: &EnumDef) -> String {
             variants => variant_names.join(", "),
         },
     ));
+
+    if text_types.iter().any(|t| t == &enum_def.name) {
+        out.push('\n');
+        out.push_str(&crate::backends::go::template_env::render(
+            "passthrough_raw_message_text_accessor.jinja",
+            context! {
+                enum_name => &go_enum_name,
+            },
+        ));
+    }
+
     out
 }
 

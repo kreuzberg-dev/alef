@@ -398,6 +398,7 @@ impl Backend for JavaBackend {
         }
 
         // 5. Enums
+        let text_types = &config.untagged_union_text_types;
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
             if has_visitor_pattern
@@ -410,7 +411,7 @@ impl Backend for JavaBackend {
             }
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.java", enum_def.name)),
-                content: gen_enum_class(&package, enum_def, &main_class),
+                content: gen_enum_class(&package, enum_def, &main_class, text_types),
                 generated_header: true,
             });
         }

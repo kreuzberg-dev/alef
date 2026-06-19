@@ -251,6 +251,36 @@ pub struct RawCrateConfig {
     /// compliance; remove entries once the underlying surface issues are fixed.
     #[serde(default)]
     pub suppress_validation_codes: Vec<String>,
+
+    /// Untagged-union type names that should emit a display-text accessor in generated
+    /// bindings.
+    ///
+    /// For each Rust type name in this list whose generated binding is an
+    /// untagged-union wrapper (i.e., a `#[serde(untagged)]` enum), alef emits a
+    /// language-idiomatic `text()` / `Text()` method that extracts the plain-text
+    /// representation from the JSON payload:
+    ///
+    /// - Go:   `func (e RichTextContent) Text() string`
+    /// - Java: `public String text()`
+    /// - C#:   `public string Text()`
+    ///
+    /// Semantics (mirrors the Rust `Display` implementation of the same type):
+    /// - JSON string → return it verbatim.
+    /// - JSON array of objects with `"type":"text"` → concatenate their `"text"` fields.
+    /// - Otherwise → return `""`.
+    ///
+    /// The list is matched against the Rust type name exactly (e.g. `"RichTextContent"`).
+    /// When the list is empty (the default) no text accessor is emitted and the generated
+    /// output for all types is identical to what was produced before this feature existed.
+    ///
+    /// Example:
+    /// ```toml
+    /// [[crates]]
+    /// name = "sample-core"
+    /// untagged_union_text_types = ["RichTextContent"]
+    /// ```
+    #[serde(default)]
+    pub untagged_union_text_types: Vec<String>,
 }
 
 #[cfg(test)]

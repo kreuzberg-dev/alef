@@ -1,0 +1,37 @@
+// Text returns the plain-text representation of the content.
+//
+// If the raw JSON is a string, it is returned verbatim.
+// If the raw JSON is an array, the "text" field of every element whose
+// "type" equals "text" is concatenated in order; non-text parts are skipped.
+// Any other shape (null, empty, object, …) returns an empty string.
+func (e {{ enum_name }}) Text() string {
+	if len(e) == 0 {
+		return ""
+	}
+	// Fast-path: plain JSON string → strip surrounding quotes.
+	if e[0] == '"' {
+		var s string
+		if err := json.Unmarshal([]byte(e), &s); err == nil {
+			return s
+		}
+		return ""
+	}
+	// Array of content parts → concatenate "text" fields of type=="text" parts.
+	if e[0] == '[' {
+		var parts []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}
+		if err := json.Unmarshal([]byte(e), &parts); err != nil {
+			return ""
+		}
+		var out string
+		for _, p := range parts {
+			if p.Type == "text" {
+				out += p.Text
+			}
+		}
+		return out
+	}
+	return ""
+}

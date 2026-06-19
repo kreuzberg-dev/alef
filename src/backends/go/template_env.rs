@@ -376,6 +376,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/passthrough_raw_message_enum_body.jinja"),
     ),
     (
+        "passthrough_raw_message_text_accessor.jinja",
+        include_str!("templates/passthrough_raw_message_text_accessor.jinja"),
+    ),
+    (
         "untagged_union_marshalers.jinja",
         include_str!("templates/untagged_union_marshalers.jinja"),
     ),

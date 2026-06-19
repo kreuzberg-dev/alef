@@ -9,7 +9,7 @@ use crate::backends::java::gen_bindings::helpers::{
     safe_java_field_name,
 };
 
-pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str) -> String {
+pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str, text_types: &[String]) -> String {
     let has_data_variants = enum_def.variants.iter().any(|v| !v.fields.is_empty());
 
     // Tagged union: enum has a serde tag AND data variants → generate sealed interface hierarchy
@@ -22,7 +22,8 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
     // alternatives by name (variant identifiers don't appear in the wire JSON), so
     // we hold the raw JsonNode and let serde on the Rust side resolve the variant.
     if enum_def.serde_untagged && has_data_variants {
-        return gen_java_untagged_wrapper(package, enum_def, main_class);
+        let emit_text = text_types.iter().any(|t| t == &enum_def.name);
+        return gen_java_untagged_wrapper(package, enum_def, main_class, emit_text);
     }
 
     let header = hash::header(CommentStyle::DoubleSlash);
@@ -106,7 +107,12 @@ pub(crate) fn gen_enum_class(package: &str, enum_def: &EnumDef, main_class: &str
 /// holds the JsonNode verbatim, with `@JsonValue` for serialization and
 /// `@JsonCreator(mode=DELEGATING)` so Jackson hands the parsed JsonNode straight
 /// through. The Rust core (serde) resolves the variant on the way in.
-fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str) -> String {
+///
+/// When `emit_text` is true, a `text()` method is appended that extracts the
+/// plain-text display value: a JSON string is returned verbatim; a JSON array of
+/// objects with `"type":"text"` has their `"text"` fields concatenated; otherwise
+/// an empty string is returned.
+fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str, emit_text: bool) -> String {
     let header = hash::header(CommentStyle::DoubleSlash);
     let doc = enum_def
         .doc
@@ -123,6 +129,7 @@ fn gen_java_untagged_wrapper(package: &str, enum_def: &EnumDef, main_class: &str
             class_name => &enum_def.name,
             doc => doc,
             exception_class => exception_class,
+            emit_text => emit_text,
         },
     )
 }

@@ -556,6 +556,7 @@ impl Backend for CsharpBackend {
         }
 
         // 6. Generate enums
+        let text_types = &config.untagged_union_text_types;
         for enum_def in &api.enums {
             // Skip enums that gen_visitor handles with richer visitor-specific versions
             if has_visitor_callbacks && bridge_associated_types.contains(enum_def.name.as_str()) {
@@ -564,7 +565,7 @@ impl Backend for CsharpBackend {
             let enum_filename = csharp_type_name(&enum_def.name);
             files.push(GeneratedFile {
                 path: base_path.join(format!("{}.cs", enum_filename)),
-                content: strip_trailing_whitespace(&enums::gen_enum(enum_def, &namespace)),
+                content: strip_trailing_whitespace(&enums::gen_enum(enum_def, &namespace, text_types)),
                 generated_header: true,
             });
         }

@@ -259,12 +259,13 @@ pub(super) fn gen_go_file(
         .filter(|e| !exclude_types.contains(&e.name))
         .map(|e| e.name.as_str())
         .collect();
+    let text_types = &config.untagged_union_text_types;
     for enum_def in api
         .enums
         .iter()
         .filter(|e| !visitor_types.contains(e.name.as_str()) && !exclude_types.contains(&e.name))
     {
-        body.push_str(&gen_enum_type(enum_def));
+        body.push_str(&gen_enum_type(enum_def, text_types));
         body.push_str("\n\n");
     }
 

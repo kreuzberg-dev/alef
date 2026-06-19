@@ -163,6 +163,13 @@ pub struct ResolvedCrateConfig {
     /// proceeds when every error matches a suppressed code; unmatched errors
     /// still fail.
     pub suppress_validation_codes: Vec<String>,
+
+    /// Resolved from [`crate::core::config::raw_crate::RawCrateConfig::untagged_union_text_types`].
+    ///
+    /// Untagged-union type names whose generated binding wrappers (Go / Java / C#)
+    /// should receive an additional `Text()` / `text()` display-text accessor.
+    /// Empty by default — no accessors are emitted.
+    pub untagged_union_text_types: Vec<String>,
 }
 
 impl ResolvedCrateConfig {

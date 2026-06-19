@@ -70,7 +70,35 @@ public final class {{ class_name }} {
     public Optional<JsonNode> asObject() {
         return value != null && value.isObject() ? Optional.of(value) : Optional.empty();
     }
-
+{% if emit_text %}
+    /**
+     * Returns the plain-text display value of this content.
+     *
+     * <ul>
+     *   <li>If the value is a JSON string, it is returned verbatim.</li>
+     *   <li>If the value is a JSON array, the {@code "text"} field of every element
+     *       whose {@code "type"} equals {@code "text"} is concatenated in order;
+     *       non-text parts (images, audio, refusals, etc.) are skipped.</li>
+     *   <li>Otherwise (null, object, empty) returns {@code ""}.</li>
+     * </ul>
+     */
+    public String text() {
+        if (value == null) { return ""; }
+        if (value.isTextual()) { return value.asText(); }
+        if (value.isArray()) {
+            var sb = new StringBuilder();
+            for (var part : value) {
+                var typeNode = part.get("type");
+                if (typeNode != null && "text".equals(typeNode.asText())) {
+                    var textNode = part.get("text");
+                    if (textNode != null) { sb.append(textNode.asText()); }
+                }
+            }
+            return sb.toString();
+        }
+        return "";
+    }
+{% endif %}
     @Override
     public boolean equals(final Object o) {
         return this == o

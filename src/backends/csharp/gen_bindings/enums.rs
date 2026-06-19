@@ -5,7 +5,7 @@ use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::naming::{csharp_type_name, to_csharp_name, wire_variant_value};
 use crate::core::ir::EnumDef;
 
-pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
+pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str, text_types: &[String]) -> String {
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
@@ -22,7 +22,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef, namespace: &str) -> String {
     // identifiers don't appear in the wire JSON), so we pass the JsonElement
     // through and let the Rust core (serde) resolve the variant.
     if enum_def.serde_untagged && has_data_variants {
-        return gen_untagged_wrapper(enum_def, namespace);
+        let emit_text = text_types.iter().any(|t| t == &enum_def.name);
+        return gen_untagged_wrapper(enum_def, namespace, emit_text);
     }
 
     // If any variant has an explicit serde_rename whose value differs from what
@@ -420,7 +421,12 @@ fn gen_sealed_union_converter(out: &mut String, _namespace: &str, enum_def: &Enu
 /// the JsonElement verbatim, with a paired JsonConverter that round-trips the
 /// raw JSON. Static factories (`Of`, `FromJson`, `OfObject`) and probe accessors
 /// (`AsString`, `AsList`, `AsObject`) keep ergonomic construction available.
-fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str) -> String {
+///
+/// When `emit_text` is true, a `Text()` method is appended that returns the
+/// plain-text display value: a JSON string is returned verbatim; a JSON array of
+/// objects with `"type":"text"` has their `"text"` fields concatenated;
+/// anything else returns `""`.
+fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str, emit_text: bool) -> String {
     use crate::backends::csharp::template_env::render;
     use minijinja::Value;
 
@@ -435,6 +441,7 @@ fn gen_untagged_wrapper(enum_def: &EnumDef, namespace: &str) -> String {
             "class_name": class_name,
             "doc": has_doc,
             "doc_lines": doc_lines,
+            "emit_text": emit_text,
         })),
     )
 }

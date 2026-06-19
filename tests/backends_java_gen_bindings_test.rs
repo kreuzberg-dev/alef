@@ -4301,3 +4301,164 @@ type = "CrawlRequest"
         native_lib.content
     );
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// untagged_union_text_types — text() accessor emission
+// ──────────────────────────────────────────────────────────────────────────────
+
+fn make_assistant_content_enum() -> alef::core::ir::EnumDef {
+    alef::core::ir::EnumDef {
+        name: "AssistantContent".to_string(),
+        rust_path: "test_lib::AssistantContent".to_string(),
+        original_rust_path: String::new(),
+        methods: vec![],
+        doc: "Multimodal assistant content.".to_string(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: true,
+        serde_rename_all: None,
+        variants: vec![
+            alef::core::ir::EnumVariant {
+                name: "Text".to_string(),
+                doc: String::new(),
+                fields: vec![make_newtype_field(TypeRef::String)],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+            alef::core::ir::EnumVariant {
+                name: "Parts".to_string(),
+                doc: String::new(),
+                fields: vec![make_newtype_field(TypeRef::Vec(Box::new(TypeRef::Named(
+                    "ContentPart".to_string(),
+                ))))],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+        ],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+fn resolved_with_text_types(text_types: &[&str]) -> ResolvedCrateConfig {
+    let list = text_types
+        .iter()
+        .map(|s| format!("\"{s}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    resolved_one(&format!(
+        r#"
+[workspace]
+languages = ["java", "ffi"]
+
+[[crates]]
+name = "test_lib"
+sources = ["src/lib.rs"]
+untagged_union_text_types = [{list}]
+
+[crates.ffi]
+prefix = "test"
+
+[crates.java]
+package = "dev.test"
+"#
+    ))
+}
+
+/// Without `untagged_union_text_types` configured, no `text()` method appears.
+#[test]
+fn java_untagged_wrapper_without_text_types_does_not_emit_text_method() {
+    let backend = JavaBackend;
+    let config = make_test_config("dev.test");
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![make_assistant_content_enum()],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("AssistantContent.java"))
+        .expect("AssistantContent.java must be emitted");
+
+    assert!(
+        content_file.content.contains("class AssistantContent"),
+        "wrapper class must be present"
+    );
+    assert!(
+        !content_file.content.contains("public String text()"),
+        "text() must NOT be emitted when untagged_union_text_types is empty:\n{}",
+        content_file.content
+    );
+}
+
+/// With `untagged_union_text_types = ["AssistantContent"]`, a `text()` method
+/// is emitted with the correct JSON-string and JSON-array branches.
+#[test]
+fn java_untagged_wrapper_with_text_types_emits_text_method() {
+    let backend = JavaBackend;
+    let config = resolved_with_text_types(&["AssistantContent"]);
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![make_assistant_content_enum()],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: vec![],
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("AssistantContent.java"))
+        .expect("AssistantContent.java must be emitted");
+
+    let src = &content_file.content;
+    assert!(src.contains("public String text()"), "text() must be emitted:\n{src}");
+    // Must return string when value is textual
+    assert!(src.contains("value.isTextual()"), "must handle JSON string:\n{src}");
+    // Must iterate array for parts
+    assert!(src.contains("value.isArray()"), "must handle JSON array:\n{src}");
+    // Must filter by type=="text"
+    assert!(
+        src.contains("\"text\".equals(typeNode.asText())"),
+        "must filter by type=text:\n{src}"
+    );
+    // Returns empty string by default
+    assert!(
+        src.contains("return \"\";"),
+        "must return empty string as fallback:\n{src}"
+    );
+}

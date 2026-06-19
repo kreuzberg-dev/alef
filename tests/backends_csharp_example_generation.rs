@@ -265,3 +265,191 @@ fn test_generated_code_example() {
     assert!(enum_type.content.contains("PaddleOcr,"));
     assert!(enum_type.content.contains("Available OCR backends"));
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// untagged_union_text_types — Text() accessor emission in C# untagged wrappers
+// ──────────────────────────────────────────────────────────────────────────────
+
+fn make_untagged_enum(name: &str) -> EnumDef {
+    EnumDef {
+        name: name.to_string(),
+        rust_path: format!("sample_crate::{name}"),
+        original_rust_path: String::new(),
+        methods: vec![],
+        doc: "Multimodal assistant content.".to_string(),
+        cfg: None,
+        is_copy: false,
+        has_serde: true,
+        serde_tag: None,
+        serde_untagged: true,
+        serde_rename_all: None,
+        variants: vec![
+            EnumVariant {
+                name: "Text".to_string(),
+                doc: String::new(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::String,
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+            EnumVariant {
+                name: "Parts".to_string(),
+                doc: String::new(),
+                fields: vec![FieldDef {
+                    name: "_0".to_string(),
+                    ty: TypeRef::Vec(Box::new(TypeRef::Named("ContentPart".to_string()))),
+                    optional: false,
+                    default: None,
+                    doc: String::new(),
+                    sanitized: false,
+                    is_boxed: false,
+                    type_rust_path: None,
+                    cfg: None,
+                    typed_default: None,
+                    core_wrapper: CoreWrapper::None,
+                    vec_inner_core_wrapper: CoreWrapper::None,
+                    newtype_wrapper: None,
+                    serde_rename: None,
+                    serde_flatten: false,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    original_type: None,
+                }],
+                is_default: false,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: true,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            },
+        ],
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        excluded_variants: vec![],
+        version: Default::default(),
+    }
+}
+
+fn make_config_with_text_types(text_types: &[&str]) -> ResolvedCrateConfig {
+    let list = text_types
+        .iter()
+        .map(|s| format!("\"{s}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let cfg: NewAlefConfig = toml::from_str(&format!(
+        r#"
+[workspace]
+languages = ["csharp"]
+[[crates]]
+name = "sample_crate"
+sources = ["src/lib.rs"]
+untagged_union_text_types = [{list}]
+[crates.ffi]
+prefix = "sample_crate"
+error_style = "last_error"
+[crates.csharp]
+namespace = "SampleCrate"
+"#
+    ))
+    .unwrap();
+    cfg.resolve().unwrap().remove(0)
+}
+
+/// Without `untagged_union_text_types`, no `Text()` method appears.
+#[test]
+fn csharp_untagged_wrapper_without_text_types_does_not_emit_text_method() {
+    let backend = CsharpBackend;
+    let config = make_sample_crate_config();
+
+    let api = ApiSurface {
+        crate_name: "sample_crate".to_string(),
+        version: "0.1.0".to_string(),
+        enums: vec![make_untagged_enum("AssistantContent")],
+        ..ApiSurface::default()
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("AssistantContent.cs"))
+        .expect("AssistantContent.cs must be emitted");
+
+    assert!(
+        wrapper.content.contains("class AssistantContent"),
+        "wrapper class must be present"
+    );
+    assert!(
+        !wrapper.content.contains("public string Text()"),
+        "Text() must NOT be emitted when untagged_union_text_types is empty:\n{}",
+        wrapper.content
+    );
+}
+
+/// With `untagged_union_text_types = ["AssistantContent"]`, `Text()` is emitted.
+#[test]
+fn csharp_untagged_wrapper_with_text_types_emits_text_method() {
+    let backend = CsharpBackend;
+    let config = make_config_with_text_types(&["AssistantContent"]);
+
+    let api = ApiSurface {
+        crate_name: "sample_crate".to_string(),
+        version: "0.1.0".to_string(),
+        enums: vec![make_untagged_enum("AssistantContent")],
+        ..ApiSurface::default()
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("AssistantContent.cs"))
+        .expect("AssistantContent.cs must be emitted");
+
+    let src = &wrapper.content;
+    assert!(src.contains("public string Text()"), "Text() must be emitted:\n{src}");
+    // Must handle JSON string
+    assert!(
+        src.contains("JsonValueKind.String"),
+        "must handle JSON string variant:\n{src}"
+    );
+    // Must handle JSON array
+    assert!(
+        src.contains("JsonValueKind.Array"),
+        "must handle JSON array variant:\n{src}"
+    );
+    // Must filter by type == "text"
+    assert!(
+        src.contains("GetString() == \"text\""),
+        "must filter parts by type==\"text\":\n{src}"
+    );
+    // Returns empty string as fallback
+    assert!(
+        src.contains("string.Empty"),
+        "must return string.Empty as fallback:\n{src}"
+    );
+}
