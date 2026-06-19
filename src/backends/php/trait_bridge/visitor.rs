@@ -73,12 +73,11 @@ pub(super) fn gen_visitor_bridge(
             payload_result_variants => crate::codegen::visitor_result::variant_contexts(
                 &result_metadata.string_payload_variants,
             ),
-            single_payload_variant => result_metadata.string_payload_variants.len() == 1,
-            single_payload_name => result_metadata
-                .string_payload_variants
-                .first()
-                .map(|variant| variant.name.as_str())
-                .unwrap_or(default_variant),
+            unknown_string_result_expr => crate::codegen::visitor_result::unknown_string_result_expr(
+                &result_type_path,
+                &result_metadata,
+                "s.to_string()",
+            ),
         },
     ));
     out.push('\n');

@@ -4,11 +4,7 @@ fn php_zval_to_visit_result(val: &ext_php_rs::types::Zval) -> {{ result_type_pat
 {%- for variant in unit_result_variants %}
             "{{ variant.wire_name }}" => {{ result_type_path }}::{{ variant.name }},
 {%- endfor %}
-{%- if single_payload_variant %}
-            _ => {{ result_type_path }}::{{ single_payload_name }}(s.to_string()),
-{%- else %}
-            _ => {{ result_type_path }}::{{ default_variant }},
-{%- endif %}
+            _ => {{ unknown_string_result_expr }},
         };
     }
     if let Some(arr) = val.array() {

@@ -14,6 +14,9 @@ pub(super) fn build_php_visitor(setup_lines: &mut Vec<String>, visitor_spec: &Vi
 
 /// Emit a PHP visitor method for a callback action.
 pub(super) fn emit_php_visitor_method(setup_lines: &mut Vec<String>, method_name: &str, action: &CallbackAction) {
+    // The PHP bridge performs `{param_name}` template substitution on Custom/Error payloads
+    // (see `php_visit_result_with_template`), so the callback returns the raw template and the
+    // bridge interpolates from the Rust-side argument values. A variadic param list is sufficient.
     let params = "...$args";
 
     let (action_type, action_value, return_form) = match action {
