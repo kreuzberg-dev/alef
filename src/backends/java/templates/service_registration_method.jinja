@@ -36,7 +36,8 @@
             FunctionDescriptor regDesc = FunctionDescriptor.of(
                 ValueLayout.JAVA_INT,  // return: int
                 ValueLayout.ADDRESS,   // owner: *mut opaque
-                ValueLayout.ADDRESS    // callback: upcall stub
+                ValueLayout.ADDRESS,   // callback: upcall stub
+                ValueLayout.ADDRESS    // context: *mut c_void (null for now)
 {% for layout in descriptor_layouts %}
                 , {{ layout.0 }}    // {{ layout.1 }} param
 {% endfor %}            );
@@ -44,7 +45,8 @@
 
             return (int) regHandle.invokeExact(
                 ownerHandle,     // owner
-                upcallStub       // callback
+                upcallStub,      // callback
+                MemorySegment.NULL  // context: null pointer
 {% for arg in invoke_args %}
                 , {{ arg.0 }}    // {{ arg.1 }}
 {% endfor %}            );

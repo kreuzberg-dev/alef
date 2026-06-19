@@ -41,7 +41,11 @@ public class {{ class_name }} implements AutoCloseable {
             MemorySegment requestPtr,
             Callable handler,
             Arena arena) throws Throwable {
-        String requestStr = requestPtr.getString(0);
+        // Upcall pointer args arrive as zero-length native segments (the linker has
+        // no length for a raw `*const c_char`). Reinterpret to an unbounded segment
+        // before reading, otherwise getString() throws and the uncaught exception
+        // aborts the VM.
+        String requestStr = requestPtr.reinterpret(Long.MAX_VALUE).getString(0);
         String responseStr = handler.handle(requestStr);
         return arena.allocateFrom(responseStr);
     }
