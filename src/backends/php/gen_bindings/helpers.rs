@@ -9,7 +9,7 @@ mod struct_conversion;
 pub(crate) use enum_defaults::{gen_convertible_enum_tainted, gen_enum_tainted_from_binding_to_core};
 pub(crate) use params::{
     gen_php_call_args, gen_php_call_args_with_let_bindings, gen_php_function_params, gen_php_named_let_bindings,
-    has_enum_named_field, references_named_type,
+    has_enum_named_field, param_conversion_is_fallible, references_named_type,
 };
 #[allow(unused_imports)]
 pub(crate) use primitives::core_prim_str;
