@@ -658,8 +658,15 @@ impl client::TestClientRenderer for GoTestClientRenderer {
         let _ = writeln!(out, "\t}}");
 
         let body_expr = if let Some(body) = ctx.body {
-            let json = serde_json::to_string(body).unwrap_or_default();
-            let escaped = go_string_literal(&json);
+            // A string body is a raw request body (e.g. urlencoded form data) and
+            // must be emitted verbatim; JSON-serializing it would wrap it in quotes
+            // (`"username=ab"`), which the server cannot parse. Non-string bodies are
+            // serialized to JSON.
+            let raw = match body {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string(other).unwrap_or_default(),
+            };
+            let escaped = go_string_literal(&raw);
             format!("strings.NewReader({})", escaped)
         } else {
             "strings.NewReader(\"\")".to_string()
