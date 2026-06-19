@@ -56,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **(backends/swift): remove the hard-coded Swift bridge crate name from the post-build step.**
   The Swift backend now builds the bridge crate via `packages/swift/rust/Cargo.toml` instead of
   `-p <consumer>-swift`, keeping generated bindings project-agnostic. (`src/backends/swift/gen_bindings/mod.rs`)
+- **(sync-versions): remove stale Kotlin Android plugin lines when AGP 9+ is pinned.**
+  `sync_versions` now normalizes existing `packages/kotlin-android/build.gradle.kts` files by
+  dropping the explicit `kotlin("android")` plugin line when the centralized Android Gradle
+  Plugin version is 9 or newer, matching freshly generated files. (`src/cli/pipeline/version.rs`,
+  `src/cli/pipeline/version_text.rs`, `src/cli/pipeline/version_tests/e2e_manifests.rs`)
 - **(backends/dart): match the freezed mixin clause when injecting the content-union `text()` accessor.** FRB emits `sealed class AssistantContent with _$AssistantContent {`, but the v0.25.48 injection regex required the `{` immediately after the type name, so the `.text()` extension was never emitted and the dart binding/e2e failed to compile (`The method 'text' isn't defined for the type 'AssistantContent'`). The pattern now tolerates an optional `with <mixin>` clause up to the declaration's opening brace. (`src/backends/dart/frb_rewrite/text_transformations.rs`)
 
 ## [0.25.48] - 2026-06-19

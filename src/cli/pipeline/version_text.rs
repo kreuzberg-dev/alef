@@ -652,6 +652,33 @@ pub(super) fn replace_gradle_project_version(content: &str, new_version: &str) -
     Some(new_content)
 }
 
+/// Remove the explicit Kotlin Android plugin line when the centralized Android
+/// Gradle Plugin pin is 9.0 or newer.
+///
+/// AGP 9+ provides built-in Kotlin support and rejects re-applying
+/// `org.jetbrains.kotlin.android`, so older generated `build.gradle.kts` files
+/// need this cleanup during `sync_versions` even though their plugin version pins
+/// are otherwise intentionally left untouched.
+pub(super) fn remove_stale_kotlin_android_plugin(content: &str) -> Option<String> {
+    let agp_major = crate::core::template_versions::maven::ANDROID_GRADLE_PLUGIN
+        .split('.')
+        .next()
+        .and_then(|major| major.parse::<u32>().ok())
+        .unwrap_or(0);
+    if agp_major < 9 {
+        return None;
+    }
+
+    static KOTLIN_ANDROID_PLUGIN_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r#"(?m)^\s*kotlin\("android"\)\s+version\s+"[^"]*"\s*\n"#).expect("valid regex")
+    });
+    let new_content = KOTLIN_ANDROID_PLUGIN_RE.replace_all(content, "").into_owned();
+    if new_content == content {
+        return None;
+    }
+    Some(new_content)
+}
+
 /// Rewrite the `version = "..."` field of every local/path-source `[[package]]`
 /// entry in a committed `Cargo.lock` so it matches the freshly-bumped manifests.
 ///

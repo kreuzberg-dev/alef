@@ -10,9 +10,9 @@ use super::version_regen::{regenerate_readmes, regenerate_scaffold_after_sync, r
 use super::version_registry::sync_registry_package_versions;
 use super::version_swift::precompute_swift_checksum;
 use super::version_text::{
-    read_workspace_license, render_citation_cff, replace_citation_version, replace_gradle_project_version,
-    replace_version_pattern, restore_gleam_dep_ranges, sync_cargo_lock_path_versions, sync_docs_version_badges,
-    sync_e2e_dart_pubspec_lock, sync_e2e_go_mod, sync_e2e_java_pom, sync_gemfile_lock,
+    read_workspace_license, remove_stale_kotlin_android_plugin, render_citation_cff, replace_citation_version,
+    replace_gradle_project_version, replace_version_pattern, restore_gleam_dep_ranges, sync_cargo_lock_path_versions,
+    sync_docs_version_badges, sync_e2e_dart_pubspec_lock, sync_e2e_go_mod, sync_e2e_java_pom, sync_gemfile_lock,
 };
 use super::version_workspace::sync_workspace_cargo_toml_versions;
 use crate::core::version::{to_r_version, to_rubygems_prerelease};
@@ -256,10 +256,14 @@ pub fn sync_versions(
     // `replace_gradle_project_version` function is safe to use here — it anchors
     // to the first start-of-line `version = "..."` assignment, which in the
     // Android build file is the `coordinates` version, not a plugin declaration.
+    // Also normalize stale AGP 8-era `kotlin("android")` plugin lines away when
+    // the centralized AGP pin is 9+, matching the current emitter.
     let kotlin_android_gradle =
         std::path::Path::new(&config.package_dir(Language::KotlinAndroid)).join("build.gradle.kts");
     if let Ok(content) = std::fs::read_to_string(&kotlin_android_gradle) {
-        if let Some(new_content) = replace_gradle_project_version(&content, &version) {
+        let version_synced = replace_gradle_project_version(&content, &version).unwrap_or_else(|| content.clone());
+        let new_content = remove_stale_kotlin_android_plugin(&version_synced).unwrap_or_else(|| version_synced.clone());
+        if new_content != content {
             std::fs::write(&kotlin_android_gradle, &new_content)
                 .with_context(|| format!("failed to write {}", kotlin_android_gradle.display()))?;
             updated.push(kotlin_android_gradle.to_string_lossy().to_string());

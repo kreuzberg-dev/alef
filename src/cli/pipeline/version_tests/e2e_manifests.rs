@@ -448,7 +448,7 @@ fn sync_versions_regenerates_scaffold_version_fields() {
 // -----------------------------------------------------------------------
 
 /// `sync_versions` must bump `version = "..."` inside `packages/kotlin-android/build.gradle.kts`
-/// (the `coordinates()` block version), leaving plugin `version "..."` declarations intact.
+/// (the `coordinates()` block version) and remove stale AGP 8-era Kotlin Android plugin lines.
 #[test]
 fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
     use crate::core::config::NewAlefConfig;
