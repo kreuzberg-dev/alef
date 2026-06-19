@@ -21,6 +21,9 @@ pub struct PhpMapper {
     /// PHP binding struct, with conversion to the typed core enum done in
     /// `From<BindingT> for CoreT` via `serde_json::from_value`.
     pub untagged_data_enum_names: AHashSet<String>,
+    /// Names of externally-tagged data enums (within enum_names). These have
+    /// at least one variant with fields, requiring serde_json serialization on return.
+    pub json_string_enum_names: AHashSet<String>,
 }
 
 impl TypeMapper for PhpMapper {

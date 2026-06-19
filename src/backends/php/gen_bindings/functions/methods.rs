@@ -34,6 +34,8 @@ pub(crate) fn gen_instance_method(
     adapter_bodies: &AdapterBodies,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let string_enum_names = &mapper.enum_names;
+    let json_string_enum_names = &mapper.json_string_enum_names;
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
@@ -82,6 +84,8 @@ pub(crate) fn gen_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                     mutex_types,
+                    json_string_enum_names,
+                    string_enum_names,
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body.jinja",
@@ -101,6 +105,8 @@ pub(crate) fn gen_instance_method(
                 method.returns_ref,
                 method.returns_cow,
                 mutex_types,
+                json_string_enum_names,
+                string_enum_names,
             )
         }
     } else if is_opaque {
@@ -134,6 +140,8 @@ pub(crate) fn gen_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                     mutex_types,
+                    json_string_enum_names,
+                    string_enum_names,
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -156,6 +164,8 @@ pub(crate) fn gen_instance_method(
                     method.returns_ref,
                     method.returns_cow,
                     mutex_types,
+                    json_string_enum_names,
+                    string_enum_names,
                 )
             )
         }
@@ -225,6 +235,8 @@ pub(crate) fn gen_instance_method_non_opaque(
     bridge_type_aliases: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let string_enum_names = &mapper.enum_names;
+    let json_string_enum_names = &mapper.json_string_enum_names;
     let params = gen_php_function_params(&method.params, mapper, opaque_types, bridge_type_aliases);
     let return_type = mapper.map_type(&method.return_type);
     let return_annotation = mapper.wrap_return(&return_type, method.error_type.is_some());
@@ -265,6 +277,8 @@ pub(crate) fn gen_instance_method_non_opaque(
             method.returns_ref,
             method.returns_cow,
             mutex_types,
+            json_string_enum_names,
+            string_enum_names,
         );
 
         let is_enum_return = matches!(&method.return_type, TypeRef::Named(n) if mapper.enum_names.contains(n.as_str()));
@@ -288,6 +302,8 @@ pub(crate) fn gen_instance_method_non_opaque(
                     method.returns_ref,
                     method.returns_cow,
                     mutex_types,
+                    json_string_enum_names,
+                    string_enum_names,
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -359,6 +375,8 @@ pub(crate) fn gen_static_method(
     typ: &TypeDef,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let string_enum_names = &mapper.enum_names;
+    let json_string_enum_names = &mapper.json_string_enum_names;
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
@@ -404,6 +422,8 @@ pub(crate) fn gen_static_method(
                     method.returns_ref,
                     method.returns_cow,
                     mutex_types,
+                    json_string_enum_names,
+                    string_enum_names,
                 );
                 if wrap == "val" {
                     format!("{core_call}.map_err(|e| PhpException::default(e.to_string()))")
@@ -423,6 +443,8 @@ pub(crate) fn gen_static_method(
                 method.returns_ref,
                 method.returns_cow,
                 mutex_types,
+                json_string_enum_names,
+                string_enum_names,
             )
         }
     } else {
@@ -486,6 +508,7 @@ pub(crate) fn gen_function_as_static_method(
         &type_sets,
         core_import,
         &mapper.enum_names,
+        &mapper.json_string_enum_names,
         bridges,
         has_serde,
         mutex_types,
@@ -545,6 +568,7 @@ fn gen_function_body(
     type_sets: &PhpParamTypeSets<'_>,
     core_import: &str,
     enum_names: &AHashSet<String>,
+    json_string_enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     has_serde: bool,
     mutex_types: &AHashSet<String>,
@@ -587,6 +611,8 @@ fn gen_function_body(
                     func.returns_ref,
                     false,
                     mutex_types,
+                    json_string_enum_names,
+                    enum_names,
                 );
                 crate::backends::php::template_env::render(
                     "php_result_wrapped_body_with_let_bindings.jinja",
@@ -615,6 +641,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
+                json_string_enum_names,
+                enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",
@@ -666,6 +694,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
+                json_string_enum_names,
+                enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_result_wrapped_body_with_let_bindings.jinja",
@@ -685,6 +715,8 @@ fn gen_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
+                json_string_enum_names,
+                enum_names,
             );
             crate::backends::php::template_env::render(
                 "php_wrapped_body_with_let_bindings.jinja",

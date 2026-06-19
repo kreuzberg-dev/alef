@@ -30,7 +30,18 @@ pub(crate) fn gen_async_function_as_static_method(
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
 ) -> String {
-    let body = gen_async_function_body(func, &type_sets, core_import, &mapper.enum_names, bridges, mutex_types);
+    let string_enum_names = &mapper.enum_names;
+    let json_string_enum_names = &mapper.json_string_enum_names;
+    let body = gen_async_function_body(
+        func,
+        &type_sets,
+        core_import,
+        &mapper.enum_names,
+        bridges,
+        mutex_types,
+        json_string_enum_names,
+        string_enum_names,
+    );
     let bridge_names = bridge_param_names(bridges);
     let visible_params: Vec<_> = func
         .params
@@ -88,6 +99,8 @@ fn gen_async_function_body(
     enum_names: &AHashSet<String>,
     bridges: &[TraitBridgeConfig],
     mutex_types: &AHashSet<String>,
+    json_string_enum_names: &ahash::AHashSet<String>,
+    string_enum_names: &ahash::AHashSet<String>,
 ) -> String {
     let bridge_names = bridge_param_names(bridges);
     let can_delegate = shared::can_auto_delegate_function(func, type_sets.opaque);
@@ -126,6 +139,8 @@ fn gen_async_function_body(
                 func.returns_ref,
                 false,
                 mutex_types,
+                json_string_enum_names,
+                string_enum_names,
             )
         };
         if func.error_type.is_some() {
@@ -166,6 +181,8 @@ pub(crate) fn gen_async_instance_method(
     adapter_bodies: &AdapterBodies,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    let string_enum_names = &mapper.enum_names;
+    let json_string_enum_names = &mapper.json_string_enum_names;
     let empty_bridges = AHashSet::new();
     let params = gen_php_function_params(&method.params, mapper, opaque_types, &empty_bridges);
     let return_type = mapper.map_type(&method.return_type);
@@ -199,6 +216,8 @@ pub(crate) fn gen_async_instance_method(
             method.returns_ref,
             method.returns_cow,
             mutex_types,
+            json_string_enum_names,
+            string_enum_names,
         );
         if method.error_type.is_some() {
             crate::backends::php::template_env::render(
@@ -244,6 +263,8 @@ pub(crate) fn gen_async_instance_method(
             method.returns_ref,
             method.returns_cow,
             mutex_types,
+            json_string_enum_names,
+            string_enum_names,
         );
         if method.error_type.is_some() {
             crate::backends::php::template_env::render(

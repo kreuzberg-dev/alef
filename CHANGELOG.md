@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/php/gen_bindings/functions/params.rs`, `src/backends/php/template_env.rs`,
   `src/backends/php/templates/php_json_let_binding.jinja`,
   `src/backends/php/templates/php_json_let_binding_optional.jinja`)
+- **(backends/php): serialize string-mapped data-enum returns instead of treating them as DTOs.**
+  PHP now distinguishes pure unit string enums from externally-tagged data enums when wrapping
+  return values, preserving data-variant payloads as JSON strings while unit enums still return
+  their discriminant string. (`src/backends/php/gen_bindings/helpers/return_wrapping.rs`,
+  `src/backends/php/gen_bindings/functions/methods.rs`,
+  `src/backends/php/gen_bindings/functions/async_methods.rs`,
+  `src/backends/php/gen_bindings/rust_bindings.rs`, `src/backends/php/type_map.rs`)
 - **(backends/dart): match the freezed mixin clause when injecting the content-union `text()` accessor.** FRB emits `sealed class AssistantContent with _$AssistantContent {`, but the v0.25.48 injection regex required the `{` immediately after the type name, so the `.text()` extension was never emitted and the dart binding/e2e failed to compile (`The method 'text' isn't defined for the type 'AssistantContent'`). The pattern now tolerates an optional `with <mixin>` clause up to the declaration's opening brace. (`src/backends/dart/frb_rewrite/text_transformations.rs`)
 
 ## [0.25.48] - 2026-06-19

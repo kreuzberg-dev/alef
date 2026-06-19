@@ -13,6 +13,10 @@ fn php_expr_is_already_arc(expr: &str) -> bool {
 #[allow(clippy::too_many_arguments)]
 /// PHP-specific return wrapping that handles i64 casts for u64/usize/isize primitives.
 /// Extends the shared `wrap_return` with type conversions for primitives that are i64 in PHP.
+///
+/// For enum returns:
+/// - json_string_enum_names: externally-tagged data enums (have data variants); need serde_json::to_string()
+/// - string_enum_names: pure unit enums; use serde_json::to_value().as_str() path
 pub(crate) fn php_wrap_return(
     expr: &str,
     return_type: &TypeRef,
@@ -22,6 +26,8 @@ pub(crate) fn php_wrap_return(
     returns_ref: bool,
     returns_cow: bool,
     mutex_types: &ahash::AHashSet<String>,
+    json_string_enum_names: &ahash::AHashSet<String>,
+    string_enum_names: &ahash::AHashSet<String>,
 ) -> String {
     match return_type {
         TypeRef::Bytes => {
@@ -76,14 +82,41 @@ pub(crate) fn php_wrap_return(
                 format!("{n} {{ inner: {} }}", wrapper(expr.to_string()))
             }
         }
-        TypeRef::Named(_) => {
-            // Non-opaque Named return type — use .into() for core→binding From conversion.
-            if returns_cow {
-                format!("{expr}.into_owned().into()")
-            } else if returns_ref {
-                format!("{expr}.clone().into()")
+        TypeRef::Named(n) => {
+            // Non-opaque Named return type
+            if json_string_enum_names.contains(n.as_str()) {
+                // Externally-tagged data enum: serialize to JSON string
+                if returns_cow {
+                    format!("serde_json::to_string(&{expr}.into_owned()).unwrap_or_default()")
+                } else if returns_ref {
+                    format!("serde_json::to_string(&{expr}.clone()).unwrap_or_default()")
+                } else {
+                    format!("serde_json::to_string(&{expr}).unwrap_or_default()")
+                }
+            } else if string_enum_names.contains(n.as_str()) {
+                // Pure unit enum: extract discriminant string via serde_json
+                if returns_cow {
+                    format!(
+                        "serde_json::to_value(&{expr}.into_owned()).ok().and_then(|v| v.as_str().map(std::string::ToString::to_string)).unwrap_or_default()"
+                    )
+                } else if returns_ref {
+                    format!(
+                        "serde_json::to_value(&{expr}.clone()).ok().and_then(|v| v.as_str().map(std::string::ToString::to_string)).unwrap_or_default()"
+                    )
+                } else {
+                    format!(
+                        "serde_json::to_value(&{expr}).ok().and_then(|v| v.as_str().map(std::string::ToString::to_string)).unwrap_or_default()"
+                    )
+                }
             } else {
-                format!("{expr}.into()")
+                // Non-enum Named type: use .into() for core-to-binding From conversion
+                if returns_cow {
+                    format!("{expr}.into_owned().into()")
+                } else if returns_ref {
+                    format!("{expr}.clone().into()")
+                } else {
+                    format!("{expr}.into()")
+                }
             }
         }
         TypeRef::Optional(inner) => match inner.as_ref() {
@@ -106,11 +139,32 @@ pub(crate) fn php_wrap_return(
                     }
                 }
             }
-            TypeRef::Named(_) => {
-                if returns_ref {
-                    format!("{expr}.map(|v| v.clone().into())")
+            TypeRef::Named(n) => {
+                if json_string_enum_names.contains(n.as_str()) {
+                    // Externally-tagged data enum in Option
+                    if returns_ref {
+                        format!("{expr}.map(|v| serde_json::to_string(&v.clone()).unwrap_or_default())")
+                    } else {
+                        format!("{expr}.map(|v| serde_json::to_string(&v).unwrap_or_default())")
+                    }
+                } else if string_enum_names.contains(n.as_str()) {
+                    // Pure unit enum in Option
+                    if returns_ref {
+                        format!(
+                            "{expr}.map(|v| serde_json::to_value(&v.clone()).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default())"
+                        )
+                    } else {
+                        format!(
+                            "{expr}.map(|v| serde_json::to_value(&v).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default())"
+                        )
+                    }
                 } else {
-                    format!("{expr}.map(Into::into)")
+                    // Non-enum Named type
+                    if returns_ref {
+                        format!("{expr}.map(|v| v.clone().into())")
+                    } else {
+                        format!("{expr}.map(Into::into)")
+                    }
                 }
             }
             _ => {
@@ -169,10 +223,31 @@ pub(crate) fn php_wrap_return(
             // clippy::into_iter_on_ref — `.into_iter()` on a slice reference is equivalent to
             // `.iter()` and does not consume it.
             TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
-                if returns_ref {
-                    format!("{expr}.iter().cloned().map(Into::into).collect()")
+                if json_string_enum_names.contains(n.as_str()) {
+                    // Vec<externally-tagged data enum>
+                    if returns_ref {
+                        format!("{expr}.iter().map(|v| serde_json::to_string(v).unwrap_or_default()).collect()")
+                    } else {
+                        format!("{expr}.into_iter().map(|v| serde_json::to_string(&v).unwrap_or_default()).collect()")
+                    }
+                } else if string_enum_names.contains(n.as_str()) {
+                    // Vec<pure unit enum>
+                    if returns_ref {
+                        format!(
+                            "{expr}.iter().map(|v| serde_json::to_value(v).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default()).collect()"
+                        )
+                    } else {
+                        format!(
+                            "{expr}.into_iter().map(|v| serde_json::to_value(&v).ok().and_then(|j| j.as_str().map(std::string::ToString::to_string)).unwrap_or_default()).collect()"
+                        )
+                    }
                 } else {
-                    format!("{expr}.into_iter().map(Into::into).collect()")
+                    // Non-enum Named type
+                    if returns_ref {
+                        format!("{expr}.iter().cloned().map(Into::into).collect()")
+                    } else {
+                        format!("{expr}.into_iter().map(Into::into).collect()")
+                    }
                 }
             }
             _ => {

@@ -91,16 +91,35 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         .collect();
     // String-mapped enums: everything that is NOT a tagged-data enum AND NOT an untagged-data enum.
     // Includes unit-variant enums (FilePurpose, ToolType, …) which are exposed as PHP string constants.
-    let enum_names: AHashSet<String> = api
+    let all_string_enums: AHashSet<String> = api
         .enums
         .iter()
         .filter(|e| !is_tagged_data_enum(e) && !is_untagged_data_enum(e))
         .map(|e| e.name.clone())
         .collect();
+
+    // Within all_string_enums, split into pure unit enums and externally-tagged data enums.
+    // Pure unit enums map to String via serde's default tagging (all variants are unit, e.g. "plain").
+    // Externally-tagged data enums also map to String (no serde_tag/untagged), but need
+    // serde_json::to_string() on return to preserve the data variant shape.
+    let json_string_enum_names: AHashSet<String> = all_string_enums
+        .iter()
+        .filter(|enum_name| {
+            api.enums
+                .iter()
+                .find(|e| &e.name == *enum_name)
+                .map(|e| e.variants.iter().any(|v| !v.fields.is_empty()))
+                .unwrap_or(false)
+        })
+        .cloned()
+        .collect();
+
+    let enum_names = all_string_enums;
     let mapper = PhpMapper {
         enum_names: enum_names.clone(),
         data_enum_names: data_enum_names.clone(),
         untagged_data_enum_names: untagged_data_enum_names.clone(),
+        json_string_enum_names: json_string_enum_names.clone(),
     };
     let default_types: AHashSet<String> = api
         .types
