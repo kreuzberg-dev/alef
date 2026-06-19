@@ -251,13 +251,8 @@ pub fn sync_versions(
         }
     }
 
-    // Kotlin Android: packages/kotlin-android/build.gradle.kts carries the
-    // library version in a `coordinates(... version = "...")` block. The same
-    // `replace_gradle_project_version` function is safe to use here — it anchors
-    // to the first start-of-line `version = "..."` assignment, which in the
-    // Android build file is the `coordinates` version, not a plugin declaration.
-    // Also normalize stale AGP 8-era `kotlin("android")` plugin lines away when
-    // the centralized AGP pin is 9+, matching the current emitter.
+    // Kotlin Android stores the package version in `coordinates(...)`; also drop
+    // stale AGP 8-era `kotlin("android")` plugin lines when AGP 9+ is pinned.
     let kotlin_android_gradle =
         std::path::Path::new(&config.package_dir(Language::KotlinAndroid)).join("build.gradle.kts");
     if let Ok(content) = std::fs::read_to_string(&kotlin_android_gradle) {
