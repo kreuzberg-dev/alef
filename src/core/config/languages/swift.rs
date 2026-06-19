@@ -4,6 +4,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct SwiftConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. `SwiftTreeSitter.Language`) from the raw C grammar pointer
+    /// instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     /// Swift module name (e.g. `"MyLibrary"`). Defaults to PascalCase of the crate name.
     #[serde(default)]
     pub module_name: Option<String>,

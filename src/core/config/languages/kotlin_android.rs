@@ -11,6 +11,13 @@ use std::collections::HashMap;
 /// `src/main/java/` so the AAR is self-contained.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct KotlinAndroidConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. ktreesitter's `io.github.treesitter.ktreesitter.Language` from a
+    /// native `long` pointer) instead of an opaque handle.
+    /// See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     /// JVM-style package for Kotlin bindings (e.g. `dev.sample_core`).
     /// Defaults to the crate name.
     #[serde(default)]

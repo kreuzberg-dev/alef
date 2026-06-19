@@ -2,6 +2,46 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.
+///
+/// When a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend
+/// does NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C
+/// function returns the host ecosystem's native grammar pointer directly by calling
+/// `value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the
+/// result to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`
+/// symbols are suppressed for that type.
+///
+/// This is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,
+/// Swift, Dart, Zig, Kotlin Android): each of those constructs its own host-native
+/// `Language` wrapper from this raw pointer.
+///
+/// TOML form:
+/// ```toml
+/// [crates.ffi.capsule_types.Language]
+/// into_raw_type = "tree_sitter::ffi::TSLanguage"
+/// c_return_type = "TSLanguage"
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
+pub struct FfiCapsuleTypeConfig {
+    /// Fully-qualified Rust pointee type produced by `value.into_raw()`.
+    /// The generated body casts to `*const {into_raw_type}`.
+    /// Defaults to `"tree_sitter::ffi::TSLanguage"`.
+    #[serde(default = "default_ffi_capsule_into_raw_type")]
+    pub into_raw_type: String,
+    /// The bare C type name the exported function returns (used by cbindgen to
+    /// declare the return as `const {c_return_type} *`). Defaults to `"TSLanguage"`.
+    #[serde(default = "default_ffi_capsule_c_return_type")]
+    pub c_return_type: String,
+}
+
+fn default_ffi_capsule_into_raw_type() -> String {
+    "tree_sitter::ffi::TSLanguage".to_string()
+}
+
+fn default_ffi_capsule_c_return_type() -> String {
+    "TSLanguage".to_string()
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct FfiConfig {
     pub prefix: Option<String>,
@@ -41,6 +81,14 @@ pub struct FfiConfig {
     /// Types to exclude from FFI binding generation.
     #[serde(default)]
     pub exclude_types: Vec<String>,
+    /// Map of Rust type name -> capsule config for host-native Language passthrough.
+    /// Types listed here are NOT boxed into opaque `*mut {Type}` handles; instead the
+    /// generated C function returns the host runtime's grammar pointer directly via
+    /// `value.into_raw()`. See [`FfiCapsuleTypeConfig`]. This is the foundation that the
+    /// Go, Java, C#, Swift, Dart, Zig, and Kotlin Android bindings build their host
+    /// `Language` wrappers on top of.
+    #[serde(default)]
+    pub capsule_types: HashMap<String, FfiCapsuleTypeConfig>,
     /// Per-field name remapping for this language. Key is `TypeName.field_name`, value is the
     /// desired binding field name. Applied after automatic keyword escaping.
     #[serde(default)]

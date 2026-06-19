@@ -1,3 +1,4 @@
+mod capsule;
 mod common;
 mod csharp;
 mod custom;
@@ -19,12 +20,13 @@ mod swift;
 mod wasm;
 mod zig;
 
+pub use capsule::HostCapsuleTypeConfig;
 pub use common::StubsConfig;
 pub use csharp::CSharpConfig;
 pub use custom::{CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig};
 pub use dart::{DartConfig, DartStyle, DartTargetDepOverride};
 pub use elixir::ElixirConfig;
-pub use ffi::{FfiConfig, FfiTargetDepOverride};
+pub use ffi::{FfiCapsuleTypeConfig, FfiConfig, FfiTargetDepOverride};
 pub use gleam::{GleamConfig, GleamElementConstructor, GleamElementField};
 pub use go::GoConfig;
 pub use java::JavaConfig;

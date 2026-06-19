@@ -7,6 +7,12 @@ pub struct GoConfig {
     pub module: Option<String>,
     /// Override the Go package name (default: derived from module path)
     pub package_name: Option<String>,
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. `*tree_sitter.Language`) from the raw C grammar pointer instead
+    /// of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     /// Go module major version segment (`/vN`). Required for any v2+ Go module.
     /// Defaults to no segment when `None` and the Go module path has no version suffix;
     /// when set, emits `packages/go/v<N>/`.

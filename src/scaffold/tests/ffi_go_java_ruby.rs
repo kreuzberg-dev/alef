@@ -179,6 +179,7 @@ fn test_scaffold_ffi_target_dep_overrides_emit_cfg_blocks() {
         exclude_functions: vec![],
         exclude_types: vec![],
         rename_fields: Default::default(),
+        capsule_types: Default::default(),
         plugin_error_constructor: None,
         target_dep_overrides: vec![FfiTargetDepOverride {
             cfg: "all(target_os = \"android\", target_arch = \"x86_64\")".to_string(),

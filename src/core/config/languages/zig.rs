@@ -4,6 +4,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ZigConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. `*const tree_sitter.Language`) from the raw C grammar pointer
+    /// instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     pub module_name: Option<String>,
     #[serde(default)]
     pub features: Option<Vec<String>>,

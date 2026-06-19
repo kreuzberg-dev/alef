@@ -18,6 +18,13 @@ pub enum DartStyle {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 pub struct DartConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// Dart has no idiomatic high-level tree-sitter `Language` wrapper, so the binding
+    /// returns the raw `Pointer<TSLanguage>` / `Pointer<Void>` from the FFI boundary as
+    /// the passthrough value (`host_type` should name that pointer type). See
+    /// [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     /// Dart pub.dev package name (e.g. `"my_package"`). Used as the `name` in
     /// `pubspec.yaml`. Defaults to a snake_case derivation of the crate name.
     #[serde(default)]

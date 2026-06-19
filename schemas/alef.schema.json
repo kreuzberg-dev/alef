@@ -253,6 +253,14 @@
     },
     "CSharpConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. `TreeSitter.Language`) from the raw C grammar pointer (an\n`IntPtr`) instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
+        },
         "exclude_functions": {
           "default": [],
           "description": "Functions to exclude from C# binding generation (e.g., functions not present in the\nC FFI layer). Excluded functions are omitted from both NativeMethods.cs and the\nwrapper class.",
@@ -1388,6 +1396,14 @@
     },
     "DartConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nDart has no idiomatic high-level tree-sitter `Language` wrapper, so the binding\nreturns the raw `Pointer<TSLanguage>` / `Pointer<Void>` from the FFI boundary as\nthe passthrough value (`host_type` should name that pointer type). See\n[`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
+        },
         "core_crate_override": {
           "default": null,
           "description": "Override the core Cargo dependency name and path for the Dart binding crate.\nWhen set, the binding `Cargo.toml` depends on this crate (resolved as\n`../../../crates/<override>`) instead of the umbrella `[crate.name]`.\nDefaults to unset.",
@@ -2000,8 +2016,32 @@
       ],
       "description": "A single extra-dependency declaration. Accepts either a bare version string\n(`\"tree-sitter\" = \"^0.25.0\"`) or a free-form TOML table for source/feature\nmetadata (`\"foo\" = { version = \"1\", git = \"https://…\" }`).\n\nPer-language emitters decide which table keys they understand. Unknown keys\nare surfaced as warnings but never block emission — the goal is forward\ncompatibility as the alef.toml surface grows."
     },
+    "FfiCapsuleTypeConfig": {
+      "description": "Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.\n\nWhen a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend\ndoes NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C\nfunction returns the host ecosystem's native grammar pointer directly by calling\n`value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the\nresult to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`\nsymbols are suppressed for that type.\n\nThis is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,\nSwift, Dart, Zig, Kotlin Android): each of those constructs its own host-native\n`Language` wrapper from this raw pointer.\n\nTOML form:\n```toml\n[crates.ffi.capsule_types.Language]\ninto_raw_type = \"tree_sitter::ffi::TSLanguage\"\nc_return_type = \"TSLanguage\"\n```",
+      "properties": {
+        "c_return_type": {
+          "default": "TSLanguage",
+          "description": "The bare C type name the exported function returns (used by cbindgen to\ndeclare the return as `const {c_return_type} *`). Defaults to `\"TSLanguage\"`.",
+          "type": "string"
+        },
+        "into_raw_type": {
+          "default": "tree_sitter::ffi::TSLanguage",
+          "description": "Fully-qualified Rust pointee type produced by `value.into_raw()`.\nThe generated body casts to `*const {into_raw_type}`.\nDefaults to `\"tree_sitter::ffi::TSLanguage\"`.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "FfiConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/FfiCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> capsule config for host-native Language passthrough.\nTypes listed here are NOT boxed into opaque `*mut {Type}` handles; instead the\ngenerated C function returns the host runtime's grammar pointer directly via\n`value.into_raw()`. See [`FfiCapsuleTypeConfig`]. This is the foundation that the\nGo, Java, C#, Swift, Dart, Zig, and Kotlin Android bindings build their host\n`Language` wrappers on top of.",
+          "type": "object"
+        },
         "error_style": {
           "default": "last_error",
           "type": "string"
@@ -2378,6 +2418,14 @@
     },
     "GoConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. `*tree_sitter.Language`) from the raw C grammar pointer instead\nof an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
+        },
         "exclude_types": {
           "default": [],
           "description": "Types to exclude from Go binding generation.\n\nGo bindings call the generated C FFI directly through cgo, so types excluded from\n`[crates.ffi].exclude_types` are also excluded automatically by the Go backend.",
@@ -2726,6 +2774,34 @@
       ],
       "type": "object"
     },
+    "HostCapsuleTypeConfig": {
+      "description": "Host-native capsule config for a single type in one C-ABI family backend.\n\nTOML form (Go example):\n```toml\n[crates.go.capsule_types.Language]\nhost_type = \"*tree_sitter.Language\"\npackage = \"github.com/tree-sitter/go-tree-sitter\"\npackage_version = \"v0.25.0\"\nconstruct_expr = \"tree_sitter.NewLanguage(unsafe.Pointer({ptr}))\"\n```",
+      "properties": {
+        "construct_expr": {
+          "default": "",
+          "description": "The construction expression that wraps the raw FFI pointer in the host `Language`.\nThe `{ptr}` placeholder is substituted with the raw-pointer expression produced at\nthe FFI boundary. When empty, the backend uses its built-in default for the ecosystem.",
+          "type": "string"
+        },
+        "host_type": {
+          "description": "The host ecosystem's `Language` type, used as the return-type annotation in the\ngenerated binding (e.g. `\"*tree_sitter.Language\"` for Go,\n`\"SwiftTreeSitter.Language\"` for Swift, `\"TreeSitter.Language\"` for C#).",
+          "type": "string"
+        },
+        "package": {
+          "default": "",
+          "description": "The host package/module identifier to depend on (e.g.\n`\"github.com/tree-sitter/go-tree-sitter\"`, `\"SwiftTreeSitter\"`,\n`\"TreeSitter.DotNet\"`, `\"io.github.tree-sitter:jtreesitter\"`). Injected into the\nbackend's package manifest by the scaffold layer. Empty string disables injection.",
+          "type": "string"
+        },
+        "package_version": {
+          "default": "",
+          "description": "The version constraint for `package` (e.g. `\"v0.25.0\"`, `\"0.8.0\"`, `\"1.0.0\"`).\nFormat is backend-specific and passed through verbatim to the manifest.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host_type"
+      ],
+      "type": "object"
+    },
     "IncludeConfig": {
       "properties": {
         "functions": {
@@ -2773,6 +2849,14 @@
             "string",
             "null"
           ]
+        },
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. jtreesitter's `io.github.treesitter.jtreesitter.Language` from a\n`MemorySegment`) instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
         },
         "dto": {
           "$ref": "#/$defs/JavaDtoConfig",
@@ -2912,6 +2996,14 @@
             "string",
             "null"
           ]
+        },
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. ktreesitter's `io.github.treesitter.ktreesitter.Language` from a\nnative `long` pointer) instead of an opaque handle.\nSee [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
         },
         "compile_sdk": {
           "default": null,
@@ -5693,6 +5785,14 @@
     },
     "SwiftConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. `SwiftTreeSitter.Language`) from the raw C grammar pointer\ninstead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
+        },
         "client_constructor_body": {
           "additionalProperties": {
             "type": "string"
@@ -6862,6 +6962,14 @@
     },
     "ZigConfig": {
       "properties": {
+        "capsule_types": {
+          "additionalProperties": {
+            "$ref": "#/$defs/HostCapsuleTypeConfig"
+          },
+          "default": {},
+          "description": "Map of Rust type name -> host-native capsule (Language-passthrough) config.\nWhen set, functions returning the type construct the host runtime's native\n`Language` (e.g. `*const tree_sitter.Language`) from the raw C grammar pointer\ninstead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].",
+          "type": "object"
+        },
         "exclude_functions": {
           "default": [],
           "description": "Functions to exclude from Zig binding generation.",
@@ -6938,7 +7046,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.48/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.49/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7048,6 +7156,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.48",
-  "x-alef-version": "0.25.48"
+  "version": "0.25.49",
+  "x-alef-version": "0.25.49"
 }

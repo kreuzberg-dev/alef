@@ -834,6 +834,7 @@ fn kotlin_android_test_file_loads_resolved_jni_lib_name_not_crate_name() {
         serde_rename_all: None,
         exclude_functions: Vec::new(),
         exclude_types: Vec::new(),
+        capsule_types: HashMap::new(),
         rename_fields: HashMap::new(),
         plugin_error_constructor: None,
         target_dep_overrides: Vec::new(),

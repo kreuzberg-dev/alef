@@ -505,8 +505,8 @@ fn sync_versions_bumps_kotlin_android_gradle_coordinates_version() {
         "kotlin-android coordinates version must be bumped:\n{gradle}"
     );
     assert!(
-        gradle.contains(r#"kotlin("android") version "2.4.0""#),
-        "kotlin plugin version must not change:\n{gradle}"
+        !gradle.contains(r#"kotlin("android")"#),
+        "AGP 9.0+ ships built-in Kotlin; the explicit kotlin(\"android\") plugin line must be absent:\n{gradle}"
     );
     assert!(
         gradle.contains(r#"id("com.android.library") version "9.2.0""#),

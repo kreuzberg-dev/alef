@@ -15,12 +15,23 @@ use crate::scaffold::{parse_author, scaffold_meta, xml_escape};
 /// Note on plugin compatibility: AGP 8.x requires an explicit
 /// `kotlin("android")` plugin application, while AGP 9.0+ ships with
 /// built-in Kotlin support and rejects re-application of
-/// `org.jetbrains.kotlin.android`. The emitted file targets AGP 8.x
-/// (the currently-pinned template version); if the AGP pin is moved
-/// to 9.0+, this emitter must drop the `kotlin("android")` line.
+/// `org.jetbrains.kotlin.android`. The emitted plugins block keys the
+/// `kotlin("android")` line off the AGP major version derived from the
+/// pin, so moving the pin across the 8→9 boundary stays correct
+/// automatically. The `kotlin {}` compiler-options block and `JvmTarget`
+/// import remain valid under AGP 9 built-in Kotlin.
 pub fn emit(config: &ResolvedCrateConfig) -> String {
     let kotlin_version = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
+    // AGP 9.0+ ships built-in Kotlin support and rejects re-application of the
+    // `org.jetbrains.kotlin.android` plugin; AGP 8.x requires the explicit line.
+    // Emit it only for AGP < 9 (derived from the pin's major version).
+    let agp_major: u32 = android_gradle_plugin.split('.').next().and_then(|major| major.parse().ok()).unwrap_or(0);
+    let kotlin_android_plugin_line = if agp_major >= 9 {
+        String::new()
+    } else {
+        format!("\n    kotlin(\"android\") version \"{kotlin_version}\"")
+    };
     let junit_legacy = maven::JUNIT_LEGACY;
     let androidx_junit = maven::ANDROIDX_TEST_EXT_JUNIT;
     let espresso_core = maven::ANDROIDX_TEST_ESPRESSO_CORE;
@@ -112,8 +123,7 @@ buildscript {{
 }}
 
 plugins {{
-    id("com.android.library") version "{android_gradle_plugin}"
-    kotlin("android") version "{kotlin_version}"
+    id("com.android.library") version "{android_gradle_plugin}"{kotlin_android_plugin_line}
     id("com.vanniktech.maven.publish") version "{vanniktech_plugin}"
     id("org.jlleitschuh.gradle.ktlint") version "{ktlint_gradle_plugin}"
     id("com.github.ben-manes.versions") version "{gradle_versions_plugin}"

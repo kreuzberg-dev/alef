@@ -4,6 +4,12 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CSharpConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. `TreeSitter.Language`) from the raw C grammar pointer (an
+    /// `IntPtr`) instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     pub namespace: Option<String>,
     /// NuGet `<PackageId>` to publish under. When unset, falls back to `namespace`.
     /// Use this when the published artifact id must differ from the C# `RootNamespace` —

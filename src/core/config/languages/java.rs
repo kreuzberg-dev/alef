@@ -6,6 +6,12 @@ use crate::core::config::dto::JavaDtoConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct JavaConfig {
+    /// Map of Rust type name -> host-native capsule (Language-passthrough) config.
+    /// When set, functions returning the type construct the host runtime's native
+    /// `Language` (e.g. jtreesitter's `io.github.treesitter.jtreesitter.Language` from a
+    /// `MemorySegment`) instead of an opaque handle. See [`crate::core::config::HostCapsuleTypeConfig`].
+    #[serde(default)]
+    pub capsule_types: HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
     pub package: Option<String>,
     /// Override the Maven `<groupId>` emitted by alef-scaffold and alef-e2e. When unset,
     /// `java_group_id()` falls back to the Java `package` value. Set this when the

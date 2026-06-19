@@ -21,6 +21,15 @@ pub(super) fn render_build_gradle_kotlin_android(
 ) -> String {
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
+    // AGP 9.0+ ships built-in Kotlin support and rejects the explicit
+    // `kotlin("android")` plugin; emit it only for AGP < 9 (see the package
+    // build.gradle emitter for the full rationale).
+    let agp_major: u32 = android_gradle_plugin.split('.').next().and_then(|major| major.parse().ok()).unwrap_or(0);
+    let kotlin_android_plugin_line = if agp_major >= 9 {
+        String::new()
+    } else {
+        format!("\n    kotlin(\"android\") version \"{kotlin_plugin}\"")
+    };
     let junit = maven::JUNIT;
     let jackson = maven::JACKSON_E2E;
     // E2E tests run on the host JVM (not Android), so pick a target that
@@ -337,8 +346,7 @@ import java.util.zip.ZipFile
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {{
-    id("com.android.library") version "{android_gradle_plugin}"
-    kotlin("android") version "{kotlin_plugin}"
+    id("com.android.library") version "{android_gradle_plugin}"{kotlin_android_plugin_line}
 }}
 
 group = "{kotlin_pkg_id}"
