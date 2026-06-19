@@ -57,6 +57,26 @@ pub fn can_auto_delegate(method: &MethodDef, opaque_types: &AHashSet<String>) ->
         && is_delegatable_return(&method.return_type)
 }
 
+/// Like [`can_auto_delegate`] but permits non-opaque Named `&T` params (and `&[T]` / `&[&str]`
+/// slices), because the caller emits owned `_core` let-bindings and passes a borrow of them.
+///
+/// This is the method-level analogue of the free-function `can_delegate_with_named_let_bindings`
+/// check. It must only be used by generators whose delegation body wires up
+/// `gen_named_let_bindings_pub` + `gen_call_args_with_let_bindings` (e.g. the shared static
+/// method generator); generators that emit inline `.into()` call args must keep using
+/// [`can_auto_delegate`].
+pub fn can_auto_delegate_with_named_let_bindings(method: &MethodDef, opaque_types: &AHashSet<String>) -> bool {
+    if matches!(method.receiver, Some(ReceiverKind::RefMut)) && method.trait_source.is_none() {
+        return false;
+    }
+    !method.sanitized
+        && method
+            .params
+            .iter()
+            .all(|p| !p.sanitized && is_delegatable_param_with_slices(&p.ty, opaque_types))
+        && is_delegatable_return(&method.return_type)
+}
+
 /// A Named param with is_ref=true needs a let-binding (can't inline .into() + borrow).
 /// A `Vec<String>` param with is_ref=true needs conversion to `Vec<&str>`.
 /// A `Vec<NonOpaqueNamed>` param with is_ref=true needs a let-binding (gen_php_call_args emits

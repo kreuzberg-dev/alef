@@ -747,8 +747,18 @@ pub(super) fn gen_dto_method_fns(
         }
         let params_str = param_parts.join(", ");
 
-        // Build the core call arguments.
-        let call_args_str = napi_gen_call_args(&method.params, opaque_types);
+        // Build the core call arguments. When the method has non-opaque Named `&T` params (or
+        // Vec<Named>/Vec<String> by-ref), bind owned `_core` temporaries and pass borrows of them
+        // so the borrow outlives the call (avoids E0716 / a wrong `result.into()` for `&T`).
+        let use_let_bindings = generators::has_named_params(&method.params, opaque_types);
+        let (call_args_str, dto_let_bindings) = if use_let_bindings {
+            (
+                generators::gen_call_args_with_let_bindings_mutex(&method.params, opaque_types, mutex_types),
+                generators::gen_named_let_bindings_pub(&method.params, opaque_types, cfg.core_import),
+            )
+        } else {
+            (napi_gen_call_args(&method.params, opaque_types), String::new())
+        };
 
         // Build the function body.
         let body = if is_static {
@@ -828,6 +838,14 @@ pub(super) fn gen_dto_method_fns(
                     method.name
                 )
             }
+        };
+
+        // Prepend the owned `_core` let-bindings for static methods that take Named params by ref.
+        // The wither branch round-trips through serde and ignores these bindings.
+        let body = if is_static && !dto_let_bindings.is_empty() {
+            format!("{dto_let_bindings}{body}")
+        } else {
+            body
         };
 
         // Emit the function.

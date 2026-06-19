@@ -9,7 +9,8 @@ mod unimplemented;
 pub use analysis::{has_named_params, is_simple_non_opaque_param};
 pub use async_body::gen_async_body;
 pub use call_args::{
-    gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings, gen_call_args_with_let_bindings_mutex,
+    gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings, gen_call_args_with_let_bindings_json_str,
+    gen_call_args_with_let_bindings_mutex, gen_call_args_with_let_bindings_mutex_json_str,
 };
 pub(in crate::codegen::generators) use let_bindings::{gen_named_let_bindings, gen_named_let_bindings_by_ref};
 pub use let_bindings::{

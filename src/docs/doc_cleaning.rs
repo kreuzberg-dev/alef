@@ -164,6 +164,16 @@ pub fn clean_doc(doc: &str, lang: Language) -> String {
     // Convert Rust-style links
     let doc = rust_links_to_plain(&doc);
 
+    // Merge code spans left adjacent by link replacement. A bare intra-doc link
+    // wrapped in a larger code expression — e.g. `` `Vec<`[`StructuredOutput`]`>` `` —
+    // collapses to three abutting single-backtick spans `` `Vec<``StructuredOutput``>` ``.
+    // The doubled backticks at each joint desync CommonMark inline-code parsing
+    // (the run no longer matches a length-1 delimiter), which makes downstream
+    // strict link validators mis-parse later `[...]` spans as shortcut reference
+    // links. Merging the abutting spans into a single span renders identically and
+    // removes the ambiguity.
+    let doc = collapse_adjacent_code_spans(&doc);
+
     // Convert `# Errors` / `# Returns` headings to bold inline text
     // These are Rust doc conventions that render as H1 headings, which is wrong
     let doc = convert_doc_headings_to_bold(&doc);
@@ -900,6 +910,78 @@ pub(crate) fn rust_links_to_plain(doc: &str) -> String {
         result.push(chars[i]);
         i += 1;
     }
+    result
+}
+
+/// Collapse abutting single-backtick code spans into one span.
+///
+/// When two single-backtick code spans touch with no characters between them,
+/// the source text contains a doubled backtick run (`` `a``b` ``). CommonMark
+/// only matches a backtick run against a closing run of equal length, so the
+/// doubled run is no longer parsed as inline code — it desyncs the inline-code
+/// scanner and leaves the bracket characters inside exposed as literal text.
+/// Strict Markdown link validators (e.g. Zensical `--strict`) then mis-detect
+/// later `[...]` spans as unresolved shortcut reference links.
+///
+/// This pass rewrites `` `a``b` `` → `` `ab` `` by dropping the two boundary
+/// backticks between adjacent spans. It only removes a backtick pair when the
+/// closing backtick of one span is immediately followed by the opening backtick
+/// of the next, so genuine double-backtick spans (`` ``code with ` tick`` ``)
+/// are left untouched — those have content, not another opening delimiter,
+/// after their opening run.
+fn collapse_adjacent_code_spans(doc: &str) -> String {
+    let chars: Vec<char> = doc.chars().collect();
+    let mut result = String::with_capacity(doc.len());
+    let mut i = 0;
+    let mut in_code_block = false;
+
+    while i < chars.len() {
+        // Track fenced code blocks (```), where backticks are literal content.
+        if (i == 0 || chars[i - 1] == '\n')
+            && chars[i] == '`'
+            && chars.get(i + 1) == Some(&'`')
+            && chars.get(i + 2) == Some(&'`')
+        {
+            in_code_block = !in_code_block;
+            result.push_str("```");
+            i += 3;
+            continue;
+        }
+
+        if !in_code_block && chars[i] == '`' && chars.get(i + 1) != Some(&'`') {
+            // Opening of a single-backtick span. Walk content, merging across any
+            // abutting span boundaries (a doubled backtick run `` `` `` with no
+            // content after it), until the real terminating single backtick.
+            let mut content = String::new();
+            let mut j = i + 1;
+            let mut closed = false;
+            while j < chars.len() {
+                if chars[j] == '`' {
+                    if chars.get(j + 1) == Some(&'`') && chars.get(j + 2) != Some(&'`') {
+                        // Abutting span boundary: drop both backticks, keep going.
+                        j += 2;
+                        continue;
+                    }
+                    // Real closing backtick of the (merged) span.
+                    closed = true;
+                    break;
+                }
+                content.push(chars[j]);
+                j += 1;
+            }
+            if closed {
+                result.push('`');
+                result.push_str(&content);
+                result.push('`');
+                i = j + 1;
+                continue;
+            }
+        }
+
+        result.push(chars[i]);
+        i += 1;
+    }
+
     result
 }
 

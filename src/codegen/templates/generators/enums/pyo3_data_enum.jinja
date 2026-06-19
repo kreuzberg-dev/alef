@@ -66,9 +66,11 @@ impl serde::Serialize for {{ name }} {
     }
 }
 
+{%- if has_default %}
 impl Default for {{ name }} {
     fn default() -> Self { Self { inner: Default::default() } }
 }
+{%- endif %}
 
 impl<'de> serde::Deserialize<'de> for {{ name }} {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {

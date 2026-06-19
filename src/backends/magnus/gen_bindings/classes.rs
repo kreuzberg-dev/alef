@@ -221,7 +221,7 @@ fn gen_opaque_instance_method(
         let preamble = build_method_preamble(&method.params, opaque_types, core_import);
         let needs_let_bindings = !preamble.is_empty();
         let call_args = if needs_let_bindings {
-            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+            generators::gen_call_args_with_let_bindings_json_str(&method.params, opaque_types)
         } else {
             generators::gen_call_args(&method.params, opaque_types)
         };
@@ -322,7 +322,7 @@ fn gen_opaque_async_instance_method(
         let preamble = build_method_preamble(&method.params, opaque_types, core_import);
         let needs_let_bindings = !preamble.is_empty();
         let call_args = if needs_let_bindings {
-            generators::gen_call_args_with_let_bindings(&method.params, opaque_types)
+            generators::gen_call_args_with_let_bindings_json_str(&method.params, opaque_types)
         } else {
             generators::gen_call_args(&method.params, opaque_types)
         };

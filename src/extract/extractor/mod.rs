@@ -22,7 +22,7 @@ use self::functions::{
 };
 use self::helpers::{
     build_rust_path, collect_reexport_map, extract_binding_exclusion_reason, extract_doc_comments,
-    extract_version_annotation, is_pub, is_thiserror_enum,
+    extract_version_annotation, is_pub, is_test_gated, is_thiserror_enum,
 };
 use self::paths::{apply_parent_reexport_shortening, derive_module_path};
 use self::postprocess::{resolve_newtypes, resolve_trait_sources};
@@ -251,6 +251,11 @@ fn extract_items(
 
     // First pass: collect all structs/enums (no impl blocks yet)
     for item in items {
+        // `#[cfg(test)]` items do not exist in normal builds; skip them so the
+        // binding surface never references test-only types/functions.
+        if item_attrs(item).is_some_and(is_test_gated) {
+            continue;
+        }
         match item {
             syn::Item::Struct(item_struct) if is_pub(&item_struct.vis) => {
                 if has_non_lifetime_generics(&item_struct.generics) {
@@ -547,6 +552,11 @@ fn extract_items(
     // Second pass: process impl blocks using the index
     for item in items {
         if let syn::Item::Impl(item_impl) = item {
+            // A whole `#[cfg(test)]` impl block (e.g. test-only constructors) is
+            // absent from normal builds; skip it entirely.
+            if is_test_gated(&item_impl.attrs) {
+                continue;
+            }
             extract_impl_block(
                 item_impl,
                 crate_name,
@@ -578,6 +588,21 @@ fn extract_items(
     }
 
     Ok(())
+}
+
+/// Return the outer attributes of an item for the variants that can carry a
+/// `#[cfg(test)]` gate and are extracted into the binding surface. Other item
+/// kinds (uses, mods, macros, …) are handled by dedicated passes.
+fn item_attrs(item: &syn::Item) -> Option<&[syn::Attribute]> {
+    match item {
+        syn::Item::Struct(i) => Some(&i.attrs),
+        syn::Item::Enum(i) => Some(&i.attrs),
+        syn::Item::Fn(i) => Some(&i.attrs),
+        syn::Item::Type(i) => Some(&i.attrs),
+        syn::Item::Trait(i) => Some(&i.attrs),
+        syn::Item::Impl(i) => Some(&i.attrs),
+        _ => None,
+    }
 }
 
 /// Apply cfg attributes from pub use and pub mod statements to extracted items.

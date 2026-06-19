@@ -2,7 +2,7 @@ use crate::core::ir::{ApiSurface, MethodDef, TypeDef, UnsupportedPublicItem};
 use ahash::AHashMap;
 
 use super::super::defaults::extract_default_values;
-use super::super::helpers::{build_rust_path, extract_binding_exclusion_reason};
+use super::super::helpers::{build_rust_path, extract_binding_exclusion_reason, is_test_gated};
 use super::extract_method;
 
 fn has_non_lifetime_generics(generics: &syn::Generics) -> bool {
@@ -109,6 +109,12 @@ pub(crate) fn extract_impl_block(
         .filter_map(|impl_item| {
             if let syn::ImplItem::Fn(method) = impl_item {
                 if super::super::helpers::is_pub(&method.vis) {
+                    // Skip `#[cfg(test)]` methods (e.g. test-only constructors like
+                    // `test_config()`); they do not exist in normal builds and would
+                    // produce bindings that fail to compile.
+                    if is_test_gated(&method.attrs) {
+                        return None;
+                    }
                     // Skip generic methods — they can't be directly exposed to FFI
                     if !method.sig.generics.params.is_empty() {
                         if extract_binding_exclusion_reason(&method.attrs).is_none() {

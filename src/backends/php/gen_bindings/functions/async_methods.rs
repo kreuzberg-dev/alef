@@ -6,7 +6,7 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{FunctionDef, MethodDef, TypeRef};
 use ahash::AHashSet;
-use heck::{ToLowerCamelCase, ToPascalCase};
+use heck::ToLowerCamelCase;
 use minijinja::context;
 
 use super::super::helpers::{
@@ -48,8 +48,9 @@ pub(crate) fn gen_async_function_as_static_method(
     }
 
     let mut out = String::new();
-    let exception_class = format!("{}Exception", core_import.to_pascal_case());
-    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
+    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
+    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
     // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.
@@ -269,8 +270,9 @@ pub(crate) fn gen_async_instance_method(
     };
 
     let mut out = String::new();
-    let exception_class = format!("{}Exception", core_import.to_pascal_case());
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
+    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
+    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     out.push_str("    ");
     if params.is_empty() {

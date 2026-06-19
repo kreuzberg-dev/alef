@@ -35,6 +35,46 @@ fn test_clean_doc_bare_rust_links() {
 }
 
 #[test]
+fn test_collapse_adjacent_code_spans_merges_wrapped_link() {
+    // `` `Vec<`[`StructuredOutput`]`>` `` collapses to abutting spans after link
+    // replacement, leaving a doubled-backtick run that desyncs Markdown parsing.
+    let input = "JSON-serialised `Vec<``StructuredOutput``>` (a JSON array).";
+    let merged = collapse_adjacent_code_spans(input);
+    assert_eq!(merged, "JSON-serialised `Vec<StructuredOutput>` (a JSON array).");
+}
+
+#[test]
+fn test_collapse_adjacent_code_spans_leaves_separated_spans() {
+    let input = "Returns `a` and `b` separately.";
+    assert_eq!(collapse_adjacent_code_spans(input), input);
+}
+
+#[test]
+fn test_collapse_adjacent_code_spans_preserves_double_backtick_span() {
+    // A genuine double-backtick span (used to embed a literal backtick) must not
+    // be altered — it has content, not another opening delimiter, after the run.
+    let input = "Use ``a ` b`` for a literal tick.";
+    assert_eq!(collapse_adjacent_code_spans(input), input);
+}
+
+#[test]
+fn test_collapse_adjacent_code_spans_ignores_fenced_code_block() {
+    let input = "Text.\n\n```rust\nlet x = `a``b`;\n```\n\nMore `c``d` text.";
+    let merged = collapse_adjacent_code_spans(input);
+    // Fenced block content is untouched; inline doubled span outside is merged.
+    assert!(merged.contains("let x = `a``b`;"));
+    assert!(merged.contains("More `cd` text."));
+}
+
+#[test]
+fn test_clean_doc_merges_wrapped_link_spans() {
+    let doc = "JSON-serialised `Vec<`[`StructuredOutput`]`>` on success.";
+    let cleaned = clean_doc(doc, Language::Zig);
+    assert!(!cleaned.contains("``"), "no doubled backtick run: {cleaned}");
+    assert!(cleaned.contains('`'), "code span preserved: {cleaned}");
+}
+
+#[test]
 fn test_clean_doc_normalizes_feature_label_versions() {
     let doc = "Since v5.0.0.\n\nChanged in v1.6.2-rc.3.\n\nAvailable by v0.3.0+build.7.";
     let cleaned = clean_doc(doc, Language::Python);

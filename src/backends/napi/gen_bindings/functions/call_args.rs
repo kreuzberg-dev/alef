@@ -1,12 +1,37 @@
 use crate::core::ir::{CoreWrapper, ParamDef, TypeRef};
 use ahash::AHashSet;
 
+/// Split a comma-joined call-argument list on top-level commas only, ignoring commas nested inside
+/// angle brackets (`<...>`), parentheses or square brackets. A naive `split(',')` would break an
+/// argument such as `x.into_iter().collect::<BTreeMap<_, _>>()` into pieces at the inner comma.
+fn split_top_level_commas(args: &str) -> Vec<&str> {
+    let mut out = Vec::new();
+    let mut depth: i32 = 0;
+    let mut start = 0usize;
+    for (idx, ch) in args.char_indices() {
+        match ch {
+            '<' | '(' | '[' => depth += 1,
+            '>' | ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                out.push(args[start..idx].trim());
+                start = idx + 1;
+            }
+            _ => {}
+        }
+    }
+    let tail = args[start..].trim();
+    if !tail.is_empty() || !out.is_empty() {
+        out.push(tail);
+    }
+    out
+}
+
 pub(in crate::backends::napi::gen_bindings) fn napi_apply_primitive_casts_to_call_args(
     generic_args: &str,
     params: &[ParamDef],
 ) -> String {
-    // Split args by comma and match with params to apply casting
-    let args_list: Vec<&str> = generic_args.split(',').map(|s| s.trim()).collect();
+    // Split args on top-level commas only and match with params to apply casting.
+    let args_list: Vec<&str> = split_top_level_commas(generic_args);
     args_list
         .iter()
         .zip(params.iter())
@@ -222,4 +247,28 @@ pub(in crate::backends::napi::gen_bindings) fn core_prim_str(p: &crate::core::ir
 pub(super) fn is_bytes_param(ty: &TypeRef) -> bool {
     matches!(ty, TypeRef::Bytes)
         || matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Primitive(crate::core::ir::PrimitiveType::U8)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::split_top_level_commas;
+
+    #[test]
+    fn split_ignores_commas_nested_in_angle_brackets() {
+        let args = "&preset_core, custom_schema, &context.into_iter().collect::<std::collections::BTreeMap<_, _>>()";
+        assert_eq!(
+            split_top_level_commas(args),
+            vec![
+                "&preset_core",
+                "custom_schema",
+                "&context.into_iter().collect::<std::collections::BTreeMap<_, _>>()",
+            ],
+        );
+    }
+
+    #[test]
+    fn split_handles_simple_and_empty_arglists() {
+        assert_eq!(split_top_level_commas("a, b, c"), vec!["a", "b", "c"]);
+        assert!(split_top_level_commas("").is_empty());
+    }
 }

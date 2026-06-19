@@ -7,7 +7,7 @@ use crate::codegen::type_mapper::TypeMapper;
 use crate::core::config::TraitBridgeConfig;
 use crate::core::ir::{EnumDef, FunctionDef, MethodDef, TypeDef, TypeRef};
 use ahash::AHashSet;
-use heck::{ToLowerCamelCase, ToPascalCase};
+use heck::ToLowerCamelCase;
 use minijinja::context;
 
 use super::super::helpers::{
@@ -165,8 +165,11 @@ pub(crate) fn gen_instance_method(
     };
 
     let mut out = String::new();
-    let exception_class = format!("{}Exception", core_import.to_pascal_case());
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
+    // The `#[php_impl]` facade is Rust source, so doc text must be emitted as Rust line
+    // doc-comments (`///`). PHPDoc `/** … */` blocks are unsafe here: Rust block comments
+    // nest, so doc text containing `/*` (e.g. `image/*`) opens a nested comment that the
+    // intended closing `*/` never balances → `error[E0758]: unterminated block doc-comment`.
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
@@ -354,7 +357,6 @@ pub(crate) fn gen_static_method(
     mapper: &PhpMapper,
     opaque_types: &AHashSet<String>,
     typ: &TypeDef,
-    core_import: &str,
     mutex_types: &AHashSet<String>,
 ) -> String {
     let empty_bridges = AHashSet::new();
@@ -429,8 +431,9 @@ pub(crate) fn gen_static_method(
     };
 
     let mut out = String::new();
-    let exception_class = format!("{}Exception", core_import.to_pascal_case());
-    doc_emission::emit_phpdoc(&mut out, &method.doc, "    ", &exception_class);
+    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
+    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
+    doc_emission::emit_rustdoc(&mut out, &method.doc, "    ");
     let trait_allow = if generators::is_trait_method_name(&method.name) {
         "#[allow(clippy::should_implement_trait)]\n"
     } else {
@@ -504,8 +507,9 @@ pub(crate) fn gen_function_as_static_method(
     }
 
     let mut out = String::new();
-    let exception_class = format!("{}Exception", core_import.to_pascal_case());
-    doc_emission::emit_phpdoc(&mut out, &func.doc, "    ", &exception_class);
+    // Rust source: emit `///` line doc-comments, not PHPDoc `/** … */` (which would break
+    // compilation when doc text contains `/*`, e.g. `image/*`, because Rust block comments nest).
+    doc_emission::emit_rustdoc(&mut out, &func.doc, "    ");
     let ret_sig = return_type_sig(&return_annotation);
     // The Rust fn ident stays snake_case; the PHP-facing name is camelCase so callers
     // (userland facade, stubs) can invoke it via PSR-12 camelCase method names.

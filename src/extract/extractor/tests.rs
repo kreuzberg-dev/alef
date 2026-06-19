@@ -35,6 +35,7 @@ fn extract_from_source(source: &str) -> ApiSurface {
     surface
 }
 
+mod cfg_test_gating;
 mod defaults;
 mod exclusions;
 mod extraction_area;

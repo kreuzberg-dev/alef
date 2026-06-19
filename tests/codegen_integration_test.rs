@@ -271,6 +271,8 @@ mod method_edge_cases;
 mod methods;
 #[path = "codegen_integration/mutex_return_wrapping.rs"]
 mod mutex_return_wrapping;
+#[path = "codegen_integration/ref_param_borrowed_return_delegation.rs"]
+mod ref_param_borrowed_return_delegation;
 #[path = "codegen_integration/structs.rs"]
 mod structs_tests;
 #[path = "codegen_integration/trait_bridge.rs"]

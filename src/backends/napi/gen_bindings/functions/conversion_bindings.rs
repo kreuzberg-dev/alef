@@ -20,13 +20,21 @@ pub(super) fn gen_vec_f32_conversion_bindings(params: &[ParamDef]) -> String {
 
 /// Generate let bindings for napi::Buffer parameters that need conversion to Vec<u8>.
 /// NAPI gives us napi::Buffer which dereferences to &[u8], but we need Vec<u8>.
+///
+/// For optional params the binding type is `Option<Buffer>`, which has no `.to_vec()`; emit
+/// `.map(|b| b.to_vec())` so the result is `Option<Vec<u8>>` and a later `.as_deref()` at the
+/// call site yields `Option<&[u8]>`.
 pub(super) fn gen_napi_buffer_conversion_bindings(params: &[ParamDef]) -> String {
     let mut bindings = String::new();
     for p in params {
         if is_bytes_param(&p.ty) {
-            // Convert napi::Buffer to Vec<u8> by calling .to_vec()
+            let template = if p.optional {
+                "buffer_conversion_binding_optional.jinja"
+            } else {
+                "buffer_conversion_binding.jinja"
+            };
             bindings.push_str(&crate::backends::napi::template_env::render(
-                "buffer_conversion_binding.jinja",
+                template,
                 minijinja::context! {
                     param_name => &p.name,
                 },

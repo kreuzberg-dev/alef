@@ -1,9 +1,9 @@
 use super::trait_names::is_trait_method_name;
 use crate::codegen::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings,
-    gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut, gen_named_let_bindings_pub,
-    gen_serde_let_bindings, gen_unimplemented_body, has_named_params, is_simple_non_opaque_param,
-    wrap_return_with_mutex_mapped,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_cfg,
+    gen_call_args_with_let_bindings_json_str, gen_lossy_binding_to_core_fields, gen_lossy_binding_to_core_fields_mut,
+    gen_named_let_bindings_pub, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
+    is_simple_non_opaque_param, wrap_return_with_mutex_mapped,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::codegen::shared::{function_params, function_sig_defaults};
@@ -47,7 +47,7 @@ pub fn gen_method(
     let has_ref_named_params = has_named_params(&method.params, opaque_types);
     let (call_args, ref_let_bindings) = if has_ref_named_params {
         (
-            gen_call_args_with_let_bindings(&method.params, opaque_types),
+            gen_call_args_with_let_bindings_json_str(&method.params, opaque_types),
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
         )
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
@@ -206,7 +206,7 @@ pub fn gen_method(
             };
             let serde_bindings =
                 gen_serde_let_bindings(&method.params, opaque_types, cfg.core_import, err_conv, "        ");
-            let serde_call_args = gen_call_args_with_let_bindings(&method.params, opaque_types);
+            let serde_call_args = gen_call_args_with_let_bindings_json_str(&method.params, opaque_types);
             let core_call = if self_needs_mutex {
                 format!("self.inner.lock().unwrap().{}({serde_call_args})", method.name)
             } else {

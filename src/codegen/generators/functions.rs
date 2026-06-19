@@ -1,6 +1,7 @@
 use crate::codegen::generators::binding_helpers::{
-    gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings_mutex, gen_named_let_bindings,
-    gen_named_let_bindings_by_ref, gen_serde_let_bindings, gen_unimplemented_body, has_named_params,
+    gen_async_body, gen_call_args, gen_call_args_cfg, gen_call_args_with_let_bindings_mutex_json_str,
+    gen_named_let_bindings, gen_named_let_bindings_by_ref, gen_serde_let_bindings, gen_unimplemented_body,
+    has_named_params,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
 use crate::codegen::shared::{function_params, function_sig_defaults};
@@ -120,8 +121,10 @@ pub fn gen_function_with_mutex(
     let use_let_bindings = has_named_params(&effective_params, opaque_types);
     let call_args = if use_let_bindings {
         // Use the mutex-aware variant so opaque params with is_ref && is_mut get
-        // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`.
-        gen_call_args_with_let_bindings_mutex(&effective_params, opaque_types, mutex_types)
+        // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`. The shared free-function
+        // generator is used by PyO3/extendr, whose binding Json type is `String`, so parse Json
+        // params into serde_json::Value at the call site.
+        gen_call_args_with_let_bindings_mutex_json_str(&effective_params, opaque_types, mutex_types)
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
         gen_call_args_cfg(
             &effective_params,

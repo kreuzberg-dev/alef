@@ -278,7 +278,27 @@ pub fn gen_call_args_cfg(
 
 /// Build call argument expressions using pre-bound let bindings for non-opaque Named params.
 /// Non-opaque Named params use `&{name}_core` references instead of `.into()`.
+///
+/// Json params are passed through unchanged — appropriate for backends whose binding Json type
+/// is already `serde_json::Value`/`JsValue` (NAPI, WASM). Backends whose binding Json type is a
+/// `String` (PyO3, extendr, Magnus) must use [`gen_call_args_with_let_bindings_json_str`] so the
+/// String is parsed into `serde_json::Value` at the call site.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_with_let_bindings_inner(params, opaque_types, false)
+}
+
+/// Like [`gen_call_args_with_let_bindings`] but converts `String`-typed Json params into
+/// `serde_json::Value` via `serde_json::from_str(...)` at the call site. Use this for backends
+/// that map Json to `String` in binding signatures (PyO3, extendr, Magnus).
+pub fn gen_call_args_with_let_bindings_json_str(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_with_let_bindings_inner(params, opaque_types, true)
+}
+
+fn gen_call_args_with_let_bindings_inner(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    json_from_str: bool,
+) -> String {
     params
         .iter()
         .enumerate()
@@ -393,6 +413,21 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                         format!("std::time::Duration::from_millis({})", p.name)
                     }
                 }
+                // JSON params: for String-mapped backends the binding has a String and the core
+                // expects serde_json::Value. Mirror the conversion done by gen_call_args — without
+                // this a Json param mixed with Named/Vec params (which trigger the let-binding path)
+                // would be passed through as a raw String, producing a type error at the core call
+                // site. For Value-mapped backends (NAPI/WASM) json_from_str=false and the param is
+                // passed through unchanged.
+                TypeRef::Json if json_from_str => {
+                    if p.optional {
+                        format!("{}.as_ref().and_then(|s| serde_json::from_str(s).ok())", p.name)
+                    } else if promoted {
+                        format!("serde_json::from_str(&{}{}).unwrap_or_default()", p.name, unwrap_suffix)
+                    } else {
+                        format!("serde_json::from_str(&{}).unwrap_or_default()", p.name)
+                    }
+                }
                 TypeRef::Vec(inner) => {
                     // Sanitized Vec<tuple>: binding accepts Vec<String> (JSON-encoded tuples).
                     // Let binding created {name}_core via JSON deserialization.
@@ -441,15 +476,29 @@ pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHash
                     }
                 }
                 // HashMap does not implement Deref; use .as_ref() for Option<&HashMap<_,_>>.
+                // When the core map is a BTreeMap (map_is_btree), the binding's HashMap must be
+                // collected into a BTreeMap before being passed; the temporary lives for the
+                // duration of the call statement (Rust temp extension).
                 TypeRef::Map(_, _) => {
+                    let to_btree = |expr: String| {
+                        if p.map_is_btree {
+                            format!("{expr}.into_iter().collect::<std::collections::BTreeMap<_, _>>()")
+                        } else {
+                            expr
+                        }
+                    };
                     if promoted {
-                        format!("{}{}", p.name, unwrap_suffix)
+                        // A required map param promoted to Option<Map> in the binding signature
+                        // (because it follows an optional param). Materialise the value with
+                        // unwrap_or_default() and re-borrow when the core takes it by reference.
+                        let owned = to_btree(format!("{}.unwrap_or_default()", p.name));
+                        if p.is_ref { format!("&{owned}") } else { owned }
                     } else if p.is_ref && p.optional {
                         format!("{}.as_ref()", p.name)
                     } else if p.is_ref {
-                        format!("&{}", p.name)
+                        format!("&{}", to_btree(p.name.clone()))
                     } else {
-                        p.name.clone()
+                        to_btree(p.name.clone())
                     }
                 }
                 _ => {
@@ -479,8 +528,27 @@ pub fn gen_call_args_with_let_bindings_mutex(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
+    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false)
+}
+
+/// Like [`gen_call_args_with_let_bindings_mutex`] but parses `String`-typed Json params into
+/// `serde_json::Value` at the call site (for PyO3/extendr/Magnus free functions).
+pub fn gen_call_args_with_let_bindings_mutex_json_str(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+) -> String {
+    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, true)
+}
+
+fn gen_call_args_with_let_bindings_mutex_inner(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    mutex_types: &AHashSet<String>,
+    json_from_str: bool,
+) -> String {
     // Generate the base call args first, then patch mutex-opaque is_mut entries.
-    let base = gen_call_args_with_let_bindings(params, opaque_types);
+    let base = gen_call_args_with_let_bindings_inner(params, opaque_types, json_from_str);
 
     // Build a replacement map: for each param that is an opaque mutex type with is_ref && is_mut,
     // the base function emits `&{name}.inner` but we need `&mut *{name}.inner.lock().unwrap()`.

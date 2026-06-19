@@ -1,6 +1,6 @@
 use super::trait_names::is_trait_method_name;
 use crate::codegen::generators::binding_helpers::{
-    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings,
+    apply_return_newtype_unwrap, gen_async_body, gen_call_args, gen_call_args_with_let_bindings_json_str,
     gen_named_let_bindings_pub, gen_unimplemented_body, has_named_params, wrap_return_with_mutex_mapped,
 };
 use crate::codegen::generators::{AdapterBodies, AsyncPattern, RustBindingConfig};
@@ -34,7 +34,7 @@ pub fn gen_static_method(
     let use_let_bindings = has_named_params(&method.params, opaque_types);
     let (call_args, ref_let_bindings) = if use_let_bindings {
         (
-            gen_call_args_with_let_bindings(&method.params, opaque_types),
+            gen_call_args_with_let_bindings_json_str(&method.params, opaque_types),
             gen_named_let_bindings_pub(&method.params, opaque_types, core_import),
         )
     } else {
@@ -115,7 +115,10 @@ pub fn gen_static_method(
     // Update method name if needed (borrowed → owned for wrapper functions)
     let actual_method_name = method_name_override.as_deref().unwrap_or(&method.name);
 
-    let can_delegate = crate::codegen::shared::can_auto_delegate(method, opaque_types);
+    // Static methods wire owned `_core` let-bindings (see `use_let_bindings` above), so they
+    // can delegate non-opaque Named `&T` params that the stricter `can_auto_delegate` rejects.
+    let can_delegate = crate::codegen::shared::can_auto_delegate(method, opaque_types)
+        || crate::codegen::shared::can_auto_delegate_with_named_let_bindings(method, opaque_types);
 
     // Explicit adapter bodies always take precedence over auto-generated delegation —
     // they are user overrides that capture intentional non-default behavior.

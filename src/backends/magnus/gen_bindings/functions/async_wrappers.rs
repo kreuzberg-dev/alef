@@ -142,7 +142,7 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_async_function(
 
     let body = if can_delegate || serde_recoverable || needs_vec_named_let_binding {
         let base_call_args = if serde_recoverable || needs_vec_named_let_binding {
-            generators::gen_call_args_with_let_bindings(&func.params, opaque_types)
+            generators::gen_call_args_with_let_bindings_json_str(&func.params, opaque_types)
         } else {
             generators::gen_call_args(&func.params, opaque_types)
         };

@@ -59,6 +59,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/buffer_conversion_binding.jinja"),
     ),
     (
+        "buffer_conversion_binding_optional.jinja",
+        include_str!("templates/buffer_conversion_binding_optional.jinja"),
+    ),
+    (
         "trait_bridge_fn_wrapper.jinja",
         include_str!("templates/trait_bridge_fn_wrapper.jinja"),
     ),

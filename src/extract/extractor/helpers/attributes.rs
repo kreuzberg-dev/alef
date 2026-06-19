@@ -137,6 +137,55 @@ pub(crate) fn extract_cfg_condition(attrs: &[syn::Attribute]) -> Option<String> 
     None
 }
 
+/// Check whether any attribute gates an item behind the `test` cfg.
+///
+/// `#[cfg(test)]` items (and the `all(test, …)`/`any(test, …)`/nested forms
+/// where `test` is a positive gate) do not exist in normal, non-test builds.
+/// Extracting them produces bindings that call functions/types absent from the
+/// release surface, which fail to compile (E0599 / E0433). They must never enter
+/// the IR.
+///
+/// A predicate is treated as test-gated when `test` appears as a positive
+/// condition anywhere outside a `not(...)`. Real feature gates
+/// (`feature = "…"`, `target_os = "…"`, etc.) are never matched.
+pub(crate) fn is_test_gated(attrs: &[syn::Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        attr.path().is_ident("cfg")
+            && attr
+                .parse_args::<syn::Meta>()
+                .map(|meta| cfg_meta_gates_on_test(&meta))
+                .unwrap_or(false)
+    })
+}
+
+/// Recursively determine whether a `cfg(...)` predicate gates positively on `test`.
+///
+/// - `test` (a bare path) → `true`
+/// - `all(...)` / `any(...)` → `true` if any nested predicate gates on `test`
+/// - `not(...)` → `false` (a negated `test` means "not under test", not test-only)
+/// - `key = "value"` (feature/target/etc.) → `false`
+fn cfg_meta_gates_on_test(meta: &syn::Meta) -> bool {
+    match meta {
+        syn::Meta::Path(path) => path.is_ident("test"),
+        syn::Meta::List(list) => {
+            if list.path.is_ident("not") {
+                // A `not(test)` predicate is active in non-test builds, so it does
+                // not make the item test-only.
+                return false;
+            }
+            if list.path.is_ident("all") || list.path.is_ident("any") {
+                let nested =
+                    list.parse_args_with(syn::punctuated::Punctuated::<syn::Meta, syn::token::Comma>::parse_terminated);
+                if let Ok(nested) = nested {
+                    return nested.iter().any(cfg_meta_gates_on_test);
+                }
+            }
+            false
+        }
+        syn::Meta::NameValue(_) => false,
+    }
+}
+
 /// Extract `rename_all` value from `#[serde(rename_all = "...")]` or
 /// `#[cfg_attr(..., serde(rename_all = "..."))]` attributes.
 ///

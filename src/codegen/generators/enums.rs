@@ -50,6 +50,13 @@ pub fn gen_pyo3_data_enum_with_mapper(
     let name = &enum_def.name;
     let core_path = crate::codegen::conversions::core_enum_path(enum_def, core_import);
     let has_sanitized = enum_has_sanitized_fields(enum_def);
+    // A delegating `impl Default` (`Self { inner: Default::default() }`) only compiles when the
+    // CORE enum implements `Default`. For data enums the reliable signal is a variant marked
+    // `#[default]` (only emitted with `#[derive(Default)]`), surfaced in the IR as
+    // `EnumVariant::is_default`. When no variant carries it, the core type has no `Default` and
+    // emitting the wrapper `Default` would produce `error[E0277]: the trait bound
+    // `core::Type: std::default::Default` is not satisfied`. Gate the impl on this signal.
+    let has_default = enum_def.variants.iter().any(|v| v.is_default);
     let string_methods_content = crate::codegen::template_env::render(
         "generators/enums/enum_string_methods.jinja",
         minijinja::context! {
@@ -79,6 +86,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
             name => name,
             core_path => core_path,
             has_sanitized => has_sanitized,
+            has_default => has_default,
             string_methods_content => string_methods_content,
             variant_accessors_content => variant_accessors,
             serde_tag_content => serde_tag_content,
@@ -101,7 +109,7 @@ pub fn gen_pyo3_data_enum_with_mapper(
 /// ```
 fn gen_pyo3_enum_factory_methods_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
     use crate::codegen::generators::binding_helpers::{
-        gen_call_args, gen_call_args_with_let_bindings, gen_named_let_bindings_pub, has_named_params,
+        gen_call_args, gen_call_args_with_let_bindings_json_str, gen_named_let_bindings_pub, has_named_params,
     };
     use crate::codegen::naming::pascal_to_snake;
     use crate::codegen::shared::{function_params, function_sig_defaults};
@@ -143,7 +151,7 @@ fn gen_pyo3_enum_factory_methods_content(enum_def: &EnumDef, core_path: &str, ma
         let use_let_bindings = has_named_params(&method.params, &opaque_types);
         let (call_args, ref_let_bindings) = if use_let_bindings {
             (
-                gen_call_args_with_let_bindings(&method.params, &opaque_types),
+                gen_call_args_with_let_bindings_json_str(&method.params, &opaque_types),
                 gen_named_let_bindings_pub(&method.params, &opaque_types, core_import_for_let),
             )
         } else {
@@ -531,6 +539,50 @@ mod tests {
         assert!(
             generated.contains("fn __repr__(&self) -> PyResult<String>"),
             "{generated}"
+        );
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_emits_default_when_core_derives_default() {
+        // A data enum whose core type derives `Default` is surfaced as a variant marked
+        // `#[default]` (`is_default = true`). The wrapper must keep its delegating `Default`.
+        let mut default_variant = variant("Pending", vec![]);
+        default_variant.is_default = true;
+        let generated = gen_pyo3_data_enum(
+            &enum_def(
+                "EnrichStatus",
+                vec![default_variant, variant("Done", vec![field("value")])],
+            ),
+            "core",
+        );
+
+        assert!(
+            generated.contains("impl Default for EnrichStatus"),
+            "expected delegating Default impl when a variant is #[default]: {generated}"
+        );
+        assert!(generated.contains("Self { inner: Default::default() }"), "{generated}");
+    }
+
+    #[test]
+    fn gen_pyo3_data_enum_omits_default_when_core_lacks_default() {
+        // No variant is marked `#[default]`, so the core enum does NOT implement `Default`.
+        // Emitting a delegating `Default` would fail with E0277 on the core type, so the
+        // wrapper `Default` impl must be omitted entirely.
+        let generated = gen_pyo3_data_enum(
+            &enum_def(
+                "ChunkingReason",
+                vec![variant("TooLong", vec![field("limit")]), variant("Forced", vec![])],
+            ),
+            "core",
+        );
+
+        assert!(
+            !generated.contains("impl Default for ChunkingReason"),
+            "expected no Default impl when no variant is #[default]: {generated}"
+        );
+        assert!(
+            !generated.contains("inner: Default::default()"),
+            "expected no inner: Default::default() when core lacks Default: {generated}"
         );
     }
 
