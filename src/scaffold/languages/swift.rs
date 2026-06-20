@@ -346,7 +346,16 @@ let package = Package(
     .target(
       name: "RustBridge",
       dependencies: ["RustBridgeC", "RustBridgeBinary"],
-      path: "packages/swift/Sources/RustBridge"
+      path: "packages/swift/Sources/RustBridge",
+      // The pre-built static library inside RustBridgeBinary references Apple
+      // system frameworks (e.g. reqwest's proxy detection pulls in the Rust
+      // `system_configuration` crate → `SC*` symbols). The artifactbundle ships
+      // only the `.a`, so these frameworks must be linked by the consumer.
+      linkerSettings: [
+        .linkedFramework("Security", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("CoreFoundation", .when(platforms: [.macOS, .iOS])),
+        .linkedFramework("SystemConfiguration", .when(platforms: [.macOS])),
+      ]
     ),
     .target(
       name: "{module}",
