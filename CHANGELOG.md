@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e/php_ext**: the `php_ext` test_app `run_tests.sh` now installs via the
+  `vendor/package:constraint` coordinate (`pie install "$PKG:$VERSION"`) instead of
+  the non-existent `pie install "$PKG" --version "$VERSION"`. PIE parses
+  `--version`/`-V` as "print PIE's own version" and exits without installing, so the
+  script silently no-opped and the load check only passed when a stale global
+  extension happened to be enabled — masking a broken install. Same fix as the
+  registry-mode `install.sh` in 0.25.53, applied to the second PHP template.
 - **go**: a parameter literally named `result` no longer collides with the
   hard-coded `result` local that the return-marshalling templates declare. A core
   fn such as `boundaries_from_extraction_result(result: ExtractionResult, …)` emitted
