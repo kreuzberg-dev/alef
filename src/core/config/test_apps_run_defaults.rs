@@ -251,6 +251,11 @@ pub fn default_test_apps_run_config(
 import pathlib, re, subprocess
 zon = pathlib.Path('build.zig.zon')
 content = zon.read_text()
+# Strip any pre-existing `.hash` lines (e.g. the STALE placeholder emitted from
+# `[crates.e2e.registry.packages.zig].hash`). We recompute every dependency hash
+# from its published tarball below; leaving the placeholder in place would yield
+# two `.hash` keys per dep and zig honors the last (stale) one, breaking fetch.
+content = re.sub(r'\n[ \t]*\.hash\s*=\s*"[^"]*",', '', content)
 deps = re.findall(r'\.([a-z_0-9]+)\s*=\s*\.\{{[^}}]*?\.url\s*=\s*"([^"]+)"', content, re.DOTALL)
 for name, url in deps:
     h = subprocess.run(['zig', 'fetch', url], capture_output=True, text=True, check=True).stdout.strip()
