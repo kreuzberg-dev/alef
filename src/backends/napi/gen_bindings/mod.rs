@@ -338,20 +338,17 @@ impl Backend for NapiBackend {
                 // `new WrapperType(args)` JS constructor-syntax, opt the wrapper's static
                 // `new` into a `#[napi(constructor)]` so napi-rs exposes it as `new Class()`.
                 //
-                // `client_constructors` takes priority over both. Use a distinct Rust fn name
-                // (`new_constructor`) to avoid a duplicate-`fn new` conflict with the
-                // static `#[napi]` method already emitted by `gen_opaque_struct_methods`.
-                //
-                // CRITICAL: Do not emit #[napi(constructor)] fn new() if a static fn new()
-                // already exists in typ.methods — this causes duplicate symbol errors.
-                // Check has_static_new() before emitting.
+                // `client_constructors` takes priority over both. Both variant-wrapper and
+                // default constructors use a distinct Rust fn name (`new_constructor`) to avoid
+                // a duplicate-`fn new` conflict with the static `#[napi]` method already emitted
+                // by `gen_opaque_struct_methods`. This allows safe emission even when a static
+                // `new()` method exists in typ.methods.
                 else if !config.client_constructors.contains_key(&typ.name) {
-                    let has_static_new = typ.methods.iter().any(|m| m.is_static && m.name == "new");
                     if typ.is_variant_wrapper {
                         if let Some(ctor) = napi_variant_wrapper_constructor(typ, &mapper, &core_import, &prefix) {
                             builder.add_item(&ctor);
                         }
-                    } else if typ.has_default && !has_static_new {
+                    } else if typ.has_default {
                         if let Some(ctor) = napi_default_constructor(typ, &mapper, &core_import, &prefix) {
                             builder.add_item(&ctor);
                         }

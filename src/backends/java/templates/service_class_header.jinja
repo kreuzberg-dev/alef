@@ -49,9 +49,12 @@ public class {{ class_name }} implements AutoCloseable {
         String responseStr = handler.handle(requestStr);
         // Allocate response string using malloc (not Arena) so the pointer remains
         // valid after this upcall returns. Rust will free() the returned pointer.
-        // Use Arena.ofAuto() for temporary allocation, then malloc and copy.
-        try (Arena autoArena = Arena.ofAuto()) {
-            MemorySegment responseSegment = autoArena.allocateFrom(responseStr);
+        // Use a confined arena for the temporary scratch allocation: it is
+        // closeable (unlike Arena.ofAuto(), whose close() throws
+        // "non-closeable session"), and its memory is freed deterministically at
+        // block exit — safe because the bytes are copied into malloc'd memory first.
+        try (Arena scratchArena = Arena.ofConfined()) {
+            MemorySegment responseSegment = scratchArena.allocateFrom(responseStr);
             long responseLen = responseSegment.byteSize();
             // Call malloc to allocate memory that persists beyond this upcall.
             MethodHandle mallocHandle = LINKER.downcallHandle(
@@ -59,8 +62,12 @@ public class {{ class_name }} implements AutoCloseable {
                     FunctionDescriptor.of(ValueLayout.ADDRESS, ValueLayout.JAVA_LONG)
             );
             MemorySegment mallocAddr = (MemorySegment) mallocHandle.invoke(responseLen);
+            // Reinterpret the malloc'd segment to its actual size before copying.
+            // The FFI linker returns a zero-sized segment for bare ADDRESS returns;
+            // reinterpret(size) gives it the proper bounds for MemorySegment.copy().
+            MemorySegment mallocSegment = mallocAddr.reinterpret(responseLen);
             // Copy the response bytes to malloc'd memory.
-            MemorySegment.copy(responseSegment, 0, mallocAddr, 0, responseLen);
+            MemorySegment.copy(responseSegment, 0, mallocSegment, 0, responseLen);
             return mallocAddr;
         }
     }

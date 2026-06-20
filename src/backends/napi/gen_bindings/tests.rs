@@ -119,3 +119,57 @@ fn plain_data_enum_in_input_type_struct_gets_binding_to_core_impl() {
         "should emit core-to-binding impl for plain data enum; got:\n{core_to_binding}"
     );
 }
+
+/// Test that opaque types with `has_default=true` emit `#[napi(constructor)]` with `new_constructor()`
+/// even when a static `new()` method exists. This ensures JS `new ClassName()` works without
+/// causing duplicate symbol errors.
+/// Regression: App type has both a static `new()` method and `has_default=true`, but the
+/// NAPI backend was skipping constructor emission due to the `!has_static_new` guard, causing
+/// "Class contains no 'constructor', can not new it!" at runtime.
+#[test]
+fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
+    use super::constructors::napi_default_constructor;
+    use crate::backends::napi::type_map::NapiMapper;
+    use crate::core::ir::{MethodDef, TypeDef, TypeRef};
+
+    // Mock: Create an opaque type with has_default=true and a static new() method
+    let app_type = TypeDef {
+        name: "App".to_string(),
+        rust_path: "spikard::App".to_string(),
+        is_opaque: true,
+        has_default: true,
+        methods: vec![MethodDef {
+            name: "new".to_string(),
+            receiver: None, // static method
+            params: vec![],
+            return_type: TypeRef::Named("App".to_string()),
+            is_async: false,
+            is_static: true,
+            doc: "Create a new application".to_string(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let mapper = NapiMapper::new("Js".to_string());
+    let constructor = napi_default_constructor(&app_type, &mapper, "spikard", "Js");
+
+    assert!(
+        constructor.is_some(),
+        "opaque type with has_default=true should emit constructor even with static new()"
+    );
+
+    let constructor_code = constructor.unwrap();
+    assert!(
+        constructor_code.contains("#[napi(constructor)]"),
+        "constructor should be marked with #[napi(constructor)]"
+    );
+    assert!(
+        constructor_code.contains("pub fn new_constructor()"),
+        "constructor should use new_constructor() to avoid conflict with static new()"
+    );
+    assert!(
+        constructor_code.contains("Self { inner: std::sync::Arc::new(spikard::App::new())"),
+        "constructor should create new App via spikard::App::new()"
+    );
+}

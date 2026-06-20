@@ -69,7 +69,9 @@ pub(super) fn napi_variant_wrapper_constructor(
 }
 
 /// For an explicitly-opaque type with `has_default` that is treated as opaque in NAPI,
-/// emit a `#[napi(constructor)] pub fn new() -> Self` to enable JS `new ClassName()` syntax.
+/// emit a `#[napi(constructor)] pub fn new_constructor() -> Self` to enable JS `new ClassName()` syntax.
+/// Uses a distinct Rust fn name (`new_constructor`) to avoid a duplicate-`fn new` conflict
+/// with the static `#[napi] pub fn new()` method already emitted by `gen_opaque_struct_methods`.
 /// This is a simple wrapper around the Rust `new()` method that returns a default instance.
 pub(super) fn napi_default_constructor(
     typ: &crate::core::ir::TypeDef,
@@ -86,7 +88,7 @@ pub(super) fn napi_default_constructor(
     let core_path = crate::codegen::conversions::core_type_path(typ, core_import);
 
     let constructor = format!(
-        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n"
+        "#[napi]\nimpl {struct_name} {{\n    #[napi(constructor)]\n    pub fn new_constructor() -> Self {{\n        Self {{ inner: std::sync::Arc::new({core_path}::new()) }}\n    }}\n}}\n"
     );
 
     Some(constructor)

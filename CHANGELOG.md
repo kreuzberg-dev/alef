@@ -16,6 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   passed only when an unrelated `<extension>` build happened to already be enabled
   globally, masking the failure. Generated PHP test apps now pull the correct
   release binary.
+- **napi**: opaque types with `has_default` that also expose a static `new()`
+  method now emit a `#[napi(constructor)]` (as `new_constructor`), so JS `new
+  Class()` works. Previously a `!has_static_new` guard suppressed the constructor
+  whenever a static `new()` existed, producing the runtime error "Class contains
+  no constructor, can not new it!" and preventing the binding from instantiating.
+- **java**: the FFM upcall marshalling helper now `reinterpret`s the malloc'd
+  return segment to its real length before `MemorySegment.copy` (a bare `ADDRESS`
+  return is a zero-sized segment, so the copy threw `IndexOutOfBoundsException`
+  and aborted the JVM), and uses a closeable `Arena.ofConfined()` for the scratch
+  allocation instead of `Arena.ofAuto()` (whose `close()` in try-with-resources
+  threw "Attempted to close a non-closeable session").
 
 ## [0.25.52] - 2026-06-20
 
