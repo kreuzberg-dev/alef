@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **test_apps runner**: declared `[crates.e2e.env]` vars are now exported as real
+  process env vars into each test-app run command (sorted for determinism), so a
+  loaded native cdylib sees them via `getenv`/`std::env::var`. Host-language
+  in-process setters (`System.setProperty`, `System.put_env`,
+  `Environment.SetEnvironmentVariable`, `putenv`) do not reliably propagate to a
+  native library in the same process, which left env-driven config (e.g.
+  `SsrfPolicy::from_env`) silently on its strict default.
+
 ### Changed
 
 - **capsule/FFI codegen**: opaque host-capsule emission now requires explicit

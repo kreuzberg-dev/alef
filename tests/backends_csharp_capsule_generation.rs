@@ -128,7 +128,7 @@ fn test_csharp_capsule_function_generation() {
 }
 
 #[test]
-fn test_csharp_capsule_with_default_config() {
+fn test_csharp_capsule_requires_construct_expr() {
     let backend = CsharpBackend;
 
     // Create test API surface with a capsule function
@@ -176,10 +176,9 @@ fn test_csharp_capsule_with_default_config() {
 
     let content = &wrapper_file.content;
 
-    // Verify default construction is used when construct_expr is empty
     assert!(
-        content.contains("new TreeSitter.Language(nativeResult)"),
-        "Default capsule construction not found. Content:\n{}",
+        content.contains("ALEF ERROR") && content.contains("construct_expr"),
+        "Missing construct_expr should emit a generated diagnostic. Content:\n{}",
         content
     );
 }

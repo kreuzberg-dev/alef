@@ -233,13 +233,37 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
     // harness fail with "connection refused".
     let server = start_mock_server(config).context("failed to start e2e mock-server for test apps")?;
     let server_env: Vec<(String, String)> = server.as_ref().map(|h| h.env_vars.clone()).unwrap_or_default();
-    // Plain, overwrite-style export prefix for the server env vars. Do NOT use
-    // `run_command_streamed_with_env` here: it appends PATH-style
+    // Declared `[crates.e2e.env]` vars (e.g. `KREUZCRAWL_ALLOW_PRIVATE_NETWORK=true`)
+    // must reach the SUT as REAL process env vars so the loaded Rust cdylib sees
+    // them via `getenv`/`std::env::var`. Host-language in-process setters that the
+    // generated harnesses use — `System.setProperty` (Kotlin), `System.put_env`
+    // (Elixir), `Environment.SetEnvironmentVariable` (C#), `putenv` (PHP) — do not
+    // reliably propagate to a native library in the same process, so a binding whose
+    // config default reads the env var (e.g. `SsrfPolicy::from_env`) would silently
+    // see the strict default. The runner exports them outright, same as the server
+    // vars, which is the only mechanism guaranteed to reach the native boundary.
+    // Sorted for deterministic ordering across runs (HashMap iteration is not).
+    let e2e_env: Vec<(String, String)> = config
+        .e2e
+        .as_ref()
+        .map(|e2e| {
+            let mut vars: Vec<(String, String)> = e2e.env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+            vars.sort();
+            vars
+        })
+        .unwrap_or_default();
+    // Plain, overwrite-style export prefix for the declared e2e env + server env
+    // vars. Do NOT use `run_command_streamed_with_env` here: it appends PATH-style
     // (`export VAR='val'"${VAR:+:$VAR}"`), which corrupts a plain value like
     // MOCK_SERVER_URL into `http://host:port:http://host:port` (invalid → getaddrinfo
     // failure). These are scalar values, so set them outright. Values are URLs / JSON
-    // (double-quoted) with no single quotes, so single-quote wrapping is safe.
-    let env_prefix: String = server_env.iter().map(|(k, v)| format!("export {k}='{v}'; ")).collect();
+    // / simple flags (double-quoted) with no single quotes, so single-quote wrapping
+    // is safe.
+    let env_prefix: String = e2e_env
+        .iter()
+        .chain(server_env.iter())
+        .map(|(k, v)| format!("export {k}='{v}'; "))
+        .collect();
 
     let results: Vec<(String, TestAppOutcome)> = names
         .par_iter()
@@ -401,5 +425,44 @@ run = "true"
         let config = cfg.resolve().unwrap().remove(0);
         let result = test_apps_run(&config, &["python".to_string()]);
         assert!(result.is_ok(), "a passing run command must succeed: {result:?}");
+    }
+
+    #[test]
+    fn e2e_env_vars_are_exported_to_run_command() {
+        // A declared `[crates.e2e.env]` var must be exported into the run command's
+        // environment so the SUT (and the native library it loads) sees it. The run
+        // command asserts the value is present; if the runner failed to export it,
+        // the `test` builtin fails and the run is reported as an error.
+        let cfg: crate::core::config::NewAlefConfig = toml::from_str(
+            r#"
+[workspace]
+languages = ["python"]
+
+[[crates]]
+name = "my-lib"
+sources = ["src/lib.rs"]
+
+[crates.e2e]
+fixtures = "fixtures"
+output = "e2e"
+[crates.e2e.env]
+ALLOW_PRIVATE_NETWORK = "true"
+[crates.e2e.call]
+function = "process"
+module = "my-lib"
+result_var = "result"
+
+[crates.e2e.registry.run.python]
+precondition = "true"
+run = "test \"$ALLOW_PRIVATE_NETWORK\" = true"
+"#,
+        )
+        .unwrap();
+        let config = cfg.resolve().unwrap().remove(0);
+        let result = test_apps_run(&config, &["python".to_string()]);
+        assert!(
+            result.is_ok(),
+            "a declared [crates.e2e.env] var must reach the run command: {result:?}"
+        );
     }
 }
