@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **extract: OR-merge cfgs for same-named types with disjoint gates**: when a
+  name resolves to multiple `ApiSurface` types with differing `cfg` gates — a
+  real re-export under one feature plus a crate-root stub under the complementary
+  gate (e.g. `LlmBackend` on the `x86_64-linux-android` emulator, where core
+  gates the real type out and provides a crate-root stub) — the surviving deduped
+  entry now carries the OR-merge of every member's `cfg` rather than only the
+  re-export's. Otherwise the emitted wrapper vanished on targets the stub was
+  meant to cover while `frb_generated.rs` (and other backends) still referenced
+  `crate::<Type>` unconditionally (`cannot find type`). Mirrors the
+  same-named-function collapse in `codegen::fn_dedup`.
+
 - **`generate`/`all` up-to-date skip ignored on-disk drift**: the per-language
   "up to date (skipping)" short-circuit compared freshly generated output only
   against the side cache (`.alef/hashes/*.output_hashes`), never the files on

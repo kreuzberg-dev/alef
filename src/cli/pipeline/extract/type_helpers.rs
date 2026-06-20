@@ -156,9 +156,21 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
 
     // Dedup types by name — prefer shorter rust_path (closer to crate root).
     // This handles name collisions like sample_core::Table vs sample_core::extraction::docx::parser::Table.
+    //
+    // When a name resolves to several entries with the SAME crate-root path but disjoint `cfg`
+    // gates — a real re-export under `#[cfg(feature = "X")]` plus a stub fallback under
+    // `#[cfg(any(not(feature = "X"), ...))]` (e.g. `LlmBackend` on the android-x86_64 emulator,
+    // where core gates the real type out and provides a crate-root stub) — the survivor must carry
+    // the OR-merge of every member's cfg. Otherwise the survivor inherits only the re-export's cfg
+    // and the emitted wrapper struct vanishes on targets the stub was meant to cover, while
+    // flutter_rust_bridge's own `frb_generated.rs` still references `crate::<Type>` unconditionally
+    // → `cannot find type` / `cannot find <Type> in crate`. This mirrors the same-named function
+    // collapse in `codegen::fn_dedup::dedup_same_name_functions`.
     {
         let mut best: AHashMap<String, usize> = AHashMap::new();
+        let mut group_indices: AHashMap<String, Vec<usize>> = AHashMap::new();
         for (i, t) in api.types.iter().enumerate() {
+            group_indices.entry(t.name.clone()).or_default().push(i);
             best.entry(t.name.clone())
                 .and_modify(|prev_i| {
                     if api.types[i].rust_path.len() < api.types[*prev_i].rust_path.len() {
@@ -166,6 +178,28 @@ pub(super) fn dedup_api_surface(api: &mut ApiSurface) {
                     }
                 })
                 .or_insert(i);
+        }
+        // OR-merge the cfgs of each same-named group onto its surviving (canonical) entry, but
+        // only when the group's members actually carry differing cfgs — leaving single-cfg name
+        // collisions (e.g. `Table` re-exported from multiple modules under one feature) untouched.
+        let merged_cfg_by_canonical: AHashMap<usize, Option<String>> = group_indices
+            .iter()
+            .filter(|(_, indices)| {
+                indices.len() > 1 && {
+                    let first = &api.types[indices[0]].cfg;
+                    indices.iter().any(|&i| &api.types[i].cfg != first)
+                }
+            })
+            .filter_map(|(name, indices)| {
+                best.get(name).map(|&canonical| {
+                    let merged =
+                        crate::codegen::fn_dedup::merge_cfgs(indices.iter().map(|&i| api.types[i].cfg.as_deref()));
+                    (canonical, merged)
+                })
+            })
+            .collect();
+        for (&canonical, merged) in &merged_cfg_by_canonical {
+            api.types[canonical].cfg = merged.clone();
         }
         let keep: AHashSet<usize> = best.values().copied().collect();
         let mut idx = 0;

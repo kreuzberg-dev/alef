@@ -701,6 +701,72 @@ fn dedup_keeps_same_named_functions_with_disjoint_cfgs() {
     assert!(cfgs.iter().any(|c| c.contains("not") && c.contains("\"embeddings\"")));
 }
 
+/// Regression: when a name resolves to a real re-export and a crate-root stub under
+/// disjoint cfgs (e.g. `LlmBackend`: real `pub use` gated `all(feature="ner-llm",
+/// not(android-x86_64))` plus a crate-root stub gated `any(not(feature="ner-llm"),
+/// android-x86_64)`), the surviving type entry must carry the OR-merge of both cfgs.
+/// Otherwise the emitted dart wrapper struct is gated out on android-x86_64 while
+/// flutter_rust_bridge's `frb_generated.rs` references `crate::LlmBackend`
+/// unconditionally → `cannot find type LlmBackend in crate`.
+#[test]
+fn dedup_or_merges_cfgs_for_same_named_type_with_disjoint_cfgs() {
+    let mut real = make_typedef("LlmBackend");
+    real.is_opaque = true;
+    real.cfg = Some(
+        "all (feature = \"ner-llm\" , not (target_arch = \"wasm32\") , not (all (target_os = \"android\" , target_arch = \"x86_64\")))"
+            .to_string(),
+    );
+    let mut stub = make_typedef("LlmBackend");
+    stub.is_opaque = true;
+    stub.cfg = Some(
+        "any (not (feature = \"ner-llm\") , all (target_os = \"android\" , target_arch = \"x86_64\"))".to_string(),
+    );
+
+    let mut surface = surface_with(vec![real, stub], vec![]);
+    super::type_helpers::dedup_api_surface(&mut surface);
+
+    let entries: Vec<_> = surface.types.iter().filter(|t| t.name == "LlmBackend").collect();
+    assert_eq!(entries.len(), 1, "same-named type collision must collapse to one entry");
+    let cfg = entries[0].cfg.as_deref().expect("merged cfg must be present");
+    assert!(
+        cfg.starts_with("any("),
+        "disjoint cfgs must be OR-merged into an any(...) gate; got `{cfg}`"
+    );
+    assert!(
+        cfg.contains("not (all (target_os = \"android\""),
+        "the real re-export's cfg must remain in the merge; got `{cfg}`"
+    );
+    assert!(
+        cfg.contains("all (target_os = \"android\" , target_arch = \"x86_64\")"),
+        "the android-x86_64 stub cfg must be included so the wrapper survives there; got `{cfg}`"
+    );
+}
+
+/// A same-named type collision where every member carries the SAME (single) cfg is a
+/// genuine duplicate (e.g. one feature, two module paths) — dedup must collapse to the
+/// shortest rust_path without wrapping the cfg in a spurious `any(...)`.
+#[test]
+fn dedup_collapses_same_named_type_with_identical_cfg() {
+    let mut near = make_typedef("Table");
+    near.rust_path = "my_crate::Table".to_string();
+    near.cfg = Some("feature = \"office\"".to_string());
+    let mut far = make_typedef("Table");
+    far.rust_path = "my_crate::extraction::docx::Table".to_string();
+    far.cfg = Some("feature = \"office\"".to_string());
+
+    let mut surface = surface_with(vec![far, near], vec![]);
+    super::type_helpers::dedup_api_surface(&mut surface);
+
+    let entries: Vec<_> = surface.types.iter().filter(|t| t.name == "Table").collect();
+    assert_eq!(entries.len(), 1, "identical-cfg duplicates must collapse to one");
+    assert_eq!(entries[0].rust_path, "my_crate::Table", "shortest rust_path wins");
+    assert_eq!(
+        entries[0].cfg.as_deref(),
+        Some("feature = \"office\""),
+        "identical cfg must pass through unchanged, not be wrapped in any(...)"
+    );
+}
+
 /// Same-named functions sharing an identical cfg (or both `None`) at different
 /// rust_paths are genuine duplicates — dedup must still collapse them to the
 /// entry with the shortest rust_path (closest to crate root).

@@ -592,7 +592,9 @@ mod tests {
             "expected the binding's own download_ffi tool to be invoked, got: {run}"
         );
         assert!(
-            !run.contains("curl") && !run.contains("releases/download") && !run.contains("github.com/kreuzberg"),
+            !run.contains("curl")
+                && !run.contains("releases/download")
+                && !run.contains("github.com/example/mylib/releases/download"),
             "runner must be generic — no project-specific download logic, got: {run}"
         );
         assert!(

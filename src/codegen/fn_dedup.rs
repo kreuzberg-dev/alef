@@ -102,7 +102,10 @@ fn should_merge_cfg_group(indices: &[usize], functions: &[FunctionDef]) -> bool 
 /// - If any cfg is `None` (unconditional), returns `None`.
 /// - If there is exactly one distinct value, returns it unchanged.
 /// - Otherwise wraps all distinct values in `any(...)`.
-fn merge_cfgs<'a>(cfgs: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
+///
+/// Shared with the `dedup_api_surface` type-dedup pass,
+/// which collapses same-named real/stub type pairs the same way functions are collapsed.
+pub fn merge_cfgs<'a>(cfgs: impl Iterator<Item = Option<&'a str>>) -> Option<String> {
     let mut distinct: Vec<&str> = Vec::new();
     for cfg in cfgs {
         match cfg {
