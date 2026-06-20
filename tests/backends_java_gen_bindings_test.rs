@@ -2122,6 +2122,71 @@ fn test_dto_emits_as_record_with_fields_only() {
     );
 }
 
+/// Regression for issue #146: an instance method on an opaque handle that
+/// returns another opaque handle must NOT free the returned pointer. The new
+/// wrapper owns the handle and frees it in close(); freeing it in the accessor
+/// returns a wrapper around an already-freed handle (use-after-free → native
+/// access-violation crash on the next call, e.g. `tree.walk()`).
+#[test]
+fn test_opaque_handle_returning_method_does_not_free_result() {
+    let backend = JavaBackend;
+
+    let tree = TypeDef {
+        name: "Tree".to_string(),
+        rust_path: "test_lib::Tree".to_string(),
+        is_opaque: true,
+        doc: "A parsed tree".to_string(),
+        methods: vec![MethodDef {
+            name: "walk".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("TreeCursor".to_string()),
+            receiver: Some(ReceiverKind::Ref),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let cursor = TypeDef {
+        name: "TreeCursor".to_string(),
+        rust_path: "test_lib::TreeCursor".to_string(),
+        is_opaque: true,
+        doc: "A cursor".to_string(),
+        ..Default::default()
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![tree, cursor],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_test_config("com.test");
+    let files = backend.generate_bindings(&api, &config).expect("generate ok");
+
+    let tree_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("Tree.java"))
+        .expect("Tree.java should be generated");
+
+    assert!(
+        tree_file.content.contains("return new TreeCursor(resultPtr);"),
+        "walk() should wrap the raw handle in a new TreeCursor. Got:\n{}",
+        tree_file.content
+    );
+    assert!(
+        !tree_file.content.contains("_FREE.invoke(resultPtr)"),
+        "walk() must NOT free the returned handle (UAF, issue #146). Got:\n{}",
+        tree_file.content
+    );
+}
+
 #[test]
 fn test_opaque_handle_type_remains_class() {
     let backend = JavaBackend;

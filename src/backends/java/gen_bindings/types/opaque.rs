@@ -455,8 +455,9 @@ fn gen_instance_method(
             // For value types without _to_json (shouldn't happen but be defensive), stub the method.
             if opaque_type_names.contains(&return_type_name) {
                 // Wrap pointer in new instance: `return new TypeName(resultPtr);`
-                let ret_type_snake = return_type_name.to_snake_case();
-                let ret_type_upper = ret_type_snake.to_uppercase();
+                // The new wrapper owns the handle and frees it in close(); the
+                // method must NOT free resultPtr here (see issue #146 — doing so
+                // returned a wrapper around an already-freed handle -> UAF crash).
                 let empty_return = if is_optional_return {
                     "java.util.Optional.empty()".to_string()
                 } else {
@@ -467,7 +468,6 @@ fn gen_instance_method(
                 } else {
                     format!("new {return_type_name}(resultPtr)")
                 };
-                let ret_free = format!("NativeLib.{prefix_upper}_{ret_type_upper}_FREE");
                 out.push_str(&crate::backends::java::template_env::render(
                     "stream_method_opaque_handle_result.jinja",
                     minijinja::context! {
@@ -476,7 +476,6 @@ fn gen_instance_method(
                         named_frees => render_named_frees("            "),
                         empty_return => empty_return,
                         success_return => success_return,
-                        ret_free => ret_free,
                     },
                 ));
             } else {

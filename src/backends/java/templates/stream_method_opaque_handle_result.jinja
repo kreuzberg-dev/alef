@@ -1,12 +1,11 @@
             // CPD-OFF — FFI opaque-handle return, no JSON deserialization needed.
+            // The returned pointer is owned by the new wrapper, which frees it in
+            // close(); freeing it here would leave the wrapper holding a dangling
+            // handle (use-after-free on the next native call).
             MemorySegment resultPtr = (MemorySegment) {{ ffi_handle }}.invoke({{ args_joined }});
 {{ named_frees }}            if (resultPtr.equals(MemorySegment.NULL)) {
                 checkLastFfiError();
                 return {{ empty_return }};
             }
-            try {
-                return {{ success_return }};
-            } finally {
-                {{ ret_free }}.invoke(resultPtr);
-            }
+            return {{ success_return }};
             // CPD-ON

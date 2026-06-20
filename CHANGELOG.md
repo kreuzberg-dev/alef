@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java opaque-handle accessors (use-after-free)**: instance methods on an
+  opaque-handle wrapper that return another opaque handle (e.g. `Tree.walk()`,
+  `Tree.rootNode()`, `Parser.parse()`, `Node.parent()`/`child()`,
+  `TreeCursor.node()`) no longer free the returned pointer in a `finally` block.
+  The new wrapper owns the handle and frees it in `close()`; the immediate free
+  returned a wrapper around an already-freed handle, so the next native call
+  dereferenced freed memory and crashed the JVM with `EXCEPTION_ACCESS_VIOLATION`
+  (tree-sitter-language-pack issue #146). The free-after-read pattern is retained
+  for value/DTO returns, which copy the data out before freeing the FFI temporary.
 - **test_apps/go runner**: the go test-app now provisions FFI libraries into a
   writable temp directory and replaces the module path in go.mod to link against
   the copy. `go generate` fails in the Go module cache (read-only), and the
