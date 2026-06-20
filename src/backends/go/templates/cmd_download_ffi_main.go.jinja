@@ -1,7 +1,8 @@
 // Tool to download platform-specific FFI libraries from GitHub releases.
-// Invoked via `go generate` before compilation.
-//go:build ignore
-// +build ignore
+// Runnable standalone: `go run ./cmd/download_ffi`. It lives in its own
+// `package main` subdirectory, so it is never linked into the binding library
+// and needs no build-constraint guard — keeping it guard-free lets consumers
+// (and the test-app runner) execute it directly.
 
 package main
 

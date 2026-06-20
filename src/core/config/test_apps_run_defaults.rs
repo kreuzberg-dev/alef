@@ -146,14 +146,20 @@ pub fn default_test_apps_run_config(
             // adds the package content hashes that `go test` actually checks.
             // `tidy` is idempotent once the sum is complete.
             //
-            // For cgo bindings: the published module lives in Go's read-only module
-            // cache (~/.go/pkg/mod). The download_ffi tool (cmd/download_ffi/main.go)
-            // needs to write .lib/ files there, but the cache is immutable. We copy
-            // the module to a writable temp location, download the FFI tarball from
-            // the GitHub release, extract it to .lib/, and replace the module path in
-            // test_apps/go/go.mod so subsequent builds link against the writable copy
-            // with populated .lib/ artifacts. After tests, we restore go.mod and go.sum
-            // to their original state via git checkout.
+            // For cgo bindings the FFI library must exist under the module's
+            // `.lib/<platform>/` before `go test` links it. The published module
+            // lives in Go's read-only module cache (~/go/pkg/mod) and `go generate`
+            // is a no-op in dependency modules, so the binding's bundled downloader
+            // cannot run in place. We copy the module to a writable temp dir and run
+            // the binding's OWN `cmd/download_ffi` there — that tool (emitted by
+            // alef's Go backend) owns the project's release-asset URL and platform
+            // mapping, so this runner stays generic and carries no project-specific
+            // download logic. The tool ships behind a `//go:build ignore` guard so it
+            // is not compiled into the library; strip that guard in the writable copy
+            // so `go run` can execute it (a no-op once the binding is regenerated
+            // without the guard). Then `go mod edit -replace` points the test app at
+            // the populated copy. go.mod/go.sum are restored afterwards unconditionally
+            // so a failed run cannot leave a stale replace directive behind.
             let run_cmd = if let Some(mod_path) = go_module_path {
                 format!(
                     r#"cd {test_apps_dir}/go && GOWORK=off go mod tidy && \
@@ -162,14 +168,8 @@ pub fn default_test_apps_run_config(
   DST="$(mktemp -d)/gomod" && \
   cp -R "$SRC" "$DST" && \
   chmod -R u+w "$DST" && \
-  MODVER="$(grep '^[[:space:]]*{mod_path} ' go.mod | awk '{{{{print $NF}}}}')" && \
-  OS_NAME="$(uname -s | sed 's/Darwin/macos/; s/Linux/linux/; s/.*Windows.*/windows/')" && \
-  GOARCH="$(go env GOARCH)" && \
-  ARCH_NAME="$([ "$GOARCH" = 'amd64' ] && echo 'x86_64' || ([ "$GOARCH" = 'arm64' ] && ([ "$OS_NAME" = 'macos' ] && echo 'arm64' || echo 'aarch64') || echo "$GOARCH"))" && \
-  DL_URL="https://github.com/kreuzberg-dev/kreuzcrawl/releases/download/$MODVER/kreuzcrawl-go-$OS_NAME-$ARCH_NAME.tar.gz" && \
-  LIB_DIR="$DST/.lib/$OS_NAME-$GOARCH" && \
-  mkdir -p "$LIB_DIR" && \
-  curl -sSL "$DL_URL" | tar -xz --strip-components=1 -C "$LIB_DIR" && \
+  perl -ni -e 'print unless m{{^//go:build ignore$}} || m{{^//\s*\+build ignore$}}' "$DST/cmd/download_ffi/main.go" && \
+  ( cd "$DST" && GOWORK=off GOFLAGS=-mod=mod go run ./cmd/download_ffi ) && \
   GOWORK=off go mod edit -replace {mod_path}="$DST" && \
   GOWORK=off go mod tidy && \
   GOWORK=off go test ./...; rc=$?; git checkout go.mod go.sum; exit $rc; \
@@ -567,7 +567,7 @@ mod tests {
     }
 
     #[test]
-    fn go_with_module_path_runs_generate_on_live_module() {
+    fn go_with_module_path_provisions_ffi_via_binding_downloader() {
         let c = default_test_apps_run_config(
             Language::Go,
             "test_apps",
@@ -577,20 +577,35 @@ mod tests {
         );
         let run = c.run.unwrap().commands().join(" ");
         assert!(
-            !run.contains("GOWORK=off go mod vendor"),
+            !run.contains("go mod vendor") && !run.contains("-mod=vendor"),
             "must not use vendor mode, got: {run}"
         );
+        // The runner copies the published module to a writable dir and invokes the
+        // binding's OWN download_ffi — it must carry NO project-specific download
+        // logic (no hard-coded release URL, platform mapping, or curl).
         assert!(
-            run.contains("GOWORK=off go generate github.com/example/mylib/packages/go"),
-            "expected `go generate <module>` to populate .lib/ on live module, got: {run}"
+            run.contains(r#"go list -m -f '{{.Dir}}'"#),
+            "expected the module dir to be resolved via `go list -m`, got: {run}"
         );
         assert!(
-            !run.contains("GOWORK=off go test -mod=vendor"),
-            "must not use -mod=vendor, got: {run}"
+            run.contains("go run ./cmd/download_ffi"),
+            "expected the binding's own download_ffi tool to be invoked, got: {run}"
+        );
+        assert!(
+            !run.contains("curl") && !run.contains("releases/download") && !run.contains("github.com/kreuzberg"),
+            "runner must be generic — no project-specific download logic, got: {run}"
+        );
+        assert!(
+            run.contains(r#"go mod edit -replace github.com/example/mylib/packages/go="$DST""#),
+            "expected replace to the writable copy, got: {run}"
+        );
+        assert!(
+            run.contains("git checkout go.mod go.sum"),
+            "expected go.mod/go.sum to be restored unconditionally, got: {run}"
         );
         assert!(
             run.contains("GOWORK=off go test ./..."),
-            "expected plain `go test ./...` without -mod=vendor, got: {run}"
+            "expected plain `go test ./...`, got: {run}"
         );
         assert!(run.contains("cd test_apps/go"), "expected cd test_apps/go, got: {run}");
     }
