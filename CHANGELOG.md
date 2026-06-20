@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`alef all` phase ordering (workspace post-build abort)**: package scaffolding
+  (Cargo.toml / package.json / pyproject / etc.) is now generated BEFORE the
+  post-build phase instead of after it. Post-build invokes `cargo` on the whole
+  workspace for backends like swift and dart; if a generated crate's manifest
+  (notably the scaffold-emitted `<crate>-jni/Cargo.toml`, whose `src/lib.rs` is
+  written by the generate phase) is not yet on disk, the `crates/*` glob matches a
+  manifest-less crate dir and the cargo invocation aborts with "failed to load
+  manifest for workspace member". `alef all --clean` now completes without a manual
+  `alef scaffold` workaround. Mirrors the existing service-API-before-post-build rule.
+
 - **java opaque-handle accessors (use-after-free)**: instance methods on an
   opaque-handle wrapper that return another opaque handle (e.g. `Tree.walk()`,
   `Tree.rootNode()`, `Parser.parse()`, `Node.parent()`/`child()`,

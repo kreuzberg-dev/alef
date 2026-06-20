@@ -135,6 +135,21 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                     }
                 }
 
+                // Generate package scaffolding (Cargo.toml / package.json / pyproject /
+                // etc.) BEFORE post-build. Post-build invokes `cargo` on the whole
+                // workspace for some backends (swift/dart), so every crate manifest —
+                // notably the scaffold-emitted `<crate>-jni/Cargo.toml` whose `src/lib.rs`
+                // was just written by the generate phase — must already be on disk;
+                // otherwise the `crates/*` glob matches a manifest-less crate dir and the
+                // cargo invocation aborts with "failed to load manifest for workspace
+                // member". Same precedent as the service-API generation above.
+                eprintln!("Generating scaffolding...");
+                let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
+                let scaffold_count = pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, clean)?;
+                for file in &scaffold_files {
+                    current_gen_paths.insert(base_dir.join(&file.path));
+                }
+
                 // Run post-build processing (e.g., FRB codegen, post-processing rewrites).
                 // Emit a "starting" line BEFORE each step so silent backends (post_build
                 // empty) and long-running subprocess steps (FRB codegen) are visible to
@@ -237,13 +252,6 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
                             eprintln!("  [public_api] up to date (skipping)");
                         }
                     }
-                }
-
-                eprintln!("Generating scaffolding...");
-                let scaffold_files = pipeline::scaffold(&api, resolved_cfg, &languages)?;
-                let scaffold_count = pipeline::write_scaffold_files_with_overwrite(&scaffold_files, &base_dir, clean)?;
-                for file in &scaffold_files {
-                    current_gen_paths.insert(base_dir.join(&file.path));
                 }
 
                 // scaffold_swift emits the root Package.swift with the
