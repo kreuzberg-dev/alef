@@ -240,10 +240,10 @@ fn make_capsule_func(name: &str, fallible: bool) -> FunctionDef {
 
 fn capsule_cfg() -> crate::core::config::HostCapsuleTypeConfig {
     crate::core::config::HostCapsuleTypeConfig {
-        host_type: "*tree_sitter.Language".to_string(),
-        package: "github.com/tree-sitter/go-tree-sitter".to_string(),
-        package_version: "v0.24.0".to_string(),
-        construct_expr: String::new(),
+        host_type: "*my_pkg.Language".to_string(),
+        package: "github.com/example/go-my-lib".to_string(),
+        package_version: "v1.0.0".to_string(),
+        construct_expr: "my_pkg.NewLanguage(unsafe.Pointer({ptr}))".to_string(),
     }
 }
 
@@ -254,7 +254,7 @@ fn test_capsule_fallible_returns_error_tuple_and_checks_last_error() {
     let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
     let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &capsule_cfg());
     assert!(
-        out.contains("(*tree_sitter.Language, error)"),
+        out.contains("(*my_pkg.Language, error)"),
         "fallible capsule must return (host, error):\n{out}"
     );
     assert!(
@@ -280,5 +280,49 @@ fn test_capsule_infallible_returns_bare_host_type() {
     assert!(
         !out.contains("lastError()"),
         "infallible capsule must not check lastError():\n{out}"
+    );
+}
+
+#[test]
+fn test_capsule_errors_when_construct_expr_empty() {
+    let func = make_capsule_func("get_language", false);
+    let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let cfg = crate::core::config::HostCapsuleTypeConfig {
+        host_type: "*my_pkg.Language".to_string(),
+        package: String::new(),
+        package_version: String::new(),
+        construct_expr: String::new(), // missing
+    };
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg);
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty construct_expr must produce an ALEF ERROR comment. Got:\n{out}"
+    );
+    assert!(
+        out.contains("construct_expr"),
+        "error must mention the missing field. Got:\n{out}"
+    );
+}
+
+#[test]
+fn test_capsule_errors_when_host_type_empty() {
+    let func = make_capsule_func("get_language", false);
+    let empty: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let empty_s: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let cfg = crate::core::config::HostCapsuleTypeConfig {
+        host_type: String::new(), // missing
+        package: String::new(),
+        package_version: String::new(),
+        construct_expr: "my_pkg.NewLanguage(unsafe.Pointer({ptr}))".to_string(),
+    };
+    let out = gen_capsule_function_wrapper(&func, "krz", &empty, &empty_s, &empty_s, &cfg);
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty host_type must produce an ALEF ERROR comment. Got:\n{out}"
+    );
+    assert!(
+        out.contains("host_type"),
+        "error must mention the missing field. Got:\n{out}"
     );
 }

@@ -492,10 +492,12 @@ pub(super) fn gen_function_wrapper(
 
 /// Generate a Go wrapper for a function returning a host-native capsule (Language) type.
 ///
-/// The exported C symbol returns the host runtime's raw grammar pointer
-/// (`*C.TSLanguage`). The wrapper converts parameters, calls the C function, and
-/// constructs the host `Language` (e.g. `tree_sitter.NewLanguage(unsafe.Pointer(ptr))`)
-/// from the raw pointer — never an opaque alef handle.
+/// The exported C symbol returns the host runtime's raw grammar pointer.
+/// The wrapper converts parameters, calls the C function, and constructs the host
+/// `Language` from the raw pointer — never an opaque alef handle.
+///
+/// `cfg.construct_expr` and `cfg.host_type` are required; this function returns an
+/// error string beginning with `"// ALEF ERROR:"` when either is empty.
 pub(super) fn gen_capsule_function_wrapper(
     func: &FunctionDef,
     ffi_prefix: &str,
@@ -524,11 +526,16 @@ pub(super) fn gen_capsule_function_wrapper(
     // failure as a Go `error` — matching python (raises) / node (throws) and the
     // e2e fixtures that assert an error for unknown/empty input. An infallible one
     // returns the bare host type (nil = not found).
+    // Require host_type and construct_expr from config — no tree-sitter defaults.
+    let host_type = match cfg.required_host_type("Language", "go") {
+        Ok(t) => t.to_string(),
+        Err(e) => return format!("// ALEF ERROR: {e}\n"),
+    };
     let is_fallible = func.error_type.is_some();
     let ret_type_str = if is_fallible {
-        format!(" ({}, error)", cfg.host_type)
+        format!(" ({host_type}, error)")
     } else {
-        format!(" {}", cfg.host_type)
+        format!(" {host_type}")
     };
 
     out.push_str(&crate::backends::go::template_env::render(
@@ -564,9 +571,11 @@ pub(super) fn gen_capsule_function_wrapper(
         .collect();
     let c_call = format!("{}({})", ffi_name, c_params.join(", "));
 
-    // Call the C function, guard nil, then construct the host Language from the raw pointer.
-    // The `{ptr}` placeholder receives the raw cgo pointer; the default wraps it via unsafe.Pointer.
-    let construct = cfg.construct("cLang", "tree_sitter.NewLanguage(unsafe.Pointer({ptr}))");
+    // Require construct_expr — no tree-sitter default fallback.
+    let construct = match cfg.construct_required("cLang", "Language", "go") {
+        Ok(c) => c,
+        Err(e) => return format!("// ALEF ERROR: {e}\n"),
+    };
     out.push_str(&format!("\tcLang := {c_call}\n"));
     if is_fallible {
         // The FFI sets last_error and returns null on failure; surface it as a Go error

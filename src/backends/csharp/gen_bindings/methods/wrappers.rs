@@ -47,11 +47,13 @@ pub(super) fn gen_capsule_function_wrapper(
     let func_cs_name = to_csharp_name(&func.name);
     doc_emission::emit_csharp_doc(&mut out, &func.doc, "        ", exception_name);
 
-    // Return type is the host capsule type (e.g., "TreeSitter.Language")
-    let host_type = if cfg.host_type.is_empty() {
-        "IntPtr".to_string()
-    } else {
-        cfg.host_type.clone()
+    // Require host_type — no tree-sitter default fallback.
+    let host_type = match cfg.required_host_type("Language", "csharp") {
+        Ok(t) => t.to_string(),
+        Err(e) => {
+            out.push_str(&format!("        // ALEF ERROR: {e}\n"));
+            return out;
+        }
     };
 
     out.push_str(&format!("        public static {host_type} {func_cs_name}("));
@@ -100,10 +102,15 @@ pub(super) fn gen_capsule_function_wrapper(
         out.push_str("            }\n");
     }
 
-    // Construct the host Language from the raw pointer.
-    // The `{ptr}` placeholder is replaced with the variable name holding the IntPtr.
-    let default_construct = "new TreeSitter.Language({ptr})";
-    let construct = cfg.construct("nativeResult", default_construct);
+    // Require construct_expr — no tree-sitter default fallback.
+    let construct = match cfg.construct_required("nativeResult", "Language", "csharp") {
+        Ok(c) => c,
+        Err(e) => {
+            out.push_str(&format!("            // ALEF ERROR: {e}\n"));
+            out.push_str("        }\n");
+            return out;
+        }
+    };
     out.push_str(&format!("            return {construct};\n"));
 
     out.push_str("        }\n");
@@ -892,18 +899,18 @@ mod tests {
             construct_expr: String::new(),
         };
 
-        let code = gen_capsule_function_wrapper(&func, "TestException", "ts_pack", &cfg);
+        let code = gen_capsule_function_wrapper(&func, "TestException", "sample_ffi", &cfg);
 
-        // The wrapper should call NativeMethods.GetLanguage (PascalCase), not ts_pack_get_language (snake_case)
+        // The wrapper should call NativeMethods.GetLanguage (PascalCase), not the raw C symbol name.
         assert!(
             code.contains("NativeMethods.GetLanguage(name)"),
             "Generated code should call NativeMethods.GetLanguage, got:\n{}",
             code
         );
-        // Make sure it doesn't contain the snake_case version
+        // Make sure it doesn't contain the raw snake_case C symbol.
         assert!(
-            !code.contains("NativeMethods.ts_pack_get_language"),
-            "Generated code should NOT call NativeMethods.ts_pack_get_language (snake_case), got:\n{}",
+            !code.contains("NativeMethods.sample_ffi_get_language"),
+            "Generated code should NOT call NativeMethods.sample_ffi_get_language (snake_case), got:\n{}",
             code
         );
     }

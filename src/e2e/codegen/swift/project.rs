@@ -286,9 +286,7 @@ fn inject_package_swift_extras(
     // SwiftPM package identity (map key); `name` is the product (overridable, defaults to identity).
     let extras_products: String = all_extras
         .iter()
-        .map(|(pkg_id, (_url, _version, product))| {
-            format!(", .product(name: \"{product}\", package: \"{pkg_id}\")")
-        })
+        .map(|(pkg_id, (_url, _version, product))| format!(", .product(name: \"{product}\", package: \"{pkg_id}\")"))
         .collect();
 
     test_target_dep.push_str(&extras_products);
@@ -409,19 +407,47 @@ mod tests {
 
     #[test]
     fn render_package_swift_local_mode_baseline() {
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
-        assert!(out.contains(".package(path:"), "baseline Package.swift should have .package(path:)");
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            None,
+        );
+        assert!(
+            out.contains(".package(path:"),
+            "baseline Package.swift should have .package(path:)"
+        );
         assert!(out.contains("\"../../packages/swift\""), "should contain local path");
-        assert!(out.contains(".product(name: \"TreeSitter\", package: \"swift\")"), "should have product dep");
+        assert!(
+            out.contains(".product(name: \"TreeSitter\", package: \"swift\")"),
+            "should have product dep"
+        );
     }
 
     #[test]
     fn render_package_swift_registry_mode_baseline() {
-        let out = render_package_swift("TreeSitter", "https://github.com/tree-sitter/tree-sitter-swift.git", "", "0.25.0", crate::e2e::config::DependencyMode::Registry, false, None);
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://github.com/tree-sitter/tree-sitter-swift.git",
+            "",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+            None,
+        );
         assert!(out.contains(".package(url:"), "registry mode should use .package(url:)");
-        assert!(out.contains("https://github.com/tree-sitter/tree-sitter-swift"), "should contain GitHub URL");
+        assert!(
+            out.contains("https://github.com/tree-sitter/tree-sitter-swift"),
+            "should contain GitHub URL"
+        );
         assert!(out.contains("from: \"0.25.0\""), "should pin version");
-        assert!(out.contains(".product(name: \"TreeSitter\", package: \"tree-sitter-swift\")"), "should have product dep");
+        assert!(
+            out.contains(".product(name: \"TreeSitter\", package: \"tree-sitter-swift\")"),
+            "should have product dep"
+        );
     }
 
     #[test]
@@ -436,9 +462,23 @@ mod tests {
                 t
             }),
         );
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
-        assert!(out.contains(".package(url: \"https://github.com/foo/SwiftTreeSitter.git\", from: \"0.25.0\")"), "should inject extras .package with url and version from Detailed form. Got:\n{out}");
-        assert!(out.contains(".product(name: \"SwiftTreeSitter\", package: \"SwiftTreeSitter\")"), "should inject product dep from extracted package name. Got:\n{out}");
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
+        assert!(
+            out.contains(".package(url: \"https://github.com/foo/SwiftTreeSitter.git\", from: \"0.25.0\")"),
+            "should inject extras .package with url and version from Detailed form. Got:\n{out}"
+        );
+        assert!(
+            out.contains(".product(name: \"SwiftTreeSitter\", package: \"SwiftTreeSitter\")"),
+            "should inject product dep from extracted package name. Got:\n{out}"
+        );
     }
 
     #[test]
@@ -450,13 +490,24 @@ mod tests {
             "swift-tree-sitter".to_string(),
             ExtraDepSpec::Detailed({
                 let mut t = toml::Table::new();
-                t.insert("url".to_string(), "https://github.com/tree-sitter/swift-tree-sitter".into());
+                t.insert(
+                    "url".to_string(),
+                    "https://github.com/tree-sitter/swift-tree-sitter".into(),
+                );
                 t.insert("version".to_string(), "0.25.0".into());
                 t.insert("product".to_string(), "SwiftTreeSitter".into());
                 t
             }),
         );
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
         assert!(
             out.contains(".product(name: \"SwiftTreeSitter\", package: \"swift-tree-sitter\")"),
             "product override should set name=SwiftTreeSitter, package=swift-tree-sitter. Got:\n{out}"
@@ -470,9 +521,23 @@ mod tests {
             "https://github.com/bar/MyLib.git".to_string(),
             ExtraDepSpec::Simple("1.0.0".to_string()),
         );
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
-        assert!(out.contains(".package(url: \"https://github.com/bar/MyLib.git\", from: \"1.0.0\")"), "should inject extras .package with URL as key and version as value. Got:\n{out}");
-        assert!(out.contains(".product(name: \"MyLib\", package: \"MyLib\")"), "should extract package name from URL. Got:\n{out}");
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
+        assert!(
+            out.contains(".package(url: \"https://github.com/bar/MyLib.git\", from: \"1.0.0\")"),
+            "should inject extras .package with URL as key and version as value. Got:\n{out}"
+        );
+        assert!(
+            out.contains(".product(name: \"MyLib\", package: \"MyLib\")"),
+            "should extract package name from URL. Got:\n{out}"
+        );
     }
 
     #[test]
@@ -491,20 +556,59 @@ mod tests {
             "https://github.com/y/DevPkg.git".to_string(),
             ExtraDepSpec::Simple("2.0.0".to_string()),
         );
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
         // Should inject both runtime and dev deps in sorted order (DevPkg, RuntimePkg).
-        assert!(out.contains(".package(url: \"https://github.com/x/RuntimePkg.git\", from: \"1.0.0\")"), "should inject runtime dep. Got:\n{out}");
-        assert!(out.contains(".package(url: \"https://github.com/y/DevPkg.git\", from: \"2.0.0\")"), "should inject dev dep. Got:\n{out}");
-        assert!(out.contains(".product(name: \"RuntimePkg\", package: \"RuntimePkg\")"), "should include runtime product. Got:\n{out}");
-        assert!(out.contains(".product(name: \"DevPkg\", package: \"DevPkg\")"), "should include dev product. Got:\n{out}");
+        assert!(
+            out.contains(".package(url: \"https://github.com/x/RuntimePkg.git\", from: \"1.0.0\")"),
+            "should inject runtime dep. Got:\n{out}"
+        );
+        assert!(
+            out.contains(".package(url: \"https://github.com/y/DevPkg.git\", from: \"2.0.0\")"),
+            "should inject dev dep. Got:\n{out}"
+        );
+        assert!(
+            out.contains(".product(name: \"RuntimePkg\", package: \"RuntimePkg\")"),
+            "should include runtime product. Got:\n{out}"
+        );
+        assert!(
+            out.contains(".product(name: \"DevPkg\", package: \"DevPkg\")"),
+            "should include dev product. Got:\n{out}"
+        );
     }
 
     #[test]
     fn render_package_swift_empty_extras_matches_none() {
         let extras = ManifestExtras::default();
-        let with_empty = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
-        let without = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
-        assert_eq!(with_empty, without, "empty extras should produce identical output to None");
+        let with_empty = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
+        let without = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            None,
+        );
+        assert_eq!(
+            with_empty, without,
+            "empty extras should produce identical output to None"
+        );
     }
 
     #[test]
@@ -514,21 +618,59 @@ mod tests {
             "https://github.com/a/PkgA.git".to_string(),
             ExtraDepSpec::Simple("1.0.0".to_string()),
         );
-        let first = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
-        let second = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        let first = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
+        let second = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            Some(&extras),
+        );
         assert_eq!(first, second, "re-rendering with same extras should be byte-stable");
     }
 
     #[test]
     fn render_package_swift_includes_harness_target_when_needed() {
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, true, None);
-        assert!(out.contains(".executableTarget("), "should include harness executable target");
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            true,
+            None,
+        );
+        assert!(
+            out.contains(".executableTarget("),
+            "should include harness executable target"
+        );
         assert!(out.contains("\"Harness\""), "harness target name should be present");
     }
 
     #[test]
     fn render_package_swift_omits_harness_target_when_not_needed() {
-        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, None);
-        assert!(!out.contains(".executableTarget("), "should omit harness executable target");
+        let out = render_package_swift(
+            "TreeSitter",
+            "https://example.com/tree-sitter.git",
+            "../../packages/swift",
+            "0.25.0",
+            crate::e2e::config::DependencyMode::Local,
+            false,
+            None,
+        );
+        assert!(
+            !out.contains(".executableTarget("),
+            "should omit harness executable target"
+        );
     }
 }

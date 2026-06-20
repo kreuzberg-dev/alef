@@ -165,14 +165,15 @@ sources = ["src/lib.rs"]
 [crates.ffi]
 prefix = "tsp"
 [crates.ffi.capsule_types.Language]
-into_raw_type = "tree_sitter::ffi::TSLanguage"
-c_return_type = "TSLanguage"
+into_raw_type = "my_crate::ffi::MyLang"
+c_return_type = "MyLang"
 [crates.go]
 module = "github.com/test/sample-capsule"
 [crates.go.capsule_types.Language]
-host_type = "*tree_sitter.Language"
-package = "github.com/tree-sitter/go-tree-sitter"
-package_version = "v0.25.0"
+host_type = "*my_pkg.Language"
+package = "github.com/example/go-my-lib"
+package_version = "v1.0.0"
+construct_expr = "my_pkg.NewLanguage(unsafe.Pointer({ptr}))"
 "#,
     )
 }
@@ -264,19 +265,17 @@ fn capsule_function_constructs_host_language_and_imports_package() {
     assert!(
         binding
             .content
-            .contains("func GetLanguage(name string) *tree_sitter.Language"),
-        "capsule wrapper must return host *tree_sitter.Language. Got:\n{}",
+            .contains("func GetLanguage(name string) *my_pkg.Language"),
+        "capsule wrapper must return host *my_pkg.Language. Got:\n{}",
         binding.content
     );
     assert!(
-        binding
-            .content
-            .contains("tree_sitter.NewLanguage(unsafe.Pointer(cLang))"),
-        "capsule wrapper must construct via tree_sitter.NewLanguage. Got:\n{}",
+        binding.content.contains("my_pkg.NewLanguage(unsafe.Pointer(cLang))"),
+        "capsule wrapper must construct via my_pkg.NewLanguage. Got:\n{}",
         binding.content
     );
     assert!(
-        binding.content.contains("github.com/tree-sitter/go-tree-sitter"),
-        "binding.go must import the go-tree-sitter package"
+        binding.content.contains("github.com/example/go-my-lib"),
+        "binding.go must import the configured capsule package"
     );
 }

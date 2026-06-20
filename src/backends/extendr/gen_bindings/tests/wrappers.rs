@@ -806,15 +806,10 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
 }
 
 #[test]
-fn extendr_module_registration_gates_cfg_functions() {
-    // Regression: registration entries inside `extendr_module! { ... }` must inherit the
-    // `cfg` predicate from their underlying FunctionDef. Without the gate, when the cfg
-    // is false at build time the proc-macro elides `meta__<fn>`, but the registration
-    // still references it — producing `cannot find function 'meta__<fn>'` E0425 errors.
-    //
-    // Couples to the upstream pub-use-clears-skip fix (alef 0.25.33) which allows two
-    // same-named functions to coexist in the surface under disjoint cfgs (stub clone +
-    // paired implementation). Both must register, each under its own cfg.
+fn extendr_module_registration_registers_complementary_cfg_functions_once() {
+    // Regression: `extendr_module! { ... }` cannot parse attributes on registration entries.
+    // Complementary cfg variants dedupe into `any(P, not(P))`, which is always compiled and
+    // therefore should register once as a bare module entry.
     let backend = ExtendrBackend;
     let config = make_config();
     let mut api = make_api_surface();
@@ -868,22 +863,13 @@ fn extendr_module_registration_gates_cfg_functions() {
         .expect("must emit extendr_module! macro");
     let module_block = &content[module_block_start..];
 
-    // Both registration entries must be present and each must carry its own cfg gate.
-    let paired_entry = "#[cfg(feature = \"embeddings\")]\n    fn embed_texts_async;\n";
-    let stub_entry = "#[cfg(not(feature = \"embeddings\"))]\n    fn embed_texts_async;\n";
     assert!(
-        module_block.contains(paired_entry),
-        "registration must gate the paired entry under its cfg, got:\n{module_block}"
+        module_block.contains("    fn embed_texts_async;\n"),
+        "complementary cfg functions must register once as an always-present entry, got:\n{module_block}"
     );
     assert!(
-        module_block.contains(stub_entry),
-        "registration must gate the stub entry under its inverted cfg, got:\n{module_block}"
-    );
-
-    // Sanity: the un-gated `fn embed_texts_async;` form (the bug) must NOT be present.
-    assert!(
-        !module_block.contains("\n    fn embed_texts_async;\n    "),
-        "registration must never emit ungated `fn embed_texts_async;` between other entries:\n{module_block}"
+        !module_block.contains("#[cfg("),
+        "extendr_module! entries must not carry cfg attributes, got:\n{module_block}"
     );
 
     // Sanity: a function without a cfg gate keeps the bare registration form.

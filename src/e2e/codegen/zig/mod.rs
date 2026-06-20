@@ -184,12 +184,9 @@ impl E2eCodegen for ZigE2eCodegen {
                     .capsule_types
                     .values()
                     .filter(|cap| !cap.package.is_empty())
-                    .map(|cap| {
-                        (
-                            capsule_import_name(&cap.host_type),
-                            cap.package.clone(),
-                            cap.package_version.clone(),
-                        )
+                    .filter_map(|cap| {
+                        let import_name = capsule_import_name(&cap.host_type)?;
+                        Some((import_name, cap.package.clone(), cap.package_version.clone()))
                     })
                     .collect();
                 deps.sort();
@@ -210,19 +207,29 @@ impl E2eCodegen for ZigE2eCodegen {
                     let mut harness_extras_deps = Vec::new();
                     for (module_name, spec) in &extras.dependencies {
                         if let crate::core::config::manifest_extras::ExtraDepSpec::Detailed(table) = spec {
-                            if let (Some(url_val), Some(hash_val)) =
-                                (table.get("url").and_then(|v| v.as_str()), table.get("hash").and_then(|v| v.as_str()))
-                            {
-                                harness_extras_deps.push((module_name.clone(), url_val.to_string(), hash_val.to_string()));
+                            if let (Some(url_val), Some(hash_val)) = (
+                                table.get("url").and_then(|v| v.as_str()),
+                                table.get("hash").and_then(|v| v.as_str()),
+                            ) {
+                                harness_extras_deps.push((
+                                    module_name.clone(),
+                                    url_val.to_string(),
+                                    hash_val.to_string(),
+                                ));
                             }
                         }
                     }
                     for (module_name, spec) in &extras.dev_dependencies {
                         if let crate::core::config::manifest_extras::ExtraDepSpec::Detailed(table) = spec {
-                            if let (Some(url_val), Some(hash_val)) =
-                                (table.get("url").and_then(|v| v.as_str()), table.get("hash").and_then(|v| v.as_str()))
-                            {
-                                harness_extras_deps.push((module_name.clone(), url_val.to_string(), hash_val.to_string()));
+                            if let (Some(url_val), Some(hash_val)) = (
+                                table.get("url").and_then(|v| v.as_str()),
+                                table.get("hash").and_then(|v| v.as_str()),
+                            ) {
+                                harness_extras_deps.push((
+                                    module_name.clone(),
+                                    url_val.to_string(),
+                                    hash_val.to_string(),
+                                ));
                             }
                         }
                     }
@@ -437,20 +444,28 @@ impl E2eCodegen for ZigE2eCodegen {
 
 /// Derive the bare Zig `@import` identifier for a host-capsule type from its
 /// configured `host_type`. The Zig binding source imports the capsule package by
-/// its module name (e.g. `@import("tree_sitter")`), which is the trailing
-/// `[A-Za-z0-9_]` run of the type's namespace — the portion before the type's
-/// final `.`, stripped of pointer/const decoration. `?*const tree_sitter.Language`
-/// and `*tree_sitter.Language` both yield `tree_sitter`. Falls back to
-/// `tree_sitter` when no identifier can be extracted.
-fn capsule_import_name(host_type: &str) -> String {
-    host_type
-        .split('.')
-        .next()
-        .unwrap_or("")
+/// its module name (e.g. `@import("my_mod")`), which is the trailing
+/// `[A-Za-z0-9_]` run of the namespace token — the portion before the type's
+/// final `.`, stripped of pointer/const decoration. `?*const my_mod.Language`
+/// and `*my_mod.Language` both yield `my_mod`.
+///
+/// Returns `None` when the host_type contains no dotted qualified name (e.g. a
+/// bare type with no module prefix), which is a config error — callers should
+/// skip or error on `None`.
+fn capsule_import_name(host_type: &str) -> Option<String> {
+    // A qualified name must contain a '.'. Bare types (no dot) have no module prefix.
+    if !host_type.contains('.') {
+        return None;
+    }
+    // Take the portion before the first dot; that is the namespace token (may have
+    // leading sigil characters like `?`, `*`, `const`).
+    let namespace_token = host_type.split('.').next().unwrap_or("");
+    // Strip leading non-identifier characters (sigils: ?, *, const, etc.) to extract
+    // the bare module identifier.
+    let name = namespace_token
         .rsplit(|c: char| !(c.is_alphanumeric() || c == '_'))
-        .find(|segment| !segment.is_empty())
-        .unwrap_or("tree_sitter")
-        .to_string()
+        .find(|segment| !segment.is_empty())?;
+    Some(name.to_string())
 }
 
 #[cfg(test)]
@@ -459,22 +474,31 @@ mod capsule_import_name_tests {
 
     #[test]
     fn strips_zig_pointer_and_const_decoration() {
-        assert_eq!(capsule_import_name("?*const tree_sitter.Language"), "tree_sitter");
+        assert_eq!(
+            capsule_import_name("?*const my_mod.Language"),
+            Some("my_mod".to_string())
+        );
     }
 
     #[test]
     fn strips_bare_pointer_decoration() {
-        assert_eq!(capsule_import_name("*tree_sitter.Language"), "tree_sitter");
+        assert_eq!(capsule_import_name("*my_mod.Language"), Some("my_mod".to_string()));
     }
 
     #[test]
     fn passes_through_plain_namespace() {
-        assert_eq!(capsule_import_name("tree_sitter.Language"), "tree_sitter");
+        assert_eq!(capsule_import_name("my_mod.Language"), Some("my_mod".to_string()));
     }
 
     #[test]
-    fn falls_back_when_no_identifier() {
+    fn returns_none_when_no_dotted_identifier() {
         // Namespace is pure pointer decoration with no identifier run to extract.
-        assert_eq!(capsule_import_name("?*.Language"), "tree_sitter");
+        assert_eq!(capsule_import_name("?*.Language"), None);
+    }
+
+    #[test]
+    fn returns_none_for_bare_unqualified_type() {
+        // A bare type without module prefix cannot yield an import name.
+        assert_eq!(capsule_import_name("Language"), None);
     }
 }

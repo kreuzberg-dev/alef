@@ -820,21 +820,24 @@ fn swift_capsule_return_config<'a>(
 
 /// Emit a synchronous free function that returns a host-native capsule (Language) type.
 ///
-/// The C FFI returns the host runtime's raw grammar pointer (`const TSLanguage *`).
-/// The wrapper constructs the host `Language` (e.g. `SwiftTreeSitter.Language(OpaquePointer(ptr))`)
-/// from the raw pointer instead of an opaque handle.
+/// The C FFI returns the host runtime's raw grammar pointer. The wrapper constructs the
+/// host `Language` using the expression from `capsule_cfg.construct_expr`.
+///
+/// `capsule_cfg.host_type` and `capsule_cfg.construct_expr` are required; missing values
+/// produce a `// ALEF ERROR:` comment in the generated output.
 fn emit_capsule_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
     capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
     out: &mut String,
 ) {
-    // Baked default: SwiftTreeSitter.Language(OpaquePointer({ptr}))
-    let default_construct = "SwiftTreeSitter.Language(OpaquePointer({ptr}))";
-    let host_type = if capsule_cfg.host_type.is_empty() {
-        "SwiftTreeSitter.Language".to_string()
-    } else {
-        capsule_cfg.host_type.clone()
+    // Require host_type — no SwiftTreeSitter default fallback.
+    let host_type = match capsule_cfg.required_host_type("Language", "swift") {
+        Ok(t) => t.to_string(),
+        Err(e) => {
+            out.push_str(&format!("// ALEF ERROR: {e}\n"));
+            return;
+        }
     };
 
     if !func.doc.is_empty() {
@@ -862,7 +865,14 @@ fn emit_capsule_free_function_forwarder(
     };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
-    let construct = capsule_cfg.construct("cLang", default_construct);
+    // Require construct_expr — no SwiftTreeSitter default fallback.
+    let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
+        Ok(c) => c,
+        Err(e) => {
+            out.push_str(&format!("// ALEF ERROR: {e}\n"));
+            return;
+        }
+    };
     let nil_error = format!(
         "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
     );
@@ -898,11 +908,13 @@ fn emit_async_capsule_free_function_forwarder(
     capsule_cfg: &crate::core::config::HostCapsuleTypeConfig,
     out: &mut String,
 ) {
-    let default_construct = "SwiftTreeSitter.Language(OpaquePointer({ptr}))";
-    let host_type = if capsule_cfg.host_type.is_empty() {
-        "SwiftTreeSitter.Language".to_string()
-    } else {
-        capsule_cfg.host_type.clone()
+    // Require host_type — no SwiftTreeSitter default fallback.
+    let host_type = match capsule_cfg.required_host_type("Language", "swift") {
+        Ok(t) => t.to_string(),
+        Err(e) => {
+            out.push_str(&format!("// ALEF ERROR: {e}\n"));
+            return;
+        }
     };
 
     if !func.doc.is_empty() {
@@ -929,7 +941,14 @@ fn emit_async_capsule_free_function_forwarder(
     };
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
-    let construct = capsule_cfg.construct("cLang", default_construct);
+    // Require construct_expr — no SwiftTreeSitter default fallback.
+    let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
+        Ok(c) => c,
+        Err(e) => {
+            out.push_str(&format!("// ALEF ERROR: {e}\n"));
+            return;
+        }
+    };
     let nil_error = format!(
         "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
     );

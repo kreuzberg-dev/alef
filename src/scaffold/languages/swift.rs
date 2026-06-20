@@ -52,17 +52,25 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     // here only support the in-tree `swift test` workflow.
     // 2-space indentation and no trailing comma on single-element array literals match
     // `swift-format` defaults so the generated file is lint-clean without a post-pass.
-    // Host-native capsule (Language) passthrough: depend on SwiftTreeSitter so generated
-    // code can construct `SwiftTreeSitter.Language(OpaquePointer(cPtr))`.
-    let swift_capsule: Vec<(String, String)> = config
+    // Host-native capsule (Language) passthrough: collect capsule package dependencies and
+    // the SwiftPM product names derived from each capsule type's `host_type`. The product name
+    // is the first component of `host_type` (e.g. `MyLib.Language` → `MyLib`).
+    // Pair: (package_url, package_version, product_name)
+    let swift_capsule: Vec<(String, String, String)> = config
         .swift
         .as_ref()
         .map(|c| {
-            let mut deps: Vec<(String, String)> = c
+            let mut deps: Vec<(String, String, String)> = c
                 .capsule_types
                 .values()
                 .filter(|cap| !cap.package.is_empty())
-                .map(|cap| (cap.package.clone(), cap.package_version.clone()))
+                .map(|cap| {
+                    // Derive the SwiftPM product name from the module prefix of host_type.
+                    let product = crate::core::config::languages::zig_capsule_import_name(&cap.host_type)
+                        .map(|s| s.to_string())
+                        .unwrap_or_else(|| cap.host_type.clone());
+                    (cap.package.clone(), cap.package_version.clone(), product)
+                })
                 .collect();
             deps.sort();
             deps.dedup();
@@ -74,7 +82,7 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     } else {
         let entries: Vec<String> = swift_capsule
             .iter()
-            .map(|(pkg, ver)| {
+            .map(|(pkg, ver, _product)| {
                 let ver_clause = if ver.is_empty() {
                     "branch: \"master\"".to_string()
                 } else {
@@ -85,11 +93,17 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
             .collect();
         format!("\n  dependencies: [\n{}\n  ],", entries.join("\n"))
     };
-    // SwiftTreeSitter is the product exposed by the swift-tree-sitter package.
+    // The SwiftPM product names are the module-prefix parts of each capsule host_type.
     let module_target_capsule_deps = if swift_capsule.is_empty() {
         String::new()
     } else {
-        ", \"SwiftTreeSitter\"".to_string()
+        let product_names: Vec<String> = swift_capsule
+            .iter()
+            .map(|(_pkg, _ver, product)| format!(", \"{product}\""))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        product_names.join("")
     };
 
     let package_swift = format!(
@@ -655,10 +669,7 @@ package_version = "0.25.0"
         let pkg = find_file(&files, "packages/swift/Package.swift");
 
         // Find byte positions of "products:" and "dependencies:"
-        let products_pos = pkg
-            .content
-            .find("products: [")
-            .expect("must have products: argument");
+        let products_pos = pkg.content.find("products: [").expect("must have products: argument");
         let dependencies_pos = pkg
             .content
             .find("dependencies: [")

@@ -236,10 +236,9 @@ mod tests {
         use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
 
         let mut extras = ManifestExtras::default();
-        extras.dev_dependencies.insert(
-            "Bogus".to_string(),
-            ExtraDepSpec::Simple("^35.0.0".to_string()),
-        );
+        extras
+            .dev_dependencies
+            .insert("Bogus".to_string(), ExtraDepSpec::Simple("^35.0.0".to_string()));
 
         let output = render_csproj(
             "MyLib",
@@ -266,10 +265,9 @@ mod tests {
             "TreeSitter.DotNet".to_string(),
             ExtraDepSpec::Simple("1.3.0".to_string()),
         );
-        extras.dev_dependencies.insert(
-            "Bogus".to_string(),
-            ExtraDepSpec::Simple("^35.0.0".to_string()),
-        );
+        extras
+            .dev_dependencies
+            .insert("Bogus".to_string(), ExtraDepSpec::Simple("^35.0.0".to_string()));
 
         let output = render_csproj(
             "MyLib",
@@ -352,10 +350,9 @@ mod tests {
             "TreeSitter.DotNet".to_string(),
             ExtraDepSpec::Simple("1.3.0".to_string()),
         );
-        extras.dev_dependencies.insert(
-            "Moq".to_string(),
-            ExtraDepSpec::Simple("4.16.0".to_string()),
-        );
+        extras
+            .dev_dependencies
+            .insert("Moq".to_string(), ExtraDepSpec::Simple("4.16.0".to_string()));
 
         let output = render_csproj(
             "MyLib",
@@ -371,10 +368,7 @@ mod tests {
         let first_item_group = &output[first_item_group_start..=first_item_group_end];
 
         // Both extras and xunit should be in the same ItemGroup
-        assert!(
-            first_item_group.contains("xunit"),
-            "xunit should be in first ItemGroup"
-        );
+        assert!(first_item_group.contains("xunit"), "xunit should be in first ItemGroup");
         assert!(
             first_item_group.contains("TreeSitter.DotNet"),
             "extras should be in first ItemGroup"
@@ -427,9 +421,6 @@ mod tests {
             Some(&extras),
         );
 
-        assert_eq!(
-            output1, output2,
-            "rendering with identical extras should be idempotent"
-        );
+        assert_eq!(output1, output2, "rendering with identical extras should be idempotent");
     }
 }

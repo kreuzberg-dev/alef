@@ -135,7 +135,7 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
     // Mock: Create an opaque type with has_default=true and a static new() method
     let app_type = TypeDef {
         name: "App".to_string(),
-        rust_path: "spikard::App".to_string(),
+        rust_path: "sample_crate::App".to_string(),
         is_opaque: true,
         has_default: true,
         methods: vec![MethodDef {
@@ -152,7 +152,7 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
     };
 
     let mapper = NapiMapper::new("Js".to_string());
-    let constructor = napi_default_constructor(&app_type, &mapper, "spikard", "Js");
+    let constructor = napi_default_constructor(&app_type, &mapper, "sample_crate", "Js");
 
     assert!(
         constructor.is_some(),
@@ -169,7 +169,7 @@ fn napi_opaque_type_with_default_and_static_new_emits_constructor() {
         "constructor should use new_constructor() to avoid conflict with static new()"
     );
     assert!(
-        constructor_code.contains("Self { inner: std::sync::Arc::new(spikard::App::new())"),
-        "constructor should create new App via spikard::App::new()"
+        constructor_code.contains("Self { inner: std::sync::Arc::new(sample_crate::App::new())"),
+        "constructor should create new App via sample_crate::App::new()"
     );
 }

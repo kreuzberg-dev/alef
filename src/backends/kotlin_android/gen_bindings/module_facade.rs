@@ -10,6 +10,9 @@ use crate::core::ir::{ApiSurface, TypeRef};
 
 use super::assemble_kt_content;
 
+mod helpers;
+use self::helpers::{jni_zero_literal, kotlin_nullable_type_for_optional, unwrap_optional};
+
 /// Emit `<Module>.kt` — a Kotlin `object` that re-exposes every free function
 /// by delegating to `<Module>Bridge`. This preserves the ergonomic call-site
 /// pattern `Module.foo(...)` while keeping all JNI declarations in the Bridge.
@@ -742,62 +745,6 @@ pub(super) fn emit_module_kt(
     });
 }
 
-/// Return the inner `TypeRef` if `ty` is `Optional(inner)`, otherwise return `ty`.
-fn unwrap_optional(ty: &crate::core::ir::TypeRef) -> &crate::core::ir::TypeRef {
-    match ty {
-        crate::core::ir::TypeRef::Optional(inner) => inner.as_ref(),
-        other => other,
-    }
-}
-
-/// Return a nullable Kotlin type string for an optional facade parameter.
-/// Used when `p.optional == true` so callers can pass `null` to skip the
-/// param (e.g. `timeoutSecs: Long? = null`).  Nullable is idiomatic Kotlin
-/// and avoids sentinel zero-value collisions (`0L`, `""`).
-fn kotlin_nullable_type_for_optional(ty: &crate::core::ir::TypeRef) -> String {
-    use crate::core::ir::{PrimitiveType, TypeRef};
-    let base = match ty {
-        TypeRef::Optional(inner) => inner.as_ref(),
-        other => other,
-    };
-    let non_null = match base {
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "Boolean",
-            PrimitiveType::I8 | PrimitiveType::U8 => "Byte",
-            PrimitiveType::I16 | PrimitiveType::U16 => "Short",
-            PrimitiveType::I32 | PrimitiveType::U32 => "Int",
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "Long",
-            PrimitiveType::F32 => "Float",
-            PrimitiveType::F64 => "Double",
-        },
-        TypeRef::String => "String",
-        TypeRef::Named(n) => return format!("{n}?"),
-        _ => "String",
-    };
-    format!("{non_null}?")
-}
-
-/// Return the Kotlin literal zero-value for a JNI primitive type.
-///
-/// Used when null-coalescing an optional facade param to satisfy the non-nullable
-/// `external fun` bridge signature: `timeoutSecs ?: 0L`, `modelHint ?: ""`, etc.
-fn jni_zero_literal(ty: &crate::core::ir::TypeRef) -> &'static str {
-    use crate::core::ir::{PrimitiveType, TypeRef};
-    match ty {
-        TypeRef::String => "\"\"",
-        TypeRef::Primitive(p) => match p {
-            PrimitiveType::Bool => "false",
-            PrimitiveType::F32 | PrimitiveType::F64 => "0.0",
-            PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize | PrimitiveType::Isize => "0L",
-            // All other integer widths map to Int at the JNI boundary.
-            _ => "0",
-        },
-        // Named, Vec, Map and anything else: not expected here (handled by
-        // earlier branches), but fall back to "" so we produce valid Kotlin.
-        _ => "\"\"",
-    }
-}
-
 fn jni_return_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {
     use crate::core::ir::{PrimitiveType, TypeRef};
     match ty {
@@ -938,10 +885,13 @@ fn emit_capsule_function_wrapper(
 
     let method_name = to_lower_camel(&func.name);
     let native_name = format!("native{}", to_pascal_case(&func.name));
-    let host_type = if capsule_cfg.host_type.is_empty() {
-        "io.github.tree_sitter.ktreesitter.Language".to_string()
-    } else {
-        capsule_cfg.host_type.clone()
+    // Require host_type — no tree-sitter default fallback.
+    let host_type = match capsule_cfg.required_host_type("Language", "kotlin_android") {
+        Ok(t) => t.to_string(),
+        Err(e) => {
+            body.push_str(&format!("    // ALEF ERROR: {e}\n"));
+            return;
+        }
     };
 
     // Build parameter list from function params (capsule functions typically have scalar params).
@@ -960,10 +910,14 @@ fn emit_capsule_function_wrapper(
     let bridge_args: Vec<String> = func.params.iter().map(|p| to_lower_camel(&p.name)).collect();
     let bridge_call = format!("{bridge_name}.{native_name}({})", bridge_args.join(", "));
 
-    // Default constructor expression: Language(ptr) — the most common pattern.
-    // Falls back to the config-specified expression if provided.
-    let default_construct = "io.github.tree_sitter.ktreesitter.Language({ptr})";
-    let construct_expr = capsule_cfg.construct("cLangPtr", default_construct);
+    // Require construct_expr — no tree-sitter default fallback.
+    let construct_expr = match capsule_cfg.construct_required("cLangPtr", "Language", "kotlin_android") {
+        Ok(c) => c,
+        Err(e) => {
+            body.push_str(&format!("    // ALEF ERROR: {e}\n"));
+            return;
+        }
+    };
 
     let (exception_type, error_message) = if func.error_type.is_some() {
         (format!("{}Exception", bridge_name), "\"Function failed\"")
@@ -997,3 +951,6 @@ fn emit_capsule_function_wrapper(
     body.push('\n');
     body.push_str("    }\n");
 }
+
+#[cfg(test)]
+mod tests;

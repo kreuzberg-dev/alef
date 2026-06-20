@@ -1,10 +1,10 @@
 use crate::e2e::config::{ArgMapping, CallConfig, E2eConfig};
 use crate::e2e::fixture::{Assertion, Fixture};
 
-use super::render_main_test_go;
 use super::setup::build_args_and_setup;
 use super::test_file::{GoTestFileContext, render_test_file};
 use super::test_function::{GoTestFunctionContext, render_test_function};
+use super::{render_env_setup, render_go_mod, render_main_test_go};
 
 fn make_fixture(id: &str) -> Fixture {
     Fixture {
@@ -468,7 +468,7 @@ fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
     // When needs_mock_server_bootstrap=false (HTTP-fixtures harness path), the bootstrap uses
     // net.DialTimeout + io.Copy for readiness polling.
     // "net/http" and "strings" are NOT referenced, so they must not be imported.
-    let out = render_main_test_go("testing_data", false, true);
+    let out = render_main_test_go("testing_data", false, true, &Default::default());
     assert!(
         !out.contains("\t\"net/http\""),
         "main_test.go (http-fixtures harness path) must NOT import net/http; got:\n{out}"
@@ -486,7 +486,7 @@ fn main_test_go_http_fixtures_omits_net_http_and_strings_imports() {
 fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
     // When needs_mock_server_bootstrap=true (mock-server path for function-call fixtures),
     // http.Get (net/http) and strings.HasPrefix/TrimPrefix are used — both must be imported.
-    let out = render_main_test_go("testing_data", true, false);
+    let out = render_main_test_go("testing_data", true, false, &Default::default());
     assert!(
         out.contains("\t\"net/http\""),
         "main_test.go (mock-server bootstrap path) must import net/http; got:\n{out}"
@@ -512,15 +512,17 @@ fn main_test_go_non_http_fixtures_includes_net_http_and_strings_imports() {
 /// Go's exec.Command defaulting Stdin to /dev/null) as a shutdown signal.
 #[test]
 fn main_test_go_sets_mock_server_no_stdin_watch_env() {
-    let out = render_main_test_go("testing_data", true, false);
+    let out = render_main_test_go("testing_data", true, false, &Default::default());
     assert!(
         out.contains("MOCK_SERVER_NO_STDIN_WATCH=1"),
         "main_test.go must set MOCK_SERVER_NO_STDIN_WATCH=1 on the mock-server subprocess; got:\n{out}"
     );
     // Must appear as cmd.Env assignment, not as a stray string in a comment.
     assert!(
-        out.contains("cmd.Env = append(os.Environ(),"),
-        "main_test.go must use cmd.Env = append(os.Environ(), ...) form; got:\n{out}"
+        out.contains("cmdEnv := os.Environ()")
+            && out.contains("cmdEnv = append(cmdEnv, \"MOCK_SERVER_NO_STDIN_WATCH=1\")")
+            && out.contains("cmd.Env = cmdEnv"),
+        "main_test.go must build cmdEnv before assigning cmd.Env; got:\n{out}"
     );
 }
 
@@ -530,7 +532,7 @@ fn main_test_go_sets_mock_server_no_stdin_watch_env() {
 #[test]
 fn main_test_go_avoids_exitafterdefer_linter_error() {
     // Mock-server bootstrap path: must have a runTests helper function
-    let mock_server_out = render_main_test_go("testing_data", true, false);
+    let mock_server_out = render_main_test_go("testing_data", true, false, &Default::default());
     assert!(
         mock_server_out.contains("func runTests(m *testing.M, cmd *exec.Cmd, stdout io.ReadCloser) int"),
         "mock-server bootstrap path must emit runTests helper; got:\n{mock_server_out}"
@@ -551,7 +553,7 @@ fn main_test_go_avoids_exitafterdefer_linter_error() {
     );
 
     // Harness-spawn path: must have runHarnessTests helper
-    let harness_out = render_main_test_go("testing_data", false, true);
+    let harness_out = render_main_test_go("testing_data", false, true, &Default::default());
     assert!(
         harness_out.contains(
             "func runHarnessTests(m *testing.M, cmd *exec.Cmd, stdin io.WriteCloser, stdout io.ReadCloser) int"
@@ -608,14 +610,12 @@ fn test_go_plain_optional_string_uses_string_deref_not_text_accessor() {
         visitor: None,
         args: vec![],
         assertion_recipes: vec![],
-        assertions: vec![
-            Assertion {
-                assertion_type: "equals".to_string(),
-                field: Some("content".to_string()),
-                value: Some(serde_json::Value::String("hello".to_string())),
-                ..Default::default()
-            },
-        ],
+        assertions: vec![Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("content".to_string()),
+            value: Some(serde_json::Value::String("hello".to_string())),
+            ..Default::default()
+        }],
     };
 
     let mut out = String::new();
@@ -636,8 +636,14 @@ fn test_go_plain_optional_string_uses_string_deref_not_text_accessor() {
         },
     );
     // Plain optional string: must use `string(*field_expr)`, NOT `.Text()`.
-    assert!(out.contains("string(*"), "plain optional string must use string(*); got:\n{out}");
-    assert!(!out.contains(".Text()"), "plain optional string must NOT use .Text(); got:\n{out}");
+    assert!(
+        out.contains("string(*"),
+        "plain optional string must use string(*); got:\n{out}"
+    );
+    assert!(
+        !out.contains(".Text()"),
+        "plain optional string must NOT use .Text(); got:\n{out}"
+    );
 }
 
 /// A `display_as_text` field (e.g. `Option<AssistantContent>`) should emit
@@ -681,14 +687,12 @@ fn test_go_display_as_text_optional_uses_text_accessor_not_string_deref() {
         visitor: None,
         args: vec![],
         assertion_recipes: vec![],
-        assertions: vec![
-            Assertion {
-                assertion_type: "equals".to_string(),
-                field: Some("content".to_string()),
-                value: Some(serde_json::Value::String("Hello, world!".to_string())),
-                ..Default::default()
-            },
-        ],
+        assertions: vec![Assertion {
+            assertion_type: "equals".to_string(),
+            field: Some("content".to_string()),
+            value: Some(serde_json::Value::String("Hello, world!".to_string())),
+            ..Default::default()
+        }],
     };
 
     let mut out = String::new();
@@ -709,6 +713,212 @@ fn test_go_display_as_text_optional_uses_text_accessor_not_string_deref() {
         },
     );
     // display_as_text field: must use `.Text()`, NOT `string(*field_expr)`.
-    assert!(out.contains(".Text()"), "display_as_text field must use .Text(); got:\n{out}");
-    assert!(!out.contains("string(*"), "display_as_text field must NOT use string(*); got:\n{out}");
+    assert!(
+        out.contains(".Text()"),
+        "display_as_text field must use .Text(); got:\n{out}"
+    );
+    assert!(
+        !out.contains("string(*"),
+        "display_as_text field must NOT use string(*); got:\n{out}"
+    );
+}
+
+#[test]
+fn render_env_setup_empty_returns_empty_string() {
+    let env = std::collections::HashMap::new();
+    let out = render_env_setup(&env);
+    assert_eq!(out, "", "empty env should produce empty output");
+}
+
+#[test]
+fn render_env_setup_single_var_contains_key_and_value() {
+    let mut env = std::collections::HashMap::new();
+    env.insert("E2E_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+    let out = render_env_setup(&env);
+    assert!(
+        out.contains("E2E_ALLOW_PRIVATE_NETWORK"),
+        "output should contain env var name: {out}"
+    );
+    assert!(out.contains("true"), "output should contain env var value: {out}");
+    assert!(
+        out.contains("os.LookupEnv"),
+        "output should use os.LookupEnv for setdefault behavior: {out}"
+    );
+    assert!(out.contains("os.Setenv"), "output should call os.Setenv: {out}");
+}
+
+#[test]
+fn render_env_setup_multiple_vars_are_sorted() {
+    let mut env = std::collections::HashMap::new();
+    env.insert("ZEBRA".to_string(), "value1".to_string());
+    env.insert("APPLE".to_string(), "value2".to_string());
+    env.insert("BANANA".to_string(), "value3".to_string());
+    let out = render_env_setup(&env);
+    let apple_idx = out.find("APPLE").expect("should contain APPLE");
+    let banana_idx = out.find("BANANA").expect("should contain BANANA");
+    let zebra_idx = out.find("ZEBRA").expect("should contain ZEBRA");
+    assert!(
+        apple_idx < banana_idx && banana_idx < zebra_idx,
+        "env vars should be sorted alphabetically: {out}"
+    );
+}
+
+#[test]
+fn render_main_test_go_includes_env_setup_at_start() {
+    let mut env = std::collections::HashMap::new();
+    env.insert("TEST_VAR".to_string(), "test_value".to_string());
+    let out = render_main_test_go("test_documents", false, false, &env);
+
+    let dir_idx = out
+        .find("dir := filepath.Dir(filename)")
+        .expect("should contain dir assignment");
+    let test_var_idx = out.find("TEST_VAR").expect("should contain TEST_VAR");
+
+    assert!(dir_idx < test_var_idx, "env setup should come after dir initialization");
+}
+
+#[test]
+fn render_go_mod_without_extras() {
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", None);
+    assert!(
+        out.contains("github.com/example/mylib v1.0.0"),
+        "should contain main module require"
+    );
+    assert!(
+        out.contains("github.com/stretchr/testify v1.11.1"),
+        "should contain testify require"
+    );
+    assert!(
+        !out.contains("github.com/tree-sitter"),
+        "should not contain tree-sitter without extras"
+    );
+}
+
+#[test]
+fn render_go_mod_with_extras_includes_requires() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    extras.dev_dependencies.insert(
+        "github.com/tree-sitter/go-tree-sitter".to_string(),
+        ExtraDepSpec::Simple("v0.24.0".to_string()),
+    );
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    assert!(
+        out.contains("github.com/tree-sitter/go-tree-sitter v0.24.0"),
+        "should include tree-sitter extra, got: {out}"
+    );
+    assert!(
+        out.contains("github.com/example/mylib v1.0.0"),
+        "should still contain main module"
+    );
+}
+
+#[test]
+fn render_go_mod_extras_with_replace_directive() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    extras.dependencies.insert(
+        "github.com/upstream/lib".to_string(),
+        ExtraDepSpec::Simple("v0.5.0".to_string()),
+    );
+    let out = render_go_mod(
+        "github.com/example/mylib",
+        Some("../../packages/go"),
+        "v0.0.0",
+        Some(&extras),
+    );
+    assert!(
+        out.contains("github.com/upstream/lib v0.5.0"),
+        "should include upstream lib"
+    );
+    assert!(
+        out.contains("replace github.com/example/mylib => ../../packages/go"),
+        "should include replace directive"
+    );
+}
+
+#[test]
+fn render_go_mod_empty_extras_matches_no_extras() {
+    use crate::core::config::manifest_extras::ManifestExtras;
+    let extras = ManifestExtras::default();
+    let without_empty = render_go_mod("github.com/example/mylib", None, "v1.0.0", None);
+    let with_empty = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    assert_eq!(without_empty, with_empty, "empty extras should be equivalent to None");
+}
+
+#[test]
+fn render_go_mod_extras_are_sorted_deterministically() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    extras.dev_dependencies.insert(
+        "github.com/z-last/lib".to_string(),
+        ExtraDepSpec::Simple("v1.0.0".to_string()),
+    );
+    extras.dev_dependencies.insert(
+        "github.com/a-first/lib".to_string(),
+        ExtraDepSpec::Simple("v2.0.0".to_string()),
+    );
+    extras.dependencies.insert(
+        "github.com/m-middle/lib".to_string(),
+        ExtraDepSpec::Simple("v3.0.0".to_string()),
+    );
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    let first_idx = out.find("github.com/a-first/lib").expect("should find a-first");
+    let middle_idx = out.find("github.com/m-middle/lib").expect("should find m-middle");
+    let last_idx = out.find("github.com/z-last/lib").expect("should find z-last");
+    assert!(
+        first_idx < middle_idx && middle_idx < last_idx,
+        "extras should be sorted alphabetically: {out}"
+    );
+}
+
+#[test]
+fn render_go_mod_extras_handles_detailed_form_with_version() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    let mut table = toml::Table::new();
+    table.insert("version".to_string(), toml::Value::String("v0.25.0".to_string()));
+    table.insert("features".to_string(), toml::Value::String("debug".to_string()));
+    extras.dev_dependencies.insert(
+        "github.com/example/with-features".to_string(),
+        ExtraDepSpec::Detailed(table),
+    );
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    assert!(
+        out.contains("github.com/example/with-features v0.25.0"),
+        "should extract version from detailed form, got: {out}"
+    );
+}
+
+#[test]
+fn render_go_mod_extras_skips_entries_without_version() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    let mut table = toml::Table::new();
+    table.insert(
+        "git".to_string(),
+        toml::Value::String("https://example.com".to_string()),
+    );
+    extras.dev_dependencies.insert(
+        "github.com/example/no-version".to_string(),
+        ExtraDepSpec::Detailed(table),
+    );
+    let out = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    assert!(
+        !out.contains("github.com/example/no-version"),
+        "should skip extras without version field, got: {out}"
+    );
+}
+
+#[test]
+fn render_go_mod_extras_idempotent() {
+    use crate::core::config::manifest_extras::{ExtraDepSpec, ManifestExtras};
+    let mut extras = ManifestExtras::default();
+    extras.dev_dependencies.insert(
+        "github.com/tree-sitter/go-tree-sitter".to_string(),
+        ExtraDepSpec::Simple("v0.24.0".to_string()),
+    );
+    let first = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    let second = render_go_mod("github.com/example/mylib", None, "v1.0.0", Some(&extras));
+    assert_eq!(first, second, "re-rendering with same extras should be stable");
 }

@@ -921,8 +921,12 @@ mod zig_build_tests {
         // (input is pre-sorted by mod.rs before calling render_build_zig_zon).
         let deps_start = zon.find(".dependencies =").expect("no .dependencies block");
         let deps_section = &zon[deps_start..];
-        let alpha_pos = deps_section.find(".alpha_lib").expect("alpha_lib not found in dependencies");
-        let zebra_pos = deps_section.find(".zebra_lib").expect("zebra_lib not found in dependencies");
+        let alpha_pos = deps_section
+            .find(".alpha_lib")
+            .expect("alpha_lib not found in dependencies");
+        let zebra_pos = deps_section
+            .find(".zebra_lib")
+            .expect("zebra_lib not found in dependencies");
         assert!(
             alpha_pos < zebra_pos,
             "dependencies must appear in order within .dependencies block: alpha at {}, zebra at {}",

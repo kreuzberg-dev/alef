@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **capsule/FFI codegen**: opaque host-capsule emission now requires explicit
+  `host_type` and `construct_expr` configuration instead of falling back to
+  hard-coded tree-sitter defaults (`TreeSitter.Language`, `new TreeSitter.Language(ptr)`,
+  etc.). Backends call `HostCapsuleTypeConfig::required_host_type` /
+  `construct_required`, which emit a descriptive `ALEF ERROR` when the config is
+  missing rather than silently generating library-specific code. Applied across the
+  csharp, go, java, kotlin_android, swift, and zig backends plus their e2e/scaffold
+  generators; sample-based tests no longer hard-code `ts_pack`/`TreeSitter`.
+- **extendr**: the R backend gen module is split into `cfg_registration` (cfg-aware
+  `extendr_module!` registration) and `r_package` (R package scaffolding) submodules,
+  trimming `gen_bindings/mod.rs` to orchestration only.
+
 ## [0.25.54] - 2026-06-20
 
 ### Fixed

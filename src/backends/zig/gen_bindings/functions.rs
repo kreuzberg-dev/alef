@@ -391,7 +391,11 @@ pub(crate) fn emit_function(
 /// Emit a Zig wrapper for a function returning a host-native capsule (Language) type.
 ///
 /// The C symbol returns the host runtime's raw grammar pointer; the wrapper constructs the
-/// host `Language` (e.g. `@import("tree_sitter").Language.fromRaw(@ptrCast(_result))`).
+/// host `Language` using the expression from `cap.construct_expr`.
+///
+/// `cap.host_type` and `cap.construct_expr` are required; missing values produce a
+/// `// ALEF ERROR:` comment in the generated output rather than silently falling
+/// back to a hardcoded default.
 fn emit_capsule_function(
     f: &FunctionDef,
     prefix: &str,
@@ -411,10 +415,13 @@ fn emit_capsule_function(
 
     // Wrappers that allocate C strings for params need `error{OutOfMemory}!T`.
     let body_needs_try = f.params.iter().any(needs_alloc_param);
-    let host_type = if cap.host_type.is_empty() {
-        "?*const tree_sitter.Language".to_string()
-    } else {
-        cap.host_type.clone()
+    // Require host_type — no tree-sitter default fallback.
+    let host_type = match cap.required_host_type("Language", "zig") {
+        Ok(t) => t.to_string(),
+        Err(e) => {
+            out.push_str(&format!("// ALEF ERROR: {e}\n"));
+            return;
+        }
     };
     // A fallible capsule function (Rust `Result`, e.g. `get_language`) surfaces the
     // failure through the Zig error set — matching python (raises) / node (throws) and
@@ -483,9 +490,16 @@ fn emit_capsule_function(
     }
 
     // Guard the null pointer (grammar not found) and construct the host Language.
-    // The `{ptr}` placeholder receives the raw C pointer; the default wraps it via @ptrCast.
+    // Require construct_expr — no tree-sitter default fallback.
     out.push_str("    if (_result == null) return null;\n");
-    let construct = cap.construct("_result", "tree_sitter.Language.fromRaw(@ptrCast({ptr}))");
+    let construct = match cap.construct_required("_result", "Language", "zig") {
+        Ok(c) => c,
+        Err(e) => {
+            out.push_str(&format!("    // ALEF ERROR: {e}\n"));
+            out.push_str("}\n");
+            return;
+        }
+    };
     out.push_str(&format!("    return {construct};\n"));
     out.push_str("}\n");
 }

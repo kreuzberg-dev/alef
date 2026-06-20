@@ -145,3 +145,53 @@ fn skips_forwarder_when_map_value_is_excluded_type() {
     exclude.insert("Keyword".to_string());
     assert!(function_references_excluded_type(&func, &exclude));
 }
+
+fn make_capsule_fn() -> FunctionDef {
+    make_function(
+        "get_language",
+        vec![("name", TypeRef::String)],
+        TypeRef::Named("Language".to_string()),
+    )
+}
+
+#[test]
+fn capsule_forwarder_errors_when_construct_expr_empty() {
+    let func = make_capsule_fn();
+    let cfg = crate::core::config::HostCapsuleTypeConfig {
+        host_type: "MyLib.Language".to_string(),
+        package: String::new(),
+        package_version: String::new(),
+        construct_expr: String::new(), // missing — must produce ALEF ERROR
+    };
+    let mut out = String::new();
+    emit_capsule_free_function_forwarder(&func, "GetLanguage", &cfg, &mut out);
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty construct_expr must produce ALEF ERROR. Got:\n{out}"
+    );
+    assert!(
+        out.contains("construct_expr"),
+        "error must name the missing field. Got:\n{out}"
+    );
+}
+
+#[test]
+fn capsule_forwarder_errors_when_host_type_empty() {
+    let func = make_capsule_fn();
+    let cfg = crate::core::config::HostCapsuleTypeConfig {
+        host_type: String::new(), // missing — must produce ALEF ERROR
+        package: String::new(),
+        package_version: String::new(),
+        construct_expr: "MyLib.Language(OpaquePointer({ptr}))".to_string(),
+    };
+    let mut out = String::new();
+    emit_capsule_free_function_forwarder(&func, "GetLanguage", &cfg, &mut out);
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty host_type must produce ALEF ERROR. Got:\n{out}"
+    );
+    assert!(
+        out.contains("host_type"),
+        "error must name the missing field. Got:\n{out}"
+    );
+}

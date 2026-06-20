@@ -1,11 +1,14 @@
 mod bridges;
+mod cfg_registration;
 mod enum_conversions;
 mod options;
+mod r_package;
 mod r_wrappers;
 pub mod service_api;
 mod trait_bridge_wrappers;
 mod type_mapping;
 
+use self::cfg_registration::{always_registered, prepend_cfg};
 use self::trait_bridge_wrappers::{collect_trait_bridge_fn_names, collect_trait_bridge_functions};
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
@@ -14,63 +17,8 @@ use crate::codegen::generators::type_paths::build_type_path_lookup;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::core::backend::{Backend, BuildConfig, BuildDependency, Capabilities, GeneratedFile};
 use crate::core::config::{Language, ResolvedCrateConfig, resolve_output_dir};
-use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::{ApiSurface, TypeRef};
-use ahash::AHashSet;
 use std::path::PathBuf;
-
-/// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
-fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
-    match cfg {
-        Some(pred) if !pred.is_empty() => format!("#[cfg({pred})]\n{item}"),
-        _ => item,
-    }
-}
-
-/// Normalise a cfg predicate for structural comparison by stripping all whitespace.
-///
-/// The IR stores cfg strings in token-stream `to_string()` form, which inserts spaces
-/// (`all (feature = "x" , not (...))`). Collapsing whitespace lets us match the shape of a
-/// predicate regardless of that incidental spacing.
-fn strip_cfg_whitespace(pred: &str) -> String {
-    pred.chars().filter(|c| !c.is_whitespace()).collect()
-}
-
-/// Return true if a function's effective (post-dedup) cfg means it is ALWAYS compiled in the
-/// binding crate, so it is safe to register in the `extendr_module!` block.
-///
-/// The `extendr_module!` macro parser rejects any `#[cfg(...)]` attribute on its `fn X;` entries
-/// (extendr-macros `Module::parse` only accepts bare `mod`/`fn`/`impl`/`use`), so a registration
-/// entry can never be conditionally gated. An entry is therefore emitted only when the function
-/// is unconditionally present:
-///
-/// - No cfg at all (`None`).
-/// - A dedup tautology `any(P, not(P))` — the merge of two complementary cfg variants of the same
-///   function (e.g. `feature = "tokio-runtime"` + `not(feature = "tokio-runtime")`), which is always
-///   true, so the `#[extendr]`-generated `meta__`/`wrap__` symbols always exist.
-///
-/// Any other gate (a real `feature = "..."` predicate the binding crate does not enable) leaves the
-/// wrapper — and its generated registration symbols — absent, so registering it would produce
-/// E0425 "cannot find function meta__X". Such functions are omitted from the module block.
-pub(super) fn always_registered(cfg: Option<&str>) -> bool {
-    let Some(pred) = cfg else {
-        return true;
-    };
-    let pred = pred.trim();
-    if pred.is_empty() {
-        return true;
-    }
-    let normalized = strip_cfg_whitespace(pred);
-    // Recognise the complementary-pair tautology produced by function dedup in either order.
-    let inner = normalized.strip_prefix("any(").and_then(|s| s.strip_suffix(')'));
-    if let Some(inner) = inner {
-        if let Some((left, right)) = inner.split_once(',') {
-            let complement = |a: &str, b: &str| format!("not({a})") == b;
-            return complement(left, right) || complement(right, left);
-        }
-    }
-    false
-}
 
 pub struct ExtendrBackend;
 
@@ -602,7 +550,7 @@ impl Backend for ExtendrBackend {
         // Collect all types that appear in the R binding surface: parameters, return types,
         // and fields. This ensures conversion impls are emitted for every type referenced
         // from an exported function or method, even if it only appears in return types.
-        let mut all_surface_types: AHashSet<String> = input_types.clone();
+        let mut all_surface_types: ahash::AHashSet<String> = input_types.clone();
 
         // Add types from function return types
         for func in &api.functions {
@@ -624,7 +572,7 @@ impl Backend for ExtendrBackend {
             for name in &snapshot {
                 if let Some(typ) = api.types.iter().find(|t| t.name == *name) {
                     for field in &typ.fields {
-                        let mut field_types = AHashSet::new();
+                        let mut field_types = ahash::AHashSet::new();
                         bridges::collect_named_types_into(&field.ty, &mut field_types);
                         for field_type in field_types {
                             if all_surface_types.insert(field_type) {
@@ -636,7 +584,7 @@ impl Backend for ExtendrBackend {
                 if let Some(e) = api.enums.iter().find(|e| e.name == *name) {
                     for variant in &e.variants {
                         for field in &variant.fields {
-                            let mut field_types = AHashSet::new();
+                            let mut field_types = ahash::AHashSet::new();
                             bridges::collect_named_types_into(&field.ty, &mut field_types);
                             for field_type in field_types {
                                 if all_surface_types.insert(field_type) {
@@ -766,8 +714,8 @@ impl Backend for ExtendrBackend {
         // Generate function bindings.
         //
         // Function wrapper definitions keep their source `#[cfg(...)]` gate. The generated crate
-        // (`kreuzberg-r`) does not redeclare the core crate's Cargo features (e.g. `heuristics`,
-        // `liter-llm`), so a feature-gated wrapper is dropped in the binding crate — matching the
+        // The generated binding crate does not redeclare arbitrary core crate features, so a
+        // feature-gated wrapper is dropped in the binding crate — matching the
         // module-registration filter below, which only registers always-present functions.
         for func in &api.functions {
             if bridge_fn_names.contains(&func.name) {
@@ -945,110 +893,7 @@ impl Backend for ExtendrBackend {
         api: &ApiSurface,
         config: &ResolvedCrateConfig,
     ) -> anyhow::Result<Vec<GeneratedFile>> {
-        let package_name = config.r_package_name();
-
-        // The R wrapper file always goes into the package's R/ directory (e.g. packages/r/R/).
-        // We derive this from the rust output path: strip the conventional Rust-source suffix
-        // (src/rust/src) and append R/, falling back to the hardcoded default.
-        let r_wrapper_dir = if let Some(rust_out) = config.output_paths.get("r") {
-            let rust_str = rust_out.to_string_lossy();
-            // Strip trailing separator variants of "src/rust/src"
-            let suffixes = ["src/rust/src/", "src/rust/src"];
-            let base = suffixes
-                .iter()
-                .find_map(|s| rust_str.strip_suffix(s))
-                .unwrap_or_else(|| rust_str.as_ref());
-            format!("{base}R/")
-        } else {
-            "packages/r/R/".to_string()
-        };
-        // The NAMESPACE / DESCRIPTION sit one directory above R/ (i.e. packages/r/).
-        let r_pkg_dir = r_wrapper_dir.trim_end_matches("R/").trim_end_matches("R");
-
-        let mut files = Vec::new();
-
-        // {package_name}.R: only @useDynLib stub. The actual call wrappers and class
-        // dispatchers live in extendr-wrappers.R which is regenerated below.
-        let mut pkg_content = hash::header(CommentStyle::Hash);
-        pkg_content.push('\n');
-        pkg_content.push_str(&crate::backends::extendr::template_env::render(
-            "r_use_dyn_lib.jinja",
-            minijinja::context! { package_name => package_name },
-        ));
-        pkg_content.push_str("NULL\n");
-        files.push(GeneratedFile {
-            path: PathBuf::from(&r_wrapper_dir).join(format!("{package_name}.R")),
-            content: pkg_content,
-            generated_header: false,
-        });
-
-        // extendr-wrappers.R: R-side bindings for every `#[extendr]` function and method
-        // registered in the `extendr_module!` macro. Without this file, R callers cannot
-        // invoke the native `wrap__<symbol>` entry points exported by the .so.
-        // Historically `rextendr::document()` produced this at package-development time;
-        // alef now emits it directly so install-time builds (which never run rextendr)
-        // still expose the public API.
-        let input_type_names = crate::codegen::conversions::input_type_names(api);
-        let trait_bridge_fns = collect_trait_bridge_functions(config);
-        let r_exclude_functions: ahash::AHashSet<String> = config
-            .r
-            .as_ref()
-            .map(|c| c.exclude_functions.iter().cloned().collect())
-            .unwrap_or_default();
-        let wrappers_content = r_wrappers::gen_extendr_wrappers_r(
-            api,
-            &package_name,
-            &input_type_names,
-            &trait_bridge_fns,
-            &r_exclude_functions,
-            &config.trait_bridges,
-        );
-        files.push(GeneratedFile {
-            path: PathBuf::from(&r_wrapper_dir).join("extendr-wrappers.R"),
-            content: wrappers_content,
-            generated_header: false,
-        });
-
-        // NAMESPACE: regenerated each run so that newly added `#[extendr]` functions and
-        // methods are exported. Scaffolding only writes a useDynLib bootstrap on init.
-        let namespace_content = r_wrappers::gen_namespace(
-            api,
-            &package_name,
-            &trait_bridge_fns,
-            &r_exclude_functions,
-            &config.trait_bridges,
-        );
-        files.push(GeneratedFile {
-            path: PathBuf::from(r_pkg_dir).join("NAMESPACE"),
-            content: namespace_content,
-            generated_header: false,
-        });
-
-        // options.R: generated from the configured/options-like IR type so all fields are present.
-        if let Some(opts_type) = options::find_r_options_type(api, config) {
-            let options_r = options::gen_conversion_options_r(opts_type);
-            files.push(GeneratedFile {
-                path: PathBuf::from(&r_wrapper_dir).join("options.R"),
-                content: options_r,
-                generated_header: true,
-            });
-        }
-
-        // options.rs (Rust-side): generated decode_options function that handles ExternalPtr-wrapped
-        // binding types from the configured/options-like type's default() and similar constructors.
-        if let Some(opts_type) = options::find_r_options_type(api, config) {
-            let core_import = config.core_import_name();
-            let options_rs = options::gen_options_rs(api, opts_type, &core_import);
-            let rust_output_path =
-                resolve_output_dir(config.output_paths.get("r"), &config.name, "packages/r/src/rust/src");
-            files.push(GeneratedFile {
-                path: PathBuf::from(&rust_output_path).join("options.rs"),
-                content: options_rs,
-                generated_header: true,
-            });
-        }
-
-        Ok(files)
+        r_package::generate_public_api(api, config)
     }
 
     fn generate_service_api(

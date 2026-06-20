@@ -20,7 +20,7 @@ mod swift;
 mod wasm;
 mod zig;
 
-pub use capsule::HostCapsuleTypeConfig;
+pub use capsule::{HostCapsuleTypeConfig, zig_capsule_import_name};
 pub use common::StubsConfig;
 pub use csharp::CSharpConfig;
 pub use custom::{CustomModulesConfig, CustomRegistration, CustomRegistrationsConfig};

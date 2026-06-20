@@ -12,20 +12,36 @@ pub(crate) fn scaffold_zig(api: &ApiSurface, config: &ResolvedCrateConfig) -> an
     let module_name = config.zig_module_name();
     let ffi_crate_dir = format!("{}-ffi", config.name);
 
-    // Host-native capsule passthrough: the binding `@import("tree_sitter")`s the zig-tree-sitter
-    // module, so build.zig must add that dependency's module to both the public module and the
-    // test module (the dependency itself is declared in build.zig.zon below). Empty when no
-    // capsule types are configured.
+    // Host-native capsule passthrough: each capsule type's `host_type` implies a Zig module
+    // import name (e.g. `?*const my_mod.Language` → `my_mod`). build.zig must wire each
+    // dependency's module into both the public module and the test module. Empty when no
+    // capsule types are configured with a non-empty `package`.
     let capsule_imports_block: String = config
         .zig
         .as_ref()
-        .filter(|c| c.capsule_types.values().any(|cap| !cap.package.is_empty()))
-        .map(|_| {
-            "\n    const tree_sitter_dep = b.dependency(\"tree_sitter\", .{\n        \
-             .target = target,\n        .optimize = optimize,\n    });\n    \
-             module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"));\n    \
-             test_module.addImport(\"tree_sitter\", tree_sitter_dep.module(\"tree_sitter\"));\n"
-                .to_string()
+        .map(|c| {
+            // Collect import names from capsule types that have a package.
+            let import_names: std::collections::BTreeSet<String> = c
+                .capsule_types
+                .values()
+                .filter(|cap| !cap.package.is_empty())
+                .filter_map(|cap| {
+                    crate::core::config::languages::zig_capsule_import_name(&cap.host_type).map(|s| s.to_string())
+                })
+                .collect();
+            if import_names.is_empty() {
+                return String::new();
+            }
+            let mut block = String::new();
+            for name in &import_names {
+                block.push_str(&format!(
+                    "\n    const {name}_dep = b.dependency(\"{name}\", .{{\n        \
+                     .target = target,\n        .optimize = optimize,\n    }});\n    \
+                     module.addImport(\"{name}\", {name}_dep.module(\"{name}\"));\n    \
+                     test_module.addImport(\"{name}\", {name}_dep.module(\"{name}\"));\n"
+                ));
+            }
+            block
         })
         .unwrap_or_default();
 
@@ -94,9 +110,10 @@ pub fn build(b: *std.Build) void {{
     // regeneration is deterministic.
     let fingerprint = zig_fingerprint(&module_name);
 
-    // Host-native capsule (Language) passthrough: inject the zig-tree-sitter dependency so
-    // generated code can `@import("tree_sitter").Language.fromRaw(...)`. Each capsule entry's
-    // `package` is the dependency URL and `package_version` the URL hash (`.hash = ...`).
+    // Host-native capsule (Language) passthrough: inject each capsule dependency into
+    // build.zig.zon. The dependency key is derived from `host_type` (same import name used
+    // in build.zig). Each capsule entry's `package` is the dependency URL and
+    // `package_version` the URL hash (`.hash = ...`).
     let zig_capsule_deps: String = config
         .zig
         .as_ref()
@@ -105,16 +122,17 @@ pub fn build(b: *std.Build) void {{
                 .capsule_types
                 .values()
                 .filter(|cap| !cap.package.is_empty())
-                .map(|cap| {
+                .filter_map(|cap| {
+                    let import_name = crate::core::config::languages::zig_capsule_import_name(&cap.host_type)?;
                     let hash_field = if cap.package_version.is_empty() {
                         String::new()
                     } else {
                         format!("\n            .hash = \"{}\",", cap.package_version)
                     };
-                    format!(
-                        "        .tree_sitter = .{{\n            .url = \"{}\",{}\n        }},",
+                    Some(format!(
+                        "        .{import_name} = .{{\n            .url = \"{}\",{}\n        }},",
                         cap.package, hash_field
-                    )
+                    ))
                 })
                 .collect();
             entries.sort();

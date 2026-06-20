@@ -8,10 +8,10 @@ use ahash::AHashSet;
 
 /// Resolve the fully-qualified core path for an enum.
 ///
-/// Prefer the enum's `rust_path` (e.g. `kreuzberg::core::config::extraction::ImageOutputFormat`),
+/// Prefer the enum's `rust_path` (e.g. `sample_lib::core::config::ImageOutputFormat`),
 /// which is required for types that are NOT re-exported at the crate root — a naive
 /// `{core_import}::{name}` only resolves for crate-root re-exports and otherwise produces
-/// E0433 "cannot find ImageOutputFormat in kreuzberg". Falls back to `{core_import}::{name}`
+/// E0433 "cannot find ImageOutputFormat in the crate root". Falls back to `{core_import}::{name}`
 /// when `rust_path` is empty.
 fn enum_core_path(enum_def: &EnumDef, core_import: &str) -> String {
     if enum_def.rust_path.is_empty() {

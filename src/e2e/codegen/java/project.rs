@@ -343,8 +343,10 @@ mod tests {
     use crate::e2e::config::{DependencyMode, E2eConfig};
 
     fn make_e2e_config(dep_mode: DependencyMode, harness_extras: Option<ManifestExtras>) -> E2eConfig {
-        let mut cfg = E2eConfig::default();
-        cfg.dep_mode = dep_mode;
+        let mut cfg = E2eConfig {
+            dep_mode,
+            ..E2eConfig::default()
+        };
         if let Some(extras) = harness_extras {
             cfg.harness_extras.insert("java".to_string(), extras);
         }
@@ -354,17 +356,13 @@ mod tests {
     #[test]
     fn render_pom_xml_local_without_extras_has_single_dep() {
         let e2e_cfg = make_e2e_config(DependencyMode::Local, None);
-        let out = render_pom_xml(
-            "tree-sitter",
-            "com.example",
-            "1.0.0",
-            &e2e_cfg,
-            "tree_sitter",
-            &[],
-        );
+        let out = render_pom_xml("tree-sitter", "com.example", "1.0.0", &e2e_cfg, "tree_sitter", &[]);
         assert!(out.contains("<groupId>com.example</groupId>"), "got: {out}");
         assert!(out.contains("<artifactId>tree-sitter</artifactId>"), "got: {out}");
-        assert!(!out.contains("io.github.tree-sitter"), "extras should not appear without None");
+        assert!(
+            !out.contains("io.github.tree-sitter"),
+            "extras should not appear without None"
+        );
     }
 
     #[test]
@@ -375,14 +373,7 @@ mod tests {
             ExtraDepSpec::Simple("0.26.0".to_string()),
         );
         let e2e_cfg = make_e2e_config(DependencyMode::Local, Some(extras));
-        let out = render_pom_xml(
-            "my-lib",
-            "com.example",
-            "1.0.0",
-            &e2e_cfg,
-            "my_lib",
-            &[],
-        );
+        let out = render_pom_xml("my-lib", "com.example", "1.0.0", &e2e_cfg, "my_lib", &[]);
         assert!(
             out.contains("<groupId>io.github.tree-sitter</groupId>"),
             "groupId should be injected"
@@ -391,10 +382,7 @@ mod tests {
             out.contains("<artifactId>jtreesitter</artifactId>"),
             "artifactId should be injected"
         );
-        assert!(
-            out.contains("<version>0.26.0</version>"),
-            "version should be injected"
-        );
+        assert!(out.contains("<version>0.26.0</version>"), "version should be injected");
         // Runtime deps should not have <scope>test</scope>
         let jtreesitter_idx = out.find("jtreesitter").expect("jtreesitter found");
         let after_jtreesitter = &out[jtreesitter_idx..];
@@ -414,14 +402,7 @@ mod tests {
             ExtraDepSpec::Simple("4.13.2".to_string()),
         );
         let e2e_cfg = make_e2e_config(DependencyMode::Local, Some(extras));
-        let out = render_pom_xml(
-            "my-lib",
-            "com.example",
-            "1.0.0",
-            &e2e_cfg,
-            "my_lib",
-            &[],
-        );
+        let out = render_pom_xml("my-lib", "com.example", "1.0.0", &e2e_cfg, "my_lib", &[]);
         assert!(
             out.contains("com.custom.org"),
             "custom-testing-lib groupId should be present"
@@ -453,14 +434,7 @@ mod tests {
             ExtraDepSpec::Simple("0.26.0".to_string()),
         );
         let e2e_cfg = make_e2e_config(DependencyMode::Registry, Some(extras));
-        let out = render_pom_xml(
-            "my-lib",
-            "com.example",
-            "1.0.0",
-            &e2e_cfg,
-            "my_lib",
-            &[],
-        );
+        let out = render_pom_xml("my-lib", "com.example", "1.0.0", &e2e_cfg, "my_lib", &[]);
         assert!(
             !out.contains("jtreesitter"),
             "registry mode should not inject harness extras"
@@ -474,7 +448,10 @@ mod tests {
         let without = make_e2e_config(DependencyMode::Local, None);
         let with_empty_out = render_pom_xml("my-lib", "com.example", "1.0.0", &with_empty, "my_lib", &[]);
         let without_out = render_pom_xml("my-lib", "com.example", "1.0.0", &without, "my_lib", &[]);
-        assert_eq!(with_empty_out, without_out, "empty extras should produce identical output");
+        assert_eq!(
+            with_empty_out, without_out,
+            "empty extras should produce identical output"
+        );
     }
 
     #[test]
@@ -502,14 +479,12 @@ mod tests {
     fn inject_pom_xml_extras_preserves_order_from_btreemap() {
         let mut extras = ManifestExtras::default();
         // Insert in non-alphabetical order to verify BTreeMap sorts them.
-        extras.dependencies.insert(
-            "z.org:zulu".to_string(),
-            ExtraDepSpec::Simple("1.0".to_string()),
-        );
-        extras.dependencies.insert(
-            "a.org:alpha".to_string(),
-            ExtraDepSpec::Simple("2.0".to_string()),
-        );
+        extras
+            .dependencies
+            .insert("z.org:zulu".to_string(), ExtraDepSpec::Simple("1.0".to_string()));
+        extras
+            .dependencies
+            .insert("a.org:alpha".to_string(), ExtraDepSpec::Simple("2.0".to_string()));
         let block = inject_pom_xml_extras(&extras);
 
         // Both should be present.
@@ -525,14 +500,12 @@ mod tests {
         let mut extras = ManifestExtras::default();
         // ExtraDepSpec::Detailed without a "version" key
         let bad_spec = toml::Table::new(); // Empty table, no "version" key
-        extras.dependencies.insert(
-            "bad.org:badlib".to_string(),
-            ExtraDepSpec::Detailed(bad_spec),
-        );
-        extras.dev_dependencies.insert(
-            "good.org:goodlib".to_string(),
-            ExtraDepSpec::Simple("1.0".to_string()),
-        );
+        extras
+            .dependencies
+            .insert("bad.org:badlib".to_string(), ExtraDepSpec::Detailed(bad_spec));
+        extras
+            .dev_dependencies
+            .insert("good.org:goodlib".to_string(), ExtraDepSpec::Simple("1.0".to_string()));
 
         let block = inject_pom_xml_extras(&extras);
 

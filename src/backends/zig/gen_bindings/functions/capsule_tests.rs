@@ -47,10 +47,10 @@ fn emit_function_constructs_host_language_for_capsule_return() {
     capsule_types.insert(
         "Language".to_string(),
         HostCapsuleTypeConfig {
-            host_type: "?*const tree_sitter.Language".to_string(),
-            package: "https://github.com/tree-sitter/zig-tree-sitter".to_string(),
+            host_type: "?*const my_mod.Language".to_string(),
+            package: "https://github.com/example/zig-my-lib".to_string(),
             package_version: String::new(),
-            construct_expr: String::new(),
+            construct_expr: "my_mod.Language.fromRaw(@ptrCast({ptr}))".to_string(),
         },
     );
     let mut out = String::new();
@@ -65,15 +65,83 @@ fn emit_function_constructs_host_language_for_capsule_return() {
         &mut out,
     );
     assert!(
-        out.contains("?*const tree_sitter.Language"),
+        out.contains("?*const my_mod.Language"),
         "capsule fn must return the host Language type. Got:\n{out}"
     );
     assert!(
-        out.contains("tree_sitter.Language.fromRaw(@ptrCast(_result))"),
+        out.contains("my_mod.Language.fromRaw(@ptrCast(_result))"),
         "capsule fn must construct via fromRaw. Got:\n{out}"
     );
     assert!(
         out.contains("c.tsp_get_language("),
         "capsule fn must call the C symbol. Got:\n{out}"
+    );
+}
+
+#[test]
+fn emit_function_errors_when_construct_expr_empty() {
+    let f = get_language_fn();
+    let mut capsule_types: HashMap<String, HostCapsuleTypeConfig> = HashMap::new();
+    capsule_types.insert(
+        "Language".to_string(),
+        HostCapsuleTypeConfig {
+            host_type: "?*const my_mod.Language".to_string(),
+            package: String::new(),
+            package_version: String::new(),
+            construct_expr: String::new(), // missing — should produce an ALEF ERROR comment
+        },
+    );
+    let mut out = String::new();
+    emit_function(
+        &f,
+        "tsp",
+        &[],
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashMap::new(),
+        &capsule_types,
+        &mut out,
+    );
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty construct_expr must produce an ALEF ERROR comment. Got:\n{out}"
+    );
+    assert!(
+        out.contains("construct_expr"),
+        "error must mention the missing field. Got:\n{out}"
+    );
+}
+
+#[test]
+fn emit_function_errors_when_host_type_empty() {
+    let f = get_language_fn();
+    let mut capsule_types: HashMap<String, HostCapsuleTypeConfig> = HashMap::new();
+    capsule_types.insert(
+        "Language".to_string(),
+        HostCapsuleTypeConfig {
+            host_type: String::new(), // missing — should produce an ALEF ERROR comment
+            package: String::new(),
+            package_version: String::new(),
+            construct_expr: "my_mod.Language.fromRaw(@ptrCast({ptr}))".to_string(),
+        },
+    );
+    let mut out = String::new();
+    emit_function(
+        &f,
+        "tsp",
+        &[],
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashMap::new(),
+        &capsule_types,
+        &mut out,
+    );
+    assert!(
+        out.contains("ALEF ERROR"),
+        "empty host_type must produce an ALEF ERROR comment. Got:\n{out}"
+    );
+    assert!(
+        out.contains("host_type"),
+        "error must mention the missing field. Got:\n{out}"
     );
 }

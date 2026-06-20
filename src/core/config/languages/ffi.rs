@@ -7,51 +7,44 @@ use std::collections::HashMap;
 /// When a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend
 /// does NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C
 /// function returns the host ecosystem's native grammar pointer directly by calling
-/// `value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the
-/// result to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`
-/// symbols are suppressed for that type.
+/// `value.into_raw()` and casting the result to `*const {c_return_type}`. The
+/// matching opaque `_new`/`_free`/`_to_json` symbols are suppressed for that type.
 ///
 /// This is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,
 /// Swift, Dart, Zig, Kotlin Android): each of those constructs its own host-native
 /// `Language` wrapper from this raw pointer.
 ///
+/// Both `into_raw_type` and `c_return_type` are **required** — there are no
+/// defaults. A missing or empty value is a deserialization error (for required
+/// fields) or an emission-time error (for fields validated later).
+///
 /// TOML form:
 /// ```toml
 /// [crates.ffi.capsule_types.Language]
-/// into_raw_type = "tree_sitter::ffi::TSLanguage"
-/// c_return_type = "TSLanguage"
-/// package = "tree-sitter"
-/// package_version = "0.26"
+/// into_raw_type = "my_crate::ffi::MyRawType"
+/// c_return_type = "MyRawType"
+/// package = "my-crate"
+/// package_version = "1.0"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, JsonSchema)]
 pub struct FfiCapsuleTypeConfig {
     /// Fully-qualified Rust pointee type produced by `value.into_raw()`.
     /// The generated body casts to `*const {into_raw_type}`.
-    /// Defaults to `"tree_sitter::ffi::TSLanguage"`.
-    #[serde(default = "default_ffi_capsule_into_raw_type")]
+    /// **Required** — there is no default.
     pub into_raw_type: String,
     /// The bare C type name the exported function returns (used by cbindgen to
-    /// declare the return as `const {c_return_type} *`). Defaults to `"TSLanguage"`.
-    #[serde(default = "default_ffi_capsule_c_return_type")]
+    /// declare the return as `const {c_return_type} *`).
+    /// **Required** — there is no default.
     pub c_return_type: String,
-    /// Cargo crate that provides `into_raw_type` (e.g. `"tree-sitter"`). When set,
-    /// `scaffold_ffi` injects it as a direct dependency of the FFI crate so the
-    /// capsule shim can name the pointee type. The core crate's transitive
-    /// dependency is not in scope for the generated FFI code. `None` skips
-    /// injection (e.g. when the pointee type is already reachable).
+    /// Cargo crate that provides `into_raw_type`. When set, `scaffold_ffi`
+    /// injects it as a direct dependency of the FFI crate so the capsule shim
+    /// can name the pointee type. `None` skips injection (e.g. when the pointee
+    /// type is already reachable via transitive deps).
     #[serde(default)]
     pub package: Option<String>,
     /// Version requirement for [`Self::package`]. Ignored when `package` is `None`.
     #[serde(default)]
     pub package_version: Option<String>,
-}
-
-fn default_ffi_capsule_into_raw_type() -> String {
-    "tree_sitter::ffi::TSLanguage".to_string()
-}
-
-fn default_ffi_capsule_c_return_type() -> String {
-    "TSLanguage".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
