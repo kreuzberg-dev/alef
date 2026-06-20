@@ -105,10 +105,10 @@ let package = Package(
   platforms: [
     .macOS(.v{min_macos}),
     .iOS(.v{min_ios}),
-  ],{package_dependencies}
+  ],
   products: [
     .library(name: "{module}", targets: ["{module}"])
-  ],
+  ],{package_dependencies}
   targets: [
     // RustBridgeC: pure C/headers target. Swift files in RustBridge import this
     // to access C types (RustStr, etc.) produced by swift-bridge.
@@ -629,6 +629,58 @@ sources = []
         assert!(
             !pkg.content.contains(".binaryTarget("),
             "in-tree packages/swift/Package.swift must not use .binaryTarget"
+        );
+    }
+
+    /// When capsule dependencies are present, `products:` must precede `dependencies:`
+    /// in the Package initializer — SwiftPM requires this argument order.
+    #[test]
+    fn in_tree_package_swift_with_capsules_has_correct_argument_order() {
+        let config = resolve_config(
+            r#"
+[workspace]
+languages = ["swift"]
+[[crates]]
+name = "my-lib"
+sources = []
+
+[crates.swift.capsule_types.Language]
+host_type = "SwiftTreeSitter.Language"
+package = "https://github.com/tree-sitter/tree-sitter-swift"
+package_version = "0.25.0"
+"#,
+        );
+        let api = ApiSurface::default();
+        let files = scaffold_swift(&api, &config).expect("scaffold");
+        let pkg = find_file(&files, "packages/swift/Package.swift");
+
+        // Find byte positions of "products:" and "dependencies:"
+        let products_pos = pkg
+            .content
+            .find("products: [")
+            .expect("must have products: argument");
+        let dependencies_pos = pkg
+            .content
+            .find("dependencies: [")
+            .expect("must have dependencies: argument when capsules present");
+
+        assert!(
+            products_pos < dependencies_pos,
+            "products: must precede dependencies: in Package(...) initializer. \
+             Found products: at byte {}, dependencies: at byte {}. Full content:\n{}",
+            products_pos,
+            dependencies_pos,
+            pkg.content
+        );
+
+        // Verify the capsule package is present in the dependencies block
+        assert!(
+            pkg.content.contains("tree-sitter-swift"),
+            "capsule package reference must be present in dependencies: block"
+        );
+        assert!(
+            pkg.content.contains("0.25.0"),
+            "capsule package version must be present in dependencies: block"
         );
     }
 }

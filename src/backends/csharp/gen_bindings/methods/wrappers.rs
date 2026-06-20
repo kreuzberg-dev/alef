@@ -39,7 +39,7 @@ pub(super) fn sanitize_doc_for_csharp(doc: &str) -> String {
 pub(super) fn gen_capsule_function_wrapper(
     func: &FunctionDef,
     exception_name: &str,
-    prefix: &str,
+    _prefix: &str,
     cfg: &HostCapsuleTypeConfig,
 ) -> String {
     let mut out = String::with_capacity(1024);
@@ -69,9 +69,9 @@ pub(super) fn gen_capsule_function_wrapper(
     out.push_str(&param_strs.join(", "));
     out.push_str(")\n        {\n");
 
-    // Call the native P/Invoke function with the C function name
-    let c_func_name = format!("{}_{}", prefix, func.name.to_lowercase());
-    let cs_native_name = csharp_type_name(&c_func_name);
+    // Call the native P/Invoke function — use the same C# name as declared in NativeMethods
+    // (which uses to_csharp_name on just the function name, not the full C name with prefix).
+    let cs_native_name = to_csharp_name(&func.name);
     let c_params: Vec<String> = func.params.iter().map(|p| p.name.to_lower_camel_case()).collect();
 
     out.push_str("            var nativeResult = NativeMethods.");
@@ -839,4 +839,72 @@ pub(super) fn gen_wrapper_method(
     out.push_str("    }\n\n");
 
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::config::HostCapsuleTypeConfig;
+    use crate::core::ir::{CoreWrapper, FunctionDef, ParamDef, TypeRef, VersionAnnotation};
+
+    #[test]
+    fn capsule_function_wrapper_uses_correct_pinvoke_name() {
+        let func = FunctionDef {
+            name: "get_language".to_string(),
+            rust_path: "test::get_language".to_string(),
+            original_rust_path: "test::get_language".to_string(),
+            params: vec![ParamDef {
+                name: "name".to_string(),
+                ty: TypeRef::String,
+                optional: false,
+                default: None,
+                sanitized: false,
+                typed_default: None,
+                is_ref: false,
+                is_mut: false,
+                newtype_wrapper: None,
+                original_type: None,
+                map_is_ahash: false,
+                map_key_is_cow: false,
+                vec_inner_is_ref: false,
+                map_is_btree: false,
+                core_wrapper: CoreWrapper::default(),
+            }],
+            return_type: TypeRef::Named("Language".to_string()),
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: VersionAnnotation::default(),
+        };
+
+        let cfg = HostCapsuleTypeConfig {
+            host_type: "TreeSitter.Language".to_string(),
+            package: String::new(),
+            package_version: String::new(),
+            construct_expr: String::new(),
+        };
+
+        let code = gen_capsule_function_wrapper(&func, "TestException", "ts_pack", &cfg);
+
+        // The wrapper should call NativeMethods.GetLanguage (PascalCase), not ts_pack_get_language (snake_case)
+        assert!(
+            code.contains("NativeMethods.GetLanguage(name)"),
+            "Generated code should call NativeMethods.GetLanguage, got:\n{}",
+            code
+        );
+        // Make sure it doesn't contain the snake_case version
+        assert!(
+            !code.contains("NativeMethods.ts_pack_get_language"),
+            "Generated code should NOT call NativeMethods.ts_pack_get_language (snake_case), got:\n{}",
+            code
+        );
+    }
 }

@@ -228,47 +228,42 @@ fn inject_package_swift_extras(
 ) {
     use crate::core::config::manifest_extras::ExtraDepSpec;
 
-    // Collect all extra dependencies (runtime + dev) into a sorted map keyed by package name.
-    let mut all_extras: std::collections::BTreeMap<String, (String, String)> = std::collections::BTreeMap::new();
+    // Collect all extra dependencies (runtime + dev) into a sorted map keyed by the SwiftPM
+    // package identity (the URL's last path component). The value carries the url, version, and
+    // the PRODUCT name to reference in the test target. The product often differs from the
+    // package identity (e.g. repo `swift-tree-sitter` exposes product `SwiftTreeSitter`), so the
+    // Detailed form accepts an explicit `product` key; otherwise it defaults to the identity.
+    let mut all_extras: std::collections::BTreeMap<String, (String, String, String)> =
+        std::collections::BTreeMap::new();
 
-    // Process runtime dependencies.
+    let mut collect = |key: &str, spec: &ExtraDepSpec| match spec {
+        ExtraDepSpec::Simple(version) => {
+            // Simple form: key is the URL; package identity and product both derive from it.
+            let pkg_id = extract_package_name(key, key);
+            all_extras.insert(pkg_id.clone(), (key.to_string(), version.clone(), pkg_id));
+        }
+        ExtraDepSpec::Detailed(table) => {
+            // Detailed form: requires "url" + "version"; optional "product" overrides the
+            // product name referenced via `.product(name:package:)`.
+            if let (Some(url), Some(version)) = (
+                table.get("url").and_then(|u| u.as_str()),
+                table.get("version").and_then(|v| v.as_str()),
+            ) {
+                let pkg_id = extract_package_name(url, key);
+                let product = table
+                    .get("product")
+                    .and_then(|p| p.as_str())
+                    .map_or_else(|| pkg_id.clone(), str::to_string);
+                all_extras.insert(pkg_id, (url.to_string(), version.to_string(), product));
+            }
+        }
+    };
+
     for (key, spec) in &extras.dependencies {
-        match spec {
-            ExtraDepSpec::Simple(version) => {
-                // Simple form: key is the URL, extract package name from it.
-                let pkg_name = extract_package_name(key, key);
-                all_extras.insert(pkg_name.clone(), (key.clone(), version.clone()));
-            }
-            ExtraDepSpec::Detailed(table) => {
-                // Detailed form: must have "url" + "version" keys.
-                if let (Some(url), Some(version)) = (
-                    table.get("url").and_then(|u| u.as_str()),
-                    table.get("version").and_then(|v| v.as_str()),
-                ) {
-                    let pkg_name = extract_package_name(url, key);
-                    all_extras.insert(pkg_name, (url.to_string(), version.to_string()));
-                }
-            }
-        }
+        collect(key, spec);
     }
-
-    // Process dev dependencies.
     for (key, spec) in &extras.dev_dependencies {
-        match spec {
-            ExtraDepSpec::Simple(version) => {
-                let pkg_name = extract_package_name(key, key);
-                all_extras.insert(pkg_name.clone(), (key.clone(), version.clone()));
-            }
-            ExtraDepSpec::Detailed(table) => {
-                if let (Some(url), Some(version)) = (
-                    table.get("url").and_then(|u| u.as_str()),
-                    table.get("version").and_then(|v| v.as_str()),
-                ) {
-                    let pkg_name = extract_package_name(url, key);
-                    all_extras.insert(pkg_name, (url.to_string(), version.to_string()));
-                }
-            }
-        }
+        collect(key, spec);
     }
 
     if all_extras.is_empty() {
@@ -278,8 +273,8 @@ fn inject_package_swift_extras(
     // Inject `.package(...)` entries into the dependencies array.
     // Insert before the final `    ],\n` line.
     let extras_packages: String = all_extras
-        .iter()
-        .map(|(_pkg_name, (url, version))| format!("        .package(url: \"{url}\", from: \"{version}\"),\n"))
+        .values()
+        .map(|(url, version, _product)| format!("        .package(url: \"{url}\", from: \"{version}\"),\n"))
         .collect();
 
     // Find the position to insert extras (before the closing bracket).
@@ -287,10 +282,13 @@ fn inject_package_swift_extras(
         dependencies_block.insert_str(pos, &extras_packages);
     }
 
-    // Append `.product(...)` entries to the test target's dependencies.
+    // Append `.product(name:package:)` entries to the test target's dependencies. `package` is the
+    // SwiftPM package identity (map key); `name` is the product (overridable, defaults to identity).
     let extras_products: String = all_extras
-        .keys()
-        .map(|pkg_name| format!(", .product(name: \"{pkg_name}\", package: \"{pkg_name}\")"))
+        .iter()
+        .map(|(pkg_id, (_url, _version, product))| {
+            format!(", .product(name: \"{product}\", package: \"{pkg_id}\")")
+        })
         .collect();
 
     test_target_dep.push_str(&extras_products);
@@ -441,6 +439,28 @@ mod tests {
         let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
         assert!(out.contains(".package(url: \"https://github.com/foo/SwiftTreeSitter.git\", from: \"0.25.0\")"), "should inject extras .package with url and version from Detailed form. Got:\n{out}");
         assert!(out.contains(".product(name: \"SwiftTreeSitter\", package: \"SwiftTreeSitter\")"), "should inject product dep from extracted package name. Got:\n{out}");
+    }
+
+    #[test]
+    fn render_package_swift_extras_detailed_product_override() {
+        // Repo identity (swift-tree-sitter) differs from the SwiftPM product (SwiftTreeSitter):
+        // the explicit `product` key must drive `.product(name:)` while `package:` stays the identity.
+        let mut extras = ManifestExtras::default();
+        extras.dependencies.insert(
+            "swift-tree-sitter".to_string(),
+            ExtraDepSpec::Detailed({
+                let mut t = toml::Table::new();
+                t.insert("url".to_string(), "https://github.com/tree-sitter/swift-tree-sitter".into());
+                t.insert("version".to_string(), "0.25.0".into());
+                t.insert("product".to_string(), "SwiftTreeSitter".into());
+                t
+            }),
+        );
+        let out = render_package_swift("TreeSitter", "https://example.com/tree-sitter.git", "../../packages/swift", "0.25.0", crate::e2e::config::DependencyMode::Local, false, Some(&extras));
+        assert!(
+            out.contains(".product(name: \"SwiftTreeSitter\", package: \"swift-tree-sitter\")"),
+            "product override should set name=SwiftTreeSitter, package=swift-tree-sitter. Got:\n{out}"
+        );
     }
 
     #[test]
