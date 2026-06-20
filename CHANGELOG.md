@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.55] - 2026-06-20
+
 ### Fixed
 
 - **`alef all` phase ordering (workspace post-build abort)**: package scaffolding
@@ -28,14 +30,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dereferenced freed memory and crashed the JVM with `EXCEPTION_ACCESS_VIOLATION`
   (tree-sitter-language-pack issue #146). The free-after-read pattern is retained
   for value/DTO returns, which copy the data out before freeing the FFI temporary.
-- **test_apps/go runner**: the go test-app now provisions FFI libraries into a
-  writable temp directory and replaces the module path in go.mod to link against
-  the copy. `go generate` fails in the Go module cache (read-only), and the
-  download_ffi tool cannot write .lib/ artifacts there. The runner copies the
-  module to a temp location, downloads the FFI tarball from the GitHub release,
-  extracts it with --strip-components=1 to .lib/, updates the replace directive,
-  runs tests, and restores go.mod/go.sum via git checkout to keep the test app
-  pristine.
+- **test_apps/go runner**: the go test-app now provisions the FFI library by
+  delegating to the binding's OWN `cmd/download_ffi` tool — the runner carries no
+  project-specific download logic (no hard-coded release URL, platform mapping, or
+  curl). `go generate` is a no-op in dependency modules and the module cache is
+  read-only, so the runner copies the published module to a writable temp dir,
+  runs the binding's `download_ffi` there (which knows the project's asset URL +
+  platform mapping), `replace`s the module with the populated copy, and restores
+  go.mod/go.sum unconditionally afterwards. The Go backend's `download_ffi`
+  template no longer carries a `//go:build ignore` guard (it lives in its own
+  `package main` subdir, so it is never linked into the library) so the tool is
+  runnable standalone; the runner strips any leftover guard from already-published
+  modules for backward compatibility.
 - **scaffold/swift root Package.swift**: the published binaryTarget manifest now
   declares `linkerSettings` on the `RustBridge` target linking the Apple system
   frameworks (`Security`, `CoreFoundation`, `SystemConfiguration`). The pre-built

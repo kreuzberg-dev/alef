@@ -2017,21 +2017,19 @@
       "description": "A single extra-dependency declaration. Accepts either a bare version string\n(`\"tree-sitter\" = \"^0.25.0\"`) or a free-form TOML table for source/feature\nmetadata (`\"foo\" = { version = \"1\", git = \"https://…\" }`).\n\nPer-language emitters decide which table keys they understand. Unknown keys\nare surfaced as warnings but never block emission — the goal is forward\ncompatibility as the alef.toml surface grows."
     },
     "FfiCapsuleTypeConfig": {
-      "description": "Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.\n\nWhen a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend\ndoes NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C\nfunction returns the host ecosystem's native grammar pointer directly by calling\n`value.into_raw()` (which every `tree_sitter::Language` exposes) and casting the\nresult to `*const {c_return_type}`. The matching opaque `_new`/`_free`/`_to_json`\nsymbols are suppressed for that type.\n\nThis is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,\nSwift, Dart, Zig, Kotlin Android): each of those constructs its own host-native\n`Language` wrapper from this raw pointer.\n\nTOML form:\n```toml\n[crates.ffi.capsule_types.Language]\ninto_raw_type = \"tree_sitter::ffi::TSLanguage\"\nc_return_type = \"TSLanguage\"\npackage = \"tree-sitter\"\npackage_version = \"0.26\"\n```",
+      "description": "Configuration for a single capsule (Language-passthrough) type at the C-ABI layer.\n\nWhen a Rust type is listed in [`FfiConfig::capsule_types`], the C FFI backend\ndoes NOT box it into an opaque `*mut {Type}` handle. Instead, the generated C\nfunction returns the host ecosystem's native grammar pointer directly by calling\n`value.into_raw()` and casting the result to `*const {c_return_type}`. The\nmatching opaque `_new`/`_free`/`_to_json` symbols are suppressed for that type.\n\nThis is the load-bearing layer consumed by every C-ABI binding (Go, Java, C#,\nSwift, Dart, Zig, Kotlin Android): each of those constructs its own host-native\n`Language` wrapper from this raw pointer.\n\nBoth `into_raw_type` and `c_return_type` are **required** — there are no\ndefaults. A missing or empty value is a deserialization error (for required\nfields) or an emission-time error (for fields validated later).\n\nTOML form:\n```toml\n[crates.ffi.capsule_types.Language]\ninto_raw_type = \"my_crate::ffi::MyRawType\"\nc_return_type = \"MyRawType\"\npackage = \"my-crate\"\npackage_version = \"1.0\"\n```",
       "properties": {
         "c_return_type": {
-          "default": "TSLanguage",
-          "description": "The bare C type name the exported function returns (used by cbindgen to\ndeclare the return as `const {c_return_type} *`). Defaults to `\"TSLanguage\"`.",
+          "description": "The bare C type name the exported function returns (used by cbindgen to\ndeclare the return as `const {c_return_type} *`).\n**Required** — there is no default.",
           "type": "string"
         },
         "into_raw_type": {
-          "default": "tree_sitter::ffi::TSLanguage",
-          "description": "Fully-qualified Rust pointee type produced by `value.into_raw()`.\nThe generated body casts to `*const {into_raw_type}`.\nDefaults to `\"tree_sitter::ffi::TSLanguage\"`.",
+          "description": "Fully-qualified Rust pointee type produced by `value.into_raw()`.\nThe generated body casts to `*const {into_raw_type}`.\n**Required** — there is no default.",
           "type": "string"
         },
         "package": {
           "default": null,
-          "description": "Cargo crate that provides `into_raw_type` (e.g. `\"tree-sitter\"`). When set,\n`scaffold_ffi` injects it as a direct dependency of the FFI crate so the\ncapsule shim can name the pointee type. The core crate's transitive\ndependency is not in scope for the generated FFI code. `None` skips\ninjection (e.g. when the pointee type is already reachable).",
+          "description": "Cargo crate that provides `into_raw_type`. When set, `scaffold_ffi`\ninjects it as a direct dependency of the FFI crate so the capsule shim\ncan name the pointee type. `None` skips injection (e.g. when the pointee\ntype is already reachable via transitive deps).",
           "type": [
             "string",
             "null"
@@ -2046,6 +2044,10 @@
           ]
         }
       },
+      "required": [
+        "into_raw_type",
+        "c_return_type"
+      ],
       "type": "object"
     },
     "FfiConfig": {
@@ -2791,25 +2793,25 @@
       "type": "object"
     },
     "HostCapsuleTypeConfig": {
-      "description": "Host-native capsule config for a single type in one C-ABI family backend.\n\nTOML form (Go example):\n```toml\n[crates.go.capsule_types.Language]\nhost_type = \"*tree_sitter.Language\"\npackage = \"github.com/tree-sitter/go-tree-sitter\"\npackage_version = \"v0.25.0\"\nconstruct_expr = \"tree_sitter.NewLanguage(unsafe.Pointer({ptr}))\"\n```",
+      "description": "Host-native capsule config for a single type in one C-ABI family backend.\n\nTOML form (Go example):\n```toml\n[crates.go.capsule_types.Language]\nhost_type = \"*my_pkg.Language\"\npackage = \"github.com/example/go-my-lib\"\npackage_version = \"v1.0.0\"\nconstruct_expr = \"my_pkg.NewLanguage(unsafe.Pointer({ptr}))\"\n```",
       "properties": {
         "construct_expr": {
           "default": "",
-          "description": "The construction expression that wraps the raw FFI pointer in the host `Language`.\nThe `{ptr}` placeholder is substituted with the raw-pointer expression produced at\nthe FFI boundary. When empty, the backend uses its built-in default for the ecosystem.",
+          "description": "The construction expression that wraps the raw FFI pointer in the host `Language`.\nThe `{ptr}` placeholder is substituted with the raw-pointer expression produced at\nthe FFI boundary. **Required** — backends error at emission time when this is empty.",
           "type": "string"
         },
         "host_type": {
-          "description": "The host ecosystem's `Language` type, used as the return-type annotation in the\ngenerated binding (e.g. `\"*tree_sitter.Language\"` for Go,\n`\"SwiftTreeSitter.Language\"` for Swift, `\"TreeSitter.Language\"` for C#).",
+          "description": "The host ecosystem's `Language` type, used as the return-type annotation in the\ngenerated binding (e.g. `\"*my_pkg.Language\"` for Go, `\"MyLib.Language\"` for Swift).\n**Required** — backends error at emission time when this is empty.",
           "type": "string"
         },
         "package": {
           "default": "",
-          "description": "The host package/module identifier to depend on (e.g.\n`\"github.com/tree-sitter/go-tree-sitter\"`, `\"SwiftTreeSitter\"`,\n`\"TreeSitter.DotNet\"`, `\"io.github.tree-sitter:jtreesitter\"`). Injected into the\nbackend's package manifest by the scaffold layer. Empty string disables injection.",
+          "description": "The host package/module identifier to depend on. Injected into the backend's\npackage manifest by the scaffold layer. Empty string disables injection.",
           "type": "string"
         },
         "package_version": {
           "default": "",
-          "description": "The version constraint for `package` (e.g. `\"v0.25.0\"`, `\"0.8.0\"`, `\"1.0.0\"`).\nFormat is backend-specific and passed through verbatim to the manifest.",
+          "description": "The version constraint for `package`. Format is backend-specific and passed through\nverbatim to the manifest.",
           "type": "string"
         }
       },
@@ -7062,7 +7064,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.53/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.55/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7172,6 +7174,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.53",
-  "x-alef-version": "0.25.53"
+  "version": "0.25.55",
+  "x-alef-version": "0.25.55"
 }
