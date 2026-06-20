@@ -233,7 +233,7 @@ pub fn test_apps_run(config: &ResolvedCrateConfig, names: &[String]) -> anyhow::
     // harness fail with "connection refused".
     let server = start_mock_server(config).context("failed to start e2e mock-server for test apps")?;
     let server_env: Vec<(String, String)> = server.as_ref().map(|h| h.env_vars.clone()).unwrap_or_default();
-    // Declared `[crates.e2e.env]` vars (e.g. `KREUZCRAWL_ALLOW_PRIVATE_NETWORK=true`)
+    // Declared `[crates.e2e.env]` vars (e.g. `SAMPLE_ALLOW_PRIVATE_NETWORK=true`)
     // must reach the SUT as REAL process env vars so the loaded Rust cdylib sees
     // them via `getenv`/`std::env::var`. Host-language in-process setters that the
     // generated harnesses use — `System.setProperty` (Kotlin), `System.put_env`
