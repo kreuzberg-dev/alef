@@ -11,6 +11,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **(e2e/c): do not free host-capsule return values.** A C e2e test for a free function whose
+  result is a configured capsule type (e.g. `get_language` → `const TSLanguage *`) declared the
+  result as an alef opaque handle and called `{prefix}_{type}_free` on it. The capsule is a
+  borrowed, host-owned pointer (a static grammar / registry-owned object), so freeing it as an
+  alef `Box` corrupted the heap and crashed the suite. The C e2e codegen now declares the result
+  with the capsule's `const {c_return_type} *` type and emits a null-check with no free, mirroring
+  the borrowed semantics Go/Zig get via GC / borrow checking. (`src/e2e/codegen/c/test_function.rs`)
 - **(e2e/zig): include host-capsule dependencies in local test packages.** Zig e2e local-mode
   packages now re-declare host-capsule passthrough dependencies in `build.zig.zon` and wire those
   imports into the rebuilt binding module, so generated tests can resolve imports such as

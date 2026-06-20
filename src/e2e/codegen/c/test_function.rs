@@ -693,6 +693,33 @@ pub(super) fn render_test_function(
 
     let args_str = build_args_string_c(&fixture.input, args, has_options_handle, config, type_defs, fixture);
 
+    // Host-capsule passthrough: a free function whose result type is a configured
+    // capsule (e.g. `get_language` → `const TSLanguage *`) returns a borrowed,
+    // host-owned pointer — NOT an alef opaque handle. The exported symbol's C
+    // return type is `const {c_return_type} *`, and the pointer must never be passed
+    // to `{prefix}_{type}_free` (that frees an alef Box; the capsule points at a
+    // static grammar / registry-owned object, so freeing it corrupts the heap).
+    // Emit a minimal declare + null-check with no free, mirroring the borrowed
+    // semantics the Go/Zig bindings get for free via GC / borrow checking.
+    if let Some(capsule) = config.ffi.as_ref().and_then(|f| f.capsule_types.get(result_type_name)) {
+        let c_return_type = &capsule.c_return_type;
+        let _ = writeln!(
+            out,
+            "    const {c_return_type} *{result_var} = {prefixed_fn}({args_str});"
+        );
+        if has_options_handle {
+            let options_type_snake = options_type_name.to_snake_case();
+            let _ = writeln!(out, "    {prefix}_{options_type_snake}_free(options_handle);");
+        }
+        if expects_error {
+            let _ = writeln!(out, "    assert({result_var} == NULL && \"expected call to fail\");");
+        } else {
+            let _ = writeln!(out, "    assert({result_var} != NULL && \"expected call to succeed\");");
+        }
+        let _ = writeln!(out, "}}");
+        return;
+    }
+
     if expects_error {
         let _ = writeln!(
             out,
