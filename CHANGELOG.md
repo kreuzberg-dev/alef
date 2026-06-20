@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`generate`/`all` up-to-date skip ignored on-disk drift**: the per-language
+  "up to date (skipping)" short-circuit compared freshly generated output only
+  against the side cache (`.alef/hashes/*.output_hashes`), never the files on
+  disk. When a generated file drifted from the cache out-of-band — a `git
+  restore`, a hand-edit, a partial or interrupted write — the skip still fired
+  and `write_files` (which has its own disk-aware comparison) was never reached,
+  so the stale file was silently retained. The most visible symptom was a Go
+  capsule binding missing its host-package import (`undefined: tree_sitter`)
+  after the file had been reverted while the cache stayed warm. The skip now
+  also requires the generated output to match what is actually on disk
+  (`generated_files_match_disk`), mirroring `write_files`' hash-line-insensitive
+  body comparison, so reverted or edited files are regenerated rather than left
+  stale.
+
 ## [0.25.56] - 2026-06-20
 
 ### Fixed

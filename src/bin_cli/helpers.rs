@@ -1,5 +1,28 @@
 use anyhow::{Context, Result};
 
+/// Returns true when every freshly generated file already matches the file on disk,
+/// using the same hash-line-insensitive body comparison as [`crate::cli::pipeline::write_files`].
+///
+/// The per-run side cache (`.alef/hashes/*.output_hashes`) records what was last
+/// generated, but the files on disk can drift from it out-of-band — a `git restore`,
+/// a hand-edit, a partial write, or an interrupted run. Treating the cache as the
+/// sole authority for an "up to date" skip silently retains that stale output: the
+/// generator would emit different bytes, yet the skip fires and `write_files` is
+/// never reached. Gating the skip on actual disk agreement closes that gap while
+/// staying a no-op for the common clean case.
+pub(crate) fn generated_files_match_disk(
+    lang_files: &[crate::core::backend::GeneratedFile],
+    base_dir: &std::path::Path,
+) -> bool {
+    lang_files.iter().all(|file| {
+        let normalized = crate::cli::pipeline::normalize_content(&file.path, &file.content);
+        match std::fs::read_to_string(base_dir.join(&file.path)) {
+            Ok(disk) => crate::core::hash::strip_hash_line(&disk) == crate::core::hash::strip_hash_line(&normalized),
+            Err(_) => false,
+        }
+    })
+}
+
 pub(crate) fn init_tracing(verbose: u8, quiet: bool, no_color: bool) {
     use tracing_subscriber::EnvFilter;
     let default_level = if quiet {
@@ -404,5 +427,51 @@ e2e = "cargo test"
         let config = resolved_test_config();
         let langs = resolve_test_languages(&config, None, false).unwrap();
         assert_eq!(langs, vec![Language::Python]);
+    }
+
+    fn gen_file(rel: &str, content: &str) -> crate::core::backend::GeneratedFile {
+        crate::core::backend::GeneratedFile {
+            path: std::path::PathBuf::from(rel),
+            content: content.to_string(),
+            generated_header: true,
+        }
+    }
+
+    #[test]
+    fn generated_files_match_disk_true_when_bodies_match() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("binding.go"), "package x\n\nvar a = 1\n").unwrap();
+        let files = vec![gen_file("binding.go", "package x\n\nvar a = 1\n")];
+        assert!(generated_files_match_disk(&files, dir.path()));
+    }
+
+    #[test]
+    fn generated_files_match_disk_ignores_embedded_hash_line() {
+        let dir = tempfile::tempdir().unwrap();
+        // The on-disk file carries the post-generation `alef:hash:` line; the in-memory
+        // generated content does not. Stripping it on both sides must still match.
+        std::fs::write(
+            dir.path().join("binding.go"),
+            "// alef:hash:deadbeef\npackage x\n\nvar a = 1\n",
+        )
+        .unwrap();
+        let files = vec![gen_file("binding.go", "package x\n\nvar a = 1\n")];
+        assert!(generated_files_match_disk(&files, dir.path()));
+    }
+
+    #[test]
+    fn generated_files_match_disk_false_when_body_differs() {
+        let dir = tempfile::tempdir().unwrap();
+        // Simulate an out-of-band revert: disk lacks a line the generator now emits.
+        std::fs::write(dir.path().join("binding.go"), "package x\n\nvar a = 1\n").unwrap();
+        let files = vec![gen_file("binding.go", "package x\n\nimport \"fmt\"\n\nvar a = 1\n")];
+        assert!(!generated_files_match_disk(&files, dir.path()));
+    }
+
+    #[test]
+    fn generated_files_match_disk_false_when_file_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = vec![gen_file("binding.go", "package x\n")];
+        assert!(!generated_files_match_disk(&files, dir.path()));
     }
 }

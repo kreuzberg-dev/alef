@@ -101,9 +101,13 @@ pub(crate) fn handle(command: Commands, context: &DispatchContext) -> Result<Opt
 
                     let cache_key = format!("{}.{lang_str}", resolved_cfg.name);
                     let stored = cache::read_generation_hashes(&cache_key).unwrap_or_default();
-                    let all_match = !hashes.is_empty() && hashes.iter().all(|(p, h)| stored.get(p) == Some(h));
+                    let cache_match = !hashes.is_empty() && hashes.iter().all(|(p, h)| stored.get(p) == Some(h));
 
-                    if all_match && !clean {
+                    // The side cache is not authoritative on its own: confirm the
+                    // generated output also matches what is actually on disk, so a
+                    // file reverted or edited out-of-band is regenerated rather than
+                    // silently left stale.
+                    if cache_match && !clean && generated_files_match_disk(lang_files, &base_dir) {
                         eprintln!("  [{lang_str}] up to date (skipping)");
                         continue;
                     }
