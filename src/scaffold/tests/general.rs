@@ -400,3 +400,97 @@ authors = ["Ada Lovelace <ada@example.com>"]
         description.content
     );
 }
+
+/// The extendr backend emits `#[cfg(feature = "X")]` gates on cfg-gated functions
+/// into the R crate's `lib.rs`. The generated `packages/r/src/rust/Cargo.toml` must
+/// therefore declare a forwarding `[features]` table so those gates do not produce
+/// `error: unexpected cfg condition value: X` under `RUSTFLAGS=-D warnings`.
+#[test]
+fn test_scaffold_r_cargo_forwards_cfg_features() {
+    use crate::core::ir::{FunctionDef, TypeRef};
+
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+"#,
+    );
+    let mut api = test_api();
+    api.functions = vec![
+        FunctionDef {
+            name: "extract_file_sync".to_string(),
+            rust_path: "my_lib::extract_file_sync".to_string(),
+            return_type: TypeRef::String,
+            cfg: Some("feature = \"tokio-runtime\"".to_string()),
+            ..Default::default()
+        },
+        FunctionDef {
+            name: "analyze_document".to_string(),
+            rust_path: "my_lib::analyze_document".to_string(),
+            return_type: TypeRef::String,
+            cfg: Some("feature = \"heuristics\"".to_string()),
+            ..Default::default()
+        },
+    ];
+
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo = files
+        .iter()
+        .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
+        .expect("R rust crate Cargo.toml must be emitted");
+
+    assert!(
+        cargo.content.contains("[features]"),
+        "R Cargo.toml must contain a [features] block when cfg-gated items exist; content:\n{}",
+        cargo.content
+    );
+    assert!(
+        cargo.content.contains(r#"tokio-runtime = ["my-lib/tokio-runtime"]"#),
+        "R Cargo.toml must forward `tokio-runtime` to the core dep; content:\n{}",
+        cargo.content
+    );
+    assert!(
+        cargo.content.contains(r#"heuristics = ["my-lib/heuristics"]"#),
+        "R Cargo.toml must forward `heuristics` to the core dep; content:\n{}",
+        cargo.content
+    );
+    // All cfg-forwarded features must be enabled by default so the gated wrappers
+    // compile without explicit activation.
+    let default_line = cargo
+        .content
+        .lines()
+        .find(|l| l.starts_with("default = ["))
+        .expect("R Cargo.toml [features] must declare a `default` list");
+    assert!(
+        default_line.contains("\"tokio-runtime\"") && default_line.contains("\"heuristics\""),
+        "default feature list must include every cfg-forwarded feature; got: {default_line}"
+    );
+    toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
+}
+
+/// When the API surface has no cfg-gated items the R Cargo.toml must omit the
+/// `[features]` block entirely (no empty table).
+#[test]
+fn test_scaffold_r_cargo_omits_features_block_when_no_cfg() {
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo = files
+        .iter()
+        .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
+        .expect("R rust crate Cargo.toml must be emitted");
+
+    assert!(
+        !cargo.content.contains("[features]"),
+        "R Cargo.toml must not emit a [features] block when no cfg-gated items exist; content:\n{}",
+        cargo.content
+    );
+    toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
+}

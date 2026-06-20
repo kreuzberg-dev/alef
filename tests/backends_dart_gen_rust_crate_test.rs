@@ -2561,3 +2561,51 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
         "Vec<Vec<String>> sanitized field must NOT fall back to JSON serialization, got:\n{lib}"
     );
 }
+
+/// An opaque wrapper whose core re-export is gated out on the Android x86_64
+/// emulator (via `not(all(target_os = "android", target_arch = "x86_64"))`)
+/// must still emit the wrapper on that triple: the core crate provides a
+/// crate-root stub there, and FRB's `frb_generated.rs` references the wrapper
+/// (`crate::LlmBackend`) unconditionally. Inheriting the exclusion verbatim
+/// made the wrapper vanish on Android x86_64 → `E0433`/`E0412`.
+#[test]
+fn opaque_wrapper_cfg_widens_to_include_android_x86_64() {
+    let new_method = make_method("new", vec![], TypeRef::Unit, false);
+    let mut llm = make_opaque_type("LlmBackend", vec![new_method]);
+    llm.cfg = Some(
+        r#"all(feature = "ner-llm", not(target_arch = "wasm32"), not(all(target_os = "android", target_arch = "x86_64")))"#
+            .to_string(),
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo-crate".into(),
+        version: "0.1.0".into(),
+        types: vec![llm],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = DartBackend.generate_bindings(&api, &make_config()).unwrap();
+    let lib = find_file(&files, "packages/dart/rust/src/lib.rs").expect("lib.rs not found");
+
+    assert!(
+        !lib.contains(r#"not(all(target_os = "android", target_arch = "x86_64"))"#),
+        "opaque wrapper cfg must drop the android-x86_64 exclusion so the wrapper \
+         exists on that triple (core provides a stub there), got:\n{lib}"
+    );
+    // The remaining cfg gates (feature + wasm32) must be preserved unchanged.
+    assert!(
+        lib.contains(r#"#[cfg(all(feature = "ner-llm", not(target_arch = "wasm32")))]"#),
+        "widened wrapper cfg must keep the feature and wasm32 gates, got:\n{lib}"
+    );
+    assert!(
+        lib.contains("#[frb(opaque)]"),
+        "wrapper struct must still be emitted: {lib}"
+    );
+}

@@ -1,1 +1,1 @@
-{{ indent }}(UIntPtr){{ param_name }}.Length,
+{{ indent }}(UIntPtr){% if optional %}({{ param_name }}?.Length ?? 0){% else %}{{ param_name }}.Length{% endif %},

@@ -252,11 +252,19 @@ pub(crate) fn gen_native_lib(
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
+    // Serde-deriving enums are returned from the FFI as heap-allocated `*mut Enum` pointers and
+    // expose a `{enum}_to_json` symbol (see `gen_enum_to_json` in the FFI backend, gated on
+    // `has_serde` for any enum used as a Named return). Internally-tagged enums like
+    // `ChunkingDecision` / `StructuredCallMode` reach the call-site `_TO_JSON` path in
+    // `ffi_class::sync_functions` (which fires for every non-opaque Named return), so their
+    // downcall handle must be enumerated here too — otherwise the generated Java facade calls a
+    // `NativeLib` constant that was never declared, breaking compilation.
     let to_json_type_names: AHashSet<String> = api
         .types
         .iter()
         .filter(|t| should_emit_to_json_handle(t))
         .map(|t| t.name.clone())
+        .chain(api.enums.iter().filter(|e| e.has_serde).map(|e| e.name.clone()))
         .collect();
     let from_json_type_names: AHashSet<String> = api
         .types

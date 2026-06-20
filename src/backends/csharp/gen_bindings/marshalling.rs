@@ -191,6 +191,21 @@ pub(super) fn native_call_arg(
     }
 }
 
+/// Build the byte-slice length argument passed to a native call.
+///
+/// `cast` is the C# cast prefix the P/Invoke length parameter expects (e.g. `"(UIntPtr)"`
+/// or `"(nuint)"`). For optional `byte[]?` parameters the array may be null — pinning a
+/// null array yields `IntPtr.Zero` and a zero length, so we null-coalesce the length to
+/// `0` rather than dereferencing `.Length` (which would trip CS8602 under
+/// `<TreatWarningsAsErrors>` / nullable-reference analysis).
+pub(super) fn bytes_len_arg(cast: &str, param_name: &str, optional: bool) -> String {
+    if optional {
+        format!("{cast}({param_name}?.Length ?? 0)")
+    } else {
+        format!("{cast}{param_name}.Length")
+    }
+}
+
 /// Returns true when wrapper setup allocates a temporary handle that must be
 /// released after the native call.
 pub(super) fn needs_param_teardown(

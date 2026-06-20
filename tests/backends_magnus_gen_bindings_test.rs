@@ -4086,3 +4086,85 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
         "labels_core must be bound before use"
     );
 }
+
+/// Build a no-param free `FunctionDef` returning `String`, with the given name and optional cfg.
+fn free_fn(name: &str, cfg: Option<&str>) -> FunctionDef {
+    FunctionDef {
+        name: name.to_string(),
+        rust_path: format!("test_lib::{name}"),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::String,
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: cfg.map(ToString::to_string),
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    }
+}
+
+/// Regression: same-named free functions reaching the surface under disjoint cfgs — including an
+/// ungated variant — must collapse to exactly one top-level `fn` in the Magnus Rust glue.
+///
+/// Mirrors kreuzberg's `text::ner::download_model`, which surfaces three entries
+/// (`#[cfg(feature = "ner-onnx")]`, `#[cfg(not(feature = "ner-onnx"))]`, and an unconditional stub
+/// from a `#[cfg(not(feature = "ner"))]` parent module whose gate did not propagate). Emitting all
+/// three verbatim produced two simultaneously-active definitions → `error[E0428]`.
+#[test]
+fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![
+            free_fn("download_model", Some("feature = \"ner-onnx\"")),
+            free_fn("download_model", Some("not(feature = \"ner-onnx\")")),
+            // Ungated third entry — the gate that should have carried `not(feature = "ner")`
+            // was lost in extraction; this is the entry that triggers the E0428 collision.
+            free_fn("download_model", None),
+        ],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generation should succeed");
+    let content = &files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .expect("lib.rs must be generated")
+        .content;
+
+    let definition_count = content.matches("fn download_model(").count();
+    assert_eq!(
+        definition_count, 1,
+        "expected exactly one `fn download_model` definition, found {definition_count} (E0428 regression)"
+    );
+
+    // When any group member is unconditional the merged wrapper must be unconditional too:
+    // no `#[cfg(...)]` should gate the surviving `download_model`.
+    let def_pos = content
+        .find("fn download_model(")
+        .expect("download_model must be emitted");
+    let preamble_start = content[..def_pos].rfind("\n\n").map(|i| i + 2).unwrap_or(0);
+    let preamble = &content[preamble_start..def_pos];
+    assert!(
+        !preamble.contains("#[cfg("),
+        "the deduped download_model wrapper must be unconditional (an ungated variant exists), got preamble:\n{preamble}"
+    );
+}

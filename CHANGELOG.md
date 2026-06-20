@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java: declare `_to_json` downcall handle for serde enum returns**: the
+  `NativeLib` generator only enumerated `_to_json` handles from `api.types`, so
+  serde enums (e.g. `ChunkingDecision`, `StructuredCallMode`) returned by free
+  functions produced facade calls to undeclared `NativeLib` constants, breaking
+  Java compilation. The generator now also chains serde-deriving `api.enums`.
+
+- **ruby/magnus: dedup same-named free functions before Rust glue emission**:
+  collapse cfg-variant duplicates (e.g. `download_model`) to one core-delegating
+  wrapper via `with_deduped_functions`, fixing `E0428` duplicate-definition
+  errors in the generated bindings.
+
+- **csharp: null-coalesce optional byte-slice length args**: optional `byte[]?`
+  parameters emitted `(UIntPtr){p}.Length`, dereferencing a possibly-null array
+  and tripping `CS8602` under `<TreatWarningsAsErrors>` (blocked the NuGet
+  publish at the `AnalyzeDocument` site). All six length-emission sites now route
+  through a helper that emits `(UIntPtr)({p}?.Length ?? 0)` when the param is
+  optional.
+
+- **r/extendr: forward cfg-gated core features into the generated R crate's
+  `[features]` table**: declares a passthrough/`default` feature for every
+  `#[cfg(feature = "X")]` the backend emits into `lib.rs` (e.g. `tokio-runtime`),
+  so the R binding builds clean under `RUSTFLAGS=-D warnings` instead of failing
+  with `unexpected cfg condition value`.
+
+- **dart: widen android-x86_64-gated opaque wrapper cfg**: the generated FRB
+  wrapper (e.g. `crate::LlmBackend`) is referenced unconditionally by
+  `frb_generated.rs`, so it must exist on `x86_64-linux-android` where core
+  provides the type as a crate-root stub; the wrapper/impl cfg now drops the
+  android-x86_64 exclusion instead of inheriting it from the core re-export.
+
 - **extract: OR-merge cfgs for same-named types with disjoint gates**: when a
   name resolves to multiple `ApiSurface` types with differing `cfg` gates — a
   real re-export under one feature plus a crate-root stub under the complementary

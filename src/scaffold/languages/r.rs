@@ -153,6 +153,32 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     dep_lines.sort();
     let deps_section = dep_lines.join("\n");
 
+    // Collect every feature name referenced by a `#[cfg(feature = "X")]` attribute
+    // on any type, field, enum variant, or top-level function the extendr backend
+    // emits into the R crate's `lib.rs`, and emit a forwarding `[features]` table so
+    // the binding crate re-exports each one to the core dep. Without this, the
+    // `#[cfg(feature = "X")]` gates produce `error: unexpected cfg condition value: X`
+    // under `RUSTFLAGS=-D warnings` because the R crate's own Cargo.toml does not
+    // declare that feature (it only enables it on the core dependency). Mirrors the
+    // dart/swift backend behaviour.
+    let cfg_features = crate::codegen::cfg::collect_cfg_features(api);
+    let features_block = if cfg_features.is_empty() {
+        String::new()
+    } else {
+        let mut lines: Vec<String> = Vec::with_capacity(cfg_features.len() + 1);
+        // Enable every cfg-forwarded feature by default so the gated wrappers compile
+        // without the caller explicitly activating them.
+        let default_list: Vec<String> = cfg_features.iter().map(|name| format!("\"{name}\"")).collect();
+        lines.push(format!("default = [{}]", default_list.join(", ")));
+        for name in &cfg_features {
+            lines.push(format!(
+                r#"{name} = ["{core_dep_key}/{name}"]"#,
+                core_dep_key = config.name
+            ));
+        }
+        format!("\n[features]\n{}\n", lines.join("\n"))
+    };
+
     let cargo_content = format!(
         r#"{pkg_header}
 
@@ -161,9 +187,10 @@ crate-type = ["staticlib", "lib"]
 
 [dependencies]
 {deps_section}
-"#,
+{features_block}"#,
         pkg_header = pkg_header,
         deps_section = deps_section,
+        features_block = features_block,
     );
 
     let r_package_name = config.r_package_name();

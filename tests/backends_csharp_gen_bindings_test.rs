@@ -1656,6 +1656,70 @@ fn wrapper_functions_cleanup_owned_handles_only_in_finally() {
     );
 }
 
+/// Regression test: an optional byte-slice parameter (`Option<&[u8]>` in Rust, lowered to
+/// `ty: Bytes, optional: true`) must emit a null-safe length argument
+/// `(UIntPtr)(documentBytes?.Length ?? 0)` rather than dereferencing a possibly-null array
+/// with `(UIntPtr)documentBytes.Length`. The raw dereference trips CS8602 under
+/// `<TreatWarningsAsErrors>` and blocked the NuGet build (the `AnalyzeDocument` site).
+#[test]
+fn wrapper_optional_bytes_param_emits_null_safe_length() {
+    let backend = CsharpBackend;
+    let config = minimal_csharp_config("test");
+    let api = ApiSurface {
+        crate_name: "test".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "analyze".to_string(),
+            rust_path: "test::analyze".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "document_bytes".to_string(),
+                ty: TypeRef::Bytes,
+                optional: true,
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: Some("Error".to_string()),
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib = files
+        .iter()
+        .find(|file| file.path.to_string_lossy().ends_with("TestConverter.cs"))
+        .expect("wrapper class should be generated");
+
+    assert!(
+        lib.content.contains("(UIntPtr)(documentBytes?.Length ?? 0)"),
+        "optional byte-slice length must be null-coalesced to avoid CS8602:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("(UIntPtr)documentBytes.Length"),
+        "optional byte-slice length must not dereference a possibly-null array:\n{}",
+        lib.content
+    );
+}
+
 /// Regression test: Duration field in a has_default struct must emit `ulong?` (single `?`),
 /// not `ulong??`. Reproduces the CS1519 error introduced by commit 9ee50d0.
 #[test]

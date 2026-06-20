@@ -77,6 +77,19 @@ impl Backend for MagnusBackend {
     }
 
     fn generate_bindings(&self, api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {
+        // The Magnus Rust glue emits one top-level free function per `api.functions` entry,
+        // cfg-gating each variant via `prepend_cfg`. That keeps disjoint cfg-variants from
+        // colliding ONLY while every same-named entry carries a cfg. When the surface contains
+        // same-named entries that are NOT all cfg-gated (e.g. a re-exported real impl under
+        // `#[cfg(feature = "X")]`, its `#[cfg(not(...))]` stub, AND an unconditional stub from a
+        // separate `#[cfg(not(...))]` parent module whose gate did not propagate into the IR),
+        // emitting them verbatim yields two simultaneously-active `fn <name>` definitions and a
+        // duplicate-definition error (E0428). Collapse same-named entries to a single canonical
+        // wrapper (cfg = OR of the group, dropping to unconditional when any member is ungated)
+        // that delegates to the core crate, which resolves the cfg itself. See codegen::fn_dedup.
+        let deduped_api = api.with_deduped_functions();
+        let api = &deduped_api;
+
         let mapper = MagnusMapper;
         let core_import = config.core_import_name();
 
@@ -617,7 +630,7 @@ impl Backend for MagnusBackend {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // The RBS signature file is a single Ruby surface; same-named cfg-variant functions must
         // collapse to one `def self.<fn>` to avoid duplicate signature declarations. The Magnus
-        // Rust glue (generate_bindings) keeps the original multi-entry surface. See codegen::fn_dedup.
+        // Rust glue (generate_bindings) deduplicates the same way. See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 
@@ -675,7 +688,7 @@ impl Backend for MagnusBackend {
     ) -> anyhow::Result<Vec<GeneratedFile>> {
         // The Ruby facade module is a single surface; same-named cfg-variant functions must
         // collapse to one method to avoid redefinition. The Magnus Rust glue (generate_bindings)
-        // keeps the original multi-entry surface. See codegen::fn_dedup.
+        // deduplicates the same way. See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
         let api = &deduped_api;
 

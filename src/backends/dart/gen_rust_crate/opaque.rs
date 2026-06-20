@@ -133,12 +133,17 @@ pub(super) fn emit_opaque_impl_block(
             trait_uses.insert(path.clone());
         }
     }
+    // Widen the impl block's cfg the same way as the wrapper struct so the
+    // `impl TypeName` (and its `use` imports) resolve on Android x86_64, where
+    // the crate-root core type is available as a stub. See
+    // helpers::widen_opaque_wrapper_cfg.
+    let impl_cfg = super::helpers::widen_opaque_wrapper_cfg(ty.cfg.as_deref().unwrap_or(""));
     for path in &trait_uses {
         out.push_str(&crate::backends::dart::template_env::render(
             "rust_use.rs.jinja",
             minijinja::context! {
                 path => path.as_str(),
-                source_cfg => ty.cfg.as_deref().unwrap_or(""),
+                source_cfg => impl_cfg.as_str(),
             },
         ));
     }
@@ -147,7 +152,7 @@ pub(super) fn emit_opaque_impl_block(
         "rust_impl_open.rs.jinja",
         minijinja::context! {
             type_name => type_name,
-            source_cfg => ty.cfg.as_deref().unwrap_or(""),
+            source_cfg => impl_cfg.as_str(),
         },
     ));
 

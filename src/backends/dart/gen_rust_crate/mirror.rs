@@ -44,12 +44,17 @@ pub(crate) fn emit_mirror_struct(out: &mut String, ty: &TypeDef, source_crate_na
             ty.rust_path.replace('-', "_")
         };
         emit_rust_doc(&ty.doc, "", out);
+        // The wrapper wraps the crate-root core type (real-or-stub), which always
+        // resolves on Android x86_64. Strip the re-export's android-x86_64
+        // exclusion so the wrapper (referenced unconditionally by frb_generated.rs)
+        // exists on that triple too. See helpers::widen_opaque_wrapper_cfg.
+        let wrapper_cfg = super::helpers::widen_opaque_wrapper_cfg(ty.cfg.as_deref().unwrap_or(""));
         out.push_str(&template_env::render(
             "rust_opaque_wrapper_struct.jinja",
             minijinja::context! {
                 name => ty.name.as_str(),
                 inner_path => inner_path.as_str(),
-                source_cfg => ty.cfg.as_deref().unwrap_or(""),
+                source_cfg => wrapper_cfg.as_str(),
             },
         ));
         return;

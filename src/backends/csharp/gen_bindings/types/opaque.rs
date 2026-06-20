@@ -321,7 +321,7 @@ pub(super) fn gen_opaque_method(
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => arg_indent, param_name },
+                    minijinja::context! { indent => arg_indent, param_name, optional => param.optional },
                 ));
             }
         }
@@ -367,7 +367,7 @@ pub(super) fn gen_opaque_method(
                     out.push_str(
                         render(
                             "indented_arg_async.jinja",
-                            minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                            minijinja::context! { arg => super::super::bytes_len_arg("(nuint)", &param_name, param.optional) },
                         )
                         .trim_end_matches('\n'),
                     );
@@ -392,7 +392,7 @@ pub(super) fn gen_opaque_method(
                     out.push_str(
                         render(
                             "indented_arg_async.jinja",
-                            minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                            minijinja::context! { arg => super::super::bytes_len_arg("(nuint)", &param_name, param.optional) },
                         )
                         .trim_end_matches('\n'),
                     );
@@ -454,7 +454,7 @@ pub(super) fn gen_opaque_method(
                     out.push_str(
                         render(
                             "indented_arg_sync.jinja",
-                            minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                            minijinja::context! { arg => super::super::bytes_len_arg("(nuint)", &param_name, param.optional) },
                         )
                         .trim_end_matches('\n'),
                     );
@@ -475,7 +475,7 @@ pub(super) fn gen_opaque_method(
                     out.push_str(
                         render(
                             "indented_arg_sync.jinja",
-                            minijinja::context! { arg => format!("(nuint){param_name}.Length") },
+                            minijinja::context! { arg => super::super::bytes_len_arg("(nuint)", &param_name, param.optional) },
                         )
                         .trim_end_matches('\n'),
                     );

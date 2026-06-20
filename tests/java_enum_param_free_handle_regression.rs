@@ -10,7 +10,7 @@
 use alef::backends::java::JavaBackend;
 use alef::core::backend::Backend;
 use alef::core::config::{NewAlefConfig, ResolvedCrateConfig};
-use alef::core::ir::{ApiSurface, CoreWrapper, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
+use alef::core::ir::{ApiSurface, CoreWrapper, EnumDef, FunctionDef, ParamDef, PrimitiveType, TypeDef, TypeRef};
 
 fn resolved_one(toml: &str) -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(toml).unwrap();
@@ -156,5 +156,90 @@ fn param_type_with_serde_emits_free_handle_in_native_lib() {
     assert!(
         wrapper.contains("NativeLib.TEST_MY_MODE_FREE"),
         "Wrapper must use TEST_MY_MODE_FREE to clean up param\n\n{wrapper}"
+    );
+}
+
+/// Regression test for serde enums returned by a free function.
+///
+/// The Java call-site emitter (`ffi_class::sync_functions`) emits a
+/// `NativeLib.{PREFIX}_{TYPE}_TO_JSON` invocation for EVERY non-opaque `Named` return type —
+/// including serde-deriving enums such as `ChunkingDecision` / `StructuredCallMode`. The
+/// NativeLib generator only walked `api.types` when collecting `_TO_JSON` handles, so a serde
+/// enum (which lives in `api.enums`, not `api.types`) returned by a function produced a call to
+/// a `NativeLib` constant that was never declared — breaking Java compilation. This asserts the
+/// downcall handle is now declared and referenced consistently.
+#[test]
+fn serde_enum_return_emits_to_json_handle_in_native_lib() {
+    let mode_enum = EnumDef {
+        name: "MyMode".to_string(),
+        rust_path: "test_lib::MyMode".to_string(),
+        has_serde: true,
+        doc: "Synthetic serde enum for testing".to_string(),
+        ..Default::default()
+    };
+
+    // Free function returning the serde enum by value (lowered to a `*mut MyMode` pointer in FFI).
+    let function = FunctionDef {
+        name: "classify".to_string(),
+        rust_path: "test_lib::classify".to_string(),
+        original_rust_path: String::new(),
+        params: vec![],
+        return_type: TypeRef::Named("MyMode".to_string()),
+        is_async: false,
+        error_type: None,
+        doc: String::new(),
+        cfg: None,
+        sanitized: false,
+        return_sanitized: false,
+        returns_ref: false,
+        returns_cow: false,
+        return_newtype_wrapper: None,
+        binding_excluded: false,
+        binding_exclusion_reason: None,
+        version: Default::default(),
+    };
+
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![function],
+        enums: vec![mode_enum],
+        errors: vec![],
+        excluded_type_paths: Default::default(),
+        excluded_trait_names: Default::default(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = JavaBackend
+        .generate_bindings(&api, &make_test_config("com.example"))
+        .unwrap();
+
+    let native_lib = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("NativeLib.java"))
+        .expect("NativeLib.java")
+        .content
+        .as_str();
+
+    let wrapper = files
+        .iter()
+        .find(|f| f.path.file_name().and_then(|n| n.to_str()) == Some("TestLibRs.java"))
+        .expect("TestLibRs.java")
+        .content
+        .as_str();
+
+    // The wrapper calls the _TO_JSON handle to deserialize the returned enum pointer …
+    assert!(
+        wrapper.contains("NativeLib.TEST_MY_MODE_TO_JSON"),
+        "Wrapper must use TEST_MY_MODE_TO_JSON for serde enum return\n\n{wrapper}"
+    );
+
+    // … so the NativeLib MUST declare it, or the generated Java fails to compile.
+    assert!(
+        native_lib.contains("TEST_MY_MODE_TO_JSON"),
+        "NativeLib must declare TEST_MY_MODE_TO_JSON handle for serde enum return\n\n{native_lib}"
     );
 }

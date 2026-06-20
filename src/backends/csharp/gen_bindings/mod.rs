@@ -11,9 +11,9 @@ use files::{
     strip_trailing_whitespace,
 };
 use marshalling::{
-    emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented, is_bridge_param,
-    native_call_arg, needs_param_teardown, pinvoke_param_type, pinvoke_return_type, returns_bool_via_int,
-    returns_json_object, returns_ptr, returns_string,
+    bytes_len_arg, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
+    is_bridge_param, native_call_arg, needs_param_teardown, pinvoke_param_type, pinvoke_return_type,
+    returns_bool_via_int, returns_json_object, returns_ptr, returns_string,
 };
 
 /// Metadata for a streaming adapter, used to drive emission of an

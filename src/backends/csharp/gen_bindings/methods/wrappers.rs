@@ -1,8 +1,8 @@
 use super::super::errors::{emit_return_marshalling_indented, emit_return_statement, emit_return_statement_indented};
 use super::super::functions::{is_bytes_result_func, is_bytes_result_method};
 use super::super::{
-    emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented, is_bridge_param,
-    native_call_arg, needs_param_teardown, returns_ptr,
+    bytes_len_arg, emit_named_param_setup, emit_named_param_teardown, emit_named_param_teardown_indented,
+    is_bridge_param, native_call_arg, needs_param_teardown, returns_ptr,
 };
 use crate::backends::csharp::type_map::csharp_type;
 use crate::codegen::doc_emission;
@@ -251,7 +251,7 @@ pub(super) fn gen_wrapper_function(
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => "            ", param_name },
+                    minijinja::context! { indent => "            ", param_name, optional => param.optional },
                 ));
             }
         }
@@ -334,7 +334,7 @@ pub(super) fn gen_wrapper_function(
                 arg_parts.push(arg.clone());
                 // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
-                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                    arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
             }
             for (i, arg) in arg_parts.iter().enumerate() {
@@ -422,7 +422,7 @@ pub(super) fn gen_wrapper_function(
                 arg_parts.push(arg.clone());
                 // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
-                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                    arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
             }
             for (i, arg) in arg_parts.iter().enumerate() {
@@ -653,7 +653,7 @@ pub(super) fn gen_wrapper_method(
             if matches!(param.ty, TypeRef::Bytes) {
                 args_block.push_str(&render(
                     "native_bytes_len_arg_line.jinja",
-                    minijinja::context! { indent => "            ", param_name },
+                    minijinja::context! { indent => "            ", param_name, optional => param.optional },
                 ));
             }
         }
@@ -732,7 +732,7 @@ pub(super) fn gen_wrapper_method(
                 arg_parts.push(arg.clone());
                 // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
-                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                    arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
             }
             for (i, arg) in arg_parts.iter().enumerate() {
@@ -802,7 +802,7 @@ pub(super) fn gen_wrapper_method(
                 arg_parts.push(arg.clone());
                 // For byte-slice input parameters, emit the length argument immediately after.
                 if matches!(param.ty, TypeRef::Bytes) {
-                    arg_parts.push(format!("(UIntPtr){param_name}.Length"));
+                    arg_parts.push(bytes_len_arg("(UIntPtr)", &param_name, param.optional));
                 }
             }
             for (i, arg) in arg_parts.iter().enumerate() {
