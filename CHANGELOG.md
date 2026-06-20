@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.57] - 2026-06-21
+
 ### Fixed
 
 - **java: declare `_to_json` downcall handle for serde enum returns**: the
