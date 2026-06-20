@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.56] - 2026-06-20
+
+### Fixed
+
+- **napi default/variant constructor missing `Mutex` wrap**: the generated
+  `#[napi(constructor)] pub fn new_constructor()` for an opaque type with `&mut self`
+  methods (stored as `Arc<Mutex<T>>`) emitted `Arc::new(T::new())` instead of
+  `Arc::new(Mutex::new(T::new()))`, so the constructor body mismatched the field
+  type and the binding failed to compile (`E0308`, e.g. `ts-pack-core-node`
+  `JsParser`). The constructor now mirrors the wrapper struct's `inner` field:
+  it `Mutex::new`-wraps when `type_needs_mutex`, and stays bare `Arc::new` otherwise.
+
 ## [0.25.55] - 2026-06-20
 
 ### Fixed
