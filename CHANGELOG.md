@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.58] - 2026-06-21
+
 ### Fixed
 
 - **codegen: long signatures preserve backend-aware parameter types**: the free-function
