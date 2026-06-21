@@ -77,7 +77,14 @@ pub fn gen_function_with_mutex(
                     seen_optional && !p.optional && crate::codegen::shared::is_promoted_optional(&func.params, idx);
                 let ty = match &p.ty {
                     TypeRef::Named(n) if !opaque_types.contains(n.as_str()) => {
-                        if p.optional || seen_optional || promoted {
+                        // Only genuinely-optional named params become `Nullable<&T>`. A param that is
+                        // required in core but merely *follows* an optional one is NOT promoted for
+                        // extendr: R imposes no "required-after-optional" ordering constraint (unlike
+                        // PyO3), and `Nullable<&T>::into_option()` needs `&T: TryFrom<Robj>`, which
+                        // extendr does not implement. Keeping it `&T` (required) matches the by-ref
+                        // simple let-binding and the core signature.
+                        let _ = promoted;
+                        if p.optional {
                             format!("Nullable<&{}>", map_fn(&p.ty))
                         } else {
                             format!("&{}", map_fn(&p.ty))
@@ -138,7 +145,13 @@ pub fn gen_function_with_mutex(
         // `&mut *{name}.inner.lock().unwrap()` instead of `&{name}.inner`. The shared free-function
         // generator is used by PyO3/extendr, whose binding Json type is `String`, so parse Json
         // params into serde_json::Value at the call site.
-        gen_call_args_with_let_bindings_mutex_json_str(&effective_params, opaque_types, mutex_types)
+        gen_call_args_with_let_bindings_mutex_json_str(
+            &effective_params,
+            opaque_types,
+            mutex_types,
+            cfg.cast_uints_to_i32,
+            cfg.cast_large_ints_to_f64,
+        )
     } else if cfg.cast_uints_to_i32 || cfg.cast_large_ints_to_f64 {
         gen_call_args_cfg(
             &effective_params,

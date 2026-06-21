@@ -172,6 +172,22 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                         } else {
                             p.name.clone()
                         }
+                    } else if matches!(inner.as_ref(), TypeRef::String | TypeRef::Char)
+                        && p.is_ref
+                        && p.vec_inner_is_ref
+                    {
+                        // Vec<String> with is_ref=true AND vec_inner_is_ref=true: core expects
+                        // `&[&str]`, but the binding holds `Vec<String>`. `&Vec<String>` coerces
+                        // only to `&[String]`, so build a `Vec<&str>` inline; the temporary lives
+                        // for the duration of the call statement.
+                        if p.optional {
+                            format!(
+                                "{}.as_ref().map(|v| v.iter().map(String::as_str).collect::<Vec<_>>()).as_deref()",
+                                p.name
+                            )
+                        } else {
+                            format!("&{}.iter().map(String::as_str).collect::<Vec<_>>()", p.name)
+                        }
                     } else if promoted {
                         format!("{}{}", p.name, unwrap_suffix)
                     } else if p.is_mut && p.optional {
@@ -284,20 +300,22 @@ pub fn gen_call_args_cfg(
 /// `String` (PyO3, extendr, Magnus) must use [`gen_call_args_with_let_bindings_json_str`] so the
 /// String is parsed into `serde_json::Value` at the call site.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, false)
+    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false)
 }
 
 /// Like [`gen_call_args_with_let_bindings`] but converts `String`-typed Json params into
 /// `serde_json::Value` via `serde_json::from_str(...)` at the call site. Use this for backends
 /// that map Json to `String` in binding signatures (PyO3, extendr, Magnus).
 pub fn gen_call_args_with_let_bindings_json_str(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, true)
+    gen_call_args_with_let_bindings_inner(params, opaque_types, true, false, false)
 }
 
 fn gen_call_args_with_let_bindings_inner(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
     json_from_str: bool,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
     params
         .iter()
@@ -313,6 +331,24 @@ fn gen_call_args_with_let_bindings_inner(
             } else {
                 String::new()
             };
+            // Primitive params whose binding type was remapped (extendr: u32->i32, u64/usize/f32->f64)
+            // must be cast back to the core type at the call site. The let-binding path otherwise
+            // passes them through unchanged, which fails when mixed with a Named param that forces
+            // this path (e.g. `check_format_limits`'s `sheet_count: Option<u32>` alongside `config`).
+            if let TypeRef::Primitive(prim) = &p.ty {
+                let needs_cast =
+                    (cast_uints_to_i32 && needs_i32_cast(prim)) || (cast_large_ints_to_f64 && needs_f64_cast(prim));
+                if needs_cast {
+                    let core_ty = core_prim_str(prim);
+                    return if p.optional {
+                        format!("{}.map(|v| v as {core_ty})", p.name)
+                    } else if promoted {
+                        format!("({}{}) as {core_ty}", p.name, unwrap_suffix)
+                    } else {
+                        format!("{} as {core_ty}", p.name)
+                    };
+                }
+            }
             // If this param's type was resolved from a newtype, re-wrap when calling core.
             if let Some(newtype_path) = &p.newtype_wrapper {
                 return if p.optional {
@@ -528,17 +564,28 @@ pub fn gen_call_args_with_let_bindings_mutex(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
 ) -> String {
-    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false)
+    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, false, false, false)
 }
 
 /// Like [`gen_call_args_with_let_bindings_mutex`] but parses `String`-typed Json params into
-/// `serde_json::Value` at the call site (for PyO3/extendr/Magnus free functions).
+/// `serde_json::Value` at the call site (for PyO3/extendr/Magnus free functions). The
+/// `cast_uints_to_i32`/`cast_large_ints_to_f64` flags mirror the backend's numeric remapping so
+/// primitive params are cast back to the core type even on this (let-binding) call-arg path.
 pub fn gen_call_args_with_let_bindings_mutex_json_str(
     params: &[ParamDef],
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
-    gen_call_args_with_let_bindings_mutex_inner(params, opaque_types, mutex_types, true)
+    gen_call_args_with_let_bindings_mutex_inner(
+        params,
+        opaque_types,
+        mutex_types,
+        true,
+        cast_uints_to_i32,
+        cast_large_ints_to_f64,
+    )
 }
 
 fn gen_call_args_with_let_bindings_mutex_inner(
@@ -546,9 +593,17 @@ fn gen_call_args_with_let_bindings_mutex_inner(
     opaque_types: &AHashSet<String>,
     mutex_types: &AHashSet<String>,
     json_from_str: bool,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
 ) -> String {
     // Generate the base call args first, then patch mutex-opaque is_mut entries.
-    let base = gen_call_args_with_let_bindings_inner(params, opaque_types, json_from_str);
+    let base = gen_call_args_with_let_bindings_inner(
+        params,
+        opaque_types,
+        json_from_str,
+        cast_uints_to_i32,
+        cast_large_ints_to_f64,
+    );
 
     // Build a replacement map: for each param that is an opaque mutex type with is_ref && is_mut,
     // the base function emits `&{name}.inner` but we need `&mut *{name}.inner.lock().unwrap()`.

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.59] - 2026-06-21
+
+### Fixed
+
+- **r/extendr: complete the binding surface so the R crate compiles**: four remaining
+  gaps from 0.25.58 are now closed, and the generated `kreuzberg-r` crate builds clean.
+  - **slice `&[&str]` parameters**: core functions taking `&[&str]` now receive an
+    inline `&name.iter().map(String::as_str).collect::<Vec<_>>()` conversion (and the
+    `as_deref()` variant for optionals) instead of passing the R-side `Vec<String>`
+    directly, which did not satisfy the `&[&str]` bound.
+  - **optional/promoted Named parameters**: extendr has no PyO3-style
+    "required-after-optional" ordering constraint, so non-optional named DTO parameters
+    are bound by reference (`&T`) rather than being promoted to `Nullable<&T>`. The
+    `Nullable<&T>::into_option()` path (which requires `&T: TryFrom<Robj>`, not
+    implemented by extendr) is now only emitted for genuinely optional parameters.
+  - **integer cast-back at call sites**: extendr maps `u32 → i32` and
+    `u64`/`usize`/`f32 → f64`, so call arguments now cast back to the core parameter
+    type (`v as u32`, etc.), including optional and promoted forms.
+  - **`KreuzbergError → extendr_api::Error` conversion**: the `TokioBlockOn` async body
+    converts the core future's error explicitly via the sanitising
+    `extendr_api::Error::Other` mapping used across the rest of the extendr surface,
+    rather than relying on a non-existent `From` impl.
+
 ## [0.25.58] - 2026-06-21
 
 ### Fixed
@@ -35,10 +58,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   bridging when a named return type already requires JSON serialization. Call
   arguments now preserve whether the core function expects by-value, `&T`, or
   `&mut T`, and by-value passing no longer forces an erroneous `&` (fixes
-  `score_confidence`). Some extendr binding paths remain incomplete (slice `&[&str]`
-  parameters, `Nullable<&T>::into_option` trait bounds, uint→i32 call-site
-  cast-back, and `KreuzbergError → extendr_api::Error` conversion); the R crate is
-  not yet fully compiling and is tracked separately.
+  `score_confidence`). Some extendr binding paths remained incomplete at this release
+  (slice `&[&str]` parameters, `Nullable<&T>::into_option` trait bounds, uint→i32
+  call-site cast-back, and `KreuzbergError → extendr_api::Error` conversion); these are
+  completed in 0.25.59, after which the R crate compiles clean.
 - **elixir/rustler: fix sync argument conversions and enum atoms**: optional
   binary parameters now convert to `Option<&[u8]>` or owned `Vec<u8>` correctly,
   JSON string parameters deserialize to `serde_json::Value`, borrowed BTreeMap

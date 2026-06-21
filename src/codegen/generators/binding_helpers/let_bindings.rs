@@ -54,19 +54,14 @@ pub(in crate::codegen::generators) fn gen_named_let_bindings_by_ref(
     for (idx, p) in params.iter().enumerate() {
         match &p.ty {
             TypeRef::Named(name) if !opaque_types.contains(name.as_str()) => {
-                let promoted = crate::codegen::shared::is_promoted_optional(params, idx);
                 let core_type_path = format!("{core_import}::{name}");
+                // A param that is required in core but follows an optional one is NOT promoted for
+                // extendr (R has no required-after-optional ordering constraint, and the signature
+                // keeps it as required `&T`). Only genuinely-optional params take the by-ref optional
+                // marshalling; everything else uses the simple `{name}.clone().into()` form.
                 let binding = if p.optional {
                     crate::codegen::template_env::render(
                         "binding_helpers/named_let_binding_by_ref_optional.jinja",
-                        minijinja::context! {
-                            name => &p.name,
-                            core_type_path => &core_type_path,
-                        },
-                    )
-                } else if promoted {
-                    crate::codegen::template_env::render(
-                        "binding_helpers/named_let_binding_by_ref_promoted.jinja",
                         minijinja::context! {
                             name => &p.name,
                             core_type_path => &core_type_path,

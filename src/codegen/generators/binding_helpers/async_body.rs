@@ -122,6 +122,10 @@ pub fn gen_async_body(
         AsyncPattern::TokioBlockOn => {
             let rt_new = "tokio::runtime::Runtime::new()\
                           .map_err(|e| extendr_api::Error::Other(e.to_string()))?";
+            // extendr has no `From<CoreError>` for `extendr_api::Error`, so the core future's
+            // error must be converted explicitly (matching the sanitising conversion used by the
+            // rest of the extendr surface) rather than relying on `.into()`.
+            let err_map = ".map_err(|e| extendr_api::Error::Other(e.to_string().replace(\":\", \"_\").replace(\"/\", \"_\").replace(\"-\", \"_\").chars().take(255).collect::<String>()))";
             crate::codegen::template_env::render(
                 "binding_helpers/async_body_tokio.jinja",
                 minijinja::context! {
@@ -131,6 +135,7 @@ pub fn gen_async_body(
                     core_call => core_call,
                     return_wrap => return_wrap,
                     rt_new => rt_new,
+                    err_map => err_map,
                 },
             )
         }
