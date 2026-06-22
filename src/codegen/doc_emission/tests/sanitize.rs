@@ -1,6 +1,111 @@
 use crate::codegen::doc_emission::{
-    DocTarget, emit_csharp_doc, example_for_target, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections,
+    DocTarget, emit_csharp_doc, emit_rustdoc, example_for_target, sanitize_rust_idioms,
+    sanitize_rust_idioms_keep_sections,
 };
+
+// --- emit_rustdoc intra-doc de-linking tests ---
+//
+// The generated Rust binding crates (ts-pack-core-php/-py/-node) are documented
+// with `rustdoc -D rustdoc::broken-intra-doc-links`. Core-crate item references
+// like `[`Error::LanguageNotFound`]` do not resolve there, so `emit_rustdoc`
+// must de-link them to plain code spans (drop the link, keep the backticked
+// text verbatim, including `::`).
+
+/// Run `emit_rustdoc` and return the rendered doc block.
+fn rustdoc(doc: &str) -> String {
+    let mut out = String::new();
+    emit_rustdoc(&mut out, doc, "");
+    out
+}
+
+#[test]
+fn emit_rustdoc_delinks_error_variant_references() {
+    for variant in ["Error::LanguageNotFound", "Error::ParserSetup", "Error::Download"] {
+        let out = rustdoc(&format!("Returns [`{variant}`] when the language is missing."));
+        assert!(out.contains(&format!("`{variant}`")), "code span preserved: {out}");
+        assert!(
+            !out.contains(&format!("[`{variant}`]")),
+            "intra-doc link removed: {out}"
+        );
+        // `::` must survive — this is Rust, not a foreign-language target.
+        assert!(out.contains("::"), "Rust path separator preserved: {out}");
+    }
+}
+
+#[test]
+fn emit_rustdoc_delinks_function_references() {
+    for func in ["get_language", "download", "downloaded_languages", "configure", "init"] {
+        let out = rustdoc(&format!("See [`{func}`] for details."));
+        assert!(out.contains(&format!("`{func}`")), "code span preserved: {out}");
+        assert!(!out.contains(&format!("[`{func}`]")), "intra-doc link removed: {out}");
+    }
+}
+
+#[test]
+fn emit_rustdoc_delinks_self_method_reference() {
+    let out = rustdoc("Call [`Self::ensure_languages`] first.");
+    assert!(out.contains("`Self::ensure_languages`"), "code span preserved: {out}");
+    assert!(
+        !out.contains("[`Self::ensure_languages`]"),
+        "intra-doc link removed: {out}"
+    );
+    assert!(out.contains("::"), "`::` preserved verbatim: {out}");
+}
+
+#[test]
+fn emit_rustdoc_delinks_explicit_intradoc_target() {
+    let out = rustdoc("Returns [`Error::Download`](crate::Error::Download) on network failure.");
+    assert!(out.contains("`Error::Download`"), "code span preserved: {out}");
+    assert!(!out.contains("(crate::"), "explicit intra-doc target dropped: {out}");
+    assert!(!out.contains("[`"), "no intra-doc link form remains: {out}");
+}
+
+#[test]
+fn emit_rustdoc_delinks_bare_bracket_reference() {
+    let out = rustdoc("See [get_language] to resolve a grammar.");
+    assert!(
+        out.contains("`get_language`"),
+        "bare bracket wrapped in code span: {out}"
+    );
+    assert!(!out.contains("[get_language]"), "bare intra-doc link removed: {out}");
+}
+
+#[test]
+fn emit_rustdoc_preserves_real_url_links() {
+    let out = rustdoc("See [the tree-sitter docs](https://tree-sitter.github.io/) for grammars.");
+    assert!(
+        out.contains("[the tree-sitter docs](https://tree-sitter.github.io/)"),
+        "genuine URL markdown link left intact: {out}"
+    );
+}
+
+#[test]
+fn emit_rustdoc_preserves_http_and_anchor_links() {
+    let http = rustdoc("Mirror at [legacy](http://example.com/grammars).");
+    assert!(
+        http.contains("[legacy](http://example.com/grammars)"),
+        "http link preserved: {http}"
+    );
+    let anchor = rustdoc("Jump to [the errors section](#errors).");
+    assert!(
+        anchor.contains("[the errors section](#errors)"),
+        "anchor link preserved: {anchor}"
+    );
+}
+
+#[test]
+fn emit_rustdoc_does_not_mangle_existing_code_spans_with_brackets() {
+    // A backtick span containing `[` must not be misread as a link target.
+    let out = rustdoc("Index with `slice[0]` to read the first element.");
+    assert!(out.contains("`slice[0]`"), "inline code span preserved verbatim: {out}");
+}
+
+#[test]
+fn emit_rustdoc_leaves_non_identifier_brackets_alone() {
+    // A bracketed phrase that is not an identifier reference is plain prose.
+    let out = rustdoc("Optional [see below] for the rationale.");
+    assert!(out.contains("[see below]"), "non-identifier bracket left alone: {out}");
+}
 
 // --- sanitize_rust_idioms tests ---
 

@@ -1,5 +1,6 @@
 use super::sanitize::{
-    DocTarget, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections, wrap_bare_bracket_references,
+    DocTarget, delink_intradoc_references, sanitize_rust_idioms, sanitize_rust_idioms_keep_sections,
+    wrap_bare_bracket_references,
 };
 use super::sections::{
     RustdocSections, example_for_target, parse_arguments_bullets, parse_rustdoc_sections, render_csharp_xml_sections,
@@ -146,7 +147,14 @@ pub fn emit_rustdoc(out: &mut String, doc: &str, indent: &str) {
     if doc.is_empty() {
         return;
     }
-    for line in doc.lines() {
+    // De-link rustdoc intra-doc references (`` [`Error::LanguageNotFound`] ``,
+    // `` [`get_language`] ``, …). Those item paths resolve in the core crate but
+    // not in the generated binding crate, so `rustdoc -D
+    // rustdoc::broken-intra-doc-links` (forced on the command line, where a
+    // crate-level `#![allow]` cannot override it) would fail. Converting them to
+    // plain code spans keeps the text readable without leaving a broken link.
+    let delinked = delink_intradoc_references(doc);
+    for line in delinked.lines() {
         out.push_str(indent);
         out.push_str("/// ");
         out.push_str(line);
