@@ -51,7 +51,8 @@ pub(super) fn render_test_method(
         e2e_config.effective_fields_method_calls(call_config),
         &HashMap::new(),
         swift_first_class_map.clone(),
-    );
+    )
+    .with_display_as_text_fields(e2e_config.effective_fields_display_as_text(call_config).clone());
     let field_resolver = &call_field_resolver;
     let enum_fields = e2e_config.effective_fields_enum(call_config);
     let lang = "swift";

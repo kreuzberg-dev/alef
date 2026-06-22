@@ -586,14 +586,22 @@ fn generate_text_method_extension(type_name: &str) -> String {
     //
     // For untagged unions like AssistantContent = Text(String) | Parts(Vec<AssistantPart>),
     // the Dart representation (after FRB generation) is:
-    //   sealed class AssistantContent {}
-    //   final class AssistantContent_Text extends AssistantContent { final String text; }
-    //   final class AssistantContent_Parts extends AssistantContent { final List<AssistantPart> parts; }
+    //   sealed class AssistantContent with _$AssistantContent {
+    //     const factory AssistantContent.text({required String field0}) = AssistantContent_Text;
+    //     const factory AssistantContent.parts({required List<AssistantPart> field0}) =
+    //         AssistantContent_Parts;
+    //   }
+    //
+    // FRB renders the positional (tuple) payload of each untagged-union variant as a
+    // single freezed field named `field0` — NOT `text`/`parts`. Destructuring on
+    // `:final text` / `:final parts` therefore fails to compile ("getter isn't defined").
+    // Both variants expose their payload through the `field0` getter, so the pattern must
+    // bind `:final field0`.
     //
     // The extension then pattern-matches on these concrete variants and:
-    // - Text variant: returns its string field verbatim
-    // - Parts variant: iterates each part, pattern-matches on part variant (e.g., AssistantPart_Text),
-    //   and concatenates their text fields, skipping non-text parts
+    // - Text variant: returns its string field (`field0`) verbatim
+    // - Parts variant: iterates each part of `field0`, pattern-matches on the part variant
+    //   (e.g., AssistantPart_Text), and concatenates their text fields, skipping non-text parts
     // - Other variants: return empty string
 
     let ext_name = format!("{}TextExt", type_name);
@@ -607,8 +615,8 @@ fn generate_text_method_extension(type_name: &str) -> String {
   /// - Otherwise returns an empty string.
   String text() {{
     return switch (this) {{
-      {}_Text(:final text) => text,
-      {}_Parts(:final parts) => _extractTextFromContentParts(parts),
+      {}_Text(:final field0) => field0,
+      {}_Parts(:final field0) => _extractTextFromContentParts(field0),
       _ => '',
     }};
   }}
@@ -693,6 +701,21 @@ mod tests {
             "must inject text() extension even when the class has a freezed mixin clause; got:\n{result}"
         );
         assert!(result.contains("String text()"));
+        // Regression: the freezed factory renders each untagged-union variant's positional
+        // payload as `field0`, so the destructuring pattern must bind `field0` (binding the
+        // non-existent `text`/`parts` getters fails to compile).
+        assert!(
+            result.contains("AssistantContent_Text(:final field0) => field0"),
+            "Text variant must destructure the freezed `field0` getter; got:\n{result}"
+        );
+        assert!(
+            result.contains("AssistantContent_Parts(:final field0)"),
+            "Parts variant must destructure the freezed `field0` getter; got:\n{result}"
+        );
+        assert!(
+            !result.contains(":final parts") && !result.contains(":final text)"),
+            "must not reference the non-existent `text`/`parts` getters; got:\n{result}"
+        );
     }
 
     #[test]
@@ -756,9 +779,11 @@ final class AssistantPart_Image extends AssistantPart {
         assert!(result.contains("extension AssistantContentTextExt on AssistantContent"));
         // Should have the text() method
         assert!(result.contains("String text()"));
-        // Should have pattern matching for variants
-        assert!(result.contains("AssistantContent_Text(:final text) => text"));
-        assert!(result.contains("AssistantContent_Parts(:final parts)"));
+        // Should have pattern matching for variants. FRB renders the positional payload
+        // of each untagged-union variant as the freezed `field0` getter, so the destructured
+        // binding must be `field0`, not `text`/`parts`.
+        assert!(result.contains("AssistantContent_Text(:final field0) => field0"));
+        assert!(result.contains("AssistantContent_Parts(:final field0)"));
         // Should have helper function
         assert!(result.contains("_extractTextFromContentParts"));
         // Original sealed classes should be preserved

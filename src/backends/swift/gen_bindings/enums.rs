@@ -213,6 +213,7 @@ pub(super) fn emit_enum(
     out: &mut String,
     mapper: &SwiftMapper,
     known_dto_names: &std::collections::HashSet<String>,
+    text_types: &[String],
 ) {
     super::client::emit_doc_comment(&en.doc, "", out);
 
@@ -348,7 +349,108 @@ pub(super) fn emit_enum(
         ));
     }
 
+    // Emit a `text()` accessor for untagged unions configured as display-as-text
+    // content types (e.g. `AssistantContent`). Mirrors the Kotlin backend: a String
+    // variant returns its payload verbatim; a Vec variant concatenates the `text`
+    // field of every element whose serialized form is a `{"type":"text", ...}` part.
+    if is_serde_untagged && text_types.iter().any(|t| t == &en.name) {
+        emit_swift_text_accessor(en, out);
+    }
+
     emit_enum_into_rust_extension(&en.name, out);
+}
+
+/// Emit a `func text() -> String` extension on an untagged-union Swift enum that
+/// extracts the plain-text display value, mirroring Rust's `Display`.
+///
+/// - String newtype variant: return the associated value verbatim.
+/// - `Vec<T>` newtype variant: serialize each element to JSON and concatenate the
+///   `"text"` field of every element whose `"type"` equals `"text"`, skipping
+///   non-text parts (images, audio, refusals). The JSON round-trip keeps the
+///   accessor independent of the element type's concrete Swift shape, matching the
+///   Kotlin backend's JsonNode-based extraction.
+/// - Any other variant (unit, primitive, struct, object): return an empty string.
+pub(super) fn emit_swift_text_accessor(en: &EnumDef, out: &mut String) {
+    let name = &en.name;
+    out.push_str("extension ");
+    out.push_str(name);
+    out.push_str(" {\n");
+    out.push_str("    /// Returns the plain-text display value of this content.\n");
+    out.push_str("    ///\n");
+    out.push_str("    /// - If the value is a string, it is returned verbatim.\n");
+    out.push_str("    /// - If the value is an array, the `text` field of every element whose\n");
+    out.push_str("    ///   `type` equals `\"text\"` is concatenated in order; non-text parts\n");
+    out.push_str("    ///   (images, audio, refusals, etc.) are skipped.\n");
+    out.push_str("    /// - Otherwise returns an empty string.\n");
+    out.push_str("    public func text() -> String {\n");
+    out.push_str("        switch self {\n");
+
+    for variant in &en.variants {
+        let case_name = swift_case_ident(&variant.name.to_lower_camel_case());
+        if variant.fields.len() == 1 && is_tuple_variant_field(&variant.fields[0].name) {
+            let label = swift_associated_label(&variant.fields[0].name, 0);
+            match &variant.fields[0].ty {
+                TypeRef::String => {
+                    out.push_str("        case .");
+                    out.push_str(&case_name);
+                    out.push_str("(let ");
+                    out.push_str(&label);
+                    out.push_str("):\n            return ");
+                    out.push_str(&label);
+                    out.push('\n');
+                }
+                TypeRef::Vec(elem_ty) if matches!(**elem_ty, TypeRef::Named(_) | TypeRef::Json) => {
+                    out.push_str("        case .");
+                    out.push_str(&case_name);
+                    out.push_str("(let ");
+                    out.push_str(&label);
+                    out.push_str("):\n");
+                    out.push_str("            var result = \"\"\n");
+                    out.push_str("            for part in ");
+                    out.push_str(&label);
+                    out.push_str(" {\n");
+                    out.push_str("                guard let data = try? JSONEncoder().encode(part),\n");
+                    out.push_str(
+                        "                    let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],\n",
+                    );
+                    out.push_str("                    object[\"type\"] as? String == \"text\",\n");
+                    out.push_str("                    let textValue = object[\"text\"] as? String\n");
+                    out.push_str("                else { continue }\n");
+                    out.push_str("                result += textValue\n");
+                    out.push_str("            }\n");
+                    out.push_str("            return result\n");
+                }
+                _ => emit_swift_text_empty_case(out, &case_name),
+            }
+        } else if variant.fields.is_empty() {
+            emit_swift_text_empty_case(out, &case_name);
+        } else {
+            // Struct or multi-field variant — match without binding associated values
+            // and return empty.
+            out.push_str("        case .");
+            out.push_str(&case_name);
+            out.push_str(":\n            return \"\"\n");
+        }
+    }
+
+    out.push_str("        }\n");
+    out.push_str("    }\n");
+    out.push_str("}\n");
+}
+
+/// Emit a `case .<name>: return ""` branch for the Swift text accessor.
+fn emit_swift_text_empty_case(out: &mut String, case_name: &str) {
+    out.push_str("        case .");
+    out.push_str(case_name);
+    out.push_str(":\n            return \"\"\n");
+}
+
+/// Returns `true` when a variant field name denotes a positional (tuple) payload —
+/// i.e. a bare or underscore-prefixed digit (`0`, `_0`, …). Such variants render as
+/// `case foo(field0: T)` in Swift and have a single unlabelled associated value.
+fn is_tuple_variant_field(name: &str) -> bool {
+    let stripped = name.strip_prefix('_').unwrap_or(name);
+    !stripped.is_empty() && stripped.bytes().all(|b| b.is_ascii_digit())
 }
 
 /// Returns `true` when every associated value type across `en.variants` is safe to

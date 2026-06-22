@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Swift & Dart: the untagged content-union `text()` accessor now references the generated payload
+  field instead of phantom variant names** — the same bug class as the Kotlin `field0` fix. For an
+  `#[serde(untagged)]` union like `AssistantContent`, FRB (Dart) and swift-bridge render a variant's
+  positional payload as `field0`, not the variant's logical name.
+  - **Dart** (`src/backends/dart/frb_rewrite/text_transformations.rs`): the injected `text()`
+    extension destructured `AssistantContent_Text(:final text)` / `AssistantContent_Parts(:final
+    parts)`, but the freezed factory declares both payloads as `field0`, so the generated
+    `lib.dart` failed to compile (`getter 'parts'/'text' isn't defined`, String/Object return-type
+    mismatch). It now binds `:final field0` and returns/extracts from it.
+  - **Swift** (`src/backends/swift/gen_bindings/{enums,mod}.rs`): the `text()` accessor was absent
+    entirely. `emit_enum` now emits a `public func text() -> String` extension for unions in
+    `untagged_union_text_types` (string variant returns the payload; parts variant JSON-encodes and
+    concatenates `type == "text"` parts, mirroring Kotlin's Display semantics).
+  - **Swift e2e** (`src/e2e/codegen/swift/{test_method,assertions}.rs`): wired the
+    display-as-text field resolver so the generated e2e calls `content?.text() ?? ""` instead of
+    treating `AssistantContent?` as `String?` (the old `content ?? ""` did not compile).
+  - Audited elixir/php/wasm — all three already correct (real `text` field / core delegation /
+    `AssistantContent → String` type-override respectively).
+
 ## [0.26.2] - 2026-06-22
 
 ### Fixed

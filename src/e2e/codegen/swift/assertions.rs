@@ -141,6 +141,15 @@ pub(super) fn render_assertion(
         .as_deref()
         .is_some_and(|f| enum_fields.contains(f) || enum_fields.contains(field_resolver.resolve(f)));
 
+    // Determine if this field is a display-as-text content union (e.g. `AssistantContent`).
+    // Such fields are emitted as Swift enums (not `String`) and expose a `.text()` method
+    // that concatenates the plain-text representation. The assertion must call `.text()` to
+    // compare against the fixture's expected string, mirroring the Kotlin/Go/Java backends.
+    let field_is_display_as_text = assertion
+        .field
+        .as_deref()
+        .is_some_and(|f| field_resolver.is_display_as_text(f));
+
     let field_is_optional = assertion.field.as_deref().is_some_and(|f| {
         !f.is_empty() && (field_resolver.is_optional(f) || field_resolver.is_optional(field_resolver.resolve(f)))
     });
@@ -240,7 +249,17 @@ pub(super) fn render_assertion(
     // We add .toString() here so string assertions (contains, hasPrefix, etc.) work.
     // Non-string opaque fields (DocumentStructure, etc.) should not appear in string
     // assertions — the fixture schema controls which assertions apply to which fields.
-    let string_expr = if is_map_subscript {
+    let string_expr = if field_is_display_as_text {
+        // Display-as-text content union (e.g. `AssistantContent`): the leaf is a Swift
+        // enum exposing `.text()` returning a non-optional `String`. For optional content
+        // (`AssistantContent?`) or an optional ancestor chain, unwrap with `?.text()` and
+        // coalesce to "" so XCTAssert receives a concrete Swift `String`.
+        if field_is_optional || accessor_is_optional {
+            format!("({field_expr}?.text() ?? \"\")")
+        } else {
+            format!("{field_expr}.text()")
+        }
+    } else if is_map_subscript {
         // The field_expr already evaluates to `String?` (from a JSON-decoded
         // `[String: String]` subscript). No `.toString()` chain needed —
         // coalesce the optional to "" and use the Swift String directly.
