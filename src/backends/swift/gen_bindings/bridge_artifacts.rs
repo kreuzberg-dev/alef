@@ -57,8 +57,16 @@ pub(super) fn emit_swift_bridge_files(
             let sources_rust_bridge_c = package_root.join("Sources").join("RustBridgeC");
             let header_path = sources_rust_bridge_c.join("RustBridgeC.h");
 
+            // Preserve an already-populated header. `alef all --clean` regenerates
+            // without compiling the binding crate, so reverting to the placeholder
+            // here would drop the real `__swift_bridge__$*` declarations and break
+            // every SwiftPM consumer of the published source package. The presence
+            // of a `__swift_bridge__$` symbol reliably distinguishes a populated
+            // header (alef umbrella or a consumer concat script) from the
+            // typedef-only placeholder. Mirrors the guard in
+            // `scaffold::languages::swift::render_rust_bridge_c_header`.
             if let Ok(existing) = std::fs::read_to_string(&header_path) {
-                if existing.contains("Concatenates SwiftBridgeCore.h") {
+                if existing.contains("__swift_bridge__$") {
                     return Ok(None);
                 }
             }

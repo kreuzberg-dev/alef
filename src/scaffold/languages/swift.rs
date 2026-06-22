@@ -437,15 +437,53 @@ let package = Package(
     Ok(files)
 }
 
+/// Path `scaffold_swift` writes `RustBridgeC.h` to, relative to the generation
+/// root. Alef commands run with the workspace root as the cwd, matching the
+/// cwd-relative lookup in [`read_swift_bridge_headers`].
+const RUST_BRIDGE_C_HEADER_PATH: &str = "packages/swift/Sources/RustBridgeC/RustBridgeC.h";
+
 /// Build the content for `Sources/RustBridgeC/RustBridgeC.h`.
 ///
 /// When `cargo build -p {binding_crate}` has already been run, returns a thin umbrella
 /// header that concatenates `SwiftBridgeCore.h` and `{binding_crate}.h` from the
-/// swift-bridge build output. Otherwise returns a placeholder so SwiftPM can accept
-/// the `RustBridgeC` target before the first build.
+/// swift-bridge build output. Otherwise an already-populated header committed on disk
+/// is preserved, and only when neither is available is a placeholder emitted.
 fn build_rust_bridge_c_header(binding_crate_name: &str) -> String {
-    if let Some((core_h, crate_h)) = read_swift_bridge_headers(binding_crate_name) {
-        format!(
+    let fresh_headers = read_swift_bridge_headers(binding_crate_name);
+    let existing_header = std::fs::read_to_string(RUST_BRIDGE_C_HEADER_PATH).ok();
+    render_rust_bridge_c_header(binding_crate_name, fresh_headers, existing_header.as_deref())
+}
+
+/// A `RustBridgeC.h` is "populated" once it carries swift-bridge's generated C
+/// function declarations. The placeholder only defines base typedefs and never
+/// references a `__swift_bridge__$` symbol, so the presence of that prefix is a
+/// reliable populated/placeholder discriminator — independent of whether the
+/// header was produced by alef's umbrella or by a consumer's own concat script.
+fn header_is_populated(header: &str) -> bool {
+    header.contains("__swift_bridge__$")
+}
+
+/// Decide the content of `RustBridgeC.h`, given the optional fresh swift-bridge
+/// build output and the optional header already present on disk.
+///
+/// Precedence:
+/// 1. Fresh swift-bridge output (the binding crate was built) → regenerate the
+///    umbrella header from `SwiftBridgeCore.h` + `{crate}.h`.
+/// 2. No fresh output, but an already-populated header is committed on disk →
+///    preserve it. `alef all --clean` regenerates without compiling the binding
+///    crate, so without this guard scaffold would overwrite the real
+///    `__swift_bridge__$*` declarations with the placeholder and break every
+///    SwiftPM consumer of the published source package. Mirrors the guard in
+///    `backends::swift::gen_bindings::bridge_artifacts::emit_swift_bridge_files`.
+/// 3. Otherwise → emit the placeholder so SwiftPM accepts the target before the
+///    first build.
+fn render_rust_bridge_c_header(
+    binding_crate_name: &str,
+    fresh_headers: Option<(String, String)>,
+    existing_header: Option<&str>,
+) -> String {
+    if let Some((core_h, crate_h)) = fresh_headers {
+        return format!(
             "#ifndef RUST_BRIDGE_C_H\n\
              #define RUST_BRIDGE_C_H\n\
              \n\
@@ -456,46 +494,52 @@ fn build_rust_bridge_c_header(binding_crate_name: &str) -> String {
              {core_h}\n\
              {crate_h}\n\
              #endif /* RUST_BRIDGE_C_H */\n"
-        )
-    } else {
-        // Minimal placeholder that defines C structs used by swift-bridge's
-        // generated `SwiftBridgeCore.swift`.  Without these typedefs the Swift compiler
-        // reports "cannot find type" errors for every extension block that references
-        // RustStr, __private__FfiSlice, or __private__OptionXX types.
-        // The real `SwiftBridgeCore.h` (produced by `cargo build -p {binding_crate_name}`)
-        // defines identical typedefs; the definitions are compatible and SwiftPM merges
-        // them via the module map.
-        format!(
-            "#ifndef RUST_BRIDGE_C_H\n\
-             #define RUST_BRIDGE_C_H\n\
-             \n\
-             // Placeholder header for the RustBridgeC SwiftPM target.\n\
-             // Run `cargo build -p {binding_crate_name}` and re-run `alef all` to populate.\n\
-             // The typedefs below are the minimum required for SwiftBridgeCore.swift\n\
-             // to compile before the full cargo build has been run.\n\
-             \n\
-             #include <stdint.h>\n\
-             #include <stdbool.h>\n\
-             \n\
-             typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
-             typedef struct __private__FfiSlice {{ void* const start; uintptr_t len; }} __private__FfiSlice;\n\
-             typedef struct __private__OptionU8 {{ uint8_t val; bool is_some; }} __private__OptionU8;\n\
-             typedef struct __private__OptionI8 {{ int8_t val; bool is_some; }} __private__OptionI8;\n\
-             typedef struct __private__OptionU16 {{ uint16_t val; bool is_some; }} __private__OptionU16;\n\
-             typedef struct __private__OptionI16 {{ int16_t val; bool is_some; }} __private__OptionI16;\n\
-             typedef struct __private__OptionU32 {{ uint32_t val; bool is_some; }} __private__OptionU32;\n\
-             typedef struct __private__OptionI32 {{ int32_t val; bool is_some; }} __private__OptionI32;\n\
-             typedef struct __private__OptionU64 {{ uint64_t val; bool is_some; }} __private__OptionU64;\n\
-             typedef struct __private__OptionI64 {{ int64_t val; bool is_some; }} __private__OptionI64;\n\
-             typedef struct __private__OptionUsize {{ uintptr_t val; bool is_some; }} __private__OptionUsize;\n\
-             typedef struct __private__OptionIsize {{ intptr_t val; bool is_some; }} __private__OptionIsize;\n\
-             typedef struct __private__OptionF32 {{ float val; bool is_some; }} __private__OptionF32;\n\
-             typedef struct __private__OptionF64 {{ double val; bool is_some; }} __private__OptionF64;\n\
-             typedef struct __private__OptionBool {{ bool val; bool is_some; }} __private__OptionBool;\n\
-             \n\
-             #endif /* RUST_BRIDGE_C_H */\n"
-        )
+        );
     }
+
+    if let Some(existing) = existing_header {
+        if header_is_populated(existing) {
+            return existing.to_string();
+        }
+    }
+
+    // Minimal placeholder that defines C structs used by swift-bridge's
+    // generated `SwiftBridgeCore.swift`.  Without these typedefs the Swift compiler
+    // reports "cannot find type" errors for every extension block that references
+    // RustStr, __private__FfiSlice, or __private__OptionXX types.
+    // The real `SwiftBridgeCore.h` (produced by `cargo build -p {binding_crate_name}`)
+    // defines identical typedefs; the definitions are compatible and SwiftPM merges
+    // them via the module map.
+    format!(
+        "#ifndef RUST_BRIDGE_C_H\n\
+         #define RUST_BRIDGE_C_H\n\
+         \n\
+         // Placeholder header for the RustBridgeC SwiftPM target.\n\
+         // Run `cargo build -p {binding_crate_name}` and re-run `alef all` to populate.\n\
+         // The typedefs below are the minimum required for SwiftBridgeCore.swift\n\
+         // to compile before the full cargo build has been run.\n\
+         \n\
+         #include <stdint.h>\n\
+         #include <stdbool.h>\n\
+         \n\
+         typedef struct RustStr {{ uint8_t* const start; uintptr_t len; }} RustStr;\n\
+         typedef struct __private__FfiSlice {{ void* const start; uintptr_t len; }} __private__FfiSlice;\n\
+         typedef struct __private__OptionU8 {{ uint8_t val; bool is_some; }} __private__OptionU8;\n\
+         typedef struct __private__OptionI8 {{ int8_t val; bool is_some; }} __private__OptionI8;\n\
+         typedef struct __private__OptionU16 {{ uint16_t val; bool is_some; }} __private__OptionU16;\n\
+         typedef struct __private__OptionI16 {{ int16_t val; bool is_some; }} __private__OptionI16;\n\
+         typedef struct __private__OptionU32 {{ uint32_t val; bool is_some; }} __private__OptionU32;\n\
+         typedef struct __private__OptionI32 {{ int32_t val; bool is_some; }} __private__OptionI32;\n\
+         typedef struct __private__OptionU64 {{ uint64_t val; bool is_some; }} __private__OptionU64;\n\
+         typedef struct __private__OptionI64 {{ int64_t val; bool is_some; }} __private__OptionI64;\n\
+         typedef struct __private__OptionUsize {{ uintptr_t val; bool is_some; }} __private__OptionUsize;\n\
+         typedef struct __private__OptionIsize {{ intptr_t val; bool is_some; }} __private__OptionIsize;\n\
+         typedef struct __private__OptionF32 {{ float val; bool is_some; }} __private__OptionF32;\n\
+         typedef struct __private__OptionF64 {{ double val; bool is_some; }} __private__OptionF64;\n\
+         typedef struct __private__OptionBool {{ bool val; bool is_some; }} __private__OptionBool;\n\
+         \n\
+         #endif /* RUST_BRIDGE_C_H */\n"
+    )
 }
 
 /// Try to locate and read the swift-bridge-generated C headers for the given binding
@@ -562,6 +606,81 @@ mod tests {
             .iter()
             .find(|f| f.path == std::path::Path::new(path))
             .unwrap_or_else(|| panic!("missing scaffolded file: {path}"))
+    }
+
+    /// Fresh swift-bridge build output always wins: the umbrella header is
+    /// regenerated even if a stale populated header is on disk.
+    #[test]
+    fn render_header_prefers_fresh_build_output() {
+        let out = render_rust_bridge_c_header(
+            "my-lib-swift",
+            Some((
+                "// core\nvoid __swift_bridge__$core(void);\n".into(),
+                "// crate\n".into(),
+            )),
+            Some("// stale __swift_bridge__$old\n"),
+        );
+        assert!(
+            out.contains("Concatenates SwiftBridgeCore.h"),
+            "expected umbrella, got:\n{out}"
+        );
+        assert!(
+            out.contains("__swift_bridge__$core"),
+            "expected fresh core decls, got:\n{out}"
+        );
+    }
+
+    /// Regression: `alef all --clean` runs without compiling the binding crate, so
+    /// no fresh output exists. A previously-populated header committed on disk must
+    /// be preserved verbatim rather than reverted to the placeholder — otherwise the
+    /// published source package loses every `__swift_bridge__$*` declaration and no
+    /// SwiftPM consumer can compile.
+    #[test]
+    fn render_header_preserves_committed_populated_header() {
+        let populated = "#include <stdint.h>\nvoid __swift_bridge__$RustStr$partial_eq(void);\n";
+        let out = render_rust_bridge_c_header("my-lib-swift", None, Some(populated));
+        assert_eq!(
+            out, populated,
+            "populated header must be preserved verbatim when no fresh output"
+        );
+    }
+
+    /// A consumer's own concat script may emit a populated header without alef's
+    /// umbrella marker; it must still be preserved (discriminated by the presence
+    /// of a `__swift_bridge__$` symbol, not the umbrella comment).
+    #[test]
+    fn render_header_preserves_markerless_populated_header() {
+        let populated = "#include <stdint.h>\nvoid __swift_bridge__$Vec_u8$new(void);\n";
+        assert!(header_is_populated(populated));
+        let out = render_rust_bridge_c_header("my-lib-swift", None, Some(populated));
+        assert_eq!(out, populated);
+    }
+
+    /// With neither fresh output nor a populated header on disk, emit the
+    /// placeholder so SwiftPM accepts the target before the first build. An
+    /// existing placeholder (typedefs only, no `__swift_bridge__$`) is not treated
+    /// as populated and is replaced by the canonical placeholder.
+    #[test]
+    fn render_header_emits_placeholder_without_populated_source() {
+        let placeholder_marker = "Placeholder header for the RustBridgeC SwiftPM target";
+
+        let from_nothing = render_rust_bridge_c_header("my-lib-swift", None, None);
+        assert!(
+            from_nothing.contains(placeholder_marker),
+            "expected placeholder, got:\n{from_nothing}"
+        );
+        assert!(
+            !header_is_populated(&from_nothing),
+            "placeholder must not look populated"
+        );
+
+        let stale_placeholder = "#ifndef RUST_BRIDGE_C_H\ntypedef struct RustStr { int x; } RustStr;\n";
+        assert!(!header_is_populated(stale_placeholder));
+        let from_placeholder = render_rust_bridge_c_header("my-lib-swift", None, Some(stale_placeholder));
+        assert!(
+            from_placeholder.contains(placeholder_marker),
+            "expected placeholder, got:\n{from_placeholder}"
+        );
     }
 
     /// The root `Package.swift` must use `.binaryTarget` with version + checksum

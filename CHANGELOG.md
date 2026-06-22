@@ -9,6 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Swift: `alef all --clean` no longer reverts a populated `RustBridgeC.h` to the placeholder,
+  which had been shipping a source package no SwiftPM consumer could compile.** The umbrella header
+  `packages/swift/Sources/RustBridgeC/RustBridgeC.h` carries swift-bridge's generated
+  `__swift_bridge__$*` C declarations and is populated only when the binding crate has been built.
+  Regeneration runs without compiling (`--clean`/`--format=false`), so scaffold (`build_rust_bridge_c_header`)
+  unconditionally rewrote the placeholder, dropping every declaration; the published git tag then
+  shipped the stub and consumers failed with thousands of `cannot find '__swift_bridge__$…' in scope`
+  errors (masked in practice when the package's checksum/resolution failed first). Both the scaffold
+  path (`src/scaffold/languages/swift.rs::render_rust_bridge_c_header`) and the generate backend
+  (`src/backends/swift/gen_bindings/bridge_artifacts.rs::emit_swift_bridge_files`) now preserve an
+  already-populated header when no fresh build output is available, discriminating populated from
+  placeholder by the presence of a `__swift_bridge__$` symbol (so a consumer's own concat script,
+  which omits alef's umbrella marker, is preserved too). Fresh build output still takes precedence.
 - **Swift & Dart: the untagged content-union `text()` accessor now references the generated payload
   field instead of phantom variant names** — the same bug class as the Kotlin `field0` fix. For an
   `#[serde(untagged)]` union like `AssistantContent`, FRB (Dart) and swift-bridge render a variant's
@@ -70,7 +83,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **r: registry-mode `install.R` no longer reports false success on a failed
   install.** `install.packages` signals download/build failures (a 404 release
-  tarball, a non-zero `R CMD INSTALL`) as *warnings* and returns normally, so the
+  tarball, a non-zero `R CMD INSTALL`) as _warnings_ and returns normally, so the
   generated installer's `tryCatch(error=)` never fired and it printed
   `Successfully installed <pkg>` while exiting 0 — masking real install failures
   in CI. The generator now promotes install warnings to errors via
