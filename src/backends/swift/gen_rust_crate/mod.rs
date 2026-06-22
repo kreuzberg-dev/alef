@@ -441,8 +441,11 @@ fn emit_lib_rs(
         }
     }
     // Extract capsule_types from config for Swift
-    let swift_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> =
-        config.swift.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+    let swift_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> = config
+        .swift
+        .as_ref()
+        .map(|c| c.capsule_types.clone())
+        .unwrap_or_default();
 
     if !visible_functions.is_empty() {
         // Non-cfg-gated functions go into the aggregate extern "Rust" block.
@@ -849,6 +852,7 @@ fn emit_lib_rs(
             &tagged_enum_names,
             &no_serde_names,
             &handle_returned_types,
+            &swift_capsule_types,
         ));
         out.push('\n');
     }

@@ -332,6 +332,7 @@ pub(crate) fn emit_function_shim(
     tagged_enum_names: &HashSet<&str>,
     no_serde_names: &HashSet<&str>,
     handle_returned_types: &HashSet<String>,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
 ) -> String {
     // Match the extern block's escaping so the wrapper fn matches the extern decl.
     let fn_name = swift_ident(&f.name.to_snake_case());
@@ -373,10 +374,18 @@ pub(crate) fn emit_function_shim(
         .collect();
     let params_str = params.join(", ");
 
+    // Check if the function returns a capsule type (host-native passthrough).
+    // Capsule functions always return usize (0 = error sentinel) to avoid swift-bridge's
+    // limitations with Result<*ptr, _> and Option<*ptr>.
+    let is_capsule_return = matches!(&f.return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
+
     // Mirror the extern-block return mapper so the shim signature matches.
     // For Unit return type without error_type, we omit the return type annotation
     // entirely to avoid clippy's `unused_unit` warning.
-    let (return_ty, has_explicit_return) = if f.error_type.is_some() {
+    // For capsule returns, always emit usize as the extern return (the wrapper handles conversion).
+    let (return_ty, has_explicit_return) = if is_capsule_return {
+        ("usize".to_string(), true)
+    } else if f.error_type.is_some() {
         let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
         if matches!(f.return_type, TypeRef::Unit) {
             ("Result<(), String>".to_string(), true)
@@ -585,7 +594,23 @@ pub(crate) fn emit_function_shim(
             }
         }
     };
-    let body = if f.is_async {
+    let body = if is_capsule_return {
+        // Capsule functions always return usize: the raw pointer address from the core function,
+        // converted via .into_raw() as usize. On error, return 0 (null sentinel).
+        // The Swift forwarder then reconstructs OpaquePointer(bitPattern:) and checks for 0.
+        if f.is_async {
+            format!(
+                "{source_call}.await.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)"
+            )
+        } else if f.error_type.is_some() {
+            format!(
+                "{source_call}.map(|__cap| __cap.into_raw() as usize).unwrap_or(0)"
+            )
+        } else {
+            // Infallible capsule: just convert the pointer to usize.
+            format!("{source_call}.into_raw() as usize")
+        }
+    } else if f.is_async {
         let mut chain = format!("{source_call}.await");
         if f.error_type.is_some() {
             chain = format!("{chain}.map_err(|e| e.to_string()){value_map}");
@@ -738,6 +763,7 @@ mod tests {
             &handle_returned_types
         ));
 
+        let capsule_types = std::collections::HashMap::new();
         let shim = emit_function_shim(
             &f,
             "sample_crawler",
@@ -746,6 +772,7 @@ mod tests {
             &no_serde_names,
             &HashSet::new(),
             &handle_returned_types,
+            &capsule_types,
         );
         assert!(shim.contains("actions: Vec<String>"));
         // Enum params are converted via From<String>, not JSON deserialization.
@@ -764,6 +791,7 @@ mod tests {
         let no_serde_names = HashSet::new();
         let handle_returned_types = HashSet::new();
 
+        let capsule_types = std::collections::HashMap::new();
         let shim = emit_function_shim(
             &f,
             "sample_crawler",
@@ -772,6 +800,7 @@ mod tests {
             &no_serde_names,
             &HashSet::new(),
             &handle_returned_types,
+            &capsule_types,
         );
         assert!(shim.contains("action: String"));
         // Enum params must use From<String>, not JSON deserialization.
@@ -805,6 +834,7 @@ mod tests {
             &handle_returned_types
         ));
 
+        let capsule_types = std::collections::HashMap::new();
         let shim = emit_function_shim(
             &f,
             "sample_crawler",
@@ -813,6 +843,7 @@ mod tests {
             &no_serde_names,
             &tagged_enum_names,
             &handle_returned_types,
+            &capsule_types,
         );
         // The shim should take Vec<String> from Swift.
         assert!(shim.contains("names: Vec<String>"));

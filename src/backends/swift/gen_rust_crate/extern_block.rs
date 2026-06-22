@@ -467,24 +467,22 @@ pub(crate) fn emit_extern_block_for_functions(
         let params_str = params.join(", ");
 
         // Check if the function returns a capsule type (host-native passthrough).
-        // For capsule functions, override the return type to be a raw `OpaquePointer?`
+        // For capsule functions, override the return type to be a `usize` (0 = error sentinel)
         // instead of the opaque handle wrapper, since the host constructs the native
-        // Language from the raw C pointer.
+        // Language from the raw C pointer. swift-bridge 0.1.59 does not support Result<*ptr, _>
+        // or Option<*ptr> (panics: "not yet implemented"), so we return usize and let the
+        // forwarder reconstruct OpaquePointer via OpaquePointer(bitPattern:) on the Swift side.
         let is_capsule_return = matches!(&f.return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
 
         // Returns route through the handle-aware bridge mapper so that Named types
         // returned from public functions stay as
         // opaque handles instead of getting JSON-collapsed to `String`.
-        // However, capsule functions return raw pointers that the host wraps.
+        // However, capsule functions return raw pointers (as usize) that the host wraps.
         let return_ty = if is_capsule_return {
-            // Capsule functions return optional raw pointers: OpaquePointer? for fallible,
-            // OpaquePointer for infallible. swift-bridge's mapping of `*const c_void`
-            // becomes `OpaquePointer?` in Swift.
-            if f.error_type.is_some() {
-                "Result<OpaquePointer, String>".to_string()
-            } else {
-                "OpaquePointer?".to_string()
-            }
+            // Capsule functions return usize: 0 = error, nonzero = pointer address.
+            // The usize can be safely transmitted through swift-bridge, and the forwarder
+            // reconstructs OpaquePointer via OpaquePointer(bitPattern:) with 0 check.
+            "usize".to_string()
         } else if f.error_type.is_some() {
             let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
             if matches!(f.return_type, TypeRef::Unit) {
@@ -975,9 +973,10 @@ mod streaming_extern_tests {
 #[cfg(test)]
 mod capsule_function_tests {
     //! Regression coverage for capsule (host-native Language passthrough) function
-    //! return type mapping. Capsule functions should return raw `OpaquePointer?` instead
-    //! of opaque handles so the host can construct its native `Language` type from
-    //! the raw C pointer.
+    //! return type mapping. Capsule functions return usize (0 = error sentinel) via
+    //! swift-bridge, which the Swift forwarder reconstructs to OpaquePointer via
+    //! OpaquePointer(bitPattern:). The 0 sentinel avoids swift-bridge limitations:
+    //! Result<*ptr, _> and Option<*ptr> are not yet implemented and panic at codegen.
 
     use super::emit_extern_block_for_functions;
     use crate::core::config::HostCapsuleTypeConfig;
@@ -985,12 +984,12 @@ mod capsule_function_tests {
     use std::collections::{HashMap, HashSet};
 
     #[test]
-    fn capsule_function_returns_opaque_pointer() {
+    fn capsule_function_returns_usize() {
         let lang_capsule = HostCapsuleTypeConfig {
             host_type: "SwiftTreeSitter.Language".to_string(),
             package: "https://github.com/tree-sitter/swift-tree-sitter".to_string(),
             package_version: "0.25.0".to_string(),
-            construct_expr: "SwiftTreeSitter.Language(OpaquePointer({ptr}))".to_string(),
+            construct_expr: "SwiftTreeSitter.Language({ptr})".to_string(),
         };
         let mut capsule_types = HashMap::new();
         capsule_types.insert("Language".to_string(), lang_capsule);
@@ -1007,27 +1006,37 @@ mod capsule_function_tests {
         let enum_names = HashSet::new();
         let deferred_empty = HashSet::new();
 
-        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
-
-        // Capsule function should return OpaquePointer? (optional raw pointer), not Language
-        assert!(
-            block.contains("fn get_language() -> OpaquePointer?"),
-            "capsule function must return OpaquePointer?, got:\n{block}"
+        let block = emit_extern_block_for_functions(
+            &functions,
+            &handle_returned,
+            &enum_names,
+            &deferred_empty,
+            &capsule_types,
         );
-        // Should NOT be treated as a regular opaque handle
+
+        // Capsule function should return usize (pointer as address), not Language or OpaquePointer
+        assert!(
+            block.contains("fn get_language() -> usize"),
+            "capsule function must return usize, got:\n{block}"
+        );
+        // Should NOT be treated as a regular opaque handle or OpaquePointer
         assert!(
             !block.contains("fn get_language() -> Language"),
             "capsule function should not return opaque handle Language:\n{block}"
         );
+        assert!(
+            !block.contains("fn get_language() -> OpaquePointer"),
+            "capsule function should not return OpaquePointer:\n{block}"
+        );
     }
 
     #[test]
-    fn fallible_capsule_function_returns_result_opaque_pointer() {
+    fn fallible_capsule_function_returns_usize() {
         let lang_capsule = HostCapsuleTypeConfig {
             host_type: "SwiftTreeSitter.Language".to_string(),
             package: "https://github.com/tree-sitter/swift-tree-sitter".to_string(),
             package_version: "0.25.0".to_string(),
-            construct_expr: "SwiftTreeSitter.Language(OpaquePointer({ptr}))".to_string(),
+            construct_expr: "SwiftTreeSitter.Language({ptr})".to_string(),
         };
         let mut capsule_types = HashMap::new();
         capsule_types.insert("Language".to_string(), lang_capsule);
@@ -1044,12 +1053,18 @@ mod capsule_function_tests {
         let enum_names = HashSet::new();
         let deferred_empty = HashSet::new();
 
-        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
+        let block = emit_extern_block_for_functions(
+            &functions,
+            &handle_returned,
+            &enum_names,
+            &deferred_empty,
+            &capsule_types,
+        );
 
-        // Fallible capsule function should return Result<OpaquePointer, String>
+        // Fallible capsule function also returns usize; error handling is in the forwarder
         assert!(
-            block.contains("fn get_language() -> Result<OpaquePointer, String>"),
-            "fallible capsule function must return Result<OpaquePointer, String>, got:\n{block}"
+            block.contains("fn get_language() -> usize"),
+            "fallible capsule function must return usize, got:\n{block}"
         );
     }
 
@@ -1070,7 +1085,13 @@ mod capsule_function_tests {
         let enum_names = HashSet::new();
         let deferred_empty = HashSet::new();
 
-        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
+        let block = emit_extern_block_for_functions(
+            &functions,
+            &handle_returned,
+            &enum_names,
+            &deferred_empty,
+            &capsule_types,
+        );
 
         // Non-capsule function returning a handle type should return the opaque handle
         assert!(

@@ -99,7 +99,19 @@ pub(crate) fn scaffold_swift(_api: &ApiSurface, config: &ResolvedCrateConfig) ->
     } else {
         let product_names: Vec<String> = swift_capsule
             .iter()
-            .map(|(_pkg, _ver, product)| format!(", \"{product}\""))
+            .map(|(pkg, _ver, product)| {
+                // A product from a URL-based `.package(url:)` dependency must be referenced as
+                // `.product(name: <Product>, package: <identity>)` — the bare product string only
+                // resolves for same-package targets. SwiftPM's package identity is the last path
+                // component of the URL (sans trailing slash / `.git`).
+                let identity = pkg
+                    .trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(pkg)
+                    .trim_end_matches(".git");
+                format!(", .product(name: \"{product}\", package: \"{identity}\")")
+            })
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()
             .collect();

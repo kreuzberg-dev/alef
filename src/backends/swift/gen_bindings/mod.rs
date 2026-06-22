@@ -323,7 +323,13 @@ impl Backend for SwiftBackend {
                 // locally via JSONDecoder, not via a Rust-side from_json function.
                 enums::emit_enum_without_into_rust(en, &mut body, &mapper, &known_dto_names);
             } else {
-                enums::emit_enum(en, &mut body, &mapper, &known_dto_names, &config.untagged_union_text_types);
+                enums::emit_enum(
+                    en,
+                    &mut body,
+                    &mapper,
+                    &known_dto_names,
+                    &config.untagged_union_text_types,
+                );
             }
             body.push('\n');
         }

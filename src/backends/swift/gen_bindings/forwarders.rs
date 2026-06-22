@@ -820,8 +820,9 @@ fn swift_capsule_return_config<'a>(
 
 /// Emit a synchronous free function that returns a host-native capsule (Language) type.
 ///
-/// The C FFI returns the host runtime's raw grammar pointer. The wrapper constructs the
-/// host `Language` using the expression from `capsule_cfg.construct_expr`.
+/// The C FFI returns the host runtime's raw grammar pointer as a usize (0 = error sentinel).
+/// The wrapper reconstructs OpaquePointer via OpaquePointer(bitPattern:) and then constructs
+/// the host `Language` using the expression from `capsule_cfg.construct_expr`.
 ///
 /// `capsule_cfg.host_type` and `capsule_cfg.construct_expr` are required; missing values
 /// produce a `// ALEF ERROR:` comment in the generated output.
@@ -866,6 +867,8 @@ fn emit_capsule_free_function_forwarder(
 
     let c_call = format!("RustBridge.{swift_name}({})", c_args.join(", "));
     // Require construct_expr — no SwiftTreeSitter default fallback.
+    // The construct_expr uses {ptr} as the placeholder, which will be replaced with the
+    // reconstructed OpaquePointer.
     let construct = match capsule_cfg.construct_required("cLang", "Language", "swift") {
         Ok(c) => c,
         Err(e) => {
@@ -874,15 +877,17 @@ fn emit_capsule_free_function_forwarder(
         }
     };
     let nil_error = format!(
-        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
+        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned null: {swift_name}\"])"
     );
 
+    // The extern now returns usize (not Optional or Result). Reconstruct OpaquePointer
+    // via OpaquePointer(bitPattern:) and check for 0 (error sentinel).
     let body = if is_fallible {
         format!(
-            "let cLang = try {c_call}\n    guard let cLang = cLang else {{ throw {nil_error} }}\n    return {construct}"
+            "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
         )
     } else {
-        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}")
+        format!("let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}")
     };
 
     out.push_str(&crate::backends::swift::template_env::render(
@@ -900,8 +905,9 @@ fn emit_capsule_free_function_forwarder(
 
 /// Emit an async free function that returns a host-native capsule (Language) type.
 ///
-/// The C FFI returns the host runtime's raw grammar pointer. The wrapper constructs
-/// the host `Language` from the raw pointer.
+/// The C FFI returns the host runtime's raw grammar pointer as a usize (0 = error sentinel).
+/// The wrapper reconstructs OpaquePointer via OpaquePointer(bitPattern:) and then constructs
+/// the host `Language` from it.
 fn emit_async_capsule_free_function_forwarder(
     func: &FunctionDef,
     swift_name: &str,
@@ -950,15 +956,17 @@ fn emit_async_capsule_free_function_forwarder(
         }
     };
     let nil_error = format!(
-        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned nil: {swift_name}\"])"
+        "NSError(domain: \"alef.capsule\", code: 1, userInfo: [NSLocalizedDescriptionKey: \"Capsule function returned null: {swift_name}\"])"
     );
 
+    // The extern now returns usize (not Optional or Result). Reconstruct OpaquePointer
+    // via OpaquePointer(bitPattern:) and check for 0 (error sentinel).
     let body = if is_fallible {
         format!(
-            "let cLang = try {c_call}\n    guard let cLang = cLang else {{ throw {nil_error} }}\n    return {construct}"
+            "let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ throw {nil_error} }}\n    return {construct}"
         )
     } else {
-        format!("let cLang = {c_call}\n    guard let cLang = cLang else {{ return nil }}\n    return {construct}")
+        format!("let addr = {c_call}\n    guard addr != 0, let cLang = OpaquePointer(bitPattern: addr) else {{ return nil }}\n    return {construct}")
     };
 
     out.push_str(&crate::backends::swift::template_env::render(
