@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.1] - 2026-06-22
+
 ### Fixed
+
+- **swift: capsule `getLanguage` now compiles against the host SwiftTreeSitter
+  runtime.** The swift-bridge extern block treated the capsule return type
+  (`Language`) as an owned opaque, so `RustBridge.getLanguage` handed back that
+  wrapper instead of the raw grammar pointer — the forwarder's `guard let` and
+  `SwiftTreeSitter.Language(OpaquePointer(...))` then failed to type-check, and the
+  generated file never imported the host module. The extern block now surfaces the
+  raw pointer as `OpaquePointer?` (or `Result<OpaquePointer, _>` for fallible
+  functions) for capsule functions, and the binding emits `import <HostModule>`
+  (e.g. `SwiftTreeSitter`, derived from the capsule `host_type`) whenever a capsule
+  host type is referenced. (`src/backends/swift/gen_rust_crate/extern_block.rs`,
+  `src/backends/swift/gen_rust_crate/mod.rs`, `src/backends/swift/gen_bindings/mod.rs`)
+
+- **kotlin-android: capsule dependency is exposed via `api`, not `implementation`.**
+  The generated facade returns the host-native `Language` (e.g. ktreesitter), so that
+  type is part of the library's public API. Declaring its dependency as
+  `implementation` hid it from the library's own unit-test sources and from
+  downstream consumers' compile classpath, so any caller of `getLanguage()` —
+  including the e2e test app — failed with `Cannot access class 'Language'`. It is
+  now `api(...)`, which also emits a compile-scope POM dependency on the published
+  AAR. (`src/backends/kotlin_android/gen_build_gradle.rs`)
 
 - **r: registry-mode `install.R` no longer reports false success on a failed
   install.** `install.packages` signals download/build failures (a 404 release
