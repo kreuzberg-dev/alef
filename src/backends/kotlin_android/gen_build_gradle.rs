@@ -75,8 +75,15 @@ pub fn emit(config: &ResolvedCrateConfig) -> String {
             .unwrap_or_default();
         deps.sort();
         deps.dedup();
+        // Expose each capsule dependency via `api`, not `implementation`: the generated
+        // facade returns the host-native `Language` (e.g. ktreesitter), so the type is part
+        // of this library's PUBLIC API. `api` puts it on the compile classpath of the
+        // library's own test sources AND of downstream consumers (and emits it as a
+        // compile-scope POM dependency on the published AAR). With `implementation` it is
+        // hidden from consumers, so any caller of `getLanguage()` — including the e2e
+        // test_app — fails to compile with "Cannot access class 'Language'".
         deps.iter()
-            .map(|(coord, ver)| format!("\n    implementation(\"{coord}:{ver}\")"))
+            .map(|(coord, ver)| format!("\n    api(\"{coord}:{ver}\")"))
             .collect()
     };
 
