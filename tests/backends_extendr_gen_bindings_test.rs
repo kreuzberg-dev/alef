@@ -2053,7 +2053,13 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
             params: vec![
                 make_param("path", TypeRef::String, false),
                 make_param("mime_type", TypeRef::Optional(Box::new(TypeRef::String)), true),
-                make_param("config", TypeRef::Named("ExtractionConfig".to_string()), false),
+                // Non-optional Named DTO param following an optional param. The core
+                // function takes it by reference (`config: &ExtractionConfig`), mirroring
+                // real kreuzberg signatures; extendr must bind it by reference too.
+                ParamDef {
+                    is_ref: true,
+                    ..make_param("config", TypeRef::Named("ExtractionConfig".to_string()), false)
+                },
             ],
             return_type: TypeRef::String,
             is_async: false,
@@ -2099,10 +2105,18 @@ fn test_emits_reference_for_named_non_opaque_struct_params() {
         "named struct params should not be deserialized from JSON string: {content}"
     );
 
-    // Verify: call site should convert Nullable properly if present, then pass to core
+    // Verify: the param is converted through an owned `config_core` binding and passed to
+    // the core function by reference (the core signature is `&ExtractionConfig`). Earlier
+    // extendr revisions promoted the trailing non-optional param to `Nullable<&T>` and
+    // marshalled it via `Nullable::into_option()`, which does not compile because extendr
+    // implements `TryFrom<&Robj>` for the wrapper but not the `into_option()` path for a
+    // non-optional struct. The by-reference form below is the compiling, correct behavior.
     assert!(
-        (content.contains("config.into_option()")
-            || content.contains("let result = test_lib::extract_file(path, mime_type, &config")),
-        "config param should not use JSON deserialization: {content}"
+        content.contains("let config_core: test_lib::ExtractionConfig = config.clone().into();"),
+        "config param must convert through an owned core binding, not JSON deserialization: {content}"
+    );
+    assert!(
+        content.contains("test_lib::extract_file(path, mime_type, &config_core)"),
+        "config param must be passed to the core function by reference: {content}"
     );
 }

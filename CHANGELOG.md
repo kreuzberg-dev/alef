@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **r/extendr: non-optional Named param after an optional param binds by reference**: the
+  0.25.59 by-reference DTO rework left the `backends_extendr_gen_bindings` regression test
+  asserting the legacy `Nullable<&T>::into_option()` marshalling, which does not compile for
+  a non-optional struct that merely follows an optional param. The generator now correctly
+  emits such a param as `&T` and passes it to the core function by reference through an owned
+  `name_core: core::T = name.clone().into()` binding, never falling through to JSON
+  deserialization. The regression test verifies the compiling by-reference form.
 - **kotlin/kotlin-android: content-union accessor references data-class value property**:
   the `text()` accessor method on untagged sealed classes referenced a non-existent `field0`
   property instead of the data-class payload property name (`value`), causing a Kotlin compile
