@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.2] - 2026-06-22
+
+### Fixed
+
+- **java: opaque-handle methods no longer leak the `Arena` they allocate from.** The generated
+  instance/static methods on opaque handles (e.g. `Parser.parse`, `Parser.setLanguage`, `Tree.walk`)
+  opened `Arena arena = Arena.ofShared()` inside a plain `try {}` and never closed it. Beyond the
+  leak, on Windows/JDK 25 the concurrent GC could reclaim the unreachable shared arena's off-heap
+  region around the native call, corrupting the process heap and crashing with
+  `EXCEPTION_ACCESS_VIOLATION` at the next native allocation (reported as a `tree.walk()` crash —
+  tslp #146). The arena is now opened as a try-with-resources resource
+  (`try (Arena arena = Arena.ofShared()) { … }`), so it is always closed when the method returns;
+  the native call has already copied its inputs and the returned handle is an owned native pointer,
+  so closing the arena afterwards is safe. (`src/backends/java/gen_bindings/types/opaque.rs`)
+
 ## [0.26.1] - 2026-06-22
 
 ### Fixed
