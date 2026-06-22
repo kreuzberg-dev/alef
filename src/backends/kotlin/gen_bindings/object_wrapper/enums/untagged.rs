@@ -47,7 +47,7 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                     out.push_str(name);
                     out.push('.');
                     out.push_str(&variant.name);
-                    out.push_str(" -> this.field0\n");
+                    out.push_str(" -> this.value\n");
                 }
                 TypeRef::Vec(elem_ty) => {
                     // Vec variant: check if elements are objects with "type" and "text" fields
@@ -59,7 +59,7 @@ pub(super) fn emit_kotlin_text_accessor(out: &mut String, en: &EnumDef) {
                         out.push_str(&variant.name);
                         out.push_str(" -> {\n");
                         out.push_str("            val sb = StringBuilder()\n");
-                        out.push_str("            for (part in this.field0) {\n");
+                        out.push_str("            for (part in this.value) {\n");
                         out.push_str("                if (part is com.fasterxml.jackson.databind.JsonNode) {\n");
                         out.push_str("                    val typeNode = part.get(\"type\")\n");
                         out.push_str("                    if (typeNode?.asText() == \"text\") {\n");

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **kotlin/kotlin-android: content-union accessor references data-class value property**:
+  the `text()` accessor method on untagged sealed classes referenced a non-existent `field0`
+  property instead of the data-class payload property name (`value`), causing a Kotlin compile
+  error "Unresolved reference 'field0'". The accessor now correctly accesses the actual
+  property name used in both String and Vec variant branches.
+
 ## [0.25.59] - 2026-06-21
 
 ### Fixed

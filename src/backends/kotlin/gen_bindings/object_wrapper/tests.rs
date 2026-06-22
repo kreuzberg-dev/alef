@@ -699,10 +699,10 @@ fn untagged_union_text_types_emits_text_accessor() {
         "untagged union in text_types must emit text() method; got:\n{out}",
     );
 
-    // Must handle Text variant: return field0
+    // Must handle Text variant: return value property
     assert!(
-        out.contains("is AssistantContent.Text -> this.field0"),
-        "Text variant must return the string field directly; got:\n{out}",
+        out.contains("is AssistantContent.Text -> this.value"),
+        "Text variant must return the string field directly via this.value; got:\n{out}",
     );
 
     // Must handle Parts variant: extract text parts
