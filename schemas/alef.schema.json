@@ -1689,6 +1689,17 @@
           "type": "array",
           "uniqueItems": true
         },
+        "extra_system_libs": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "default": {},
+          "description": "Per-language extra system libraries to link into the generated e2e\nharness's native build alongside the FFI library.\n\nKeyed by canonical language name (`zig`, …); the value is the list of\nbare system-library names (no `lib` prefix, no extension) to link, e.g.\n`[\"heif\"]`. Currently only the Zig e2e generator consumes this: when the\nlinked FFI crate is built with feature sets that pull in additional\nnative libraries (e.g. libheif via the `all` feature), the strict\nlinker on some targets (notably aarch64) cannot resolve those undefined\nsymbols unless the e2e build links them explicitly. The libraries must\nalready be installed on the build host.\n\nDefault is empty, so consumers that do not need extra links are\nunaffected.\n\nExample:\n```toml\n[e2e.extra_system_libs]\nzig = [\"heif\"]\n```",
+          "type": "object"
+        },
         "fields": {
           "additionalProperties": {
             "type": "string"
@@ -7064,7 +7075,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.25.60/alef.schema.json",
+  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.26.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",
@@ -7174,6 +7185,6 @@
   ],
   "title": "Alef configuration",
   "type": "object",
-  "version": "0.25.60",
-  "x-alef-version": "0.25.60"
+  "version": "0.26.0",
+  "x-alef-version": "0.26.0"
 }
