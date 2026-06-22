@@ -7,7 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.3] - 2026-06-22
+
 ### Fixed
+
+- **Swift: capsule `getLanguage` passthrough now compiles.** swift-bridge 0.1.59 supports neither
+  `Result<*ptr, _>` nor `Option<*ptr>` (its parser panics), and a bare pointer return force-unwraps
+  null. The capsule function now bridges the host grammar pointer as a `usize` (0 = error sentinel)
+  via `value.into_raw() as usize`, and the Swift forwarder reconstructs it with
+  `OpaquePointer(bitPattern:)` (guarding `addr != 0`) before handing it to `SwiftTreeSitter.Language`
+  — the same integer-handle pattern the backend already uses elsewhere. The generated `Package.swift`
+  also now references the capsule dependency's product as `.product(name:package:)` (required for a
+  URL-based `.package(url:)` dependency) instead of the bare product string. (`extern_block.rs`,
+  `gen_rust_crate/shims.rs`, `gen_bindings/forwarders.rs`, `scaffold/languages/swift.rs`)
 
 - **Swift: `alef all --clean` no longer reverts a populated `RustBridgeC.h` to the placeholder,
   which had been shipping a source package no SwiftPM consumer could compile.** The umbrella header
