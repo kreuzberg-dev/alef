@@ -402,6 +402,7 @@ pub(crate) fn emit_extern_block_for_functions(
     handle_returned_types: &HashSet<String>,
     enum_names: &HashSet<String>,
     deferred_empty_handle_types: &HashSet<String>,
+    capsule_types: &std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig>,
 ) -> String {
     let mut block = String::new();
     block.push_str("    extern \"Rust\" {\n");
@@ -465,10 +466,26 @@ pub(crate) fn emit_extern_block_for_functions(
             .collect();
         let params_str = params.join(", ");
 
+        // Check if the function returns a capsule type (host-native passthrough).
+        // For capsule functions, override the return type to be a raw `OpaquePointer?`
+        // instead of the opaque handle wrapper, since the host constructs the native
+        // Language from the raw C pointer.
+        let is_capsule_return = matches!(&f.return_type, TypeRef::Named(n) if capsule_types.contains_key(n.as_str()));
+
         // Returns route through the handle-aware bridge mapper so that Named types
         // returned from public functions stay as
         // opaque handles instead of getting JSON-collapsed to `String`.
-        let return_ty = if f.error_type.is_some() {
+        // However, capsule functions return raw pointers that the host wraps.
+        let return_ty = if is_capsule_return {
+            // Capsule functions return optional raw pointers: OpaquePointer? for fallible,
+            // OpaquePointer for infallible. swift-bridge's mapping of `*const c_void`
+            // becomes `OpaquePointer?` in Swift.
+            if f.error_type.is_some() {
+                "Result<OpaquePointer, String>".to_string()
+            } else {
+                "OpaquePointer?".to_string()
+            }
+        } else if f.error_type.is_some() {
             let ok_ty = bridge_type_with_handles(&f.return_type, handle_returned_types);
             if matches!(f.return_type, TypeRef::Unit) {
                 "Result<(), String>".to_string()
@@ -951,6 +968,114 @@ mod streaming_extern_tests {
             block.matches("type CrawlEngineHandle;").count(),
             1,
             "undeclared owner must be declared exactly once (deduped across adapters):\n{block}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod capsule_function_tests {
+    //! Regression coverage for capsule (host-native Language passthrough) function
+    //! return type mapping. Capsule functions should return raw `OpaquePointer?` instead
+    //! of opaque handles so the host can construct its native `Language` type from
+    //! the raw C pointer.
+
+    use super::emit_extern_block_for_functions;
+    use crate::core::config::HostCapsuleTypeConfig;
+    use crate::core::ir::{FunctionDef, TypeRef};
+    use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn capsule_function_returns_opaque_pointer() {
+        let lang_capsule = HostCapsuleTypeConfig {
+            host_type: "SwiftTreeSitter.Language".to_string(),
+            package: "https://github.com/tree-sitter/swift-tree-sitter".to_string(),
+            package_version: "0.25.0".to_string(),
+            construct_expr: "SwiftTreeSitter.Language(OpaquePointer({ptr}))".to_string(),
+        };
+        let mut capsule_types = HashMap::new();
+        capsule_types.insert("Language".to_string(), lang_capsule);
+
+        let functions = vec![FunctionDef {
+            name: "get_language".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("Language".to_string()),
+            error_type: None,
+            ..Default::default()
+        }];
+
+        let handle_returned = HashSet::new();
+        let enum_names = HashSet::new();
+        let deferred_empty = HashSet::new();
+
+        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
+
+        // Capsule function should return OpaquePointer? (optional raw pointer), not Language
+        assert!(
+            block.contains("fn get_language() -> OpaquePointer?"),
+            "capsule function must return OpaquePointer?, got:\n{block}"
+        );
+        // Should NOT be treated as a regular opaque handle
+        assert!(
+            !block.contains("fn get_language() -> Language"),
+            "capsule function should not return opaque handle Language:\n{block}"
+        );
+    }
+
+    #[test]
+    fn fallible_capsule_function_returns_result_opaque_pointer() {
+        let lang_capsule = HostCapsuleTypeConfig {
+            host_type: "SwiftTreeSitter.Language".to_string(),
+            package: "https://github.com/tree-sitter/swift-tree-sitter".to_string(),
+            package_version: "0.25.0".to_string(),
+            construct_expr: "SwiftTreeSitter.Language(OpaquePointer({ptr}))".to_string(),
+        };
+        let mut capsule_types = HashMap::new();
+        capsule_types.insert("Language".to_string(), lang_capsule);
+
+        let functions = vec![FunctionDef {
+            name: "get_language".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("Language".to_string()),
+            error_type: Some("String".to_string()),
+            ..Default::default()
+        }];
+
+        let handle_returned = HashSet::new();
+        let enum_names = HashSet::new();
+        let deferred_empty = HashSet::new();
+
+        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
+
+        // Fallible capsule function should return Result<OpaquePointer, String>
+        assert!(
+            block.contains("fn get_language() -> Result<OpaquePointer, String>"),
+            "fallible capsule function must return Result<OpaquePointer, String>, got:\n{block}"
+        );
+    }
+
+    #[test]
+    fn non_capsule_function_unaffected() {
+        let capsule_types = HashMap::new();
+
+        let functions = vec![FunctionDef {
+            name: "get_metadata".to_string(),
+            params: vec![],
+            return_type: TypeRef::Named("Metadata".to_string()),
+            error_type: None,
+            ..Default::default()
+        }];
+
+        let mut handle_returned = HashSet::new();
+        handle_returned.insert("Metadata".to_string());
+        let enum_names = HashSet::new();
+        let deferred_empty = HashSet::new();
+
+        let block = emit_extern_block_for_functions(&functions, &handle_returned, &enum_names, &deferred_empty, &capsule_types);
+
+        // Non-capsule function returning a handle type should return the opaque handle
+        assert!(
+            block.contains("fn get_metadata() -> Metadata"),
+            "non-capsule handle-returning function must return Metadata, got:\n{block}"
         );
     }
 }

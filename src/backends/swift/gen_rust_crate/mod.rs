@@ -440,6 +440,10 @@ fn emit_lib_rs(
             }
         }
     }
+    // Extract capsule_types from config for Swift
+    let swift_capsule_types: std::collections::HashMap<String, crate::core::config::HostCapsuleTypeConfig> =
+        config.swift.as_ref().map(|c| c.capsule_types.clone()).unwrap_or_default();
+
     if !visible_functions.is_empty() {
         // Non-cfg-gated functions go into the aggregate extern "Rust" block.
         // cfg-gated functions are emitted into per-cfg `#[cfg(...)] extern "Rust" { }`
@@ -458,6 +462,7 @@ fn emit_lib_rs(
                 &handle_returned_types,
                 &enum_names_owned,
                 &deferred_empty_handle_types,
+                &swift_capsule_types,
             ));
         }
         // Group cfg-gated functions by their cfg condition, then emit one
@@ -475,6 +480,7 @@ fn emit_lib_rs(
                 &handle_returned_types,
                 &enum_names_owned,
                 &empty_set,
+                &swift_capsule_types,
             );
             extern_blocks.push(format!("    #[cfg({cfg_cond})]\n{block}"));
         }

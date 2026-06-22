@@ -126,6 +126,22 @@ impl Backend for SwiftBackend {
             imports.insert("import RustBridge".to_string());
         }
 
+        // Extract capsule module imports from config. For each capsule type's host_type
+        // (e.g., "SwiftTreeSitter.Language"), extract the module name (e.g., "SwiftTreeSitter")
+        // and add an import statement.
+        if let Some(swift_config) = &config.swift {
+            for (_type_name, capsule_cfg) in &swift_config.capsule_types {
+                // Extract the first dotted component from host_type.
+                // e.g., "SwiftTreeSitter.Language" → "SwiftTreeSitter"
+                if let Some(module_name) = capsule_cfg.host_type.split('.').next() {
+                    // Skip if module_name contains sigils (shouldn't happen, but be defensive)
+                    if !module_name.is_empty() && !module_name.contains(['*', '?', '&']) {
+                        imports.insert(format!("import {module_name}"));
+                    }
+                }
+            }
+        }
+
         let mut body = String::new();
 
         // Unit serde enums (all-unit + has_serde) are emitted as `public enum S: String, Codable`
