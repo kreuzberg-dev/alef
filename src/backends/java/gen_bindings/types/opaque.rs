@@ -277,9 +277,16 @@ fn gen_instance_method(
         _ => false,
     });
 
-    out.push_str("        try {\n");
+    // Open the arena as a try-with-resources resource so it is always closed
+    // (its C-string allocations are freed) when the method returns. The native
+    // call copies the inputs and the returned handle is an owned native pointer,
+    // so closing the arena afterwards is safe; leaving it unclosed leaks the
+    // shared arena and, on Windows/JDK 25, lets the GC reclaim its off-heap
+    // region around the native call (see #146).
     if needs_arena {
-        out.push_str("            Arena arena = Arena.ofShared();\n");
+        out.push_str("        try (Arena arena = Arena.ofShared()) {\n");
+    } else {
+        out.push_str("        try {\n");
     }
 
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
@@ -663,8 +670,6 @@ fn gen_static_factory_method(
         }
     }
 
-    out.push_str("        try {\n");
-
     // Check if any parameters require Arena allocation (String, Path, Named types, etc.)
     let needs_arena = method.params.iter().any(|p| match &p.ty {
         TypeRef::String | TypeRef::Char | TypeRef::Path => true,
@@ -680,8 +685,13 @@ fn gen_static_factory_method(
         _ => false,
     });
 
+    // Open the arena as a try-with-resources resource so it is always closed when
+    // the method returns (see #146 — an unclosed shared arena leaks and can be
+    // GC-reclaimed around the native call on Windows/JDK 25).
     if needs_arena {
-        out.push_str("            Arena arena = Arena.ofShared();\n");
+        out.push_str("        try (Arena arena = Arena.ofShared()) {\n");
+    } else {
+        out.push_str("        try {\n");
     }
 
     let mut named_ptr_frees: Vec<(String, String)> = Vec::new();
