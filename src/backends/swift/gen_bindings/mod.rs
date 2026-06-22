@@ -11,7 +11,7 @@ use crate::backends::swift::gen_rust_crate;
 use crate::backends::swift::type_map::SwiftMapper;
 
 mod boxes;
-mod bridge_artifacts;
+pub(crate) mod bridge_artifacts;
 mod client;
 mod dto;
 mod enums;
@@ -143,6 +143,39 @@ impl Backend for SwiftBackend {
         }
 
         let mut body = String::new();
+
+        // When a capsule host module (e.g. `SwiftTreeSitter`) is imported, its public
+        // types (`Parser`, `Tree`, `Node`, `Language`, …) collide with this package's
+        // same-named opaque handles from `RustBridge`, making bare references ambiguous
+        // (`'Parser' is ambiguous for type lookup`). A module-level typealias shadows the
+        // imported name with the local `RustBridge` handle, disambiguating every bare
+        // reference at once without qualifying each site. Capsule host types are always
+        // referenced fully-qualified (`SwiftTreeSitter.Language`), so they are unaffected.
+        let capsule_present = config
+            .swift
+            .as_ref()
+            .map(|c| !c.capsule_types.is_empty())
+            .unwrap_or(false);
+        if capsule_present {
+            // Method-bearing opaque handles (e.g. `Parser`, `Tree`, `Node`) are emitted as
+            // `RustBridge` classes, not host-module typealiases, so bare references collide
+            // with the capsule module's same-named types. No-method opaque handles (e.g.
+            // `Language`) already get a `public typealias X = RustBridge.X` elsewhere, so they
+            // are excluded here to avoid a redeclaration. The alias is `public` so it can
+            // appear in public forwarder signatures.
+            let mut aliases: Vec<String> = api
+                .types
+                .iter()
+                .filter(|t| t.is_opaque && !t.methods.is_empty() && !exclude_types.contains(&t.name))
+                .map(|t| format!("public typealias {0} = RustBridge.{0}", t.name))
+                .collect();
+            aliases.sort();
+            aliases.dedup();
+            if !aliases.is_empty() {
+                body.push_str(&aliases.join("\n"));
+                body.push_str("\n\n");
+            }
+        }
 
         // Unit serde enums (all-unit + has_serde) are emitted as `public enum S: String, Codable`
         // with serde-derived raw values. They are Codable so structs containing them as fields
@@ -779,5 +812,43 @@ impl Backend for SwiftBackend {
                 ],
             }],
         })
+    }
+
+    fn build_config_with_config(&self, config: &ResolvedCrateConfig) -> Option<BuildConfig> {
+        // Start from the no-config fallback so the cargo build RunCommand stays
+        // the single source of truth, then append a MaterializeSwiftBridge step
+        // that re-runs the glue/header materialization AFTER that build. The
+        // generate-phase materialization at `emit_swift_bridge_files` runs before
+        // this build, so on a clean build it copies stale (or missing) output;
+        // re-materializing here picks up the freshly-built target/*/out artifacts.
+        let mut build_config = self.build_config()?;
+
+        // Use the hyphenated crate name so it matches the cargo build output dir
+        // prefix `{config.name}-swift-<hash>` (the generate phase uses
+        // `api.crate_name`, which may be underscored and mis-match).
+        let binding_crate_name = format!("{}-swift", config.name);
+
+        // Compute the Swift package root the same way the generate phase does:
+        // resolve the configured output dir, then walk up to the dir containing
+        // `Sources/`, with the same `packages/swift` fallback chain.
+        let base_dir = resolve_output_dir(config.output_paths.get("swift"), &config.name, "packages/swift");
+        let package_root = PathBuf::from(&base_dir)
+            .ancestors()
+            .find(|p| p.join("Sources").is_dir())
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| {
+                PathBuf::from(&base_dir)
+                    .parent()
+                    .and_then(|p| p.parent())
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|| PathBuf::from("packages/swift"))
+            });
+
+        build_config.post_build.push(PostBuildStep::MaterializeSwiftBridge {
+            binding_crate_name,
+            package_root: package_root.to_string_lossy().to_string(),
+        });
+
+        Some(build_config)
     }
 }

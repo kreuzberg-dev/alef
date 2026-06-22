@@ -1835,6 +1835,7 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
             PostBuildStep::PostProcessFile { .. } => "PostProcessFile",
             PostBuildStep::PatchFile { .. } => "PatchFile",
             PostBuildStep::StageDartNatives { .. } => "StageDartNatives",
+            PostBuildStep::MaterializeSwiftBridge { .. } => "MaterializeSwiftBridge",
         })
         .collect();
 
@@ -1962,6 +1963,9 @@ skip_frb = true
                 PostBuildStep::PatchFile { .. } => "PatchFile".to_string(),
                 PostBuildStep::StageDartNatives { lib_stem } => {
                     format!("StageDartNatives({lib_stem})")
+                }
+                PostBuildStep::MaterializeSwiftBridge { binding_crate_name, .. } => {
+                    format!("MaterializeSwiftBridge({binding_crate_name})")
                 }
             })
             .collect::<Vec<_>>()

@@ -585,6 +585,33 @@ pub fn run_post_build(
                     .with_context(|| format!("failed to stage Dart native libraries for stem '{lib_stem}'"))?;
                 info!("Staged native libraries for Dart package from build output (stem: '{lib_stem}')");
             }
+            PostBuildStep::MaterializeSwiftBridge {
+                binding_crate_name,
+                package_root,
+            } => {
+                // `package_root` is stored relative to the workspace base dir.
+                let package_root = base_dir.join(package_root);
+                let materialized = crate::backends::swift::gen_bindings::bridge_artifacts::emit_swift_bridge_files(
+                    "",
+                    binding_crate_name,
+                    &package_root,
+                )
+                .with_context(|| {
+                    format!("failed to re-materialize swift-bridge files for '{binding_crate_name}'")
+                })?;
+                if let Some(files) = materialized {
+                    for f in files {
+                        if let Some(parent) = f.path.parent() {
+                            std::fs::create_dir_all(parent).with_context(|| {
+                                format!("failed to create directory {}", parent.display())
+                            })?;
+                        }
+                        std::fs::write(&f.path, &f.content)
+                            .with_context(|| format!("failed to write {}", f.path.display()))?;
+                    }
+                }
+                info!("Re-materialized swift-bridge files for '{binding_crate_name}' from fresh build output");
+            }
         }
     }
 

@@ -88,6 +88,17 @@ pub enum PostBuildStep {
         /// The library stem (e.g., "sample_lib_dart" for libsample_lib_dart.dylib).
         lib_stem: String,
     },
+    /// Re-run the swift-bridge file materialization (copy the freshly-built
+    /// glue/headers from target/*/out into Sources/RustBridge{,C}). Must run
+    /// AFTER the cargo build RunCommand so it picks up current output, not stale.
+    MaterializeSwiftBridge {
+        /// Hyphenated binding crate name (e.g. `tree-sitter-language-pack-swift`),
+        /// matching the cargo build output dir prefix `{name}-swift-<hash>`.
+        binding_crate_name: String,
+        /// Swift package root (the dir containing `Sources/`), relative to the
+        /// workspace base dir.
+        package_root: String,
+    },
 }
 
 /// A generated file to write to disk.

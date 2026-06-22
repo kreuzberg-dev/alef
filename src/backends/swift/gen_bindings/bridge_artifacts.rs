@@ -7,7 +7,7 @@ use heck::{ToLowerCamelCase, ToSnakeCase, ToUpperCamelCase};
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-pub(super) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
+pub(crate) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<PathBuf> {
     let cwd = std::env::current_dir().ok()?;
     let workspace_root = std::iter::once(cwd.clone())
         .chain(cwd.ancestors().skip(1).map(|p| p.to_path_buf()))
@@ -46,7 +46,7 @@ pub(super) fn find_swift_bridge_out_dir(binding_crate_name: &str) -> Option<Path
     best.map(|(_, p)| p)
 }
 
-pub(super) fn emit_swift_bridge_files(
+pub(crate) fn emit_swift_bridge_files(
     crate_name: &str,
     binding_crate_name: &str,
     package_root: &std::path::Path,
