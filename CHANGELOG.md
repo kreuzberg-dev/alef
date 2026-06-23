@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generated sync `#[pyfunction]` free functions take an injected `py: Python<'_>` and wrap the core
   call in `py.detach(|| ...)`. The async path already released the GIL via `future_into_py`.
   (`backends/pyo3/gen_bindings/service_api/rust_service.rs`, `codegen/generators/functions.rs`)
+- **PyO3: trait callbacks now run inside the caller's contextvars Context.** The bridge ran the
+  host callback on a `spawn_blocking` worker thread with a fresh, empty `contextvars` context, so
+  any `ContextVar` set by the caller was invisible inside the callback. The bridge now captures
+  `contextvars.copy_context()` on the calling thread and invokes the host method via
+  `ctx.run(bound_method, *args)` for both sync and async trait methods.
+  (`backends/pyo3/trait_bridge/generator.rs`, `backends/pyo3/templates/trait_bridge/*.jinja`)
 
 ## [0.26.5] - 2026-06-23
 

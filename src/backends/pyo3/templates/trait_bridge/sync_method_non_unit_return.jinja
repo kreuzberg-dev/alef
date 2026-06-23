@@ -1,5 +1,11 @@
 Python::attach(|py| {
-    {{ call }}
+    let obj = self.inner.bind(py);
+    py.import("contextvars")
+        .and_then(|m| m.call_method0("copy_context"))
+        .and_then(|ctx| {
+            let bound_method = obj.getattr("{{ method_name }}")?;
+            ctx.call_method1("run", ({{ run_args }}))
+        })
 {% if is_named %}
         .and_then(|v| v.extract::<String>())
         .and_then(|s| serde_json::from_str::<{{ extract_ty }}>(&s).map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string())))

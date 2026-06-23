@@ -31,6 +31,16 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let has_error = method.error_type.is_some();
 
         let py_args = self.sync_py_args(method);
+        // Invoke the host method through the caller's contextvars Context so any ContextVar
+        // set by the caller is visible inside the callback. `ctx.run(bound_method, *args)`
+        // runs the callable with `ctx` as the active context; calling the method directly
+        // would run it under the worker/empty context instead. The trailing comma keeps the
+        // zero-arg case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
+        let run_args = if py_args.is_empty() {
+            "bound_method,".to_string()
+        } else {
+            format!("bound_method, {py_args}")
+        };
         let call = if py_args.is_empty() {
             format!("self.inner.bind(py).call_method0(\"{name}\")")
         } else {
@@ -46,6 +56,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     has_error => has_error,
                     error_expr => error_expr,
                 },
@@ -58,6 +69,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     is_named => is_named,
                     extract_ty => ext,
                     has_error => has_error,
@@ -103,6 +115,15 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         );
 
         let py_args = self.async_py_args(method);
+        // Run the host method through the caller's contextvars Context (captured on the calling
+        // thread before `spawn_blocking`) so the callback sees the caller's ContextVars rather
+        // than the worker thread's fresh, empty context. The trailing comma keeps the zero-arg
+        // case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
+        let run_args = if py_args.is_empty() {
+            "bound_method,".to_string()
+        } else {
+            format!("bound_method, {py_args}")
+        };
         let call = if py_args.is_empty() {
             format!("obj.call_method0(\"{name}\")")
         } else {
@@ -125,6 +146,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     param_cloning => param_cloning,
                     return_type => return_type,
                     error_expr => error_expr,
@@ -139,6 +161,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     param_cloning => param_cloning,
                     error_expr => error_expr,
                     spawn_error_expr => spawn_error_expr,
@@ -151,6 +174,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     extract_ty => ext,
                     param_cloning => param_cloning,
                     error_expr => error_expr,
