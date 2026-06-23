@@ -304,15 +304,17 @@ pub(super) fn render_package_swift(
     let min_macos = toolchain::SWIFT_MIN_MACOS;
 
     // For local deps SwiftPM identity = last path component (e.g. "../../packages/swift" → "swift").
-    // For registry deps we use .package(url:, from:) to pull the Swift package from GitHub.
-    // SwiftPM will resolve the tag v<version> to the package, making the Swift module available.
+    // For registry deps we use .package(url:, branch:) to pull the Swift package from GitHub.
+    // SwiftPM will resolve the release/swift/<version> branch which contains the correct
+    // XCFramework checksum. SemVer-based resolution (from:) would fail because the actual
+    // package artifact lives on the release/swift/ branch, not a SemVer tag.
     // Use explicit .product(name:package:) to avoid ambiguity under tools-version 6.0.
     let (mut dependencies_block, mut test_target_dep) = match dep_mode {
         crate::e2e::config::DependencyMode::Registry => {
-            // Registry mode: fetch the full Swift package from GitHub at the release tag.
+            // Registry mode: fetch the full Swift package from GitHub at the release/swift/<version> branch.
             let github_repo_url = registry_url.trim_end_matches(".git");
             let package_dep = format!(
-                r#"        .package(url: "{github_repo_url}", from: "{pkg_version}"),
+                r#"        .package(url: "{github_repo_url}", branch: "release/swift/{pkg_version}"),
 "#
             );
             let deps_block = format!("    dependencies: [\n{package_dep}    ],\n");
@@ -443,7 +445,10 @@ mod tests {
             out.contains("https://github.com/tree-sitter/tree-sitter-swift"),
             "should contain GitHub URL"
         );
-        assert!(out.contains("from: \"0.25.0\""), "should pin version");
+        assert!(
+            out.contains("branch: \"release/swift/0.25.0\""),
+            "should pin release/swift branch to resolve correct XCFramework checksum"
+        );
         assert!(
             out.contains(".product(name: \"TreeSitter\", package: \"tree-sitter-swift\")"),
             "should have product dep"
@@ -671,6 +676,30 @@ mod tests {
         assert!(
             !out.contains(".executableTarget("),
             "should omit harness executable target"
+        );
+    }
+
+    #[test]
+    fn render_package_swift_registry_mode_never_uses_from() {
+        // Regression: .from() resolves SemVer tags (v1.8.1) which contain __ALEF_SWIFT_CHECKSUM__
+        // placeholder. The real checksum lives on the release/swift/<version> branch created by
+        // the publish workflow. This test ensures we always use .branch() for registry mode.
+        let out = render_package_swift(
+            "LiterLlm",
+            "https://github.com/kreuzberg-dev/liter-llm.git",
+            "",
+            "1.8.1",
+            crate::e2e::config::DependencyMode::Registry,
+            false,
+            None,
+        );
+        assert!(
+            !out.contains("from: \""),
+            "registry mode should never use .package(url:, from:); use .branch() instead. Got:\n{out}"
+        );
+        assert!(
+            out.contains("branch: \"release/swift/1.8.1\""),
+            "should pin release/swift/1.8.1 branch. Got:\n{out}"
         );
     }
 }

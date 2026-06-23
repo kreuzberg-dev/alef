@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **e2e/swift: test-app scaffold now pins release/swift/<version> branch for correct XCFramework checksum.** The
+  generated e2e `Package.swift` in Registry mode previously used `.package(url: "...", from: "<version>")`,
+  which resolved the SemVer tag `v<version>` containing the placeholder `__ALEF_SWIFT_CHECKSUM__`. The real
+  artifact checksum lives only on the `release/swift/<version>` branch created during publish. Now the
+  scaffold uses `.package(url: "...", branch: "release/swift/<version>")` to fetch from the branch carrying
+  the substituted checksum. (`src/e2e/codegen/swift/project.rs`)
+
 ### Changed
 
 - **backends/kotlin-android: bump generated Gradle plugin + dependency versions to latest stable.** The
