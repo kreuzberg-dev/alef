@@ -184,6 +184,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -380,6 +381,7 @@ fn test_enum_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -419,6 +421,93 @@ fn test_enum_generation() {
 
     // Check for symbol conversion (Ruby symbols)
     assert!(content.contains("to_symbol"), "Should convert to Ruby symbols");
+}
+
+/// Regression: a Ruby caller passing a bare variant name for an internally-tagged enum
+/// (e.g. `"disabled"`) must round-trip. The previous fallback chain only tried the raw
+/// string and a quoted JSON string, both of which a `#[serde(tag = ...)]` enum rejects.
+/// The constructor must also try the tagged form `{"<tag>": name}`.
+#[test]
+fn test_internally_tagged_enum_constructor_wraps_bare_string() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "VlmFallbackPolicy".to_string(),
+            rust_path: "test_lib::VlmFallbackPolicy".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Disabled".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                    cfg: None,
+                    version: Default::default(),
+                },
+                EnumVariant {
+                    name: "OnLowQuality".to_string(),
+                    fields: vec![make_field(
+                        "quality_threshold",
+                        TypeRef::Primitive(PrimitiveType::F64),
+                        false,
+                    )],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: true,
+                    cfg: None,
+                    version: Default::default(),
+                },
+            ],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: Some("mode".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+            string_shorthand: None,
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .expect("lib.rs generated");
+
+    assert!(
+        lib.content.contains(r#"serde_json::json!({ "mode": json_str })"#),
+        "internally-tagged enum constructor must try the tagged form {{\"mode\": json_str}};\ncontent:\n{}",
+        lib.content
+    );
 }
 
 #[test]
@@ -1207,6 +1296,7 @@ mod trait_bridge {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
+                string_shorthand: None,
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1700,6 +1790,7 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1805,6 +1896,7 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1877,6 +1969,7 @@ fn test_tuple_variant_bytes_stays_as_vec() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2173,6 +2266,7 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2459,6 +2553,7 @@ fn test_visitor_bridge_debug_not_duplicated() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2691,6 +2786,7 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2776,6 +2872,7 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2865,6 +2962,7 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2979,6 +3077,7 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3102,6 +3201,7 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3240,6 +3340,7 @@ fn test_enum_yard_doc_emission() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3340,6 +3441,7 @@ fn test_enum_variant_method_yard_docs() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3516,6 +3618,7 @@ fn test_explicit_re_export_list_filters_internal_types() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3764,6 +3867,7 @@ fn test_async_function_with_vec_named_params() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         functions: vec![FunctionDef {
             name: "detect_async".to_string(),
@@ -4022,6 +4126,7 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         functions: vec![],
         errors: vec![ErrorDef {
@@ -4166,5 +4271,93 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
     assert!(
         !preamble.contains("#[cfg("),
         "the deduped download_model wrapper must be unconditional (an ungated variant exists), got preamble:\n{preamble}"
+    );
+}
+
+/// An internally-tagged enum that opts into `string_shorthand` lets a bare Ruby string
+/// construct a DATA variant by routing the string into one named field. The generated
+/// `TryConvert` must add a fallback that wraps the string as
+/// `{"<tag>": "<wire_variant>", "<field>": json_str}` so serde builds that variant.
+#[test]
+fn test_string_shorthand_builds_data_variant() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![],
+        enums: vec![EnumDef {
+            name: "Greeting".to_string(),
+            rust_path: "test_lib::Greeting".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![
+                EnumVariant {
+                    name: "Default".to_string(),
+                    fields: vec![],
+                    doc: String::new(),
+                    is_default: true,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: false,
+                    cfg: None,
+                    version: Default::default(),
+                },
+                EnumVariant {
+                    name: "Preset".to_string(),
+                    fields: vec![make_field("name", TypeRef::String, false)],
+                    doc: String::new(),
+                    is_default: false,
+                    serde_rename: None,
+                    binding_excluded: false,
+                    binding_exclusion_reason: None,
+                    is_tuple: false,
+                    originally_had_data_fields: true,
+                    cfg: None,
+                    version: Default::default(),
+                },
+            ],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: Some("type".to_string()),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+            string_shorthand: Some(StringShorthand {
+                variant: "Preset".to_string(),
+                field: "name".to_string(),
+            }),
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend
+        .generate_bindings(&api, &config)
+        .expect("generate_bindings failed");
+    let lib = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .expect("lib.rs generated");
+
+    // Wire variant value comes from centralized naming (Preset -> "preset" under snake_case).
+    assert!(
+        lib.content
+            .contains(r#"serde_json::json!({ "type": "preset", "name": json_str })"#),
+        "string_shorthand must add the tagged data-variant fallback;\ncontent:\n{}",
+        lib.content
     );
 }

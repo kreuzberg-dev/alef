@@ -728,6 +728,14 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
         })
         .collect();
 
+    // Resolve the optional string-shorthand mapping (bare string -> data-variant field).
+    // Only meaningful for an internally-tagged enum, since the emitted object carries the tag.
+    let shorthand = generators::resolve_string_shorthand(enum_def);
+    let (shorthand_wire_variant, shorthand_field) = match &shorthand {
+        Some((wire_variant, field)) => (Some(wire_variant.as_str()), Some(field.as_str())),
+        None => (None, None),
+    };
+
     crate::backends::magnus::template_env::render(
         "enum_magnus.rs.jinja",
         minijinja::context! {
@@ -740,6 +748,8 @@ pub(super) fn gen_enum(enum_def: &EnumDef) -> String {
             first_variant => first_variant,
             default_variant => default_variant,
             first_variant_default => &first_variant_default,
+            shorthand_wire_variant => shorthand_wire_variant,
+            shorthand_field => shorthand_field,
         },
     )
 }
