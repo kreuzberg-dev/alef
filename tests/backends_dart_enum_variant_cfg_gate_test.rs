@@ -111,6 +111,7 @@ fn make_image_output_format_enum() -> EnumDef {
         binding_exclusion_reason: None,
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 

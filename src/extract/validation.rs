@@ -416,6 +416,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
+                string_shorthand: None,
             }],
             errors: vec![ErrorDef {
                 name: "Error".to_string(),
@@ -488,6 +489,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
+                string_shorthand: None,
             }],
             ..ApiSurface::default()
         };

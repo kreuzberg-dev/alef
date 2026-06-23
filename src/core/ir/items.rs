@@ -354,6 +354,24 @@ impl Default for ParamDef {
     }
 }
 
+/// Opt-in mapping that lets a bare host-language string construct a data-carrying
+/// enum variant by routing the string into one named field.
+///
+/// Declared on the source enum via `#[alef(string_shorthand(variant = "...", field = "..."))]`.
+/// `variant` is the Rust variant name (PascalCase, as written in source); `field` is the
+/// named field on that variant that receives the bare string. Backends that build an enum
+/// from a bare string (pyo3, magnus) use this to emit the tagged object serde expects, e.g.
+/// `{"<tag>": "<wire_variant>", "<field>": s}`. The `<wire_variant>` value is derived from
+/// `variant` via the centralized naming rules (`serde(rename)` > `serde(rename_all)`); it is
+/// NOT stored here so the rule stays in one place.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StringShorthand {
+    /// Rust variant name (PascalCase) that the bare string constructs.
+    pub variant: String,
+    /// Named field on `variant` that receives the bare string value.
+    pub field: String,
+}
+
 /// A public enum.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EnumDef {
@@ -413,6 +431,12 @@ pub struct EnumDef {
     /// Version annotation (since, deprecated).
     #[serde(default)]
     pub version: VersionAnnotation,
+    /// Optional opt-in mapping from a bare host-language string to a data-carrying
+    /// variant's field. `None` (the default) means no shorthand: backends that build
+    /// the enum from a bare string treat it as a unit-variant name, unchanged.
+    /// Set from `#[alef(string_shorthand(variant = "...", field = "..."))]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub string_shorthand: Option<StringShorthand>,
 }
 
 /// An enum variant.

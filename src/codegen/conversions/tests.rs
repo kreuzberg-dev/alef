@@ -136,6 +136,7 @@ fn simple_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
@@ -381,6 +382,7 @@ fn untagged_tuple_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 

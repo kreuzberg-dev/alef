@@ -68,6 +68,7 @@ fn test_tagged_data_enum_tuple_variants_get_distinct_fields() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     let api = ApiSurface {
@@ -222,6 +223,7 @@ fn test_tagged_data_enum_generates_flat_class_not_string_constants() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     let config_type = TypeDef {

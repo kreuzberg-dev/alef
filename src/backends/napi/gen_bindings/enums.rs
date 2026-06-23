@@ -461,6 +461,7 @@ mod tests {
             excluded_variants: vec![],
             version: Default::default(),
             has_default: false,
+            string_shorthand: None,
         }
     }
 
@@ -551,6 +552,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         };
 
         let result = gen_enum(&e, "Js", true);
@@ -618,6 +620,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         };
 
         let result = gen_enum(&e, "Js", true);
@@ -685,6 +688,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         };
 
         let result = gen_enum(&e, "Js", true);
@@ -752,6 +756,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         };
 
         let result = gen_enum(&e, "", false);

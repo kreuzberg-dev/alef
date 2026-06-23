@@ -209,6 +209,7 @@ fn test_trait_bridge_enum_return_type_emitted_as_concrete_type() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     });
 
     let code = gen_trait_bridges_file(&api, &config, "testlib", "krz", "test.h", "../ffi", "..", "testlib");

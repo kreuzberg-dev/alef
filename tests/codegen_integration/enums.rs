@@ -64,6 +64,7 @@ fn test_enum_has_data_variants_true_when_fields_present() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     assert!(
         enum_has_data_variants(&enum_def),
@@ -103,6 +104,7 @@ fn test_gen_enum_with_single_variant_uses_discriminant_zero() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let cfg = default_cfg();
 
@@ -212,6 +214,7 @@ fn test_gen_enum_discriminant_increments_correctly() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let cfg = default_cfg();
 
@@ -287,6 +290,7 @@ fn test_gen_enum_with_pyo3_pyclass_attr_emits_upper_snake_case_for_all_variants(
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let mut cfg = default_cfg();
     let attrs = ["pyclass(eq, eq_int)"];
@@ -341,6 +345,7 @@ fn test_gen_enum_without_pyclass_does_not_rename_python_keywords() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let cfg = default_cfg(); // no pyclass attr
 

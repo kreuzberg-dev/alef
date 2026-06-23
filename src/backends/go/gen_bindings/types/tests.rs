@@ -72,6 +72,7 @@ fn test_gen_unit_enum_type_produces_type_string_and_const_block() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let out = gen_unit_enum_type(&enum_def);
     assert!(out.contains("type Status string"));
@@ -168,6 +169,7 @@ fn test_gen_data_enum_sealed_interface() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let out = gen_data_enum_type(&enum_def);
     // Should emit sealed interface
@@ -456,6 +458,7 @@ fn make_passthrough_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
@@ -538,6 +541,7 @@ fn make_unit_enum(name: &str, rename_all: Option<&str>, variants: Vec<EnumVarian
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     }
 }
 
@@ -637,6 +641,7 @@ fn make_newtype_tuple_enum(name: &str, rename_all: Option<&str>, variants: Vec<E
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     }
 }
 
