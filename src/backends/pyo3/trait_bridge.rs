@@ -105,6 +105,151 @@ pub fn gen_trait_bridge(
 // - No registration function is needed (per-call construction via `type_alias`)
 
 mod tests {
+    /// Trait callbacks must run inside the caller's contextvars Context so any ContextVar
+    /// set by the caller is visible inside the callback. The generated bridge body must capture
+    /// `contextvars.copy_context()` and invoke the host method via `ctx.run(bound_method, ...)`
+    /// (rendered as `call_method1("run", ...)`) rather than calling the method directly.
+    /// Regression test for issue #137.
+    #[test]
+    fn trait_callback_runs_in_caller_contextvars_context() {
+        use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ParamDef, ReceiverKind, TypeDef, TypeRef};
+        use std::collections::{HashMap, HashSet};
+
+        let trait_def = TypeDef {
+            name: "SampleService".to_owned(),
+            rust_path: "sample_core::SampleService".to_owned(),
+            is_trait: true,
+            is_opaque: true,
+            ..TypeDef::default()
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "SampleService".to_owned(),
+            register_fn: Some("register_sample".to_owned()),
+            registry_getter: Some("sample_core::registry::get".to_owned()),
+            ..TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge_cfg,
+            core_import: "sample_core",
+            wrapper_prefix: "Py",
+            type_paths: HashMap::new(),
+            lifetime_type_names: HashSet::new(),
+            error_type: "SampleError".to_owned(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
+        };
+        let generator = super::Pyo3BridgeGenerator {
+            core_import: "sample_core".to_owned(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_owned(),
+        };
+
+        let make_method = |is_async: bool| MethodDef {
+            name: "process".to_owned(),
+            params: vec![ParamDef {
+                name: "text".to_owned(),
+                ty: TypeRef::String,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::String,
+            is_async,
+            error_type: Some("SampleError".to_owned()),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+
+        let async_body = generator.gen_async_method_body(&make_method(true), &spec);
+        assert!(
+            async_body.contains("copy_context"),
+            "async bridge must capture the caller's contextvars context:\n{async_body}"
+        );
+        assert!(
+            async_body.contains("call_method1(\"run\""),
+            "async bridge must invoke the host method via ctx.run:\n{async_body}"
+        );
+
+        let sync_body = generator.gen_sync_method_body(&make_method(false), &spec);
+        assert!(
+            sync_body.contains("copy_context"),
+            "sync bridge must capture the caller's contextvars context:\n{sync_body}"
+        );
+        assert!(
+            sync_body.contains("call_method1(\"run\""),
+            "sync bridge must invoke the host method via ctx.run:\n{sync_body}"
+        );
+    }
+
+    /// When a host returns a value that does not match a struct return type, the bridge
+    /// deserializes it via `serde_json::from_str::<ReturnType>(...)`. The failure message must
+    /// name the expected return TYPE and hint that the value must be a mapping matching the
+    /// type's fields, so the host can fix their return value. The serde error (`{e}`) already
+    /// carries the offending field/path. Regression test for issue #138.
+    #[test]
+    fn trait_callback_deserialize_error_names_return_type() {
+        use crate::codegen::generators::trait_bridge::{TraitBridgeGenerator, TraitBridgeSpec};
+        use crate::core::config::TraitBridgeConfig;
+        use crate::core::ir::{MethodDef, ReceiverKind, TypeDef, TypeRef};
+        use std::collections::{HashMap, HashSet};
+
+        let trait_def = TypeDef {
+            name: "SampleService".to_owned(),
+            rust_path: "sample_core::SampleService".to_owned(),
+            is_trait: true,
+            is_opaque: true,
+            ..TypeDef::default()
+        };
+        let bridge_cfg = TraitBridgeConfig {
+            trait_name: "SampleService".to_owned(),
+            register_fn: Some("register_sample".to_owned()),
+            registry_getter: Some("sample_core::registry::get".to_owned()),
+            ..TraitBridgeConfig::default()
+        };
+        let spec = TraitBridgeSpec {
+            trait_def: &trait_def,
+            bridge_config: &bridge_cfg,
+            core_import: "sample_core",
+            wrapper_prefix: "Py",
+            type_paths: HashMap::new(),
+            lifetime_type_names: HashSet::new(),
+            error_type: "SampleError".to_owned(),
+            error_constructor: "SampleError::Message { message: {msg} }".to_owned(),
+        };
+        let generator = super::Pyo3BridgeGenerator {
+            core_import: "sample_core".to_owned(),
+            type_paths: HashMap::new(),
+            error_type: "SampleError".to_owned(),
+        };
+
+        // A trait method returning a struct `Doc` exercises the json.dumps -> from_str path.
+        let make_method = |is_async: bool| MethodDef {
+            name: "build".to_owned(),
+            params: vec![],
+            return_type: TypeRef::Named("Doc".to_owned()),
+            is_async,
+            error_type: Some("SampleError".to_owned()),
+            receiver: Some(ReceiverKind::Ref),
+            ..MethodDef::default()
+        };
+
+        for is_async in [true, false] {
+            let body = if is_async {
+                generator.gen_async_method_body(&make_method(true), &spec)
+            } else {
+                generator.gen_sync_method_body(&make_method(false), &spec)
+            };
+            assert!(
+                body.contains("expected return type `Doc`"),
+                "deserialize error must name the expected return type `Doc` (is_async={is_async}):\n{body}"
+            );
+            assert!(
+                body.contains("must be a mapping"),
+                "deserialize error must hint the value must be a mapping matching the type's fields (is_async={is_async}):\n{body}"
+            );
+        }
+    }
+
     #[test]
     fn visitor_bridge_uses_configured_context_and_result_metadata() {
         let (api, trait_type, bridge) = crate::codegen::visitor_context::test_support::neutral_visitor_fixture();

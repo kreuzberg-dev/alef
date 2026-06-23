@@ -31,6 +31,16 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         let has_error = method.error_type.is_some();
 
         let py_args = self.sync_py_args(method);
+        // Invoke the host method through the caller's contextvars Context so any ContextVar
+        // set by the caller is visible inside the callback. `ctx.run(bound_method, *args)`
+        // runs the callable with `ctx` as the active context; calling the method directly
+        // would run it under the worker/empty context instead. The trailing comma keeps the
+        // zero-arg case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
+        let run_args = if py_args.is_empty() {
+            "bound_method,".to_string()
+        } else {
+            format!("bound_method, {py_args}")
+        };
         let call = if py_args.is_empty() {
             format!("self.inner.bind(py).call_method0(\"{name}\")")
         } else {
@@ -46,6 +56,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     has_error => has_error,
                     error_expr => error_expr,
                 },
@@ -53,15 +64,24 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             let ext = self.extract_ty(&method.return_type);
             let is_named = matches!(method.return_type, TypeRef::Named(_));
+            // Name the expected return type and hint the shape so a host returning a mismatched
+            // value can fix it. This is a PyErr (the sync chain is `PyResult`-typed before the
+            // final `map_err`); the serde error (`{}`) already names the offending field/path.
+            let return_type_name = self.return_type_display_name(&method.return_type);
+            let deserialize_error_expr = format!(
+                "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", e))"
+            );
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/sync_method_non_unit_return.jinja",
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     is_named => is_named,
                     extract_ty => ext,
                     has_error => has_error,
                     error_expr => error_expr,
+                    deserialize_error_expr => deserialize_error_expr,
                 },
             )
         }
@@ -103,6 +123,15 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         );
 
         let py_args = self.async_py_args(method);
+        // Run the host method through the caller's contextvars Context (captured on the calling
+        // thread before `spawn_blocking`) so the callback sees the caller's ContextVars rather
+        // than the worker thread's fresh, empty context. The trailing comma keeps the zero-arg
+        // case a 1-tuple `(bound_method,)` rather than a parenthesized expression.
+        let run_args = if py_args.is_empty() {
+            "bound_method,".to_string()
+        } else {
+            format!("bound_method, {py_args}")
+        };
         let call = if py_args.is_empty() {
             format!("obj.call_method0(\"{name}\")")
         } else {
@@ -113,8 +142,13 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         ));
         let json_error_expr =
             spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
-        let deserialize_error_expr =
-            spec.make_error("format!(\"Plugin '{}': deserialization failed: {}\", cached_name, e)");
+        // Name the expected return type and hint the shape so a host returning a mismatched
+        // value can fix it. The serde error (`{}`) already names the offending field/path
+        // (e.g. "missing field `title`" / "invalid type ... at line L column C").
+        let return_type_name = self.return_type_display_name(&method.return_type);
+        let deserialize_error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", cached_name, e)"
+        ));
         let spawn_error_expr = spec.make_error("format!(\"spawn_blocking failed: {}\", e)");
 
         if self.is_named(&method.return_type) {
@@ -125,6 +159,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     param_cloning => param_cloning,
                     return_type => return_type,
                     error_expr => error_expr,
@@ -139,6 +174,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     param_cloning => param_cloning,
                     error_expr => error_expr,
                     spawn_error_expr => spawn_error_expr,
@@ -151,6 +187,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                 minijinja::context! {
                     method_name => name,
                     call => call,
+                    run_args => run_args,
                     extract_ty => ext,
                     param_cloning => param_cloning,
                     error_expr => error_expr,
@@ -249,6 +286,17 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
 }
 
 impl Pyo3BridgeGenerator {
+    /// Human-facing name of a return type for callback deserialization error messages.
+    /// For a `Named` type this is the bare type name (e.g. `Doc`), not the fully-qualified
+    /// Rust path, so the message reads the way a host implementer thinks about their return
+    /// value. Other shapes fall back to their Rust rendering.
+    fn return_type_display_name(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Named(name) => name.clone(),
+            other => self.extract_ty(other),
+        }
+    }
+
     /// Extract the Python type that corresponds to a Rust TypeRef.
     fn extract_ty(&self, ty: &TypeRef) -> String {
         match ty {

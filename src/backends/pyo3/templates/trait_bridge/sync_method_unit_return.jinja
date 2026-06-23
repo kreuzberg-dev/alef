@@ -1,5 +1,11 @@
 Python::attach(|py| {
-    {{ call }}
+    let obj = self.inner.bind(py);
+    py.import("contextvars")
+        .and_then(|m| m.call_method0("copy_context"))
+        .and_then(|ctx| {
+            let bound_method = obj.getattr("{{ method_name }}")?;
+            ctx.call_method1("run", ({{ run_args }}))
+        })
         .map(|_| ())
 {% if has_error %}
         .map_err(|e| {{ error_expr }})

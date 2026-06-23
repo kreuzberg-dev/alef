@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **PyO3: sync entrypoints and sync free functions now release the GIL across the blocking core
+  call.** When core re-enters Python through a registered trait callback (the bridge runs the host
+  callback on a `spawn_blocking` worker thread that re-acquires the GIL), the worker could never
+  obtain the GIL the sync entrypoint thread held while parked in the blocking call, deadlocking the
+  callback. Generated sync service entrypoints now wrap the core call in `_py.detach(|| ...)`, and
+  generated sync `#[pyfunction]` free functions take an injected `py: Python<'_>` and wrap the core
+  call in `py.detach(|| ...)`. The async path already released the GIL via `future_into_py`.
+  (`backends/pyo3/gen_bindings/service_api/rust_service.rs`, `codegen/generators/functions.rs`)
+- **PyO3: trait callbacks now run inside the caller's contextvars Context.** The bridge ran the
+  host callback on a `spawn_blocking` worker thread with a fresh, empty `contextvars` context, so
+  any `ContextVar` set by the caller was invisible inside the callback. The bridge now captures
+  `contextvars.copy_context()` on the calling thread and invokes the host method via
+  `ctx.run(bound_method, *args)` for both sync and async trait methods.
+  (`backends/pyo3/trait_bridge/generator.rs`, `backends/pyo3/templates/trait_bridge/*.jinja`)
+- **PyO3: trait-callback deserialization errors now name the expected return type.** When a host
+  trait method returns a value that does not match its struct return type, the bridge deserializes
+  the JSON-dumped value with `serde_json::from_str::<ReturnType>(...)`; the failure previously read
+  "deserialization failed: <serde error>" with no guidance. The message now names the expected
+  return type and hints that the value must be a mapping matching the type's fields. The serde
+  error continues to carry the offending field/path. (`backends/pyo3/trait_bridge/generator.rs`,
+  `backends/pyo3/templates/trait_bridge/sync_method_non_unit_return.jinja`)
+
 ## [0.26.5] - 2026-06-23
 
 ### Fixed

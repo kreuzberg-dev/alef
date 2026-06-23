@@ -1,4 +1,9 @@
 let python_obj = Python::attach(|py| self.inner.clone_ref(py));
+let caller_ctx = Python::attach(|py| {
+    py.import("contextvars")
+        .and_then(|m| m.call_method0("copy_context"))
+        .map(|c| c.unbind())
+});
 let cached_name = self.cached_name.clone();
 
 {{ param_cloning }}
@@ -6,8 +11,10 @@ let cached_name = self.cached_name.clone();
 tokio::task::spawn_blocking(move || {
     Python::attach(|py| {
         let obj = python_obj.bind(py);
+        let ctx = caller_ctx.map_err(|e| {{ error_expr }})?.into_bound(py);
 
-        {{ call }}
+        let bound_method = obj.getattr("{{ method_name }}").map_err(|e| {{ error_expr }})?;
+        ctx.call_method1("run", ({{ run_args }}))
             .map(|_| ())
             .map_err(|e| {{ error_expr }})
     })

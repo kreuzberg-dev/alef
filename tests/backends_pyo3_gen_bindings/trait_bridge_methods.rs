@@ -25,8 +25,8 @@ fn test_gen_sync_method_body_unit_return_no_error() {
 
     assert!(body.contains("Python::attach"), "sync body should use Python::attach");
     assert!(
-        body.contains("call_method0(\"tick\")"),
-        "should call Python method by name with no args"
+        body.contains("getattr(\"tick\")") && body.contains("call_method1(\"run\""),
+        "should resolve the host method by name and invoke it via the caller's contextvars context"
     );
     assert!(
         body.contains("unwrap_or(())"),
@@ -53,7 +53,14 @@ fn test_gen_sync_method_body_string_return_no_error() {
     let method = make_method_def("name", vec![], TypeRef::String, false, false, false);
     let body = generator.gen_sync_method_body(&method, &spec);
 
-    assert!(body.contains("call_method0(\"name\")"), "should call method by name");
+    assert!(
+        body.contains("getattr(\"name\")"),
+        "should resolve the host method by name"
+    );
+    assert!(
+        body.contains("call_method1(\"run\""),
+        "should invoke the host method via the caller's contextvars context"
+    );
     assert!(body.contains("extract::<String>()"), "should extract String return");
     assert!(
         body.contains("unwrap_or_default()"),
@@ -62,7 +69,7 @@ fn test_gen_sync_method_body_string_return_no_error() {
 }
 
 #[test]
-fn test_gen_sync_method_body_with_params_uses_call_method1() {
+fn test_gen_sync_method_body_with_params_runs_via_contextvars() {
     let generator = make_bridge_generator("my_lib");
     let trait_def = make_trait_def("MyTrait", "my_lib::MyTrait", vec![]);
     let bridge_cfg = make_bridge_cfg("MyTrait");
@@ -88,8 +95,12 @@ fn test_gen_sync_method_body_with_params_uses_call_method1() {
     let body = generator.gen_sync_method_body(&method, &spec);
 
     assert!(
-        body.contains("call_method1(\"process\""),
-        "single-param method should use call_method1"
+        body.contains("getattr(\"process\")"),
+        "single-param method should resolve the host method by name"
+    );
+    assert!(
+        body.contains("call_method1(\"run\", (bound_method, input"),
+        "single-param method should forward args through the caller's contextvars context"
     );
 }
 
