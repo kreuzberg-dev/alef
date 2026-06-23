@@ -124,6 +124,22 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: false,
         });
 
+        // Emit an `.npmrc` that disables frozen-lockfile for the e2e install.
+        // A napi binding declares its platform binaries as optionalDependencies
+        // pinned to the exact (not-yet-published) release version, so before that
+        // version is on the registry a frozen `pnpm install` cannot resolve them
+        // and fails with ERR_PNPM_OUTDATED_LOCKFILE — and pnpm refuses to add the
+        // unresolvable optional specifiers to the lockfile, so it can never be
+        // pre-satisfied. pnpm defaults frozen-lockfile to true in CI, so opt out
+        // here; the e2e project is a disposable test harness, not a
+        // reproducibility gate. pnpm reads `.npmrc` from the install cwd
+        // (`cd e2e/<lang> && pnpm install`), so this scopes the override to e2e.
+        files.push(GeneratedFile {
+            path: output_base.join(".npmrc"),
+            content: "; alef-generated — frozen-lockfile is disabled because the under-test napi\n; package pins platform optionalDependencies to the unpublished release version.\nfrozen-lockfile=false\n".to_string(),
+            generated_header: false,
+        });
+
         // Emit a sealed `pnpm-workspace.yaml` ONLY in Registry mode to isolate
         // the test app's devDependencies (vitest, etc.) from the outer workspace.
         // Without it, pnpm hoists/dedupes transitive deps against any parent
@@ -520,6 +536,19 @@ result_var = "result"
             workspace.content.contains("packages:"),
             "pnpm-workspace.yaml must declare an isolated workspace root, got: {}",
             workspace.content
+        );
+
+        // The node e2e app must disable frozen-lockfile: a napi binding pins its
+        // platform binaries as optionalDependencies to the unpublished release
+        // version, which a frozen `pnpm install` cannot resolve pre-publish.
+        let npmrc = files
+            .iter()
+            .find(|f| f.path.ends_with(".npmrc"))
+            .expect("node codegen must emit .npmrc to disable frozen-lockfile for the e2e install");
+        assert!(
+            npmrc.content.contains("frozen-lockfile=false"),
+            "e2e .npmrc must set frozen-lockfile=false, got: {}",
+            npmrc.content
         );
     }
 

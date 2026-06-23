@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **node e2e: the generated test app disables frozen-lockfile.** A napi binding pins its platform
+  binaries as `optionalDependencies` at the exact, not-yet-published release version, so before that
+  version hits the registry a frozen `pnpm install` fails with `ERR_PNPM_OUTDATED_LOCKFILE` and pnpm
+  refuses to record the unresolvable optional specifiers (the lockfile can never be pre-satisfied).
+  pnpm defaults `frozen-lockfile` to true in CI, so the typescript e2e codegen now emits an
+  `e2e/<lang>/.npmrc` with `frozen-lockfile=false`. (`e2e/codegen/typescript/mod.rs`)
 - **PyO3: sync entrypoints and sync free functions now release the GIL across the blocking core
   call.** When core re-enters Python through a registered trait callback (the bridge runs the host
   callback on a `spawn_blocking` worker thread that re-acquires the GIL), the worker could never
