@@ -62,6 +62,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as their native PHP class and types method returns as their native type, rather than `mixed`. The
   facade's `register_*` method already types its `backend` parameter against this interface.
   (`src/backends/php/trait_bridge/interfaces.rs`, `src/backends/php/templates/php_interface_method.jinja`)
+- **extendr: trait-callback struct params are passed to the host as native R objects.** When the
+  Rust core calls back into an R plugin backend, a callback parameter that is a known serde struct
+  is now handed to the R closure as the binding's native R object (an extendr external pointer with
+  `$field` accessors), built via the same `From<core::T>` conversion used for return values, instead
+  of being serialized to a JSON string. The async path clones the owned core value before the
+  `spawn_blocking` boundary and constructs the R object inside the closure, since R objects are not
+  `Send`. The positive allowlist reuses the shared `native_marshalled_struct_params` classifier,
+  narrowed to structs extendr can register as a class (structs with `Vec<Named>` / `Option<Vec<_>>`
+  fields stay on the JSON-string path). Enums, opaque/handle types, and excluded/unknown parameters
+  keep their prior representation. (`src/backends/extendr/trait_bridge.rs`)
+- **extendr: `register_<trait>` roxygen now documents the typed host callback contract.** The
+  generated R wrapper for a plugin registration function emits one roxygen line per callback method
+  the host backend must implement — naming each struct parameter type and the return type, and
+  flagging parameters delivered as native binding objects — so the expected shape of the registered
+  named list is documented. (`src/backends/extendr/gen_bindings/r_wrappers.rs`,
+  `src/backends/extendr/templates/r_trait_bridge_roxygen.jinja`)
 
 ## [0.26.8] - 2026-06-23
 
