@@ -363,6 +363,16 @@ pub(super) fn emit_converters(
         } else {
             out.push_str("        return None\n");
         }
+        // TypedDict configs (total=False) carry only the keys the caller set, so reading every
+        // field with `value.get(...)` would pass `None` for omitted keys and the PyO3 constructor
+        // rejects `None` for non-Optional fields. The dict branch above already coerced nested
+        // structs/enums in place, so splat the present keys and let PyO3 apply its own defaults
+        // for the rest. (Skip when a visitor bridge needs an explicit override kwarg.)
+        if is_typeddict && bridge_visitor_field.is_none() {
+            out.push_str("    value = cast(dict[str, Any], value)\n");
+            out.push_str(&format!("    return _rust.{type_name}(**value)\n\n\n"));
+            continue;
+        }
         // Narrow `value` to the concrete dataclass for mypy. The signature accepts
         // `{type_name} | dict[str, Any] | str | None` so callers may pass JSON
         // strings or raw dicts, but by this point the str/dict branches above
