@@ -8,6 +8,33 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
     enum_def.variants.iter().any(|v| !v.fields.is_empty())
 }
 
+/// Resolve an enum's `string_shorthand` opt-in into the concrete `(wire_variant, field)`
+/// pair the bare-string constructor needs.
+///
+/// Returns `None` unless ALL of these hold:
+/// - the enum declares `#[alef(string_shorthand(variant, field))]`,
+/// - the enum is internally tagged (`#[serde(tag = "...")]`) — the emitted object carries
+///   the tag, so a shorthand on an untagged/externally-tagged enum has nothing to attach to,
+/// - the named `variant` exists and the named `field` is one of its named fields.
+///
+/// The wire variant value is produced by the centralized naming rule
+/// (`serde(rename)` > `serde(rename_all)`); no backend-local casing is applied here.
+pub fn resolve_string_shorthand(enum_def: &EnumDef) -> Option<(String, String)> {
+    let shorthand = enum_def.string_shorthand.as_ref()?;
+    // Only internally-tagged enums can attach a shorthand field to a tag object.
+    enum_def.serde_tag.as_ref()?;
+    let variant = enum_def.variants.iter().find(|v| v.name == shorthand.variant)?;
+    if !variant.fields.iter().any(|f| f.name == shorthand.field) {
+        return None;
+    }
+    let wire_variant = crate::codegen::naming::wire_variant_value(
+        &variant.name,
+        variant.serde_rename.as_deref(),
+        enum_def.serde_rename_all.as_deref(),
+    );
+    Some((wire_variant, shorthand.field.clone()))
+}
+
 /// Returns true if any variant of the enum has a sanitized field.
 ///
 /// A sanitized field means the extractor could not resolve the field's concrete type
@@ -84,6 +111,14 @@ pub fn gen_pyo3_data_enum_with_mapper(
         String::new()
     };
 
+    // Resolve the optional string-shorthand mapping (bare string -> data-variant field).
+    // Only meaningful for an internally-tagged enum, since the emitted object carries the tag.
+    let shorthand = resolve_string_shorthand(enum_def);
+    let (shorthand_wire_variant, shorthand_field) = match &shorthand {
+        Some((wire_variant, field)) => (Some(wire_variant.as_str()), Some(field.as_str())),
+        None => (None, None),
+    };
+
     crate::codegen::template_env::render(
         "generators/enums/pyo3_data_enum.jinja",
         minijinja::context! {
@@ -95,6 +130,8 @@ pub fn gen_pyo3_data_enum_with_mapper(
             variant_accessors_content => variant_accessors,
             serde_tag_content => serde_tag_content,
             serde_tag => enum_def.serde_tag,
+            shorthand_wire_variant => shorthand_wire_variant,
+            shorthand_field => shorthand_field,
             factory_methods_content => factory_methods_content,
         },
     )
@@ -527,6 +564,7 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }
     }
 
