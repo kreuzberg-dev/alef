@@ -6,6 +6,7 @@ use heck::ToSnakeCase;
 
 type OptionsFieldBridges<'a> = AHashMap<&'a str, (&'a str, &'a str, Option<&'a str>)>;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn emit_converters(
     out: &mut String,
     needed_converters: &[String],
