@@ -681,14 +681,14 @@ mod tests {
 
     #[test]
     fn render_package_swift_registry_mode_never_uses_from() {
-        // Regression: .from() resolves SemVer tags (v1.8.1) which contain __ALEF_SWIFT_CHECKSUM__
+        // Regression: .from() resolves SemVer tags (v1.2.3) which contain __ALEF_SWIFT_CHECKSUM__
         // placeholder. The real checksum lives on the release/swift/<version> branch created by
         // the publish workflow. This test ensures we always use .branch() for registry mode.
         let out = render_package_swift(
-            "LiterLlm",
-            "https://github.com/kreuzberg-dev/liter-llm.git",
+            "MyLib",
+            "https://example.com/my-lib.git",
             "",
-            "1.8.1",
+            "1.2.3",
             crate::e2e::config::DependencyMode::Registry,
             false,
             None,
@@ -698,8 +698,8 @@ mod tests {
             "registry mode should never use .package(url:, from:); use .branch() instead. Got:\n{out}"
         );
         assert!(
-            out.contains("branch: \"release/swift/1.8.1\""),
-            "should pin release/swift/1.8.1 branch. Got:\n{out}"
+            out.contains("branch: \"release/swift/1.2.3\""),
+            "should pin release/swift/<version> branch to resolve correct XCFramework checksum. Got:\n{out}"
         );
     }
 }

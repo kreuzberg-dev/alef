@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.7] - 2026-06-23
+
 ### Fixed
 
 - **e2e/swift: test-app scaffold now pins release/swift/<version> branch for correct XCFramework checksum.** The
