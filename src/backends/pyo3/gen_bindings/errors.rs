@@ -139,6 +139,7 @@ pub(super) fn gen_init_py(
     module_name: &str,
     version: &str,
     dto: &DtoConfig,
+    reexported_types: &[String],
     trait_bridges: &[crate::core::config::TraitBridgeConfig],
     extra_init_imports: &std::collections::BTreeMap<String, Vec<String>>,
     capsule_types: &std::collections::HashMap<String, crate::core::config::CapsuleTypeConfig>,
@@ -170,16 +171,21 @@ pub(super) fn gen_init_py(
     let mut needed_data_enums: Vec<String> = Vec::new();
     let mut config_types: Vec<String> = Vec::new();
     // Return types with is_return_type=true are defined authoritatively in the native Rust
-    // module. When not using TypedDict style (which emits a structural type in options.py),
-    // they must be re-exported from the native module — not from .options — so that the
-    // type seen by static analysis tools matches the actual runtime object returned by functions.
+    // module and are returned to callers as attribute-access pyclasses. They must be re-exported
+    // from the native module — not from .options — so the type seen by static analysis matches
+    // the runtime object. Under the structural (TypedDict) style every other type is emitted in
+    // options.py, so only the curated `reexported_types` results stay native; a config type that
+    // is also `is_return_type` (e.g. `ExtractionConfig`, returned by a resolver yet built by the
+    // caller) is not listed there and remains a structural type.
+    let reexported_names: AHashSet<&str> = reexported_types.iter().map(String::as_str).collect();
     let mut native_return_types: Vec<String> = Vec::new();
     for typ in api.types.iter().filter(|typ| !typ.is_trait && !typ.binding_excluded) {
         if typ.name.ends_with("Builder") {
             continue;
         }
         if typ.has_default && !typ.name.ends_with("Update") && !typ.fields.is_empty() {
-            let is_native_return = typ.is_return_type && output_style != PythonDtoStyle::TypedDict;
+            let is_native_return = typ.is_return_type
+                && (output_style != PythonDtoStyle::TypedDict || reexported_names.contains(typ.name.as_str()));
             if is_native_return {
                 native_return_types.push(typ.name.clone());
             } else {
@@ -632,6 +638,7 @@ mod tests {
             "1.2.3",
             &dto,
             &[],
+            &[],
             &extra,
             &caps,
             &adapters,
@@ -694,6 +701,7 @@ mod tests {
             "1.2.3",
             &dto,
             &[],
+            &[],
             &extra,
             &caps,
             &adapters,
@@ -739,6 +747,7 @@ mod tests {
             "_mod",
             "1.2.3",
             &dto,
+            &[],
             &[],
             &extra,
             &caps,
