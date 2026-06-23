@@ -64,6 +64,13 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         } else {
             let ext = self.extract_ty(&method.return_type);
             let is_named = matches!(method.return_type, TypeRef::Named(_));
+            // Name the expected return type and hint the shape so a host returning a mismatched
+            // value can fix it. This is a PyErr (the sync chain is `PyResult`-typed before the
+            // final `map_err`); the serde error (`{}`) already names the offending field/path.
+            let return_type_name = self.return_type_display_name(&method.return_type);
+            let deserialize_error_expr = format!(
+                "pyo3::exceptions::PyRuntimeError::new_err(format!(\"method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", e))"
+            );
             crate::backends::pyo3::template_env::render(
                 "trait_bridge/sync_method_non_unit_return.jinja",
                 minijinja::context! {
@@ -74,6 +81,7 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
                     extract_ty => ext,
                     has_error => has_error,
                     error_expr => error_expr,
+                    deserialize_error_expr => deserialize_error_expr,
                 },
             )
         }
@@ -134,8 +142,13 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
         ));
         let json_error_expr =
             spec.make_error("format!(\"Plugin '{}': JSON serialization failed: {}\", cached_name, e)");
-        let deserialize_error_expr =
-            spec.make_error("format!(\"Plugin '{}': deserialization failed: {}\", cached_name, e)");
+        // Name the expected return type and hint the shape so a host returning a mismatched
+        // value can fix it. The serde error (`{}`) already names the offending field/path
+        // (e.g. "missing field `title`" / "invalid type ... at line L column C").
+        let return_type_name = self.return_type_display_name(&method.return_type);
+        let deserialize_error_expr = spec.make_error(&format!(
+            "format!(\"Plugin '{{}}' method '{name}' returned a value that does not match the expected return type `{return_type_name}`: {{}}. The returned value must be a mapping matching the fields of `{return_type_name}`.\", cached_name, e)"
+        ));
         let spawn_error_expr = spec.make_error("format!(\"spawn_blocking failed: {}\", e)");
 
         if self.is_named(&method.return_type) {
@@ -273,6 +286,17 @@ impl TraitBridgeGenerator for Pyo3BridgeGenerator {
 }
 
 impl Pyo3BridgeGenerator {
+    /// Human-facing name of a return type for callback deserialization error messages.
+    /// For a `Named` type this is the bare type name (e.g. `Doc`), not the fully-qualified
+    /// Rust path, so the message reads the way a host implementer thinks about their return
+    /// value. Other shapes fall back to their Rust rendering.
+    fn return_type_display_name(&self, ty: &TypeRef) -> String {
+        match ty {
+            TypeRef::Named(name) => name.clone(),
+            other => self.extract_ty(other),
+        }
+    }
+
     /// Extract the Python type that corresponds to a Rust TypeRef.
     fn extract_ty(&self, ty: &TypeRef) -> String {
         match ty {

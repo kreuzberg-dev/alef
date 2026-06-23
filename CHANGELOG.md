@@ -23,6 +23,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `contextvars.copy_context()` on the calling thread and invokes the host method via
   `ctx.run(bound_method, *args)` for both sync and async trait methods.
   (`backends/pyo3/trait_bridge/generator.rs`, `backends/pyo3/templates/trait_bridge/*.jinja`)
+- **PyO3: trait-callback deserialization errors now name the expected return type.** When a host
+  trait method returns a value that does not match its struct return type, the bridge deserializes
+  the JSON-dumped value with `serde_json::from_str::<ReturnType>(...)`; the failure previously read
+  "deserialization failed: <serde error>" with no guidance. The message now names the expected
+  return type and hints that the value must be a mapping matching the type's fields. The serde
+  error continues to carry the offending field/path. (`backends/pyo3/trait_bridge/generator.rs`,
+  `backends/pyo3/templates/trait_bridge/sync_method_non_unit_return.jinja`)
 
 ## [0.26.5] - 2026-06-23
 
