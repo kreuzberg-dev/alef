@@ -15,7 +15,13 @@ pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
 /// - the enum declares `#[alef(string_shorthand(variant, field))]`,
 /// - the enum is internally tagged (`#[serde(tag = "...")]`) — the emitted object carries
 ///   the tag, so a shorthand on an untagged/externally-tagged enum has nothing to attach to,
-/// - the named `variant` exists and the named `field` is one of its named fields.
+/// - the named `variant` exists and the named `field` is one of its named fields,
+/// - every OTHER field on that variant is optional, since the constructor emits only the tag
+///   and the named field (a required sibling would make serde fail to build the variant).
+///
+/// These same conditions are checked by `string_shorthand_diagnostics` at extraction, which
+/// turns a misconfiguration into a hard error; the checks here are belt-and-suspenders so
+/// codegen never emits a broken constructor even if validation is bypassed.
 ///
 /// The wire variant value is produced by the centralized naming rule
 /// (`serde(rename)` > `serde(rename_all)`); no backend-local casing is applied here.
@@ -25,6 +31,11 @@ pub fn resolve_string_shorthand(enum_def: &EnumDef) -> Option<(String, String)> 
     enum_def.serde_tag.as_ref()?;
     let variant = enum_def.variants.iter().find(|v| v.name == shorthand.variant)?;
     if !variant.fields.iter().any(|f| f.name == shorthand.field) {
+        return None;
+    }
+    // Every sibling field must be optional, or serde cannot build the variant from
+    // the tag + single field the constructor emits.
+    if variant.fields.iter().any(|f| f.name != shorthand.field && !f.optional) {
         return None;
     }
     let wire_variant = crate::codegen::naming::wire_variant_value(

@@ -1,6 +1,6 @@
 //! Validation for extracted API surfaces before code generation.
 
-use crate::core::ir::{ApiSurface, FieldDef, FunctionDef, MethodDef, ParamDef, TypeRef};
+use crate::core::ir::{ApiSurface, EnumDef, FieldDef, FunctionDef, MethodDef, ParamDef, TypeRef};
 use anyhow::bail;
 
 const SUGGESTED_FIX: &str = "Expose a binding-safe DTO/newtype for this Rust type, include the referenced type in \
@@ -185,6 +185,130 @@ fn format_sanitized_public_api_error(diagnostics: &[SanitizedPublicApiDiagnostic
         message.push_str(&diagnostic.suggested_fix);
     }
     message
+}
+
+/// A misconfigured `#[alef(string_shorthand(...))]` attribute that would otherwise
+/// generate a constructor that silently builds the wrong variant or fails at runtime.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StringShorthandDiagnostic {
+    pub item_path: String,
+    pub reason: String,
+    pub suggested_fix: String,
+}
+
+/// Validate every enum's optional `string_shorthand` opt-in.
+///
+/// The attribute is an explicit promise that a bare host string maps to a data variant's
+/// field, so a misconfiguration must fail loudly rather than silently fall back to unit-variant
+/// handling. An ABSENT attribute (`string_shorthand: None`) produces no diagnostic — that is the
+/// normal case for every other enum and must stay a no-op.
+///
+/// A PRESENT attribute is rejected when:
+/// - the enum is not internally tagged (no `#[serde(tag = "...")]`) — the emitted constructor
+///   has no tag to attach the field to;
+/// - the named variant does not exist on the enum;
+/// - the named field does not exist on that variant;
+/// - any OTHER field on that variant is required (not `Option<...>`). The constructor emits only
+///   the tag and the named field, so a required sibling field would make serde fail to build the
+///   variant at runtime.
+pub fn string_shorthand_diagnostics(api: &ApiSurface) -> Vec<StringShorthandDiagnostic> {
+    api.enums.iter().filter_map(string_shorthand_enum_diagnostic).collect()
+}
+
+fn string_shorthand_enum_diagnostic(enum_def: &EnumDef) -> Option<StringShorthandDiagnostic> {
+    // Absent attribute: not a misconfiguration. Stay silent.
+    let shorthand = enum_def.string_shorthand.as_ref()?;
+    let item_path = if enum_def.rust_path.is_empty() {
+        enum_def.name.clone()
+    } else {
+        enum_def.rust_path.clone()
+    };
+    let attr = format!(
+        "#[alef(string_shorthand(variant = \"{}\", field = \"{}\"))]",
+        shorthand.variant, shorthand.field
+    );
+    let make = |reason: String, fix: String| {
+        Some(StringShorthandDiagnostic {
+            item_path: item_path.clone(),
+            reason,
+            suggested_fix: fix,
+        })
+    };
+
+    if enum_def.serde_tag.is_none() {
+        return make(
+            format!(
+                "enum `{}` declares {attr} but is not internally tagged, so a bare string has no tagged variant to build.",
+                enum_def.name
+            ),
+            "Add `#[serde(tag = \"...\")]` to the enum, or remove the string_shorthand attribute.".to_string(),
+        );
+    }
+
+    let Some(variant) = enum_def.variants.iter().find(|v| v.name == shorthand.variant) else {
+        let known = enum_def
+            .variants
+            .iter()
+            .map(|v| v.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        return make(
+            format!(
+                "enum `{}` declares {attr} but has no variant named `{}`.",
+                enum_def.name, shorthand.variant
+            ),
+            format!("Set `variant` to one of the enum's variants: {known}."),
+        );
+    };
+
+    if !variant.fields.iter().any(|f| f.name == shorthand.field) {
+        let known = variant
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let known = if known.is_empty() {
+            "the variant has no named fields".to_string()
+        } else {
+            format!("the variant's fields are: {known}")
+        };
+        return make(
+            format!(
+                "enum `{}` declares {attr} but variant `{}` has no field named `{}`.",
+                enum_def.name, shorthand.variant, shorthand.field
+            ),
+            format!(
+                "Set `field` to a named field on variant `{}` ({known}).",
+                shorthand.variant
+            ),
+        );
+    }
+
+    // Every sibling field must be optional: the constructor emits only the tag and the named
+    // field, so a required sibling would make serde fail to deserialize the variant.
+    let required_siblings: Vec<&str> = variant
+        .fields
+        .iter()
+        .filter(|f| f.name != shorthand.field && !f.optional)
+        .map(|f| f.name.as_str())
+        .collect();
+    if !required_siblings.is_empty() {
+        let list = required_siblings.join(", ");
+        return make(
+            format!(
+                "enum `{}` declares {attr}, but variant `{}` has required field(s) `{list}` besides `{}`. \
+A bare string fills only `{}`, leaving the other required field(s) unset.",
+                enum_def.name, shorthand.variant, shorthand.field, shorthand.field
+            ),
+            format!(
+                "Make field(s) `{list}` `Option<...>` (so they default when absent), or point string_shorthand \
+at a variant whose only required field is the one receiving the string."
+            ),
+        );
+    }
+
+    None
 }
 
 fn type_ref_label(ty: &TypeRef) -> String {
@@ -498,6 +622,176 @@ mod tests {
         assert!(
             diagnostics.is_empty(),
             "binding-excluded variant must not produce diagnostics; got: {diagnostics:?}"
+        );
+    }
+
+    // ── string_shorthand validation ───────────────────────────────────────────
+
+    fn named_field(name: &str, optional: bool) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty: if optional {
+                TypeRef::Optional(Box::new(TypeRef::String))
+            } else {
+                TypeRef::String
+            },
+            optional,
+            ..FieldDef::default()
+        }
+    }
+
+    fn data_variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            ..EnumVariant::default()
+        }
+    }
+
+    /// Build a `Greeting` enum with the given variants, serde tag, and shorthand opt-in.
+    fn greeting_enum(
+        serde_tag: Option<&str>,
+        variants: Vec<EnumVariant>,
+        shorthand: Option<crate::core::ir::StringShorthand>,
+    ) -> EnumDef {
+        EnumDef {
+            name: "Greeting".to_string(),
+            rust_path: "sample::Greeting".to_string(),
+            original_rust_path: String::new(),
+            variants,
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: serde_tag.map(str::to_string),
+            serde_untagged: false,
+            serde_rename_all: Some("snake_case".to_string()),
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+            string_shorthand: shorthand,
+        }
+    }
+
+    fn shorthand(variant: &str, field: &str) -> Option<crate::core::ir::StringShorthand> {
+        Some(crate::core::ir::StringShorthand {
+            variant: variant.to_string(),
+            field: field.to_string(),
+        })
+    }
+
+    fn surface_with(enum_def: EnumDef) -> ApiSurface {
+        ApiSurface {
+            enums: vec![enum_def],
+            ..ApiSurface::default()
+        }
+    }
+
+    #[test]
+    fn string_shorthand_absent_produces_no_diagnostic() {
+        // The normal case for every other enum: no attribute => no validation error.
+        let api = surface_with(greeting_enum(
+            Some("type"),
+            vec![data_variant("Preset", vec![named_field("name", false)])],
+            None,
+        ));
+        assert!(string_shorthand_diagnostics(&api).is_empty());
+    }
+
+    #[test]
+    fn string_shorthand_valid_produces_no_diagnostic() {
+        // Happy path: tagged enum, real variant, real field, only-required-field is the named one.
+        let api = surface_with(greeting_enum(
+            Some("type"),
+            vec![
+                data_variant("Default", vec![]),
+                data_variant("Preset", vec![named_field("name", false), named_field("note", true)]),
+            ],
+            shorthand("Preset", "name"),
+        ));
+        assert!(
+            string_shorthand_diagnostics(&api).is_empty(),
+            "an optional sibling field must be allowed"
+        );
+    }
+
+    #[test]
+    fn string_shorthand_on_untagged_enum_errors() {
+        let api = surface_with(greeting_enum(
+            None,
+            vec![data_variant("Preset", vec![named_field("name", false)])],
+            shorthand("Preset", "name"),
+        ));
+        let diags = string_shorthand_diagnostics(&api);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0].reason.contains("not internally tagged"),
+            "reason: {}",
+            diags[0].reason
+        );
+        assert!(diags[0].suggested_fix.contains("serde(tag"));
+    }
+
+    #[test]
+    fn string_shorthand_unknown_variant_errors() {
+        let api = surface_with(greeting_enum(
+            Some("type"),
+            vec![data_variant("Preset", vec![named_field("name", false)])],
+            shorthand("Missing", "name"),
+        ));
+        let diags = string_shorthand_diagnostics(&api);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0].reason.contains("no variant named `Missing`"),
+            "reason: {}",
+            diags[0].reason
+        );
+        assert!(diags[0].suggested_fix.contains("Preset"));
+    }
+
+    #[test]
+    fn string_shorthand_unknown_field_errors() {
+        let api = surface_with(greeting_enum(
+            Some("type"),
+            vec![data_variant("Preset", vec![named_field("name", false)])],
+            shorthand("Preset", "label"),
+        ));
+        let diags = string_shorthand_diagnostics(&api);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0].reason.contains("no field named `label`"),
+            "reason: {}",
+            diags[0].reason
+        );
+        assert!(diags[0].suggested_fix.contains("name"));
+    }
+
+    #[test]
+    fn string_shorthand_required_sibling_field_errors() {
+        // `name` receives the string, but `count` is a required (non-Option) sibling, so serde
+        // would fail to build the variant from the tag + name alone.
+        let api = surface_with(greeting_enum(
+            Some("type"),
+            vec![data_variant(
+                "Preset",
+                vec![named_field("name", false), named_field("count", false)],
+            )],
+            shorthand("Preset", "name"),
+        ));
+        let diags = string_shorthand_diagnostics(&api);
+        assert_eq!(diags.len(), 1);
+        assert!(
+            diags[0].reason.contains("required field(s) `count`"),
+            "reason: {}",
+            diags[0].reason
+        );
+        assert!(
+            diags[0].suggested_fix.contains("Option<...>"),
+            "fix: {}",
+            diags[0].suggested_fix
         );
     }
 }
