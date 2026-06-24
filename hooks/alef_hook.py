@@ -23,7 +23,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import urlretrieve
 
-REPO = "kreuzberg-dev/alef"
+REPO = "xberg-io/alef"
 
 _PLATFORM_MAP: dict[tuple[str, str], tuple[str, str]] = {
     ("linux", "x86_64"): ("alef-x86_64-unknown-linux-gnu.tar.gz", "tar.gz"),

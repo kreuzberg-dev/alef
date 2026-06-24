@@ -92,14 +92,14 @@ fn base_url_and_targets_wrapped_for_mix_format_idempotency() {
         .render(context! {
             app_module => "Foo",
             app_name => "foo",
-            repo_url => "https://github.com/kreuzberg-dev/foo",
+            repo_url => "https://github.com/xberg-io/foo",
             build_env_var => "FOO_BUILD",
             nif_targets => "aarch64-apple-darwin x86_64-unknown-linux-gnu",
         })
         .expect("template renders");
 
     assert!(
-        short_rendered.contains("    base_url:\n      \"https://github.com/kreuzberg-dev/foo/releases/download/v"),
+        short_rendered.contains("    base_url:\n      \"https://github.com/xberg-io/foo/releases/download/v"),
         "Short library: base_url should be wrapped, got:\n{}",
         short_rendered
     );
@@ -172,7 +172,7 @@ fn targets_with_many_platforms_wraps_at_keyword() {
         .render(context! {
             app_module => "Kreuzcrawl",
             app_name => "kreuzcrawl",
-            repo_url => "https://github.com/kreuzberg-dev/kreuzcrawl",
+            repo_url => "https://github.com/xberg-io/kreuzcrawl",
             build_env_var => "KREUZCRAWL_BUILD",
             nif_targets_list => vec![
                 "x86_64-unknown-linux-gnu",

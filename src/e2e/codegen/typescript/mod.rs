@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use super::E2eCodegen;
 use crate::codegen::generators::trait_bridge::to_camel_case;
 use config::{
-    render_app_harness, render_file_setup, render_global_setup, render_package_json, render_tsconfig,
+    render_file_setup, render_global_setup, render_package_json, render_tsconfig,
     render_vitest_config,
 };
 pub use test_file::render_test_file;
@@ -74,14 +74,9 @@ impl E2eCodegen for TypeScriptCodegen {
 
         let has_http_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| f.http.is_some());
 
-        // Emit app_harness for server-pattern HTTP fixtures (requires harness config)
-        if has_http_fixtures && !e2e_config.harness.imports.is_empty() {
-            files.push(GeneratedFile {
-                path: output_base.join("app_harness.mjs"),
-                content: render_app_harness(e2e_config, groups),
-                generated_header: true,
-            });
-        }
+        // Server-pattern app_harness.mjs (spinning up the SUT as an HTTP server)
+        // is emitted by the spikard-e2e-http extension via Extension::emit_e2e —
+        // server-pattern e2e is not generic, so alef does not generate it.
 
         let has_file_fixtures = groups.iter().flat_map(|g| g.fixtures.iter()).any(|f| {
             let cc = e2e_config.resolve_call_for_fixture(
@@ -190,11 +185,15 @@ impl E2eCodegen for TypeScriptCodegen {
             generated_header: true,
         });
 
+        // The server-pattern globalSetup (which spawns app_harness) is emitted by
+        // the spikard-e2e-http extension. alef emits only the client/mock-server
+        // globalSetup; when a server harness is configured the extension owns both
+        // app_harness.mjs and its globalSetup.ts.
         let use_server_pattern = has_http_fixtures && !e2e_config.harness.imports.is_empty();
-        if needs_global_setup {
+        if needs_global_setup && !use_server_pattern {
             files.push(GeneratedFile {
                 path: output_base.join("globalSetup.ts"),
-                content: render_global_setup(use_server_pattern),
+                content: render_global_setup(false),
                 generated_header: true,
             });
         }

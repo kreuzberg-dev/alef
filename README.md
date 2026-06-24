@@ -7,10 +7,10 @@
   <a href="https://docs.rs/alef">
     <img src="https://img.shields.io/docsrs/alef?label=docs.rs&color=007ec6" alt="docs.rs">
   </a>
-  <a href="https://github.com/kreuzberg-dev/alef/actions/workflows/ci.yml">
-    <img src="https://img.shields.io/github/actions/workflow/status/kreuzberg-dev/alef/ci.yml?branch=main&label=CI&color=007ec6" alt="CI">
+  <a href="https://github.com/xberg-io/alef/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/xberg-io/alef/ci.yml?branch=main&label=CI&color=007ec6" alt="CI">
   </a>
-  <a href="https://github.com/kreuzberg-dev/alef/blob/main/LICENSE">
+  <a href="https://github.com/xberg-io/alef/blob/main/LICENSE">
     <img src="https://img.shields.io/badge/License-MIT-007ec6" alt="License">
   </a>
   <a href="https://www.rust-lang.org">
@@ -27,7 +27,7 @@
 </div>
 
 <div align="center" style="display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; margin: 24px 0;">
-  <a href="https://github.com/kreuzberg-dev/alef">
+  <a href="https://github.com/xberg-io/alef">
     <img height="22" src="https://img.shields.io/badge/GitHub-kreuzberg--dev%2Falef-007ec6?logo=github&logoColor=white" alt="GitHub">
   </a>
   <a href="https://discord.gg/xt9WY3GnKR">
@@ -226,16 +226,16 @@ prek run --all-files
 
 ## Part of Kreuzberg.dev
 
-- [Kreuzberg](https://github.com/kreuzberg-dev/kreuzberg) - document intelligence for text,
+- [Kreuzberg](https://github.com/xberg-io/kreuzberg) - document intelligence for text,
   tables, metadata, OCR, and code intelligence.
-- [Kreuzberg Cloud](https://github.com/kreuzberg-dev/kreuzberg-cloud) - managed extraction API
+- [Kreuzberg Cloud](https://github.com/xberg-io/kreuzberg-cloud) - managed extraction API
   with SDKs, dashboards, and observability.
-- [kreuzcrawl](https://github.com/kreuzberg-dev/kreuzcrawl) - web crawling and scraping with
+- [kreuzcrawl](https://github.com/xberg-io/kreuzcrawl) - web crawling and scraping with
   HTML-to-Markdown and headless Chrome fallback.
-- [html-to-markdown](https://github.com/kreuzberg-dev/html-to-markdown) - fast, lossless
+- [html-to-markdown](https://github.com/xberg-io/html-to-markdown) - fast, lossless
   HTML-to-Markdown conversion.
-- [liter-llm](https://github.com/kreuzberg-dev/liter-llm) — universal LLM API client with native bindings for 14 languages and 143 providers.
-- [tree-sitter-language-pack](https://github.com/kreuzberg-dev/tree-sitter-language-pack) -
+- [liter-llm](https://github.com/xberg-io/liter-llm) — universal LLM API client with native bindings for 14 languages and 143 providers.
+- [tree-sitter-language-pack](https://github.com/xberg-io/tree-sitter-language-pack) -
   tree-sitter grammars and code-intelligence primitives.
 - [Discord](https://discord.gg/xt9WY3GnKR) - community, roadmap, and release discussion.
 

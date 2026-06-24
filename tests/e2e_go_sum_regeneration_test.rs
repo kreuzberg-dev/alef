@@ -5,7 +5,7 @@
 //! would produce. This prevents the "missing go.sum entry" error that occurs when
 //! running `go test` without manual `go mod tidy` invocation.
 //!
-//! See: github.com/kreuzberg-dev/kreuzcrawl issues with missing e2e module in go.sum.
+//! See: github.com/xberg-io/kreuzcrawl issues with missing e2e module in go.sum.
 
 use alef::core::config::new_config::NewAlefConfig;
 use alef::e2e::codegen::E2eCodegen;

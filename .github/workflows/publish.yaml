@@ -57,7 +57,7 @@ jobs:
 
       - name: Prepare release metadata
         id: meta
-        uses: kreuzberg-dev/actions/prepare-release-metadata@v1
+        uses: xberg-io/actions/prepare-release-metadata@v1
         with:
           available-targets: crates,cli,homebrew
           # Bootstrap alef from main (build from source) so this step doesn't
@@ -75,7 +75,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Validate manifest versions
-        uses: kreuzberg-dev/actions/validate-versions@v1
+        uses: xberg-io/actions/validate-versions@v1
         with:
           version: ${{ needs.prepare.outputs.version }}
           alef-version: main
@@ -90,7 +90,7 @@ jobs:
     steps:
       - name: Check crates.io for alef
         id: check
-        uses: kreuzberg-dev/actions/check-registry@v1
+        uses: xberg-io/actions/check-registry@v1
         with:
           registry: cratesio
           package: alef
@@ -107,14 +107,14 @@ jobs:
     steps:
       - name: Check GitHub release assets
         id: check
-        uses: kreuzberg-dev/actions/check-registry@v1
+        uses: xberg-io/actions/check-registry@v1
         with:
           registry: github-release
           package: alef
           version: ${{ needs.prepare.outputs.version }}
           tag: ${{ needs.prepare.outputs.tag }}
           asset-prefix: alef-
-          repo: kreuzberg-dev/alef
+          repo: xberg-io/alef
           alef-version: main
 
   check-homebrew:
@@ -127,12 +127,12 @@ jobs:
     steps:
       - name: Check Homebrew formula
         id: check
-        uses: kreuzberg-dev/actions/check-registry@v1
+        uses: xberg-io/actions/check-registry@v1
         with:
           registry: homebrew
           package: alef
           version: ${{ needs.prepare.outputs.version }}
-          tap-repo: kreuzberg-dev/homebrew-tap
+          tap-repo: xberg-io/homebrew-tap
           alef-version: main
 
   build-cli:
@@ -163,7 +163,7 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Setup Rust
-        uses: kreuzberg-dev/actions/setup-rust@v1
+        uses: xberg-io/actions/setup-rust@v1
         with:
           target: ${{ matrix.target }}
           cache-key-prefix: publish-cli-${{ matrix.label }}
@@ -173,7 +173,7 @@ jobs:
 
       - name: Build CLI
         id: build
-        uses: kreuzberg-dev/actions/build-rust-cli@v1
+        uses: xberg-io/actions/build-rust-cli@v1
         with:
           package-name: alef
           binary-name: alef
@@ -230,7 +230,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          repository: kreuzberg-dev/homebrew-tap
+          repository: xberg-io/homebrew-tap
           token: ${{ steps.tap-token.outputs.token }}
           path: homebrew-tap
 
@@ -296,17 +296,17 @@ jobs:
 
       - name: Install Homebrew (Linux)
         if: ${{ matrix.install_brew }}
-        uses: kreuzberg-dev/actions/install-homebrew-linux@v1
+        uses: xberg-io/actions/install-homebrew-linux@v1
 
       - name: Build bottles
-        uses: kreuzberg-dev/actions/homebrew-build-bottles@v1
+        uses: xberg-io/actions/homebrew-build-bottles@v1
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           version: ${{ needs.prepare.outputs.version }}
-          tap: kreuzberg-dev/homebrew-tap
+          tap: xberg-io/homebrew-tap
           formulas: alef
           out-dir: ${{ github.workspace }}/bottle-json
-          github-repo: kreuzberg-dev/alef
+          github-repo: xberg-io/alef
           token: ${{ steps.app-token.outputs.token }}
 
       - name: Upload bottle JSON manifests
@@ -342,7 +342,7 @@ jobs:
 
       - uses: actions/checkout@v7
         with:
-          repository: kreuzberg-dev/homebrew-tap
+          repository: xberg-io/homebrew-tap
           token: ${{ steps.tap-token.outputs.token }}
           path: homebrew-tap
 
@@ -353,14 +353,14 @@ jobs:
           merge-multiple: true
 
       - name: Merge bottle DSL into formula
-        uses: kreuzberg-dev/actions/homebrew-merge-bottles@v1
+        uses: xberg-io/actions/homebrew-merge-bottles@v1
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           version: ${{ needs.prepare.outputs.version }}
           tap-dir: ${{ github.workspace }}/homebrew-tap
           json-dir: ${{ github.workspace }}/bottle-json
           formulas: alef
-          github-repo: kreuzberg-dev/alef
+          github-repo: xberg-io/alef
 
       - name: Commit and push bottle DSL
         working-directory: homebrew-tap
@@ -407,7 +407,7 @@ jobs:
           merge-multiple: true
 
       - name: Upload CLI artifacts to release
-        uses: kreuzberg-dev/actions/publish-github-release@v1
+        uses: xberg-io/actions/publish-github-release@v1
         with:
           tag: ${{ needs.prepare.outputs.tag }}
           title: ${{ needs.prepare.outputs.tag }}
@@ -435,12 +435,12 @@ jobs:
           ref: ${{ needs.prepare.outputs.checkout_ref }}
 
       - name: Setup Rust
-        uses: kreuzberg-dev/actions/setup-rust@v1
+        uses: xberg-io/actions/setup-rust@v1
         with:
           install-llvm-cov: "false"
 
       - name: Publish to crates.io
-        uses: kreuzberg-dev/actions/publish-crates@v1
+        uses: xberg-io/actions/publish-crates@v1
         with:
           crates: alef
           version: ${{ needs.prepare.outputs.version }}

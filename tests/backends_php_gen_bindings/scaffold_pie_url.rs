@@ -3,7 +3,7 @@ use alef::core::config::Language;
 /// - {Version} placeholder (preserves leading `v` from Composer version field)
 /// - {OSLower} placeholder (generates lowercase OS names: linux, darwin)
 ///
-/// This ensures `pie install kreuzberg-dev/html-to-markdown` can resolve pre-packaged
+/// This ensures `pie install xberg-io/html-to-markdown` can resolve pre-packaged
 /// extension binaries from GitHub Release assets.
 use alef::core::config::new_config::NewAlefConfig;
 use alef::core::ir::ApiSurface;
@@ -20,7 +20,7 @@ name = "html-to-markdown"
 sources = ["src/lib.rs"]
 
 [crates.package_metadata]
-repository = "https://github.com/kreuzberg-dev/html-to-markdown"
+repository = "https://github.com/xberg-io/html-to-markdown"
 
 [crates.php]
 extension_name = "html_to_markdown"
@@ -56,7 +56,7 @@ extension_name = "html_to_markdown"
 
     // Verify the URL template exists with correct placeholders
     assert!(
-        content.contains("\"url-template\": \"https://github.com/kreuzberg-dev/html-to-markdown/releases/download/{Version}/php_html_to_markdown-{Version}_php{PhpVersion}-{Arch}-{OSLower}-{Libc}-{TSMode}.tgz\""),
+        content.contains("\"url-template\": \"https://github.com/xberg-io/html-to-markdown/releases/download/{Version}/php_html_to_markdown-{Version}_php{PhpVersion}-{Arch}-{OSLower}-{Libc}-{TSMode}.tgz\""),
         "composer.json must contain PIE URL template with {{Version}} and {{OSLower}} placeholders.\nActual content:\n{}",
         content
     );

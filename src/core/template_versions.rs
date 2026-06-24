@@ -439,7 +439,7 @@ pub mod precommit {
 
     // The shared pre-commit hooks repo bundles the file-safety, cargo, rumdl,
     // typos, and pyproject-fmt hooks under a single rev. Renovate bumps this on every release.
-    // renovate: datasource=github-tags packageName=kreuzberg-dev/pre-commit-hooks
+    // renovate: datasource=github-tags packageName=xberg-io/pre-commit-hooks
     pub const SHARED_PRE_COMMIT_HOOKS_REV: &str = "v2.1.0";
 
     // alef rev: managed by sync-versions hook, no renovate marker

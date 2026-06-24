@@ -173,9 +173,9 @@ fn accepts_explicit_alef_owned_infrastructure_mentions() {
     fs::write(
         &file,
         concat!(
-            "uses: kreuzberg-dev/actions/setup-rust@v1\n",
-            "repo: kreuzberg-dev/alef\n",
-            "tap: kreuzberg-dev/homebrew-tap\n",
+            "uses: xberg-io/actions/setup-rust@v1\n",
+            "repo: xberg-io/alef\n",
+            "tap: xberg-io/homebrew-tap\n",
             "docs_host: docs.<repo>.kreuzberg.dev\n",
         ),
     )
@@ -198,7 +198,7 @@ fn reports_downstream_repos_in_infrastructure_namespace() {
         &file,
         format!(
             "remote = {:?}\n",
-            format!("github.com/kreuzberg-dev/{}", forbidden(&["kreuz", "berg"], ""))
+            format!("github.com/xberg-io/{}", forbidden(&["kreuz", "berg"], ""))
         ),
     )
     .expect("write fixture");

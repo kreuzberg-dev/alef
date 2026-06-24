@@ -23,7 +23,7 @@ pub fn alef_config_schema(version: &str) -> Result<Value> {
     object.insert(
         "$id".to_string(),
         json!(format!(
-            "https://github.com/kreuzberg-dev/alef/releases/download/v{version}/alef.schema.json"
+            "https://github.com/xberg-io/alef/releases/download/v{version}/alef.schema.json"
         )),
     );
     object.insert("title".to_string(), json!(SCHEMA_TITLE));

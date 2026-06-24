@@ -7083,7 +7083,7 @@
       "type": "object"
     }
   },
-  "$id": "https://github.com/kreuzberg-dev/alef/releases/download/v0.28.0/alef.schema.json",
+  "$id": "https://github.com/xberg-io/alef/releases/download/v0.28.0/alef.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "JSON Schema for the JSON representation of alef.toml.",

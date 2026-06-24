@@ -25,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: kreuzberg-dev/actions/setup-rust@v1
+      - uses: xberg-io/actions/setup-rust@v1
         with:
           components: "rustfmt, clippy"
           install-llvm-cov: "false"
@@ -57,7 +57,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - uses: kreuzberg-dev/actions/setup-rust@v1
+      - uses: xberg-io/actions/setup-rust@v1
         with:
           install-llvm-cov: "false"
           cache-key-prefix: ci-test
@@ -70,11 +70,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: kreuzberg-dev/actions/setup-rust@v1
+      - uses: xberg-io/actions/setup-rust@v1
         with:
           install-llvm-cov: "false"
           cache-key-prefix: ci-build
-      - uses: kreuzberg-dev/actions/build-rust-cli@v1
+      - uses: xberg-io/actions/build-rust-cli@v1
         id: build-cli
         with:
           package-name: alef

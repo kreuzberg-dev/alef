@@ -114,7 +114,7 @@ fn test_pre_commit_config_uses_default_shared_repo() {
     let content = &files[0].content;
     // All cargo/rumdl/typos/pyproject-fmt/file-safety hooks live under the
     // single shared repo as of the configured hooks bundle v2.0.0.
-    assert!(content.contains("https://github.com/kreuzberg-dev/pre-commit-hooks"));
+    assert!(content.contains("https://github.com/xberg-io/pre-commit-hooks"));
     // The dropped upstream sources must NOT reappear in the scaffold output.
     assert!(!content.contains("https://github.com/pre-commit/pre-commit-hooks"));
     assert!(!content.contains("AndrejOrsula/pre-commit-cargo"));

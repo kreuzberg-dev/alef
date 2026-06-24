@@ -27,7 +27,7 @@ GEMINI.md
 # proceed against a "dirty" tree, so masking the artifact via .gitignore
 # keeps `git status --porcelain` quiet without affecting the published
 # crate (cargo's include/exclude rules determine what ships). Pairs with
-# the `--allow-dirty` flag added to kreuzberg-dev/actions publish-crates.
+# the `--allow-dirty` flag added to xberg-io/actions publish-crates.
 rust_out
 rust_out.*
 

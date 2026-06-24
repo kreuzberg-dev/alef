@@ -2013,7 +2013,7 @@ fn extendr_underscore_prefix_stripped_from_r_params() {
 
 #[test]
 fn test_emits_reference_for_named_non_opaque_struct_params() {
-    // Regression test for https://github.com/kreuzberg-dev/alef/issues/XXX:
+    // Regression test for https://github.com/xberg-io/alef/issues/XXX:
     // Free functions that take non-opaque struct params (e.g. config: ExtractionConfig)
     // must emit them as `&T` in the Rust binding, not as owned `T` or as `String`.
     // Extendr's #[extendr] macro only generates TryFrom<&Robj> for &T (reference),

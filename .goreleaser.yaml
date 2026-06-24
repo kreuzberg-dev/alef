@@ -43,7 +43,7 @@ brews:
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/kreuzberg-dev/alef
+    homepage: https://github.com/xberg-io/alef
     description: "Opinionated polyglot binding generator for Rust libraries"
     license: MIT
     install: |

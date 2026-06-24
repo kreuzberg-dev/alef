@@ -466,7 +466,7 @@ fn test_api_py_imports_config_dto_with_self_returning_method_from_options() {
 /// must still be re-exported from the native module (an attribute-access pyclass matching the
 /// runtime object), while a type that is `is_return_type` but NOT reexported — e.g. a config a
 /// resolver returns yet callers construct, like `ExtractionConfig` — stays a structural
-/// `.options` type. Regression for kreuzberg-dev/alef#134 (public API didn't type-check).
+/// `.options` type. Regression for xberg-io/alef#134 (public API didn't type-check).
 #[test]
 fn test_typeddict_style_reexports_only_listed_results_as_native() {
     fn mk_type(name: &str, is_return_type: bool) -> TypeDef {

@@ -8,7 +8,7 @@ fn generated_schema_contains_versioned_release_metadata() {
 
     assert_eq!(
         schema.get("$id").and_then(serde_json::Value::as_str),
-        Some("https://github.com/kreuzberg-dev/alef/releases/download/v1.2.3/alef.schema.json")
+        Some("https://github.com/xberg-io/alef/releases/download/v1.2.3/alef.schema.json")
     );
     assert_eq!(schema.get("version").and_then(serde_json::Value::as_str), Some("1.2.3"));
     assert_eq!(

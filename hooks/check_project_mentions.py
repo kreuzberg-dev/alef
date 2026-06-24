@@ -69,12 +69,12 @@ DOWNSTREAM_SAMPLE_NAMES = {
 }
 
 ALEF_INFRASTRUCTURE_ALLOWLIST = (
-    "kreuzberg-dev/actions",
-    "kreuzberg-dev/alef",
-    "kreuzberg-dev/ai-rulez",
-    "kreuzberg-dev/homebrew-tap",
-    "github.com/kreuzberg-dev/pre-commit-hooks",
-    "packageName=kreuzberg-dev/pre-commit-hooks",
+    "xberg-io/actions",
+    "xberg-io/alef",
+    "xberg-io/ai-rulez",
+    "xberg-io/homebrew-tap",
+    "github.com/xberg-io/pre-commit-hooks",
+    "packageName=xberg-io/pre-commit-hooks",
     "owner: kreuzberg-dev",
     "kreuzberg-bot",
     "bot@kreuzberg.dev",
