@@ -44,6 +44,12 @@ impl magnus::TryConvert for {{ enum_name }} {
         // If that fails, try treating it as a plain string value and wrap in quotes
         // If both fail, try as Custom variant (for untagged enum support)
         serde_json::from_str(&json_str)
+{%- if serde_tag and shorthand_wire_variant %}
+{#- Internally-tagged enum with string_shorthand: a bare string populates a data variant's field,
+    so wrap it as {"<tag>": "<wire_variant>", "<field>": name} for serde to build that variant.
+    The plain tagged form below still handles bare unit-variant names. -#}
+            .or_else(|_| serde_json::from_value(serde_json::json!({ "{{ serde_tag }}": "{{ shorthand_wire_variant }}", "{{ shorthand_field }}": json_str })))
+{%- endif %}
 {%- if serde_tag %}
             .or_else(|_| serde_json::from_value(serde_json::json!({ "{{ serde_tag }}": json_str })))
 {%- endif %}

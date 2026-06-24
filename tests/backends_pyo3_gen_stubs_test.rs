@@ -162,6 +162,7 @@ fn test_basic_stubs() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -387,6 +388,7 @@ fn test_enum_stubs() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1235,6 +1237,7 @@ fn test_multiple_types_and_functions() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1555,6 +1558,7 @@ fn make_batch_status_enum_def() -> EnumDef {
         methods: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
@@ -1679,6 +1683,7 @@ fn test_pyi_stub_escapes_python_keyword_variant_names() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1940,6 +1945,7 @@ fn test_data_enum_typed_dict_literals_use_serde_wire_names() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

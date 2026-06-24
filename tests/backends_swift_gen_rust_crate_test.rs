@@ -114,6 +114,7 @@ fn make_enum(name: &str, variants: Vec<&str>) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
@@ -2426,6 +2427,7 @@ fn make_tagged_enum(name: &str, variants: Vec<(&str, Vec<&str>)>) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 

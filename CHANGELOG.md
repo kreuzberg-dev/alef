@@ -172,6 +172,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `src/backends/rustler/templates/visitor_send_and_wait.rs.jinja`,
   `src/backends/rustler/templates/elixir_visitor_helper_functions.jinja`)
 
+## [Unreleased]
+
+### Added
+
+- **`#[alef(string_shorthand(variant = "...", field = "..."))]` enum attribute.** Lets a bare
+  host-language string construct a data-carrying variant of an internally-tagged enum
+  (`#[serde(tag = "...")]`) by routing the string into one named field. For an enum like
+  `enum Greeting { Default, Preset { name: String } }` annotated with
+  `string_shorthand(variant = "Preset", field = "name")`, a Python or Ruby caller passing
+  `"fast"` builds `Preset { name: "fast" }` — the constructor emits the tagged object
+  `{"type": "preset", "name": "fast"}` so serde deserializes the right variant. The variant's
+  wire name respects `serde(rename)` / `serde(rename_all)` via the centralized naming rules.
+  Without the attribute, behavior is unchanged: a bare string is still treated as a unit-variant
+  name. Implemented for the pyo3 and magnus backends.
+
+  The attribute applies only to internally-tagged enums, and the target variant's only required
+  field must be the named one — every other field on it must be `Option<...>`, since the bare
+  string fills just that one field. A misconfigured attribute (enum not tagged, unknown variant,
+  unknown field, or a required sibling field) is a hard validation error at extraction that names
+  the enum and how to fix it, rather than a silent fallback. (`core/ir/items.rs`,
+  `extract/extractor/helpers/attributes.rs`, `extract/validation.rs`, `core/validation/mod.rs`,
+  `codegen/generators/enums.rs`, `backends/magnus/gen_bindings/classes.rs`)
+
 ## [0.26.8] - 2026-06-23
 
 ### Fixed

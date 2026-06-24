@@ -682,6 +682,7 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1565,6 +1566,7 @@ fn test_tagged_union_newtype_variants_produce_valid_java() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![ErrorDef {
             name: "Error".to_string(),
@@ -2361,6 +2363,7 @@ fn test_sum_type_sealed_interface_with_record_variants() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2631,6 +2634,7 @@ fn test_tagged_enum_emits_sealed_interface_with_record_variants() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -4022,6 +4026,7 @@ fn options_field_visitor_uses_trait_bridge_config_not_convert_literals() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -4424,6 +4429,7 @@ fn make_assistant_content_enum() -> alef::core::ir::EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     }
 }
 

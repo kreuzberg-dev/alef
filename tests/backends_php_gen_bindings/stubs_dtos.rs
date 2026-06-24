@@ -574,6 +574,7 @@ fn test_unit_enums_emit_native_php_81_backed_enums() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

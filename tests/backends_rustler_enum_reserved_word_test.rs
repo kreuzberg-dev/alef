@@ -89,6 +89,7 @@ fn enum_variant_with_reserved_word_end_escapes_in_module() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     // Create a dummy struct that references the enum to force its generation
@@ -246,6 +247,7 @@ fn enum_variant_with_multiple_reserved_words() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     // Create a dummy struct that references the enum to force its generation

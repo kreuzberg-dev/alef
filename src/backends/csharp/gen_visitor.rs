@@ -590,6 +590,7 @@ mod tests {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
+                string_shorthand: None,
             }],
             errors: vec![],
             excluded_type_paths: Default::default(),

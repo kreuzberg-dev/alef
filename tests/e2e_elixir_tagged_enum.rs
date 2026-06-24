@@ -122,6 +122,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     // MyAction tagged enum with camelCase rename_all
@@ -224,6 +225,7 @@ fn build_test_enums() -> Vec<EnumDef> {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     vec![scroll_direction, my_action]

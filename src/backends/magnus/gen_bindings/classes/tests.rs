@@ -98,6 +98,7 @@ fn gen_enum_unit_variants_emit_ruby_symbols() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
     let code = gen_enum(&enum_def);
     assert!(code.contains("enum Status"), "must emit enum definition");
@@ -143,6 +144,7 @@ fn make_data_enum(name: &str, serde_tag: Option<&str>) -> EnumDef {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     }
 }
 

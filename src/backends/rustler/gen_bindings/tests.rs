@@ -224,6 +224,7 @@ fn tagged_enum_api_surface() -> ApiSurface {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
+        string_shorthand: None,
     };
 
     // Opaque engine type so the wrapper's first param is `reference()` and skipped by

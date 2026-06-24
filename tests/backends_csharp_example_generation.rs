@@ -193,6 +193,7 @@ fn test_generated_code_example() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
+            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -355,6 +356,7 @@ fn make_untagged_enum(name: &str) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
+        string_shorthand: None,
     }
 }
 
