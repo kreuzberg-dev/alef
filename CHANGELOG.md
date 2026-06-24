@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **e2e: server-pattern harness generation is delegated to extensions.** The `app_harness` and its
+  server-spawn test setup (for HTTP-server-under-test e2e) are no longer emitted by alef's built-in
+  generators; a consumer provides them via `Extension::emit_e2e`. The shared client-pattern e2e
+  (mock-server, per-test request bodies, project scaffolding) is unchanged and stays generic.
+  Consumers that do not configure a server harness (`[crates.e2e.harness] imports`) are unaffected.
+  Languages migrated so far: node, python, php, ruby, elixir.
+
 ## [0.28.0] - 2026-06-24
 
 ### Added
