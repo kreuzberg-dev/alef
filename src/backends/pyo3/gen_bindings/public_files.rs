@@ -102,7 +102,7 @@ pub(super) fn generate_public_api(
     });
 
     // 3. Generate exceptions.py (exception hierarchy)
-    let exceptions_content = errors::gen_exceptions_py(api);
+    let exceptions_content = errors::gen_exceptions_py(api, &module_name);
     files.push(GeneratedFile {
         path: output_base.join("exceptions.py"),
         content: exceptions_content,

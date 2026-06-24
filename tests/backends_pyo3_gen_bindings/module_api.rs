@@ -844,10 +844,11 @@ fn test_static_method() {
 }
 
 #[test]
-fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
+fn test_exceptions_py_reexports_native_classes() {
     let backend = Pyo3Backend;
 
-    // Errors with no docstrings — exception classes must have generated docstrings (D101).
+    // exceptions.py re-exports the native exception classes (so the class users catch is the
+    // one the native code raises — tslp issue #147), rather than defining duplicate classes.
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -906,37 +907,22 @@ fn test_exceptions_py_classes_without_docs_have_generated_docstrings() {
 
     let content = &exceptions_file.content;
 
-    // No class should use `pass` — all must have docstrings (ruff D101).
+    // exceptions.py must RE-EXPORT from the native module, never define duplicate classes.
     assert!(
-        !content.contains("    pass"),
-        "Exception classes must use docstrings, not `pass`"
+        content.contains("from .") && content.contains("import "),
+        "exceptions.py should re-export from the native module:\n{content}"
+    );
+    assert!(
+        !content.contains("class "),
+        "exceptions.py must not define duplicate exception classes:\n{content}"
     );
 
-    // The base error class should have a generated docstring from its name.
-    assert!(
-        content.contains("\"\"\"Sample llm error.\"\"\""),
-        "SampleLlmError should have generated docstring"
-    );
-
-    // Variant classes should also have generated docstrings.
-    assert!(
-        content.contains("\"\"\"Authentication error.\"\"\""),
-        "AuthenticationError should have generated docstring"
-    );
-    assert!(
-        content.contains("\"\"\"Rate limited error.\"\"\""),
-        "RateLimitedError should have generated docstring"
-    );
-
-    // Verify no empty class body (class header immediately followed by blank line).
-    for (i, line) in content.lines().enumerate() {
-        if line.starts_with("class ") {
-            let next_non_empty = content.lines().skip(i + 1).find(|l| !l.trim().is_empty());
-            assert!(
-                next_non_empty.is_none_or(|l| l.trim() != ""),
-                "Class at line {} has empty body",
-                i + 1
-            );
-        }
+    // The base error and both variants must be re-exported (and listed in __all__).
+    for name in ["SampleLlmError", "AuthenticationError", "RateLimitedError"] {
+        assert!(content.contains(name), "{name} should be re-exported:\n{content}");
     }
+    assert!(
+        content.contains("__all__"),
+        "exceptions.py should define __all__:\n{content}"
+    );
 }

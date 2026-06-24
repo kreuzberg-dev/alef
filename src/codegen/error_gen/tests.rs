@@ -146,10 +146,12 @@ fn error_with_methods() -> ErrorDef {
 fn test_gen_error_types() {
     let error = sample_error();
     let output = gen_pyo3_error_types(&error, "_module", &mut AHashSet::new());
-    assert!(output.contains("pyo3::create_exception!(_module, ParseError, pyo3::exceptions::PyException);"));
-    assert!(output.contains("pyo3::create_exception!(_module, IoError, pyo3::exceptions::PyException);"));
-    assert!(output.contains("pyo3::create_exception!(_module, OtherError, pyo3::exceptions::PyException);"));
+    // Base error derives from PyException; variants derive from the base error so that
+    // `except ConversionError:` catches every variant (tslp issue #147).
     assert!(output.contains("pyo3::create_exception!(_module, ConversionError, pyo3::exceptions::PyException);"));
+    assert!(output.contains("pyo3::create_exception!(_module, ParseError, ConversionError);"));
+    assert!(output.contains("pyo3::create_exception!(_module, IoError, ConversionError);"));
+    assert!(output.contains("pyo3::create_exception!(_module, OtherError, ConversionError);"));
 }
 
 #[test]

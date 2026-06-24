@@ -35,6 +35,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   which would re-introduce the same primitive-vs-object mismatch) and the client constructs the
   wrapper directly (`Tree(handle)` / `if (h == 0L) null else Tree(h)`). Fixes downstream
   tree-sitter-language-pack issue #146. (`src/backends/kotlin/gen_bindings/jni_emitter/`)
+- **pyo3: package exception classes were unrelated to the ones the native module raises.** The
+  generated `exceptions.py` defined its own Python exception hierarchy while the native module
+  (`create_exception!`) defined and raised a *different* set, so `from <pkg> import DownloadError;
+  except DownloadError:` never caught the raised error. Two changes: (1) the native variants now
+  derive from the native base error (`create_exception!(_native, DownloadError, Error)`) instead of
+  all deriving flat from `PyException`, so `except Error:` still catches every variant; (2)
+  `exceptions.py` now re-exports the native classes (`from .<native module> import …`) instead of
+  redefining them, giving a single canonical class object per exception. Fixes downstream
+  tree-sitter-language-pack issue #147.
+  (`src/codegen/templates/error_gen/pyo3_error_types.jinja`, `src/backends/pyo3/gen_bindings/errors.rs`)
 
 ## [0.26.8] - 2026-06-23
 

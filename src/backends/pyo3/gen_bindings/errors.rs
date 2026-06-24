@@ -1,14 +1,11 @@
 //! Python exception hierarchy and `__init__.py` generation.
 
-use crate::codegen::doc_emission::doc_first_paragraph_joined;
 use crate::codegen::generators;
 use crate::codegen::shared::binding_fields;
 use crate::core::config::{DtoConfig, PythonDtoStyle};
 use crate::core::hash::{self, CommentStyle};
 use crate::core::ir::ApiSurface;
 use ahash::AHashSet;
-
-use super::enums::{class_name_to_docstring, sanitize_python_doc};
 
 fn render_relative_import(module_name: &str, imports: &[String]) -> String {
     crate::backends::pyo3::template_env::render(
@@ -34,99 +31,66 @@ fn is_long_import(import_statement: &str) -> bool {
     import_statement.trim_end_matches('\n').len() > 88
 }
 
-fn exception_property_stub(method_name: &str) -> Option<(&'static str, &'static str, &'static str)> {
-    match method_name {
-        "status_code" => Some((
-            "status_code",
-            "int",
-            "HTTP status code for this error (0 means no associated status).",
-        )),
-        "is_transient" => Some((
-            "is_transient",
-            "bool",
-            "Returns True if the error is transient and a retry may succeed.",
-        )),
-        "error_type" => Some((
-            "error_type",
-            "str",
-            "Machine-readable error category string for matching and logging.",
-        )),
-        _ => None,
-    }
-}
-
-/// Generate exceptions.py — exception hierarchy from IR error definitions.
-/// Appends "Error" suffix to variant names that don't already have it (N818 compliance).
-/// Prefixes names that would shadow Python builtins (A004 compliance).
-pub(super) fn gen_exceptions_py(api: &ApiSurface) -> String {
+/// Generate exceptions.py — re-export the exception hierarchy from the native module.
+///
+/// The native module (`lib.rs`) defines every exception via `pyo3::create_exception!`
+/// (the base error under `PyException`, each variant under the base error) and registers
+/// them on the native extension module. Re-exporting those classes here — instead of
+/// defining duplicate Python classes — guarantees that the class a user catches
+/// (`from <pkg> import DownloadError`) is the exact class the native code raises, so
+/// `except DownloadError:` works (tslp issue #147). Re-exporting the variants under the
+/// base also preserves `except Error:` catching every variant.
+pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     let mut out = String::with_capacity(1024);
     let mut seen_classes: AHashSet<String> = AHashSet::new();
     out.push_str(&hash::header(CommentStyle::Hash));
-    out.push_str("\"\"\"Exception hierarchy.\"\"\"\n\n\n");
+    out.push_str("\"\"\"Exception hierarchy (re-exported from the native module).\"\"\"\n\n");
 
+    // Collect base + variant exception names, de-duplicated, in a stable sorted order
+    // (matches isort / ruff RUF022 so the generated file is format-stable).
+    let mut exc_names: Vec<String> = Vec::new();
     for error in &api.errors {
-        // Base exception class
-        if !seen_classes.insert(error.name.clone()) {
-            continue; // skip duplicate base class
+        if seen_classes.insert(error.name.clone()) {
+            exc_names.push(error.name.clone());
         }
-        let doc = if !error.doc.is_empty() {
-            let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&error.doc));
-            if first_line.ends_with('.') {
-                first_line
-            } else {
-                format!("{}.", first_line)
-            }
-        } else {
-            class_name_to_docstring(&error.name)
-        };
-        out.push_str(&crate::backends::pyo3::template_env::render(
-            "exception_base_class.jinja",
-            minijinja::context! { name => &error.name, doc => doc },
-        ));
-
-        // Introspection @property stubs on the base exception class.
-        // These are backed by #[getter] methods in the PyO3 #[pymethods] impl block
-        // which reads the values from the exception's args tuple (indices 1, 2, 3).
-        //
-        // Bodies use `raise NotImplementedError` rather than `...` because ruff rule
-        // PIE790 ("Unnecessary `...` literal") removes `...` when it follows a
-        // docstring, leaving an empty-body `@property` that mypy rejects with
-        // `empty-body [empty-body]`.
-        for method in &error.methods {
-            if let Some((name, return_type, doc)) = exception_property_stub(&method.name) {
-                out.push_str(&crate::backends::pyo3::template_env::render(
-                    "exception_property_stub.jinja",
-                    minijinja::context! {
-                        name => name,
-                        return_type => return_type,
-                        doc => doc,
-                    },
-                ));
-            }
-        }
-
-        // Per-variant exception subclasses
         for variant in &error.variants {
             let variant_name = crate::codegen::error_gen::python_exception_name(&variant.name, &error.name);
-            if !seen_classes.insert(variant_name.clone()) {
-                continue; // skip duplicate variant class
+            if seen_classes.insert(variant_name.clone()) {
+                exc_names.push(variant_name);
             }
-            let doc = if !variant.doc.is_empty() {
-                let first_line = sanitize_python_doc(&doc_first_paragraph_joined(&variant.doc));
-                if first_line.ends_with('.') {
-                    first_line
-                } else {
-                    format!("{}.", first_line)
-                }
-            } else {
-                class_name_to_docstring(&variant_name)
-            };
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "exception_variant_class.jinja",
-                minijinja::context! { name => &variant_name, base => &error.name, doc => doc },
-            ));
         }
     }
+
+    if exc_names.is_empty() {
+        return out;
+    }
+    exc_names.sort();
+
+    // Re-export `from .<native module> import (...)`, wrapping to multi-line when the
+    // single-line form would exceed ruff's line length (the established pattern in gen_init_py).
+    let import_statement = render_relative_import(module_name, &exc_names);
+    if is_long_import(&import_statement) {
+        out.push_str(&crate::backends::pyo3::template_env::render(
+            "import_from_relative_module_header.jinja",
+            minijinja::context! { module_name => module_name },
+        ));
+        for name in &exc_names {
+            out.push_str(&crate::backends::pyo3::template_env::render(
+                "trait_bridge/indented_import_item.jinja",
+                minijinja::context! { name => name },
+            ));
+        }
+        out.push_str(")\n");
+    } else {
+        out.push_str(&import_statement);
+    }
+
+    out.push('\n');
+    out.push_str("__all__ = [\n");
+    for name in &exc_names {
+        out.push_str(&format!("    \"{name}\",\n"));
+    }
+    out.push_str("]\n");
 
     out
 }
@@ -534,32 +498,11 @@ mod tests {
         }
     }
 
-    /// `@property` stubs use `raise NotImplementedError` as the body so that ruff rule PIE790
-    /// ("Unnecessary `...` literal") does not strip the body and leave mypy with an `empty-body`
-    /// error.  Verify all three whitelisted method names produce the correct body.
+    /// exceptions.py must RE-EXPORT the native exception classes (so the class a user
+    /// catches is the one the native code raises — tslp issue #147), not redefine them.
     #[test]
-    fn gen_exceptions_py_property_stubs_use_raise_not_implemented_error() {
-        use crate::core::ir::{ErrorDef, ErrorVariant, MethodDef, PrimitiveType, TypeRef};
-
-        let make_method = |name: &str| MethodDef {
-            name: name.to_string(),
-            params: vec![],
-            return_type: TypeRef::Primitive(PrimitiveType::Bool),
-            is_async: false,
-            is_static: false,
-            error_type: None,
-            doc: String::new(),
-            receiver: None,
-            sanitized: false,
-            trait_source: None,
-            returns_ref: false,
-            returns_cow: false,
-            return_newtype_wrapper: None,
-            has_default_impl: false,
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-            version: Default::default(),
-        };
+    fn gen_exceptions_py_reexports_native_classes() {
+        use crate::core::ir::{ErrorDef, ErrorVariant};
 
         let error = ErrorDef {
             name: "LibError".to_string(),
@@ -576,11 +519,7 @@ mod tests {
                 doc: "I/O error.".to_string(),
             }],
             doc: "Library errors.".to_string(),
-            methods: vec![
-                make_method("status_code"),
-                make_method("is_transient"),
-                make_method("error_type"),
-            ],
+            methods: vec![],
             binding_excluded: false,
             binding_exclusion_reason: None,
             version: Default::default(),
@@ -588,33 +527,32 @@ mod tests {
 
         let mut api = empty_api();
         api.errors.push(error);
-        let result = gen_exceptions_py(&api);
+        let result = gen_exceptions_py(&api, "_native");
 
-        // Every @property must have a `raise NotImplementedError` body.
+        // Re-export from the native module, not class definitions.
         assert!(
-            result.contains("raise NotImplementedError"),
-            "@property body must use raise NotImplementedError, got:\n{result}",
+            result.contains("from ._native import"),
+            "exceptions.py must re-export from the native module, got:\n{result}",
         );
-        // The count must equal the number of whitelisted properties (3).
-        let occurrences = result.matches("raise NotImplementedError").count();
-        assert_eq!(
-            occurrences, 3,
-            "expected 3 `raise NotImplementedError` for status_code/is_transient/error_type, got {occurrences} in:\n{result}",
-        );
-        // PIE790 guard: `...` must not appear as the 8-space-indented method body.
         assert!(
-            !result.contains("\n        ...\n"),
-            "property body must not use `...` (ruff PIE790 strips it, causing mypy empty-body), got:\n{result}",
+            !result.contains("class "),
+            "exceptions.py must not define duplicate classes, got:\n{result}",
         );
+        // Both base and the Error-suffixed variant must be re-exported.
+        assert!(result.contains("LibError"), "missing base LibError in:\n{result}");
+        assert!(result.contains("IoError"), "missing variant IoError in:\n{result}");
+        // __all__ lists the re-exported names.
+        assert!(result.contains("__all__"), "missing __all__ in:\n{result}");
     }
 
     /// gen_exceptions_py with no errors produces a file with only the header.
     #[test]
     fn gen_exceptions_py_empty_api_produces_header_only() {
         let api = empty_api();
-        let result = gen_exceptions_py(&api);
+        let result = gen_exceptions_py(&api, "_native");
         assert!(result.contains("Exception hierarchy"));
         assert!(!result.contains("class "));
+        assert!(!result.contains("from ._native import"));
     }
 
     /// gen_init_py with no types produces a file with version and empty __all__.
