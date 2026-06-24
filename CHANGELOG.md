@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.0] - 2026-06-24
+
 ### Added
 
 - **pyo3: trait-callback struct params are passed to the host as native Python objects.** When the
@@ -153,6 +155,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `query` option on top of the path query. Both now append `query_params` only when the path carries
   no query of its own, matching the other renderers. (`src/e2e/codegen/java/http.rs`,
   `src/e2e/codegen/php/http.rs`)
+- **internal: pyo3 TypedDict splat-return codegen now renders through a Jinja template.** The
+  `return _rust.{Type}(**value)` line for `total=False` TypedDict configs was emitted via an inline
+  `format!`; it now goes through `converters/typeddict_splat_return.jinja`, complying with the
+  templated-codegen rule. Generated output is byte-identical.
+  (`src/backends/pyo3/gen_bindings/functions/converters.rs`)
 
 ## [0.27.1] - 2026-06-24
 
