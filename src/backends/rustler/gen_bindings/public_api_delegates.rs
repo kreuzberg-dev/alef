@@ -1,6 +1,6 @@
 use crate::backends::rustler::gen_bindings::helpers::{elixir_return_typespec, elixir_typespec};
 use crate::backends::rustler::template_env;
-use crate::core::config::ResolvedCrateConfig;
+use crate::core::config::{BridgeBinding, ResolvedCrateConfig};
 use crate::core::ir::{ApiSurface, MethodDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToSnakeCase;
@@ -153,6 +153,86 @@ pub(in crate::backends::rustler::gen_bindings) fn append_trait_bridge_delegates(
                     },
                 ));
             }
+        }
+    }
+}
+
+/// Append the visitor receive-loop helper functions when any API function carries a visitor
+/// bridge (function-param or options-field mode). No-op otherwise.
+pub(in crate::backends::rustler::gen_bindings) fn append_visitor_receive_loop(
+    content: &mut String,
+    api: &ApiSurface,
+    config: &ResolvedCrateConfig,
+    native_mod: &str,
+) {
+    // Emit the visitor receive loop helper if any function has a visitor bridge
+    // (function_param or options_field mode).
+    let has_visitor_bridges = api.functions.iter().any(|func| {
+        func.params.iter().any(|p| {
+            let named = match &p.ty {
+                crate::core::ir::TypeRef::Named(n) => Some(n.as_str()),
+                crate::core::ir::TypeRef::Optional(inner) => {
+                    if let crate::core::ir::TypeRef::Named(n) = inner.as_ref() {
+                        Some(n.as_str())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            };
+            config.trait_bridges.iter().any(|b| {
+                // function_param: match by param_name or type_alias
+                let is_function_param = b.param_name.as_deref() == Some(p.name.as_str())
+                    || named.map(|n| b.type_alias.as_deref() == Some(n)).unwrap_or(false);
+                // options_field: match when the param type is the configured options_type
+                let is_options_field = b.bind_via == BridgeBinding::OptionsField
+                    && named.is_some_and(|n| b.options_type.as_deref() == Some(n));
+                is_function_param || is_options_field
+            })
+        })
+    });
+
+    if has_visitor_bridges {
+        let visitor_result_metadata = config.trait_bridges.iter().find_map(|bridge_cfg| {
+            match crate::codegen::visitor_result::required_visitor_result_metadata(api, bridge_cfg) {
+                Ok(metadata) => Some(metadata),
+                Err(err) => {
+                    eprintln!(
+                        "[alef] gen_bindings(rustler): skip visitor helper metadata for trait bridge `{}`: {err}",
+                        bridge_cfg.trait_name
+                    );
+                    None
+                }
+            }
+        });
+        if let Some(visitor_result_metadata) = visitor_result_metadata {
+            let unit_result_variants = visitor_result_metadata
+                .unit_variants
+                .iter()
+                .map(|variant| {
+                    let atom_name = variant
+                        .wire_name
+                        .chars()
+                        .all(|c| c == '_' || c.is_ascii_alphanumeric())
+                        .then(|| variant.wire_name.to_snake_case());
+                    minijinja::context! {
+                        wire_name => variant.wire_name.clone(),
+                        atom_name => atom_name,
+                    }
+                })
+                .collect::<Vec<_>>();
+            content.push_str(&template_env::render(
+                "elixir_visitor_helper_functions.jinja",
+                minijinja::context! {
+                    native_mod => &native_mod,
+                    default_result_wire_name => visitor_result_metadata.default_variant.wire_name,
+                    unit_result_variants => unit_result_variants,
+                },
+            ));
+        } else {
+            eprintln!(
+                "[alef] gen_bindings(rustler): skip visitor helper functions because no configured result enum metadata is available"
+            );
         }
     }
 }
