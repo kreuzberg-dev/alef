@@ -83,12 +83,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour with one `@callback` per trait method — typed params and a typed result — and the
   `register_*` delegate documents that the dispatching GenServer should forward to a module
   implementing it. The trait lookup is shared codegen (`find_trait_def` in
-  `src/codegen/generators/trait_bridge/lookup.rs`). The runtime path is unchanged: Rustler has no
-  direct call boundary, so a trait callback's args (including serde-struct params) are still
-  marshalled into a single JSON string carried in the `{:trait_call, method, args_json, reply_id}`
-  message and decoded by the GenServer via `Jason.decode` — only the typed surface is new.
+  `src/codegen/generators/trait_bridge/lookup.rs`).
   (`src/backends/rustler/gen_bindings/public_api_delegates.rs`,
   `src/backends/rustler/templates/elixir_trait_behaviour.ex.jinja`)
+- **rustler: trait-callback args are sent to the host as a native Erlang term map.** A plugin trait
+  callback now builds its args as a native term map inside `send_and_clear` (`rustler::Term::map_new`
+  plus `map_put` per arg) and sends `{:trait_call, method, args_map, reply_id}` — the host receives a
+  native map, not a JSON string, so the GenServer dispatches it directly without `Jason.decode`. A
+  known serde-struct param is materialised into the binding's `NifStruct` (via the same
+  `From<core::T>` conversion used for return values) and encoded as a native term; other args encode
+  as their natural native terms (strings, numbers, booleans, lists), with enums/opaque/unknown params
+  falling back to a debug-string term. Only the args path changed — the reply stays JSON.
+  (`src/backends/rustler/templates/trait_sync_method_body.rs.jinja`,
+  `src/backends/rustler/templates/trait_async_method_body.rs.jinja`,
+  `src/backends/rustler/templates/service_api_genserver.ex.jinja`,
+  `src/backends/rustler/trait_bridge/native_args.rs`)
 
 ## [0.26.8] - 2026-06-23
 

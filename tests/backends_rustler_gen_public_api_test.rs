@@ -1911,10 +1911,9 @@ fn opaque_static_constructor_wraps_return_in_struct() {
 // A plugin-pattern bridge (one with a `register_*` function) emits a typed,
 // host-implementable Elixir behaviour: one `@callback` per trait method with
 // typed params and return. This is the Rustler analog of the pyo3 plugin
-// `Protocol`. Rustler's message-passing model serializes all trait-callback
-// args into a single JSON string carried in `{:trait_call, method, args_json,
-// reply_id}`, so the runtime args remain a JSON string (decoded by the
-// GenServer via `Jason.decode`); only the typed *surface* changes here.
+// `Protocol`. The runtime args reach the host as a NATIVE Erlang term map
+// carried in `{:trait_call, method, args_map, reply_id}` (built via
+// `Term::map_new`/`map_put`, no `Jason.decode`); the reply stays JSON.
 
 fn make_plugin_bridge_trait() -> TypeDef {
     TypeDef {

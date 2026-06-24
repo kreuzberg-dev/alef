@@ -465,17 +465,17 @@ fn test_plugin_bridge_with_super_trait_generates_plugin_impl() {
         "Plugin impl must include shutdown()"
     );
 
-    // Regression: initialize()/shutdown() take no args, so the args map is
-    // never mutated. Emitting `let mut args` triggers unused_mut warnings
+    // Regression: initialize()/shutdown() take no args, so the native args map is
+    // never mutated. Emitting `let mut args_map` triggers unused_mut warnings
     // (clippy/rustc) in the generated NIF code. See
     // packages/elixir/native/sample_crate_nif/src/lib.rs:5159/:5196 reproduction.
     assert!(
-        !code.code.contains("let mut args = serde_json::Map::new();"),
-        "no-arg trait methods must emit `let args`, not `let mut args` (unused_mut)"
+        !code.code.contains("let mut args_map = rustler::Term::map_new(env);"),
+        "no-arg trait methods must emit `let args_map`, not `let mut args_map` (unused_mut)"
     );
     assert!(
-        code.code.contains("let args = serde_json::Map::new();"),
-        "no-arg trait methods must emit `let args = serde_json::Map::new();`"
+        code.code.contains("let args_map = rustler::Term::map_new(env);"),
+        "no-arg trait methods must emit `let args_map = rustler::Term::map_new(env);`"
     );
 }
 
@@ -606,20 +606,15 @@ fn test_plugin_bridge_sync_method_creates_owned_env_locally() {
 }
 
 // ---------------------------------------------------------------------------
-// Native-term args: design blocker (documented)
+// Native-term callback args
 // ---------------------------------------------------------------------------
 //
-// Unlike pyo3 (which constructs the binding's native object at the direct call
-// boundary), Rustler's plugin trait bridge has no direct call boundary: it
-// marshals ALL params into a single JSON string carried in the
-// `{:trait_call, method, args_json, reply_id}` message, and the Elixir
-// GenServer decodes that string with `Jason.decode`. A serde-struct param is
-// therefore serialized into the JSON args object via `serde_json::to_value`
-// and sent as part of the JSON string — it is NOT sent as a native Elixir
-// term. Sending it natively would require a wire-protocol change spanning the
-// Rust message tuple, every `send_and_clear` callsite, and the GenServer
-// dispatch. This test pins the current (JSON-string) behaviour for a struct
-// callback param so the design blocker is explicit.
+// The plugin trait bridge sends callback args to the Elixir host as a NATIVE
+// Erlang term map carried in the `{:trait_call, method, args_map, reply_id}`
+// message — built inside `send_and_clear` via `rustler::Term::map_new` +
+// `map_put` per arg — NOT a JSON string. A serde-struct param is materialised
+// into the binding's `NifStruct` (via `From<core::T>`) and encoded as a native
+// term, so the host receives a native struct/map. The reply path stays JSON.
 
 fn make_struct_param_method(name: &str) -> MethodDef {
     let mut m = make_method(name, TypeRef::String, true, false);
@@ -633,35 +628,54 @@ fn make_struct_param_method(name: &str) -> MethodDef {
 }
 
 #[test]
-fn test_plugin_bridge_struct_param_serialized_into_json_args_string() {
+fn test_plugin_bridge_struct_param_sent_as_native_term() {
     let trait_def = make_trait_def("Analyzer", vec![make_struct_param_method("analyze")]);
     let cfg = make_plugin_bridge_cfg("Analyzer");
     let output = gen_trait_bridge(&trait_def, &cfg, "my_lib", "Error", "Error::from({msg})", &make_api())
         .expect("trait bridge generation should succeed");
 
-    // The struct param is inserted into the JSON args map, then the whole map is
-    // sent as a single JSON string (`args_json.as_str()`).
+    // The native args map is built with map_new and the struct arg is map_put under its key.
     assert!(
-        output.code.contains(r#"args.insert("ctx".to_string()"#),
-        "struct param must be inserted into the JSON args map; got:\n{}",
+        output.code.contains("rustler::Term::map_new(env)"),
+        "args must be built as a native term map via map_new; got:\n{}",
         output.code
     );
     assert!(
-        output.code.contains("serde_json::Value::Object(args).to_string()"),
-        "args must be serialized to a single JSON string for message passing; got:\n{}",
+        output.code.contains(r#"args_map.map_put("ctx".encode(env)"#),
+        "struct param must be inserted into the native args map via map_put; got:\n{}",
+        output.code
+    );
+    // The owned struct binding is materialised before the dispatch closure and encoded natively.
+    assert!(
+        output
+            .code
+            .contains("let ctx_arg = SyntaxContext::from((*ctx).clone());"),
+        "struct param must be materialised as the binding NifStruct before dispatch; got:\n{}",
         output.code
     );
     assert!(
-        output.code.contains("args_json.as_str(), reply_id"),
-        "the JSON string (not a native term) must be the trait_call payload; got:\n{}",
+        output.code.contains("ctx_arg.encode(env)"),
+        "struct param must be encoded as a native term; got:\n{}",
+        output.code
+    );
+    // The native map (not a JSON string) is the trait_call payload.
+    assert!(
+        output.code.contains("method, args_map, reply_id"),
+        "the native args map (not a JSON string) must be the trait_call payload; got:\n{}",
+        output.code
+    );
+    assert!(
+        !output.code.contains("serde_json::Map::new()") && !output.code.contains("args_json.as_str()"),
+        "args must not be marshalled through a JSON string; got:\n{}",
         output.code
     );
 }
 
 #[test]
-fn test_plugin_bridge_enum_param_unchanged() {
-    // An enum param (WalkDecision lives in api.enums, never api.types) must keep
-    // the prior representation — debug-string fallback inside the JSON args map.
+fn test_plugin_bridge_enum_param_sent_as_native_term() {
+    // An enum param (WalkDecision lives in api.enums, never api.types) keeps the
+    // debug-string fallback, but it is now encoded as a native binary term in the
+    // args map rather than serialized into a JSON string.
     let mut m = make_method("decide", TypeRef::String, true, false);
     m.params = vec![ParamDef {
         name: "decision".to_string(),
@@ -675,13 +689,15 @@ fn test_plugin_bridge_enum_param_unchanged() {
         .expect("trait bridge generation should succeed");
 
     assert!(
-        output.code.contains(r#"args.insert("decision".to_string()"#),
-        "enum param must still be inserted into the JSON args map; got:\n{}",
+        output
+            .code
+            .contains(r#"args_map.map_put("decision".encode(env), decision_arg.encode(env))"#),
+        "enum param must be inserted into the native args map via map_put; got:\n{}",
         output.code
     );
     assert!(
-        !output.code.contains("decision.encode("),
-        "enum param must not be sent as a native encoded term; got:\n{}",
+        !output.code.contains(r#"args.insert("decision".to_string()"#),
+        "enum param must not be serialized into a JSON args map; got:\n{}",
         output.code
     );
 }
