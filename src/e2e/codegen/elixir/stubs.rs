@@ -384,7 +384,9 @@ mod test_backend_tests {
             emission.setup_block
         );
         assert!(
-            emission.setup_block.contains("{:trait_call, method_atom, args, reply_id}")
+            emission
+                .setup_block
+                .contains("{:trait_call, method_atom, args, reply_id}")
                 && !emission.setup_block.contains("Jason.decode!(args_json)"),
             "GenServer must receive callback args as a native map, not Jason.decode! a JSON string, got:\n{}",
             emission.setup_block
