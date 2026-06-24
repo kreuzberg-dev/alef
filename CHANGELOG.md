@@ -139,6 +139,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and `Option<Vec>` return shapes are now cast at the value site. The cast is gated strictly on
   the extendr-only cast flags, so pyo3/napi/wasm output is unchanged. (#145,
   `src/codegen/generators/functions.rs`)
+- **e2e/node: the server harness no longer echoes middleware-managed headers.** The generated
+  `app_harness.mjs` handler returned the fixture's expected headers verbatim, including
+  `content-encoding`/`content-length`/`transfer-encoding`/`vary`. Emitting `content-encoding` on an
+  uncompressed handler body makes the compression layer skip compression, leaving a
+  declared-but-not-applied encoding the client cannot decode. The harness now strips the
+  middleware-managed set so the server middleware owns them.
+  (`src/e2e/templates/typescript/app_harness.mjs.jinja`)
+- **e2e/java, e2e/php: the query string embedded in the request path is no longer duplicated.**
+  `CallCtx.path` is `/fixtures/{id}{request.path}` and `request.path` already embeds the fixture's
+  query when it has one, while `CallCtx.query_params` mirrors it. Java concatenated `query_params`
+  onto the path, producing a malformed double query (`/p?x=1?x=1`); PHP added a redundant Guzzle
+  `query` option on top of the path query. Both now append `query_params` only when the path carries
+  no query of its own, matching the other renderers. (`src/e2e/codegen/java/http.rs`,
+  `src/e2e/codegen/php/http.rs`)
 
 ## [0.27.1] - 2026-06-24
 
@@ -177,13 +191,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deserialized the result via `MAPPER.readValue(...)`, while the Rust JNI shim returns a raw
   `jlong` handle. Returning a primitive `jlong` where the JVM expects an object reference is
   undefined behavior → `EXCEPTION_ACCESS_VIOLATION`. The bridge now emits primitive `Long`
-  returns (required *and* optional — optionality uses the `0L` sentinel, never a boxed `Long?`,
+  returns (required _and_ optional — optionality uses the `0L` sentinel, never a boxed `Long?`,
   which would re-introduce the same primitive-vs-object mismatch) and the client constructs the
   wrapper directly (`Tree(handle)` / `if (h == 0L) null else Tree(h)`). Fixes downstream
   tree-sitter-language-pack issue #146. (`src/backends/kotlin/gen_bindings/jni_emitter/`)
 - **pyo3: package exception classes were unrelated to the ones the native module raises.** The
   generated `exceptions.py` defined its own Python exception hierarchy while the native module
-  (`create_exception!`) defined and raised a *different* set, so `from <pkg> import DownloadError;
+  (`create_exception!`) defined and raised a _different_ set, so `from <pkg> import DownloadError;
   except DownloadError:` never caught the raised error. Two changes: (1) the native variants now
   derive from the native base error (`create_exception!(_native, DownloadError, Error)`) instead of
   all deriving flat from `PyException`, so `except Error:` still catches every variant; (2)
