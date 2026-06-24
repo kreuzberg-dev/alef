@@ -376,10 +376,13 @@ fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
     let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
     let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
 
-    // (a) serde struct param `opts` is built as the binding's native PHP object via From<core::T>.
+    // (a) serde struct param `opts` is built as the binding's native PHP object via From<core::T>,
+    //     boxed into a ZendClassObject (the bare #[php_class] struct is not itself IntoZval).
     assert!(
-        code.code.contains("Zval::try_from(Opts::from((*opts).clone()))"),
-        "serde struct param must be marshalled as the native PHP object, not a JSON string:\n{}",
+        code.code.contains(
+            "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new(Opts::from((*opts).clone())), false)"
+        ),
+        "serde struct param must be marshalled as the native PHP object (boxed ZendClassObject), not a JSON string:\n{}",
         code.code
     );
     // (b) the struct param must NOT be JSON-serialized.

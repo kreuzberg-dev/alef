@@ -37,8 +37,9 @@ impl PhpBridgeGenerator {
     /// Known serde structs (per the shared allowlist) are handed to PHP as the binding's native
     /// `#[php_class]` object — constructed from the core value through the same `From<core::T>`
     /// conversion the binding uses for function return values (`{Class}::from((*name).clone())`),
-    /// which ext-php-rs converts to a Zval via `IntoZval`. All other params keep their prior
-    /// representation (JSON string for other `Named` types, etc.).
+    /// then boxed into a `ZendClassObject` and converted to a Zval via `IntoZval` — the bare
+    /// `#[php_class]` struct is not itself `IntoZval`, only `ZBox<ZendClassObject<T>>` is. All
+    /// other params keep their prior representation (JSON string for other `Named` types, etc.).
     fn arg_zval_expr(&self, p: &crate::core::ir::ParamDef) -> String {
         match &p.ty {
             TypeRef::String => format!("ext_php_rs::types::Zval::try_from({}).unwrap_or_default()", p.name),
@@ -50,9 +51,11 @@ impl PhpBridgeGenerator {
                 "ext_php_rs::types::Zval::try_from(format!(\"{{:?}}\", {})).unwrap_or_default()",
                 p.name
             ),
-            // Known serde struct: hand PHP the binding's native object, not a JSON string.
+            // Known serde struct: hand PHP the binding's native object, not a JSON string. The
+            // bare `#[php_class]` struct is not `IntoZval`; box it in a `ZendClassObject` (which
+            // is) so the host receives a real class instance rather than a serialized string.
             TypeRef::Named(n) if self.struct_param_types.contains(n.as_str()) => format!(
-                "ext_php_rs::types::Zval::try_from({n}::from((*{}).clone())).unwrap_or_default()",
+                "ext_php_rs::convert::IntoZval::into_zval(ext_php_rs::types::ZendClassObject::new({n}::from((*{}).clone())), false).unwrap_or_default()",
                 p.name
             ),
             // Other Named params (enums, opaque/handle, excluded/unknown) keep the JSON string.
