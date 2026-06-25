@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **php: per-variant constructors for data enums.** A tagged data enum like
+  `Shape { Circle { radius }, Rect { width, height } }` — lowered to the flat PHP class
+  `Shape { type_tag, radius, width, height, ... }` — now exposes a static method per data-carrying
+  struct variant, so PHP callers write `Shape::circle($radius)` / `Shape::rect($width, $height)`
+  instead of hand-building a JSON blob for `from_json`. Each method sets the discriminator tag and the
+  variant's flat field(s) directly, reusing the same flat-field naming, tag value, and param→field
+  conversion as the generated core→binding `From` impl; `..Default::default()` covers the remaining
+  optional fields (omitted when the variant covers every flat field). The Rust fn is `_factory_<snake>`
+  (exposed to PHP under the camelCase snake name) to avoid colliding with the `get_<field>` accessor.
+  Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written `impl` method of the
+  same name suppresses the generated constructor. Shares `collect_variant_constructors` with the
+  pyo3/magnus paths (`src/codegen/generators/enums.rs`).
 - **magnus: per-variant constructors for data enums.** A data enum like
   `Shape { Circle { radius }, Rect { width, height } }` now exposes a singleton constructor per
   data-carrying struct variant, so Ruby callers write `Shape.circle(radius)` /
