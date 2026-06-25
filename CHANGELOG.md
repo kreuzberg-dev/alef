@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   mapper, and the return type is the enum. Variant selection is shared with the runtime binding via
   `collect_variant_constructors`, so unit / tuple / `binding_excluded` / sanitized-field variants and
   hand-written method collisions are skipped identically.
+- **php: type stubs declare per-variant data-enum constructors.** The IDE/PHPStan stub for a tagged
+  data enum (lowered to a flat PHP class) was an empty `final class Shape {}`; it now declares a
+  static factory per data-carrying variant — `public static function circle(float $radius): Shape` —
+  so PHPStan and IDEs see the `Shape::circle(...)` constructors the flat class exposes at runtime. The
+  declared name is the camelCase host name (`to_php_name`), each param maps through the stub's
+  `php_type` mapper (optional fields become `?T $x = null`), and the return type is the enum class.
+  Variant selection is shared with the runtime binding via `collect_variant_constructors`, so unit /
+  tuple / `binding_excluded` / sanitized-field variants and hand-written method collisions are skipped
+  identically.
 
 ## [0.28.1] - 2026-06-25
 
