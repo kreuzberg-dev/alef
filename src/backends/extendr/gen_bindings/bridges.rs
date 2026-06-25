@@ -190,8 +190,7 @@ pub(super) fn gen_extendr_enum_variant_constructors(
             // Per-param converted expressions, paired 1:1 with `ctor.params` (no comma-join then
             // re-split). Named-DTO fields convert via a `<field>_core` let binding; primitives that
             // extendr remaps (u8..=u32→i32, u64/usize/isize/f32→f64) are cast back to the core type.
-            let arg_exprs =
-                gen_call_args_with_let_bindings_json_str_cast_vec(&ctor.params, &opaque_types, true, true);
+            let arg_exprs = gen_call_args_with_let_bindings_json_str_cast_vec(&ctor.params, &opaque_types, true, true);
             let ref_let_bindings = if has_named_params(&ctor.params, &opaque_types) {
                 gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let)
             } else {
@@ -213,19 +212,28 @@ pub(super) fn gen_extendr_enum_variant_constructors(
                 })
                 .collect();
 
-            let let_lines: String = ref_let_bindings
+            // One trimmed let-binding per line; the template re-indents each.
+            let let_lines: Vec<String> = ref_let_bindings
                 .lines()
                 .map(str::trim)
                 .filter(|line| !line.is_empty())
-                .map(|line| format!("        {line}\n"))
+                .map(ToOwned::to_owned)
                 .collect();
 
-            format!(
-                "    pub fn _factory_{snake}({params_str}) -> {name} {{\n{let_lines}        {core_path}::{variant} {{ {fields} }}.into()\n    }}",
-                snake = ctor.snake_name,
-                variant = ctor.variant_name,
-                fields = field_inits.join(", "),
+            template_env::render(
+                "enum_variant_constructor.rs.jinja",
+                minijinja::context! {
+                    snake => &ctor.snake_name,
+                    params_str => &params_str,
+                    name => name,
+                    let_lines => let_lines,
+                    core_path => core_path,
+                    variant => &ctor.variant_name,
+                    field_inits => field_inits.join(", "),
+                },
             )
+            .trim_end()
+            .to_string()
         })
         .collect()
 }
