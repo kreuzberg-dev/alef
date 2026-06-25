@@ -214,31 +214,6 @@ fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_
         .collect()
 }
 
-/// Split a comma-joined argument expression string on top-level commas (those not nested inside
-/// `()`, `[]`, `{}`, or `<>`). Used to recover the per-field conversion expressions from the shared
-/// call-arg builder so they can be paired with field names in a struct literal.
-fn split_top_level_args(args: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0usize;
-    for (i, c) in args.char_indices() {
-        match c {
-            '(' | '[' | '{' | '<' => depth += 1,
-            ')' | ']' | '}' | '>' => depth -= 1,
-            ',' if depth == 0 => {
-                out.push(args[start..i].trim().to_string());
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    let last = args[start..].trim();
-    if !last.is_empty() {
-        out.push(last.to_string());
-    }
-    out
-}
-
 /// Generate a `#[staticmethod]` constructor for each data-carrying struct variant of `enum_def`.
 ///
 /// Reuses the shared param / let-binding / call-arg machinery (and the `pyo3_factory_method.jinja`
@@ -248,7 +223,7 @@ fn split_top_level_args(args: &str) -> Vec<String> {
 /// the `_factory_<name>` Rust ident plus `#[pyo3(name = "<name>")]`.
 fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
     use crate::codegen::generators::binding_helpers::{
-        gen_call_args, gen_call_args_with_let_bindings_json_str, gen_named_let_bindings_pub, has_named_params,
+        gen_call_args_vec, gen_call_args_with_let_bindings_json_str_vec, gen_named_let_bindings_pub, has_named_params,
     };
     use crate::codegen::shared::{function_params, function_sig_defaults};
 
@@ -266,23 +241,25 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
     for ctor in &constructors {
         let params_str = function_params(&ctor.params, &map_fn);
 
+        // Per-param converted expressions, aligned 1:1 with `ctor.params` (no comma-join, so no
+        // re-split). Named-DTO fields convert via a `<field>_core` let binding; everything else
+        // converts inline at the call site.
         let use_let_bindings = has_named_params(&ctor.params, &opaque_types);
         let (arg_exprs, ref_let_bindings) = if use_let_bindings {
             (
-                gen_call_args_with_let_bindings_json_str(&ctor.params, &opaque_types),
+                gen_call_args_with_let_bindings_json_str_vec(&ctor.params, &opaque_types),
                 gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let),
             )
         } else {
-            (gen_call_args(&ctor.params, &opaque_types), String::new())
+            (gen_call_args_vec(&ctor.params, &opaque_types), String::new())
         };
 
         // Pair each field name with its converted expression to build the struct literal.
         // `field: field` is normalized to the shorthand `field` for an unchanged passthrough.
-        let exprs = split_top_level_args(&arg_exprs);
         let field_inits: Vec<String> = ctor
             .params
             .iter()
-            .zip(exprs)
+            .zip(arg_exprs)
             .map(|(p, expr)| {
                 if expr == p.name {
                     p.name.clone()
@@ -862,6 +839,43 @@ mod tests {
         );
         assert!(
             generated.contains("Self { inner: crate::Wrapper::Llm { llm: llm_core } }"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_pair_interleaved_field_exprs_by_position() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // Interleave a primitive, a Named-DTO (converted to `<field>_core`), and a Vec<Named> DTO
+        // (also `<field>_core`) so the field→expr pairing must align by position, not by a re-split
+        // of a joined string. A Vec<Named> expr is the kind that previously had to survive `<>`
+        // depth tracking; here each expr lands in its own struct-literal slot directly.
+        let def = enum_def(
+            "Job",
+            vec![variant(
+                "Run",
+                vec![
+                    typed_field("retries", TypeRef::Primitive(PrimitiveType::U32)),
+                    typed_field("config", TypeRef::Named("RunConfig".to_string())),
+                    typed_field("steps", TypeRef::Vec(Box::new(TypeRef::Named("Step".to_string())))),
+                ],
+            )],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        // Each field is paired with the right expression: primitive passes through (shorthand),
+        // the two DTO fields use their own `_core` bindings.
+        assert!(
+            generated.contains("Self { inner: crate::Job::Run { retries, config: config_core, steps: steps_core } }"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("let config_core: crate::RunConfig = config.into();"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("let steps_core: Vec<_> = steps.into_iter().map(Into::into).collect();"),
             "{generated}"
         );
     }
