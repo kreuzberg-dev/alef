@@ -14,7 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   generators; a consumer provides them via `Extension::emit_e2e`. The shared client-pattern e2e
   (mock-server, per-test request bodies, project scaffolding) is unchanged and stays generic.
   Consumers that do not configure a server harness (`[crates.e2e.harness] imports`) are unaffected.
-  Languages migrated so far: node, python, php, ruby, elixir.
+  Languages migrated so far: node, python, php, ruby, elixir, go, java, dart, swift, wasm. For go,
+  java, and swift the server-spawn seam woven into the shared test-runner file (Go `main_test.go`,
+  Java test class `@BeforeAll`/`@AfterAll`, Swift test file) stays generic in alef; only the
+  separable harness-SUT programs (`cmd/harness/main.go`, `HarnessMain.java`/`FixtureLoader.java`,
+  `Sources/Harness/main.swift`, `app_harness.dart`, wasm `app_harness.mjs`) move to the extension.
 
 ## [0.28.0] - 2026-06-24
 
