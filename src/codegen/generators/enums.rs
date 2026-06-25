@@ -228,14 +228,18 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             .filter(|line| !line.is_empty())
             .map(ToOwned::to_owned)
             .collect();
-        body_lines.push(crate::codegen::template_env::render(
-            "generators/enums/pyo3_variant_constructor_body.jinja",
-            minijinja::context! {
-                core_path => core_path,
-                variant_name => ctor.variant_name,
-                field_inits => field_inits,
-            },
-        ));
+        body_lines.push(
+            crate::codegen::template_env::render(
+                "generators/enums/pyo3_variant_constructor_body.jinja",
+                minijinja::context! {
+                    core_path => core_path,
+                    variant_name => ctor.variant_name,
+                    field_inits => field_inits,
+                },
+            )
+            .trim_end()
+            .to_string(),
+        );
 
         // Always collides with the variant accessor of the same name → `_factory_<name>`.
         let rust_fn_name = format!("_factory_{}", ctor.snake_name);
