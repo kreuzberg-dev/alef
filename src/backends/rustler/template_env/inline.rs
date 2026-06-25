@@ -139,6 +139,10 @@ pub(super) static TEMPLATES: &[(&str, &str)] = &[
         "  @spec {{ atom_name }}() :: t()\n  def {{ atom_name }}, do: @{{ attr_name }}\n",
     ),
     (
+        "elixir_enum_variant_constructor.jinja",
+        "  def {{ fn_name }}({{ params }}), do: {:{{ atom }}, %{{ '{' }}{{ map_entries }}{{ '}' }}}\n",
+    ),
+    (
         "elixir_data_enum_type.jinja",
         "  @type {{ type_name }} :: {%- if is_unit %} {{ variant_atom }}\n{%- else %} %{type: {{ variant_atom }}, {{ field_types | join(\", \") }}}\n{%- endif %}",
     ),

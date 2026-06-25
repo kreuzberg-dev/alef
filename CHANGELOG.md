@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **rustler (Elixir): per-variant constructors for data enums.** A tagged data enum with struct
+  variants (the `NifTaggedEnum` shape, e.g. `Shape { Circle { radius }, Rect { width, height } }`)
+  now exposes a constructor per data-carrying variant in its generated Elixir module, so callers write
+  `Shape.circle(radius)` / `Shape.rect(width, height)` instead of hand-building the tagged tuple. Each
+  `def <snake>(<params>), do: {:<atom>, %{<field>: <param>, ...}}` builds the `{:variant, %{field:
+  value}}` form the `NifTaggedEnum` decoder consumes — the plain-direct model (no NIF, no core
+  conversion; the binding enum is already binding-shaped, matching what the existing `encode_<snake>`
+  param encoder accepts). Reserved-word variant/param names are guarded via `elixir_safe_param_name` /
+  `elixir_safe_atom`. Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written
+  `impl` method of the same name suppresses the generated constructor. Shares
+  `collect_variant_constructors` with the pyo3/magnus/php/extendr paths.
 - **extendr (R): per-variant constructors for data enums.** A tagged data enum with struct
   variants (the JSON-passthrough shape, e.g. `EmbeddingModelType { Preset { name } }`) now exposes a
   constructor per data-carrying variant on its R class env, so R callers write
