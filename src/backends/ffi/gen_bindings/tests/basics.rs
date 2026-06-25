@@ -98,7 +98,6 @@ fn enum_return_api() -> ApiSurface {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

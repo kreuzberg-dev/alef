@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **rustler (Elixir): per-variant constructors for data enums.** A tagged data enum with struct
+  variants (the `NifTaggedEnum` shape, e.g. `Shape { Circle { radius }, Rect { width, height } }`)
+  now exposes a constructor per data-carrying variant in its generated Elixir module, so callers write
+  `Shape.circle(radius)` / `Shape.rect(width, height)` instead of hand-building the tagged tuple. Each
+  `def <snake>(<params>), do: {:<atom>, %{<field>: <param>, ...}}` builds the `{:variant, %{field:
+  value}}` form the `NifTaggedEnum` decoder consumes — the plain-direct model (no NIF, no core
+  conversion; the binding enum is already binding-shaped, matching what the existing `encode_<snake>`
+  param encoder accepts). Reserved-word variant/param names are guarded via `elixir_safe_param_name` /
+  `elixir_safe_atom`. Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written
+  `impl` method of the same name suppresses the generated constructor. Shares
+  `collect_variant_constructors` with the pyo3/magnus/php/extendr paths.
+- **extendr (R): per-variant constructors for data enums.** A tagged data enum with struct
+  variants (the JSON-passthrough shape, e.g. `EmbeddingModelType { Preset { name } }`) now exposes a
+  constructor per data-carrying variant on its R class env, so R callers write
+  `EmbeddingModelType$preset(name)` alongside the existing `$default()` / `$from_json()` instead of
+  hand-rolling a JSON string. Each constructor builds the CORE variant directly
+  (`core::EmbeddingModelType::Preset { name }`) and `.into()`s it into the JSON-passthrough wrapper —
+  the wrapper stores the core value as serde JSON, so this is the wrapper-convert model. DTO fields
+  convert via `<field>_core` let bindings and extendr's remapped numerics (u8..=u32 → i32,
+  u64/usize/isize/f32 → f64) are cast back to the core type. The Rust fn is `_factory_<snake>`; the R
+  wrapper binds it under the bare snake name. Unit, tuple, and `binding_excluded` variants are
+  skipped, and a hand-written `impl` method of the same name suppresses the generated constructor.
+  Shares `collect_variant_constructors` with the pyo3/magnus/php paths; adds the reusable
+  `gen_call_args_with_let_bindings_json_str_cast_vec` per-param helper for numeric-remapping backends
+  (`src/codegen/generators/binding_helpers/call_args.rs`).
+- **php: per-variant constructors for data enums.** A tagged data enum like
+  `Shape { Circle { radius }, Rect { width, height } }` — lowered to the flat PHP class
+  `Shape { type_tag, radius, width, height, ... }` — now exposes a static method per data-carrying
+  struct variant, so PHP callers write `Shape::circle($radius)` / `Shape::rect($width, $height)`
+  instead of hand-building a JSON blob for `from_json`. Each method sets the discriminator tag and the
+  variant's flat field(s) directly, reusing the same flat-field naming, tag value, and param→field
+  conversion as the generated core→binding `From` impl; `..Default::default()` covers the remaining
+  optional fields (omitted when the variant covers every flat field). The Rust fn is `_factory_<snake>`
+  (exposed to PHP under the camelCase snake name) to avoid colliding with the `get_<field>` accessor.
+  Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written `impl` method of the
+  same name suppresses the generated constructor. Shares `collect_variant_constructors` with the
+  pyo3/magnus paths (`src/codegen/generators/enums.rs`).
+- **magnus: per-variant constructors for data enums.** A data enum like
+  `Shape { Circle { radius }, Rect { width, height } }` now exposes a singleton constructor per
+  data-carrying struct variant, so Ruby callers write `Shape.circle(radius)` /
+  `Shape.rect(width, height)` instead of building a raw `{ "type" => "circle", ... }` Hash. Each
+  constructor builds the serde-shaped variant directly (`Self::Circle { radius }`); parameters use
+  the same types the generated enum declares, so no core conversion is needed. The Rust function is
+  `_factory_<name>` (registered under the bare snake_case name) to avoid colliding with the variant
+  accessor. Unit, tuple, and `binding_excluded` variants are skipped, and a hand-written `impl`
+  method of the same name suppresses the generated constructor. Mirrors the pyo3 path; both share
+  `collect_variant_constructors` in `src/codegen/generators/enums.rs`. The internally-tagged
+  unit-variant bare-string fallback (`{"<tag>": s}`) is unchanged.
+
+### Removed
+
+- **`string_shorthand` enum attribute.** The opt-in `#[alef(string_shorthand(variant, field))]`
+  mechanism that let a bare host-language string construct a data-carrying enum variant is gone.
+  Per-variant constructors (`EmbeddingModelType.preset("balanced")`) supersede it — they cover every
+  data variant and keep the discriminator type-safe rather than stringly-typed. This removes the
+  `StringShorthand` IR type, the `EnumDef::string_shorthand` field, the extractor parsing, and the
+  `StringShorthandInvalid` validation diagnostic. Internally-tagged **unit**-variant bare-string
+  wrapping (`{"<tag>": s}`) is unaffected and still emitted for pyo3 and magnus.
+
 ### Changed
 
 - **e2e: server-pattern harness generation is delegated to extensions.** The `app_harness` and its

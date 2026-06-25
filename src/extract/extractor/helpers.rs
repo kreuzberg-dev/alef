@@ -10,9 +10,8 @@ mod tests;
 
 pub(crate) use attributes::{
     extract_binding_exclusion_reason, extract_cfg_condition, extract_error_message_template,
-    extract_field_binding_exclusion_reason, extract_serde_rename_all, extract_string_shorthand,
-    extract_version_annotation, has_cfg_attribute, has_derive, has_field_attr, is_pub, is_test_gated,
-    is_thiserror_enum,
+    extract_field_binding_exclusion_reason, extract_serde_rename_all, extract_version_annotation, has_cfg_attribute,
+    has_derive, has_field_attr, is_pub, is_test_gated, is_thiserror_enum,
 };
 pub(crate) use enum_variants::extract_enum_variant;
 pub(crate) use field_types::{

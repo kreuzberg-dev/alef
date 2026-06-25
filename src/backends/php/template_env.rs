@@ -271,6 +271,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/php_flat_enum_variant_field.jinja"),
     ),
     (
+        "php_flat_enum_variant_constructor.jinja",
+        include_str!("templates/php_flat_enum_variant_constructor.jinja"),
+    ),
+    (
         "php_flat_enum_tag_assignment.jinja",
         include_str!("templates/php_flat_enum_tag_assignment.jinja"),
     ),

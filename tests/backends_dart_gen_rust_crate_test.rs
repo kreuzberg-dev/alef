@@ -544,7 +544,6 @@ fn lib_rs_emits_mirror_enum_per_ir_enum() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1931,7 +1930,6 @@ fn mirror_enum_unit_variants_emit_rustdoc_per_variant() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2000,7 +1998,6 @@ fn mirror_enum_data_variant_field_emits_rustdoc() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2536,7 +2533,6 @@ fn sanitized_vec_vec_string_enum_field_uses_tuple_pair_conversion() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let api = ApiSurface {

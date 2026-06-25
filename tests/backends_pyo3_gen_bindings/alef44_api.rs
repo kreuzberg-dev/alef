@@ -620,7 +620,6 @@ fn test_options_py_does_not_import_data_enum_aliases_at_runtime() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

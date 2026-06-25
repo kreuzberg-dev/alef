@@ -328,7 +328,6 @@ fn unit_enum_emits_dart_enum() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
     let api = ApiSurface {
         enums: vec![en],

@@ -35,7 +35,6 @@ fn make_enum(name: &str, variants: &[&str]) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -152,7 +151,6 @@ fn make_tagged_tuple_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -282,7 +280,6 @@ fn gen_tagged_enum_core_to_binding_unit_variants_unchanged() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let core_to_binding = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -353,7 +350,6 @@ fn gen_tagged_enum_core_to_binding_struct_variants_unchanged() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_tagged_enum_core_to_binding(&e, "test_lib", "Wasm");
@@ -423,7 +419,6 @@ fn gen_tagged_enum_struct_variant_preserves_optional_fields() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let binding_to_core = gen_tagged_enum_binding_to_core(&e, "test_lib", "Wasm");

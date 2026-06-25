@@ -399,7 +399,12 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
         if is_tagged_data_enum(enum_def) {
             // Tagged data enums (struct variants) are lowered to a flat PHP class.
             builder.add_item(&gen_flat_data_enum(enum_def, &mapper, Some(&php_namespace)));
-            builder.add_item(&gen_flat_data_enum_methods(enum_def, &mapper));
+            builder.add_item(&gen_flat_data_enum_methods(
+                enum_def,
+                &mapper,
+                &opaque_types,
+                &bridge_type_aliases_set,
+            ));
         } else {
             // Unit-variant enums are lowered to PHP classes with class constants.
             builder.add_item(&gen_enum_constants(enum_def, Some(&php_namespace)));

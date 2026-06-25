@@ -299,7 +299,6 @@ mod tests {
             excluded_variants: vec![],
             version: Default::default(),
             has_default: false,
-            string_shorthand: None,
         }
     }
 

@@ -773,7 +773,6 @@ fn extendr_wrappers_emits_roxygen_block_for_flat_data_enum_with_variant_fields()
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

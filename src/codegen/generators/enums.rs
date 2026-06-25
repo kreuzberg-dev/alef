@@ -1,49 +1,11 @@
 use crate::codegen::generators::RustBindingConfig;
 use crate::codegen::type_mapper::TypeMapper;
-use crate::core::ir::{EnumDef, MethodDef, TypeRef};
+use crate::core::ir::{EnumDef, TypeRef};
 
 /// Returns true if any variant of the enum has data fields.
 /// These enums cannot be represented as flat integer enums in bindings.
 pub fn enum_has_data_variants(enum_def: &EnumDef) -> bool {
     enum_def.variants.iter().any(|v| !v.fields.is_empty())
-}
-
-/// Resolve an enum's `string_shorthand` opt-in into the concrete `(wire_variant, field)`
-/// pair the bare-string constructor needs.
-///
-/// Returns `None` unless ALL of these hold:
-/// - the enum declares `#[alef(string_shorthand(variant, field))]`,
-/// - the enum is internally tagged (`#[serde(tag = "...")]`) — the emitted object carries
-///   the tag, so a shorthand on an untagged/externally-tagged enum has nothing to attach to,
-/// - the named `variant` exists and the named `field` is one of its named fields,
-/// - every OTHER field on that variant is optional, since the constructor emits only the tag
-///   and the named field (a required sibling would make serde fail to build the variant).
-///
-/// These same conditions are checked by `string_shorthand_diagnostics` at extraction, which
-/// turns a misconfiguration into a hard error; the checks here are belt-and-suspenders so
-/// codegen never emits a broken constructor even if validation is bypassed.
-///
-/// The wire variant value is produced by the centralized naming rule
-/// (`serde(rename)` > `serde(rename_all)`); no backend-local casing is applied here.
-pub fn resolve_string_shorthand(enum_def: &EnumDef) -> Option<(String, String)> {
-    let shorthand = enum_def.string_shorthand.as_ref()?;
-    // Only internally-tagged enums can attach a shorthand field to a tag object.
-    enum_def.serde_tag.as_ref()?;
-    let variant = enum_def.variants.iter().find(|v| v.name == shorthand.variant)?;
-    if !variant.fields.iter().any(|f| f.name == shorthand.field) {
-        return None;
-    }
-    // Every sibling field must be optional, or serde cannot build the variant from
-    // the tag + single field the constructor emits.
-    if variant.fields.iter().any(|f| f.name != shorthand.field && !f.optional) {
-        return None;
-    }
-    let wire_variant = crate::codegen::naming::wire_variant_value(
-        &variant.name,
-        variant.serde_rename.as_deref(),
-        enum_def.serde_rename_all.as_deref(),
-    );
-    Some((wire_variant, shorthand.field.clone()))
 }
 
 /// Returns true if any variant of the enum has a sanitized field.
@@ -75,11 +37,12 @@ pub fn gen_pyo3_data_enum(enum_def: &EnumDef, core_import: &str) -> String {
     gen_pyo3_data_enum_with_mapper(enum_def, core_import, None)
 }
 
-/// Like `gen_pyo3_data_enum` but with a type mapper for generating static factory methods.
+/// Like `gen_pyo3_data_enum` but with a type mapper for generating per-variant constructors.
 ///
-/// When `mapper` is `Some`, enum associated functions (static factory methods stored in
-/// `enum_def.methods`) are emitted as `#[staticmethod]` methods inside the `#[pymethods]`
-/// impl block. Without a mapper the factory methods section is omitted (backward-compat).
+/// When `mapper` is `Some`, each data-carrying struct variant of the enum gets a
+/// `#[staticmethod]` constructor inside the `#[pymethods]` impl block — `Shape.circle(radius=...)`
+/// rather than the stringly-typed `Shape(type="circle", ...)` form. The mapper maps each field's
+/// type into the binding signature. Without a mapper the constructor section is omitted.
 pub fn gen_pyo3_data_enum_with_mapper(
     enum_def: &EnumDef,
     core_import: &str,
@@ -115,19 +78,11 @@ pub fn gen_pyo3_data_enum_with_mapper(
         write_pyo3_serde_tag_getter(&mut serde_tag_content, tag_field);
     }
 
-    // Generate static factory methods when a mapper is provided and methods are present.
-    let factory_methods_content = if let Some(m) = mapper {
-        gen_pyo3_enum_factory_methods_content(enum_def, &core_path, m)
-    } else {
-        String::new()
-    };
-
-    // Resolve the optional string-shorthand mapping (bare string -> data-variant field).
-    // Only meaningful for an internally-tagged enum, since the emitted object carries the tag.
-    let shorthand = resolve_string_shorthand(enum_def);
-    let (shorthand_wire_variant, shorthand_field) = match &shorthand {
-        Some((wire_variant, field)) => (Some(wire_variant.as_str()), Some(field.as_str())),
-        None => (None, None),
+    // Generate a per-variant constructor for each data-carrying struct variant when a mapper
+    // is provided (the mapper maps field types into the binding signature).
+    let variant_constructors_content = match mapper {
+        Some(m) => gen_pyo3_enum_variant_constructors_content(enum_def, &core_path, m),
+        None => String::new(),
     };
 
     crate::codegen::template_env::render(
@@ -141,109 +96,163 @@ pub fn gen_pyo3_data_enum_with_mapper(
             variant_accessors_content => variant_accessors,
             serde_tag_content => serde_tag_content,
             serde_tag => enum_def.serde_tag,
-            shorthand_wire_variant => shorthand_wire_variant,
-            shorthand_field => shorthand_field,
-            factory_methods_content => factory_methods_content,
+            variant_constructors_content => variant_constructors_content,
         },
     )
 }
 
-/// Generate the Rust source for pyo3 static factory methods of a data enum.
+/// A data-carrying struct variant prepared for constructor generation.
 ///
-/// Each associated function (static method, no `self` receiver) in `enum_def.methods`
-/// becomes a `#[staticmethod]` inside the `#[pymethods]` impl block.
-///
-/// The generated body calls the core function and wraps the result using the `From` impl:
-/// ```text
-/// #[staticmethod]
-/// pub fn text(s: String) -> Self {
-///     Self { inner: core_crate::types::ContentPart::text(s) }
-/// }
-/// ```
-fn gen_pyo3_enum_factory_methods_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
-    use crate::codegen::generators::binding_helpers::{
-        gen_call_args, gen_call_args_with_let_bindings_json_str, gen_named_let_bindings_pub, has_named_params,
-    };
-    use crate::codegen::naming::pascal_to_snake;
-    use crate::codegen::shared::{function_params, function_sig_defaults};
+/// Holds exactly the values a backend needs to emit one per-variant constructor. Backend-agnostic:
+/// the pyo3 and magnus emitters both consume it. `params` are the variant's named fields turned into
+/// `ParamDef`s so the shared param/signature machinery applies unchanged.
+pub(crate) struct VariantConstructor<'a> {
+    /// Rust PascalCase variant name (used in the `<Variant> { .. }` literal).
+    pub(crate) variant_name: &'a str,
+    /// snake_case constructor name exposed to the host language.
+    pub(crate) snake_name: String,
+    /// Variant fields modeled as params for the shared signature/conversion machinery.
+    pub(crate) params: Vec<crate::core::ir::ParamDef>,
+}
 
-    let static_methods: Vec<&MethodDef> = enum_def
+/// Collect the data-carrying struct variants of `enum_def` that need a generated constructor.
+///
+/// Skips unit variants (no fields), tuple variants (`is_tuple`), and `binding_excluded` variants.
+/// A variant whose snake_case name matches a hand-written `enum_def.methods` entry is skipped too:
+/// the consumer-authored method wins. Backend-agnostic selection shared by the pyo3 and magnus
+/// per-variant-constructor emitters.
+pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantConstructor<'_>> {
+    use crate::codegen::naming::pascal_to_snake;
+    use crate::core::ir::ParamDef;
+
+    // Hand-written associated functions suppress the generated constructor of the same name.
+    let method_names: ahash::AHashSet<&str> = enum_def
         .methods
         .iter()
-        .filter(|m| m.is_static && !m.binding_excluded)
+        .filter(|m| !m.binding_excluded)
+        .map(|m| m.name.as_str())
         .collect();
-    if static_methods.is_empty() {
+
+    enum_def
+        .variants
+        .iter()
+        .filter(|v| !v.fields.is_empty() && !v.is_tuple && !v.binding_excluded)
+        .filter_map(|v| {
+            let snake_name = pascal_to_snake(&v.name);
+            if method_names.contains(snake_name.as_str()) {
+                return None;
+            }
+            let params = v
+                .fields
+                .iter()
+                .map(|f| ParamDef {
+                    name: f.name.clone(),
+                    ty: f.ty.clone(),
+                    optional: f.optional,
+                    default: f.default.clone(),
+                    sanitized: f.sanitized,
+                    typed_default: f.typed_default.clone(),
+                    newtype_wrapper: f.newtype_wrapper.clone(),
+                    original_type: f.original_type.clone(),
+                    core_wrapper: f.core_wrapper.clone(),
+                    ..ParamDef::default()
+                })
+                .collect();
+            Some(VariantConstructor {
+                variant_name: &v.name,
+                snake_name,
+                params,
+            })
+        })
+        .collect()
+}
+
+/// Generate a `#[staticmethod]` constructor for each data-carrying struct variant of `enum_def`.
+///
+/// Reuses the shared param / let-binding / call-arg machinery (and the `pyo3_factory_method.jinja`
+/// template) but builds the core variant struct literal
+/// (`Self { inner: <core_path>::<Variant> { field: <expr>, .. } }`) directly. Every generated
+/// constructor collides with the variant accessor of the same snake_case name, so they always use
+/// the `_factory_<name>` Rust ident plus `#[pyo3(name = "<name>")]`.
+fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &str, mapper: &dyn TypeMapper) -> String {
+    use crate::codegen::generators::binding_helpers::{
+        gen_call_args_vec, gen_call_args_with_let_bindings_json_str_vec, gen_named_let_bindings_pub, has_named_params,
+    };
+    use crate::codegen::shared::{function_params, function_sig_defaults};
+
+    let constructors = collect_variant_constructors(enum_def);
+    if constructors.is_empty() {
         return String::new();
     }
 
-    // Collect variant accessor names (generated by write_pyo3_variant_accessors).
-    // Variant accessor names are the snake_case form of variant names. When a factory method
-    // has the same name as a variant accessor, they would produce two Rust methods with the
-    // same identifier in the #[pymethods] impl block (E0592). We resolve this by using
-    // `_factory_<name>` as the Rust function name with `#[pyo3(name = "<name>")]` on the
-    // staticmethod, so both the property getter (accessor) and the class constructor (factory)
-    // are exposed under the same Python name but with distinct Rust identifiers.
-    let variant_accessor_names: ahash::AHashSet<String> =
-        enum_def.variants.iter().map(|v| pascal_to_snake(&v.name)).collect();
-
-    // Build an empty opaque_types set — enums don't have opaque type context.
+    // gen_named_let_bindings_pub expects the crate name, not the full qualified type path.
+    let core_import_for_let = core_path.find("::").map(|i| &core_path[..i]).unwrap_or(core_path);
     let opaque_types: ahash::AHashSet<String> = ahash::AHashSet::new();
-
-    let mut out = String::new();
     let map_fn = |ty: &TypeRef| mapper.map_type(ty);
 
-    for method in &static_methods {
-        let params_str = function_params(&method.params, &map_fn);
+    let mut out = String::new();
+    for ctor in &constructors {
+        let params_str = function_params(&ctor.params, &map_fn);
 
-        // Build call args to the core function.
-        // gen_named_let_bindings_pub expects the crate name, not the full qualified type path.
-        // Derive it by taking
-        // everything before the first "::". For a bare name (no "::") use the path itself.
-        let core_import_for_let = core_path.find("::").map(|i| &core_path[..i]).unwrap_or(core_path);
-
-        let use_let_bindings = has_named_params(&method.params, &opaque_types);
-        let (call_args, ref_let_bindings) = if use_let_bindings {
+        // Per-param converted expressions, aligned 1:1 with `ctor.params` (no comma-join, so no
+        // re-split). Named-DTO fields convert via a `<field>_core` let binding; everything else
+        // converts inline at the call site.
+        let use_let_bindings = has_named_params(&ctor.params, &opaque_types);
+        let (arg_exprs, ref_let_bindings) = if use_let_bindings {
             (
-                gen_call_args_with_let_bindings_json_str(&method.params, &opaque_types),
-                gen_named_let_bindings_pub(&method.params, &opaque_types, core_import_for_let),
+                gen_call_args_with_let_bindings_json_str_vec(&ctor.params, &opaque_types),
+                gen_named_let_bindings_pub(&ctor.params, &opaque_types, core_import_for_let),
             )
         } else {
-            (gen_call_args(&method.params, &opaque_types), String::new())
+            (gen_call_args_vec(&ctor.params, &opaque_types), String::new())
         };
 
-        let core_call = format!("{core_path}::{}({call_args})", method.name);
+        // Pair each field name with its converted expression to build the struct literal.
+        // `field: field` is normalized to the shorthand `field` for an unchanged passthrough.
+        let field_inits: Vec<String> = ctor
+            .params
+            .iter()
+            .zip(arg_exprs)
+            .map(|(p, expr)| {
+                if expr == p.name {
+                    p.name.clone()
+                } else {
+                    format!("{}: {expr}", p.name)
+                }
+            })
+            .collect();
+
         let mut body_lines: Vec<String> = ref_let_bindings
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .map(ToOwned::to_owned)
             .collect();
-        body_lines.push(format!("Self {{ inner: {core_call} }}"));
+        body_lines.push(crate::codegen::template_env::render(
+            "generators/enums/pyo3_variant_constructor_body.jinja",
+            minijinja::context! {
+                core_path => core_path,
+                variant_name => ctor.variant_name,
+                field_inits => field_inits,
+            },
+        ));
 
-        // Detect name collision with a variant accessor.
-        // When a collision exists, use `_factory_<name>` as the Rust ident and add
-        // `#[pyo3(name = "<name>")]` so Python still sees the canonical name.
-        let (rust_fn_name, pyo3_name) = if variant_accessor_names.contains(method.name.as_str()) {
-            (format!("_factory_{}", method.name), method.name.clone())
-        } else {
-            (method.name.clone(), String::new())
-        };
+        // Always collides with the variant accessor of the same name → `_factory_<name>`.
+        let rust_fn_name = format!("_factory_{}", ctor.snake_name);
 
-        // Signature prefix: handle pyo3 signature defaults for optional params.
-        let has_optional = method.params.iter().any(|p| p.optional);
+        let has_optional = ctor.params.iter().any(|p| p.optional);
         let signature_defaults = if has_optional {
-            function_sig_defaults(&method.params)
+            function_sig_defaults(&ctor.params)
         } else {
             String::new()
         };
-        let doc_lines: Vec<String> = method.doc.lines().map(|line| line.trim().to_string()).collect();
 
         out.push_str(&crate::codegen::template_env::render(
             "generators/enums/pyo3_factory_method.jinja",
             minijinja::context! {
-                doc_lines => doc_lines,
-                has_pyo3_name => !pyo3_name.is_empty(),
-                pyo3_name => pyo3_name,
+                doc_lines => Vec::<String>::new(),
+                has_pyo3_name => true,
+                pyo3_name => ctor.snake_name,
                 has_signature => has_optional,
                 signature_defaults => signature_defaults,
                 rust_fn_name => rust_fn_name,
@@ -515,7 +524,7 @@ pub(crate) fn write_pyo3_serde_tag_getter(out: &mut String, tag_field: &str) {
 mod tests {
     use super::*;
     use crate::codegen::generators::AsyncPattern;
-    use crate::core::ir::{CoreWrapper, EnumVariant, FieldDef, TypeRef};
+    use crate::core::ir::{CoreWrapper, EnumVariant, FieldDef, MethodDef, PrimitiveType, TypeRef};
 
     fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
         EnumVariant {
@@ -575,7 +584,6 @@ mod tests {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }
     }
 
@@ -698,6 +706,208 @@ mod tests {
             !generated.contains("serde_json::json!({"),
             "externally-tagged enum must not wrap the string in a tag object: {generated}"
         );
+    }
+
+    fn typed_field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef { ty, ..field(name) }
+    }
+
+    fn static_method(name: &str) -> MethodDef {
+        MethodDef {
+            name: name.to_string(),
+            is_static: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn variant_constructors_emit_factory_per_struct_variant() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // `Shape` with two struct variants → one `#[staticmethod]` constructor each.
+        let mut def = enum_def(
+            "Shape",
+            vec![
+                variant(
+                    "Circle",
+                    vec![typed_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
+                ),
+                variant(
+                    "Rect",
+                    vec![
+                        typed_field("width", TypeRef::Primitive(PrimitiveType::F64)),
+                        typed_field("height", TypeRef::Primitive(PrimitiveType::F64)),
+                    ],
+                ),
+            ],
+        );
+        def.serde_tag = Some("type".to_string());
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        // Constructors always collide with the variant accessor of the same name, so they use
+        // the `_factory_<name>` Rust ident plus `#[pyo3(name = "<name>")]`.
+        assert!(generated.contains(r#"#[pyo3(name = "circle")]"#), "{generated}");
+        assert!(
+            generated.contains("pub fn _factory_circle(radius: f64) -> Self"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("Self { inner: crate::Shape::Circle { radius } }"),
+            "{generated}"
+        );
+        assert!(generated.contains(r#"#[pyo3(name = "rect")]"#), "{generated}");
+        assert!(
+            generated.contains("pub fn _factory_rect(width: f64, height: f64) -> Self"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("Self { inner: crate::Shape::Rect { width, height } }"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_convert_named_dto_fields() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A field whose type is a binding DTO (Named) must run through the same let-binding /
+        // conversion machinery the factory-method path uses, producing `<field>_core`.
+        let def = enum_def(
+            "Wrapper",
+            vec![variant(
+                "Llm",
+                vec![typed_field("llm", TypeRef::Named("LlmConfig".to_string()))],
+            )],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        assert!(
+            generated.contains("pub fn _factory_llm(llm: LlmConfig) -> Self"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("let llm_core: crate::LlmConfig = llm.into();"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("Self { inner: crate::Wrapper::Llm { llm: llm_core } }"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_pair_interleaved_field_exprs_by_position() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // Interleave a primitive, a Named-DTO (converted to `<field>_core`), and a Vec<Named> DTO
+        // (also `<field>_core`) so the field→expr pairing must align by position, not by a re-split
+        // of a joined string. A Vec<Named> expr is the kind that previously had to survive `<>`
+        // depth tracking; here each expr lands in its own struct-literal slot directly.
+        let def = enum_def(
+            "Job",
+            vec![variant(
+                "Run",
+                vec![
+                    typed_field("retries", TypeRef::Primitive(PrimitiveType::U32)),
+                    typed_field("config", TypeRef::Named("RunConfig".to_string())),
+                    typed_field("steps", TypeRef::Vec(Box::new(TypeRef::Named("Step".to_string())))),
+                ],
+            )],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        // Each field is paired with the right expression: primitive passes through (shorthand),
+        // the two DTO fields use their own `_core` bindings.
+        assert!(
+            generated.contains("Self { inner: crate::Job::Run { retries, config: config_core, steps: steps_core } }"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("let config_core: crate::RunConfig = config.into();"),
+            "{generated}"
+        );
+        assert!(
+            generated.contains("let steps_core: Vec<_> = steps.into_iter().map(Into::into).collect();"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_skip_unit_tuple_and_excluded() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        let mut tuple_variant = variant("Pair", vec![typed_field("_0", TypeRef::String)]);
+        tuple_variant.is_tuple = true;
+        let mut excluded = variant("Hidden", vec![typed_field("value", TypeRef::String)]);
+        excluded.binding_excluded = true;
+
+        let def = enum_def(
+            "Mixed",
+            vec![
+                variant("Empty", vec![]),
+                tuple_variant,
+                excluded,
+                variant("Real", vec![typed_field("value", TypeRef::String)]),
+            ],
+        );
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        // Unit, tuple, and binding_excluded variants get no constructor.
+        assert!(!generated.contains("_factory_empty"), "{generated}");
+        assert!(!generated.contains("_factory_pair"), "{generated}");
+        assert!(!generated.contains("_factory_hidden"), "{generated}");
+        // The struct variant still gets one.
+        assert!(
+            generated.contains("pub fn _factory_real(value: String) -> Self"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_yield_to_hand_written_method() {
+        use crate::codegen::type_mapper::IdentityMapper;
+        // A hand-written `impl` method named `circle` wins; no generated constructor for Circle.
+        let mut def = enum_def(
+            "Shape",
+            vec![
+                variant(
+                    "Circle",
+                    vec![typed_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
+                ),
+                variant(
+                    "Square",
+                    vec![typed_field("side", TypeRef::Primitive(PrimitiveType::F64))],
+                ),
+            ],
+        );
+        def.methods = vec![static_method("circle")];
+
+        let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+        // No generated constructor body for Circle (consumer method wins).
+        assert!(
+            !generated.contains("Self { inner: core::Shape::Circle"),
+            "consumer method must win for Circle: {generated}"
+        );
+        // Square is untouched by the consumer method, so it gets a constructor.
+        assert!(
+            generated.contains("pub fn _factory_square(side: f64) -> Self"),
+            "{generated}"
+        );
+    }
+
+    #[test]
+    fn variant_constructors_absent_without_mapper() {
+        // Without a mapper, no variant constructors are generated (back-compat).
+        let def = enum_def(
+            "Shape",
+            vec![variant(
+                "Circle",
+                vec![typed_field("radius", TypeRef::Primitive(PrimitiveType::F64))],
+            )],
+        );
+        let generated = gen_pyo3_data_enum(&def, "core");
+        assert!(!generated.contains("_factory_circle"), "{generated}");
     }
 
     #[test]

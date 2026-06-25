@@ -13,6 +13,13 @@ use ahash::AHashSet;
 /// From impls (e.g., due to sanitized fields), use `gen_serde_let_bindings` instead when
 /// `cfg.has_serde` is true, or fall back to `gen_unimplemented_body`.
 pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_vec(params, opaque_types).join(", ")
+}
+
+/// Per-parameter call-argument expressions, before joining. Use this when callers must pair each
+/// expression with its source param (e.g. building `field: <expr>` struct literals) so there is no
+/// need to re-split a comma-joined string. [`gen_call_args`] is `gen_call_args_vec(..).join(", ")`.
+pub fn gen_call_args_vec(params: &[ParamDef], opaque_types: &AHashSet<String>) -> Vec<String> {
     params
         .iter()
         .enumerate()
@@ -238,8 +245,7 @@ pub fn gen_call_args(params: &[ParamDef], opaque_types: &AHashSet<String>) -> St
                 }
             }
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect()
 }
 
 /// Build call argument expressions with primitive type casting for backends that remap
@@ -300,14 +306,38 @@ pub fn gen_call_args_cfg(
 /// `String` (PyO3, extendr, Magnus) must use [`gen_call_args_with_let_bindings_json_str`] so the
 /// String is parsed into `serde_json::Value` at the call site.
 pub fn gen_call_args_with_let_bindings(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
-    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false)
+    gen_call_args_with_let_bindings_inner(params, opaque_types, false, false, false).join(", ")
 }
 
 /// Like [`gen_call_args_with_let_bindings`] but converts `String`-typed Json params into
 /// `serde_json::Value` via `serde_json::from_str(...)` at the call site. Use this for backends
 /// that map Json to `String` in binding signatures (PyO3, extendr, Magnus).
 pub fn gen_call_args_with_let_bindings_json_str(params: &[ParamDef], opaque_types: &AHashSet<String>) -> String {
+    gen_call_args_with_let_bindings_json_str_vec(params, opaque_types).join(", ")
+}
+
+/// Per-parameter form of [`gen_call_args_with_let_bindings_json_str`]. Use this when each
+/// expression must be paired with its source param (e.g. struct-literal field inits) so there is no
+/// need to re-split a comma-joined string.
+pub fn gen_call_args_with_let_bindings_json_str_vec(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+) -> Vec<String> {
     gen_call_args_with_let_bindings_inner(params, opaque_types, true, false, false)
+}
+
+/// Like [`gen_call_args_with_let_bindings_json_str_vec`] but additionally casts primitive params
+/// whose binding type was remapped back to the core type (`cast_uints_to_i32`: u8/u16/u32/i8/i16 →
+/// i32; `cast_large_ints_to_f64`: u64/usize/isize/f32 → f64). Use this for backends that remap
+/// numerics (extendr) when each expression must be paired with its source param — e.g. building a
+/// `field: <expr>` core struct-literal so there is no need to re-split a comma-joined string.
+pub fn gen_call_args_with_let_bindings_json_str_cast_vec(
+    params: &[ParamDef],
+    opaque_types: &AHashSet<String>,
+    cast_uints_to_i32: bool,
+    cast_large_ints_to_f64: bool,
+) -> Vec<String> {
+    gen_call_args_with_let_bindings_inner(params, opaque_types, true, cast_uints_to_i32, cast_large_ints_to_f64)
 }
 
 fn gen_call_args_with_let_bindings_inner(
@@ -316,7 +346,7 @@ fn gen_call_args_with_let_bindings_inner(
     json_from_str: bool,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
-) -> String {
+) -> Vec<String> {
     params
         .iter()
         .enumerate()
@@ -550,8 +580,7 @@ fn gen_call_args_with_let_bindings_inner(
                 }
             }
         })
-        .collect::<Vec<_>>()
-        .join(", ")
+        .collect()
 }
 
 /// Like `gen_call_args_with_let_bindings` but additionally handles opaque Named params that are
@@ -603,7 +632,8 @@ fn gen_call_args_with_let_bindings_mutex_inner(
         json_from_str,
         cast_uints_to_i32,
         cast_large_ints_to_f64,
-    );
+    )
+    .join(", ");
 
     // Build a replacement map: for each param that is an opaque mutex type with is_ref && is_mut,
     // the base function emits `&{name}.inner` but we need `&mut *{name}.inner.lock().unwrap()`.

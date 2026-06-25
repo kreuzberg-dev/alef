@@ -578,6 +578,40 @@ pub(in crate::backends::rustler::gen_bindings) fn gen_elixir_enum_module_with_kn
                 ));
             }
         }
+
+        // Per-variant constructors: `def <snake>(<params>), do: {:<atom>, %{<field>: <param>, ...}}`.
+        // Each builds the `{:variant, %{field: value}}` tagged-tuple form that the NifTaggedEnum
+        // decoder consumes — the plain-direct model (no NIF, no core conversion; the binding enum is
+        // already binding-shaped). Variant selection (skip unit/tuple/`binding_excluded`, yield to a
+        // hand-written `impl` method of the same name) is shared with the pyo3/magnus/php/extendr
+        // paths via `collect_variant_constructors`.
+        let constructors = crate::codegen::generators::collect_variant_constructors(enum_def);
+        if !constructors.is_empty() {
+            out.push('\n');
+            for ctor in &constructors {
+                let atom = elixir_safe_atom(&ctor.snake_name);
+                let fn_name = elixir_safe_param_name(&ctor.snake_name);
+                // Pair each Elixir param name with the map entry `field: param`. The map key is the
+                // Rust field name (an atom); the encoder reduces over it (renaming where needed) so
+                // the wire shape matches what serde expects.
+                let params: Vec<String> = ctor.params.iter().map(|p| elixir_safe_param_name(&p.name)).collect();
+                let map_entries: Vec<String> = ctor
+                    .params
+                    .iter()
+                    .zip(&params)
+                    .map(|(p, param_name)| format!("{}: {param_name}", p.name))
+                    .collect();
+                out.push_str(&template_env::render(
+                    "elixir_enum_variant_constructor.jinja",
+                    minijinja::context! {
+                        fn_name => &fn_name,
+                        params => params.join(", "),
+                        atom => &atom,
+                        map_entries => map_entries.join(", "),
+                    },
+                ));
+            }
+        }
     }
 
     out.push_str(&template_env::render(

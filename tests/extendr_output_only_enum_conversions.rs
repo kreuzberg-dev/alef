@@ -107,7 +107,6 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 

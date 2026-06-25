@@ -39,7 +39,6 @@ fn make_unit_enum_def(name: &str, variants: &[&str]) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -653,7 +652,6 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
@@ -684,12 +682,11 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
     );
 }
 
-/// An internally-tagged enum that opts into `string_shorthand` lets a bare host string
-/// construct a DATA variant by routing the string into one named field. The constructor
-/// must emit `{"<tag>": "<wire_variant>", "<field>": s}` so serde builds that variant —
-/// not the plain `{"<tag>": s}` (which serde would treat as a unit-variant name and reject).
+/// #132: an internally-tagged enum with a UNIT data-default variant must still wrap a bare host
+/// string as `{"<tag>": s}` so serde resolves the variant. This is the unit-variant tag-wrapping
+/// that survives the `string_shorthand` removal — verify it stays after that mechanism is gone.
 #[test]
-fn test_string_shorthand_builds_data_variant() {
+fn test_internally_tagged_unit_variant_wraps_bare_string() {
     fn variant(name: &str, fields: Vec<FieldDef>, is_default: bool) -> EnumVariant {
         EnumVariant {
             name: name.to_string(),
@@ -733,10 +730,6 @@ fn test_string_shorthand_builds_data_variant() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: Some(StringShorthand {
-                variant: "Preset".to_string(),
-                field: "name".to_string(),
-            }),
         }],
         errors: vec![],
         excluded_type_paths: HashMap::new(),
@@ -755,18 +748,10 @@ fn test_string_shorthand_builds_data_variant() {
         .find(|f| f.path.ends_with("lib.rs"))
         .expect("lib.rs should be generated");
 
-    // Wire variant value comes from centralized naming (Preset -> "preset" under snake_case).
+    // #132: a bare string is wrapped as {"<tag>": s} so serde resolves the (unit) variant name.
     assert!(
-        lib_rs
-            .content
-            .contains(r#"serde_json::json!({ "type": "preset", "name": s })"#),
-        "string_shorthand must emit the tagged data-variant object;\ncontent:\n{}",
-        lib_rs.content
-    );
-    // The plain unit-variant wrapping must NOT be emitted for a shorthand enum.
-    assert!(
-        !lib_rs.content.contains(r#"serde_json::json!({ "type": s })"#),
-        "string_shorthand enum must not wrap the string as a bare unit-variant tag;\ncontent:\n{}",
+        lib_rs.content.contains(r#"serde_json::json!({ "type": s })"#),
+        "internally-tagged enum must wrap a bare string as {{\"type\": s}};\ncontent:\n{}",
         lib_rs.content
     );
 }

@@ -258,7 +258,6 @@ fn make_visit_result_php() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 

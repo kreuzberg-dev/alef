@@ -132,7 +132,6 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_elixir_enum_module(&format_enum, "SampleCrate");
@@ -235,7 +234,6 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_elixir_enum_module(&image_source_enum, "SampleFixture");
@@ -363,7 +361,6 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     // Simulate calling with known types available
@@ -383,4 +380,136 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
         result.contains("value: map()"),
         "should fall back to map() for unknown type; got:\n{result}"
     );
+}
+
+mod variant_constructors {
+    use super::*;
+    use crate::core::ir::{MethodDef, PrimitiveType};
+
+    fn field(name: &str, ty: TypeRef) -> FieldDef {
+        FieldDef {
+            name: name.to_string(),
+            ty,
+            ..Default::default()
+        }
+    }
+
+    fn variant(name: &str, fields: Vec<FieldDef>) -> EnumVariant {
+        EnumVariant {
+            name: name.to_string(),
+            fields,
+            ..Default::default()
+        }
+    }
+
+    /// A tagged data enum with struct variants — the NifTaggedEnum shape.
+    fn shape_enum() -> EnumDef {
+        EnumDef {
+            name: "Shape".to_string(),
+            rust_path: "test_lib::Shape".to_string(),
+            variants: vec![
+                variant("Circle", vec![field("radius", TypeRef::Primitive(PrimitiveType::F64))]),
+                variant(
+                    "Rect",
+                    vec![
+                        field("width", TypeRef::Primitive(PrimitiveType::F64)),
+                        field("height", TypeRef::Primitive(PrimitiveType::F64)),
+                    ],
+                ),
+            ],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn emits_constructor_per_struct_variant_as_tagged_tuple() {
+        let result = gen_elixir_enum_module(&shape_enum(), "SampleCrate");
+        // Plain-direct model: the Elixir constructor builds the `{:variant, %{field: value}}`
+        // tagged-tuple form NifTaggedEnum decodes — no NIF, no core conversion.
+        assert!(
+            result.contains("def circle(radius), do: {:circle, %{radius: radius}}"),
+            "{result}"
+        );
+        assert!(
+            result.contains("def rect(width, height), do: {:rect, %{width: width, height: height}}"),
+            "{result}"
+        );
+    }
+
+    #[test]
+    fn skips_unit_tuple_and_excluded_variants() {
+        let mut tuple_variant = variant("Pair", vec![field("_0", TypeRef::String)]);
+        tuple_variant.is_tuple = true;
+        let mut excluded = variant("Hidden", vec![field("value", TypeRef::String)]);
+        excluded.binding_excluded = true;
+
+        let def = EnumDef {
+            name: "Mixed".to_string(),
+            rust_path: "test_lib::Mixed".to_string(),
+            variants: vec![
+                variant("Empty", vec![]),
+                tuple_variant,
+                excluded,
+                variant("Real", vec![field("value", TypeRef::String)]),
+            ],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        assert!(!result.contains("def empty"), "{result}");
+        assert!(!result.contains("def pair"), "{result}");
+        assert!(!result.contains("def hidden"), "{result}");
+        assert!(
+            result.contains("def real(value), do: {:real, %{value: value}}"),
+            "{result}"
+        );
+    }
+
+    #[test]
+    fn yields_to_hand_written_method() {
+        let def = EnumDef {
+            methods: vec![MethodDef {
+                name: "circle".to_string(),
+                is_static: true,
+                ..Default::default()
+            }],
+            ..shape_enum()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        assert!(!result.contains("def circle("), "consumer method wins: {result}");
+        assert!(result.contains("def rect("), "{result}");
+    }
+
+    #[test]
+    fn no_constructors_for_unit_enum() {
+        let def = EnumDef {
+            name: "Color".to_string(),
+            rust_path: "test_lib::Color".to_string(),
+            variants: vec![variant("Red", vec![]), variant("Blue", vec![])],
+            ..Default::default()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        // Unit enums keep their accessor `def red()` / `def blue()` form; no tagged-tuple ctor.
+        assert!(
+            !result.contains(", do: {:"),
+            "unit enum must not emit tagged-tuple ctor: {result}"
+        );
+    }
+
+    #[test]
+    fn reserved_word_variant_name_is_escaped() {
+        // A variant named `End` snakes to `end`, an Elixir reserved word; the def name must be safe.
+        let def = EnumDef {
+            name: "Marker".to_string(),
+            rust_path: "test_lib::Marker".to_string(),
+            variants: vec![variant("End", vec![field("at", TypeRef::String)])],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let result = gen_elixir_enum_module(&def, "SampleCrate");
+        // The atom in the tuple is `:end` (a valid atom), but the def name must avoid the bare
+        // reserved word — elixir_safe_param_name guards it.
+        assert!(result.contains("{:end, %{at: at}}"), "{result}");
+    }
 }

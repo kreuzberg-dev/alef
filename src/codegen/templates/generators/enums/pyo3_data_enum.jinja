@@ -28,12 +28,8 @@ impl {{ name }} {
             if let Ok(s) = v.extract::<String>() {
 {#- For an internally-tagged enum a bare string names a unit variant, which serde encodes as
     {"<tag>": "<variant>"}. Emit that shape so `from_str` parses it; serializing the bare string
-    alone yields a JSON string the tagged enum rejects.
-    When the enum opts into string_shorthand, the bare string instead populates a data variant's
-    field, so emit {"<tag>": "<wire_variant>", "<field>": s} for serde to build that variant. -#}
-{%- if serde_tag and shorthand_wire_variant %}
-                serde_json::to_string(&serde_json::json!({ "{{ serde_tag }}": "{{ shorthand_wire_variant }}", "{{ shorthand_field }}": s })).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
-{%- elif serde_tag %}
+    alone yields a JSON string the tagged enum rejects. -#}
+{%- if serde_tag %}
                 serde_json::to_string(&serde_json::json!({ "{{ serde_tag }}": s })).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
 {%- else %}
                 serde_json::to_string(&s).map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("Invalid {{ name }}: {e}")))?
@@ -58,8 +54,8 @@ impl {{ name }} {
 {{ variant_accessors_content }}
 {{ serde_tag_content }}
 {%- endif %}
-{%- if factory_methods_content %}
-{{ factory_methods_content }}
+{%- if variant_constructors_content %}
+{{ variant_constructors_content }}
 {%- endif %}
 }
 
