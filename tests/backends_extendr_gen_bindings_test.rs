@@ -152,7 +152,6 @@ fn make_unit_enum(name: &str, variants: &[&str]) -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -271,7 +270,6 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -554,7 +552,6 @@ fn test_enum_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -829,7 +826,6 @@ fn test_emits_lossy_from_impls_for_data_variant_enums() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),

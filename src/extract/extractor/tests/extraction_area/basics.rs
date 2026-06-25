@@ -65,30 +65,6 @@ fn test_extract_enum() {
     assert_eq!(fmt.variants[2].name, "Custom");
     assert_eq!(fmt.variants[2].fields.len(), 1);
     assert_eq!(fmt.variants[2].fields[0].name, "name");
-    // No string_shorthand attribute => the IR field stays None.
-    assert!(fmt.string_shorthand.is_none());
-}
-
-#[test]
-fn test_extract_enum_string_shorthand_attribute() {
-    let source = r#"
-        /// A greeting.
-        #[alef(string_shorthand(variant = "Preset", field = "name"))]
-        #[serde(tag = "type", rename_all = "snake_case")]
-        pub enum Greeting {
-            Default,
-            Preset { name: String },
-        }
-    "#;
-
-    let surface = extract_from_source(source);
-    let greeting = &surface.enums[0];
-    let shorthand = greeting
-        .string_shorthand
-        .as_ref()
-        .expect("string_shorthand should be populated from the alef attribute");
-    assert_eq!(shorthand.variant, "Preset");
-    assert_eq!(shorthand.field, "name");
 }
 
 #[test]

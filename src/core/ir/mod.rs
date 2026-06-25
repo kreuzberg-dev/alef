@@ -5,8 +5,7 @@ mod surface;
 mod type_ref;
 
 pub use items::{
-    EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind,
-    StringShorthand, TypeDef,
+    EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef, MethodDef, ParamDef, ReceiverKind, TypeDef,
 };
 pub use metadata::{CoreWrapper, DefaultValue, DeprecationInfo, VersionAnnotation};
 pub use service::{

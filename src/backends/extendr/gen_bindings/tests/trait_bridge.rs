@@ -210,7 +210,6 @@ fn regression_namespace_exports_functions_types_enums() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     });
     let files = backend.generate_public_api(&api, &config).unwrap();
     let namespace = files

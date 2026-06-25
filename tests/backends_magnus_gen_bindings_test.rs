@@ -184,7 +184,6 @@ fn test_basic_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -381,7 +380,6 @@ fn test_enum_generation() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -484,7 +482,6 @@ fn test_internally_tagged_enum_constructor_wraps_bare_string() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1296,7 +1293,6 @@ mod trait_bridge {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
-                string_shorthand: None,
             }],
             errors: vec![],
             excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1790,7 +1786,6 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1896,7 +1891,6 @@ fn test_tuple_variant_vec_primitive_stays_as_vec() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -1969,7 +1963,6 @@ fn test_tuple_variant_bytes_stays_as_vec() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2266,7 +2259,6 @@ fn test_tuple_variant_vec_named_stays_as_vec_and_uses_into() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2553,7 +2545,6 @@ fn test_visitor_bridge_debug_not_duplicated() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2786,7 +2777,6 @@ fn tagged_enum_public_api_does_not_emit_method_missing() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2872,7 +2862,6 @@ fn tagged_enum_public_api_emits_sorbet_sig_blocks() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -2962,7 +2951,6 @@ fn tagged_enum_dispatcher_emits_rubocop_clean_ruby() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3077,7 +3065,6 @@ fn tagged_enum_dispatcher_uses_serde_wire_names() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3201,7 +3188,6 @@ fn tagged_enum_public_api_emits_class_hierarchy() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3340,7 +3326,6 @@ fn test_enum_yard_doc_emission() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3441,7 +3426,6 @@ fn test_enum_variant_method_yard_docs() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3618,7 +3602,6 @@ fn test_explicit_re_export_list_filters_internal_types() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -3867,7 +3850,6 @@ fn test_async_function_with_vec_named_params() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         functions: vec![FunctionDef {
             name: "detect_async".to_string(),
@@ -4126,7 +4108,6 @@ fn test_opaque_async_method_with_vec_named_ref_param() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         functions: vec![],
         errors: vec![ErrorDef {
@@ -4274,12 +4255,11 @@ fn same_named_free_functions_with_ungated_variant_dedup_to_one() {
     );
 }
 
-/// An internally-tagged enum that opts into `string_shorthand` lets a bare Ruby string
-/// construct a DATA variant by routing the string into one named field. The generated
-/// `TryConvert` must add a fallback that wraps the string as
-/// `{"<tag>": "<wire_variant>", "<field>": json_str}` so serde builds that variant.
+/// #132: an internally-tagged enum must keep the `TryConvert` fallback that wraps a bare Ruby
+/// string as `{"<tag>": json_str}` so serde resolves a unit-variant name. Verify it stays after
+/// the `string_shorthand` removal.
 #[test]
-fn test_string_shorthand_builds_data_variant() {
+fn test_internally_tagged_unit_variant_wraps_bare_string() {
     let backend = MagnusBackend;
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
@@ -4331,10 +4311,6 @@ fn test_string_shorthand_builds_data_variant() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: Some(StringShorthand {
-                variant: "Preset".to_string(),
-                field: "name".to_string(),
-            }),
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -4353,11 +4329,10 @@ fn test_string_shorthand_builds_data_variant() {
         .find(|f| f.path.to_string_lossy().contains("lib.rs"))
         .expect("lib.rs generated");
 
-    // Wire variant value comes from centralized naming (Preset -> "preset" under snake_case).
+    // #132: the bare-string fallback wraps the value as {"<tag>": json_str}.
     assert!(
-        lib.content
-            .contains(r#"serde_json::json!({ "type": "preset", "name": json_str })"#),
-        "string_shorthand must add the tagged data-variant fallback;\ncontent:\n{}",
+        lib.content.contains(r#"serde_json::json!({ "type": json_str })"#),
+        "internally-tagged enum must keep the {{\"type\": json_str}} fallback;\ncontent:\n{}",
         lib.content
     );
 }

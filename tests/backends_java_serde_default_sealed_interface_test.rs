@@ -77,7 +77,6 @@ fn make_enum(name: &str, variants: Vec<EnumVariant>, serde_tag: Option<String>) 
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 

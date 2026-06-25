@@ -231,7 +231,6 @@ gem_name = "my_gem"
         excluded_variants: vec![],
         cfg: None,
         version: Default::default(),
-        string_shorthand: None,
     });
 
     let files = backend.generate_public_api(&api, &config).unwrap();

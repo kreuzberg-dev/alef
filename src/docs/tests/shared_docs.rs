@@ -54,7 +54,6 @@ fn test_generate_types_doc_renders_enum_variants() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -125,7 +124,6 @@ fn test_render_enum_for_shared_doc_emits_wire_value_column_when_rename_all_set()
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
     let out = render_enum_for_shared_doc(&en, Language::Rust);
     assert!(out.contains("| Variant | Wire value | Description |"));
@@ -168,7 +166,6 @@ fn test_render_enum_for_shared_doc_demotes_internal_headings() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
     let out = render_enum_for_shared_doc(&en, Language::Rust);
     // The internal heading ## should become #### (demoted by 2 levels).
@@ -266,7 +263,6 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                 excluded_variants: vec![],
                 version: Default::default(),
                 has_default: false,
-                string_shorthand: None,
             },
             EnumDef {
                 name: "Unrelated".into(),
@@ -298,7 +294,6 @@ fn test_generate_configuration_doc_renders_referenced_enums_only() {
                 excluded_variants: vec![],
                 version: Default::default(),
                 has_default: false,
-                string_shorthand: None,
             },
         ],
         errors: vec![],

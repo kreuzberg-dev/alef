@@ -236,7 +236,6 @@ fn test_unit_enum_module_emits_doc_on_each_variant_accessor() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
     let config = make_config("test_app");
     let api = ApiSurface {
@@ -371,7 +370,6 @@ fn test_data_enum_module_emits_typedoc_on_each_variant_alias() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
     let config = make_config("test_app");
     let api = ApiSurface {

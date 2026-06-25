@@ -47,7 +47,6 @@ fn unit_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -179,7 +178,6 @@ fn data_enum() -> EnumDef {
         excluded_variants: vec![],
         version: Default::default(),
         has_default: false,
-        string_shorthand: None,
     }
 }
 
@@ -318,7 +316,6 @@ fn test_gen_enum_tuple_named_uses_nif_struct() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_enum(&format_enum, "SampleCrate");
@@ -453,7 +450,6 @@ fn test_flat_data_enum_from_core_uses_full_rust_path() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let from_core = gen_rustler_flat_data_enum_from_core(&enum_def, "sample_crate");

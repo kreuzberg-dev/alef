@@ -250,7 +250,6 @@ fn test_merge_surface_includes_functions_and_enums() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: ::std::collections::HashMap::new(),
@@ -347,7 +346,6 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
-                string_shorthand: None,
             },
             crate::core::ir::EnumDef {
                 name: "UnwantedEnum".into(),
@@ -367,7 +365,6 @@ fn test_merge_surface_filtered_includes_functions_and_enums() {
                 binding_exclusion_reason: None,
                 excluded_variants: vec![],
                 version: Default::default(),
-                string_shorthand: None,
             },
         ],
         errors: vec![],

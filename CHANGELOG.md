@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`string_shorthand` enum attribute.** The opt-in `#[alef(string_shorthand(variant, field))]`
+  mechanism that let a bare host-language string construct a data-carrying enum variant is gone.
+  Per-variant constructors (`EmbeddingModelType.preset("balanced")`) supersede it — they cover every
+  data variant and keep the discriminator type-safe rather than stringly-typed. This removes the
+  `StringShorthand` IR type, the `EnumDef::string_shorthand` field, the extractor parsing, and the
+  `StringShorthandInvalid` validation diagnostic. Internally-tagged **unit**-variant bare-string
+  wrapping (`{"<tag>": s}`) is unaffected and still emitted for pyo3 and magnus.
+
 ## [0.28.0] - 2026-06-24
 
 ### Added

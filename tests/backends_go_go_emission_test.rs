@@ -366,7 +366,6 @@ fn test_untagged_enum_unmarshal_does_not_access_wire_type() {
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
@@ -480,7 +479,6 @@ fn test_untagged_enum_with_object_variants_uses_shape_discriminated_unmarshal() 
             binding_exclusion_reason: None,
             excluded_variants: vec![],
             version: Default::default(),
-            string_shorthand: None,
         }],
         errors: vec![],
         excluded_type_paths: std::collections::HashMap::new(),
@@ -583,7 +581,6 @@ fn test_parent_struct_with_required_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     // OcrRequest has a required field `document: OcrDocument`
@@ -727,7 +724,6 @@ fn test_parent_struct_with_optional_data_enum_field_emits_custom_unmarshal_json(
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     // ChatRequest has an optional field `response_format: Option<ResponseFormat>`

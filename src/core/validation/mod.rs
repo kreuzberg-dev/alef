@@ -7,7 +7,7 @@
 
 use crate::core::config::Language;
 use crate::core::ir::ApiSurface;
-use crate::extract::validation::{sanitized_public_api_diagnostics, string_shorthand_diagnostics};
+use crate::extract::validation::sanitized_public_api_diagnostics;
 use ahash::AHashSet;
 
 mod readiness;
@@ -43,7 +43,6 @@ pub enum ValidationCode {
     SerdeMetadataIncomplete,
     JsonValueResolutionAmbiguous,
     BackendStubPath,
-    StringShorthandInvalid,
 }
 
 /// Diagnostics that are never safe to suppress globally.
@@ -59,7 +58,6 @@ pub fn is_critical_unsuppressible(code: ValidationCode) -> bool {
             | ValidationCode::UnsupportedGenericItem
             | ValidationCode::JsonValueResolutionAmbiguous
             | ValidationCode::BackendStubPath
-            | ValidationCode::StringShorthandInvalid
     )
 }
 
@@ -75,7 +73,6 @@ impl fmt::Display for ValidationCode {
             Self::SerdeMetadataIncomplete => f.write_str("serde_metadata_incomplete"),
             Self::JsonValueResolutionAmbiguous => f.write_str("json_value_resolution_ambiguous"),
             Self::BackendStubPath => f.write_str("backend_stub_path"),
-            Self::StringShorthandInvalid => f.write_str("string_shorthand_invalid"),
         }
     }
 }
@@ -242,15 +239,6 @@ pub fn validate_api_surface_with_bridged_traits(
     report.extend(sanitized_public_api_diagnostics(api).into_iter().map(|diagnostic| {
         ValidationDiagnostic::error(
             ValidationCode::LossySanitizedSurface,
-            api.crate_name.clone(),
-            Some(diagnostic.item_path),
-            diagnostic.reason,
-            diagnostic.suggested_fix,
-        )
-    }));
-    report.extend(string_shorthand_diagnostics(api).into_iter().map(|diagnostic| {
-        ValidationDiagnostic::error(
-            ValidationCode::StringShorthandInvalid,
             api.crate_name.clone(),
             Some(diagnostic.item_path),
             diagnostic.reason,

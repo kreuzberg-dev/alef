@@ -1,8 +1,8 @@
 use super::*;
 use crate::core::ir::{
     ApiSurface, EntrypointDef, EntrypointKind, EnumDef, EnumVariant, ErrorDef, ErrorVariant, FieldDef, FunctionDef,
-    HandlerContractDef, MethodDef, ParamDef, ReceiverKind, RegistrationDef, ServiceDef, StringShorthand, TypeDef,
-    TypeRef, UnsupportedPublicItem,
+    HandlerContractDef, MethodDef, ParamDef, ReceiverKind, RegistrationDef, ServiceDef, TypeDef, TypeRef,
+    UnsupportedPublicItem,
 };
 use ahash::AHashSet;
 
@@ -774,56 +774,4 @@ fn api_surface_validation_checks_handler_contract_ir_types() {
             "missing diagnostic for {expected}: {report:?}"
         );
     }
-}
-
-#[test]
-fn api_surface_validation_errors_for_invalid_string_shorthand() {
-    // A present-but-invalid string_shorthand (here: variant `Preset` has a required sibling
-    // field `count`) must surface as a critical, unsuppressible validation error — never a
-    // silent no-op.
-    let api = ApiSurface {
-        crate_name: "sample-lib".to_string(),
-        enums: vec![EnumDef {
-            name: "Greeting".to_string(),
-            rust_path: "sample::Greeting".to_string(),
-            original_rust_path: String::new(),
-            variants: vec![EnumVariant {
-                name: "Preset".to_string(),
-                fields: vec![field_def("name", TypeRef::String), field_def("count", TypeRef::String)],
-                ..EnumVariant::default()
-            }],
-            methods: vec![],
-            doc: String::new(),
-            cfg: None,
-            is_copy: false,
-            has_serde: true,
-            has_default: false,
-            serde_tag: Some("type".to_string()),
-            serde_untagged: false,
-            serde_rename_all: Some("snake_case".to_string()),
-            binding_excluded: false,
-            binding_exclusion_reason: None,
-            excluded_variants: vec![],
-            version: Default::default(),
-            string_shorthand: Some(StringShorthand {
-                variant: "Preset".to_string(),
-                field: "name".to_string(),
-            }),
-        }],
-        ..ApiSurface::default()
-    };
-
-    let report = validate_api_surface(&api);
-
-    assert!(report.has_errors());
-    let diagnostic = report
-        .diagnostics
-        .iter()
-        .find(|d| d.code == ValidationCode::StringShorthandInvalid)
-        .expect("string_shorthand misconfiguration must produce a StringShorthandInvalid error");
-    assert_eq!(diagnostic.severity, ValidationSeverity::Error);
-    assert_eq!(diagnostic.item_path.as_deref(), Some("sample::Greeting"));
-    assert!(diagnostic.reason.contains("count"));
-    // It must be critical so a crate-wide suppression cannot let broken bindings through.
-    assert!(is_critical_unsuppressible(ValidationCode::StringShorthandInvalid));
 }

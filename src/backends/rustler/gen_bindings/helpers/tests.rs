@@ -132,7 +132,6 @@ fn test_gen_elixir_enum_module_data_enum_with_payload_derived_names() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_elixir_enum_module(&format_enum, "SampleCrate");
@@ -235,7 +234,6 @@ fn test_gen_elixir_enum_module_with_serde_rename_special_chars() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     let result = gen_elixir_enum_module(&image_source_enum, "SampleFixture");
@@ -363,7 +361,6 @@ fn test_gen_elixir_enum_module_resolves_known_payload_types() {
         binding_exclusion_reason: None,
         excluded_variants: vec![],
         version: Default::default(),
-        string_shorthand: None,
     };
 
     // Simulate calling with known types available
