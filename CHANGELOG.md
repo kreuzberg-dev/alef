@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.28.1] - 2026-06-25
+
 ### Added
 
 - **rustler (Elixir): per-variant constructors for data enums.** A tagged data enum with struct
@@ -57,6 +59,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   method of the same name suppresses the generated constructor. Mirrors the pyo3 path; both share
   `collect_variant_constructors` in `src/codegen/generators/enums.rs`. The internally-tagged
   unit-variant bare-string fallback (`{"<tag>": s}`) is unchanged.
+
+### Fixed
+
+- **Per-variant constructors now compile against real-world enums.** The initial constructor codegen
+  generated non-compiling bindings for several field-type cases. Fixes: variants with
+  sanitized / `binding_excluded` fields are skipped (no binding-side value to build the core variant
+  from); a binding-optional param feeding a non-optional core field unwraps via `.unwrap_or_default()`;
+  field conversions are inlined (`field.into()`) so a non-re-exported core type path is never named;
+  and return-only DTOs used as constructor params now get a generated `From` impl. The shared
+  `collect_variant_constructors` / `variant_field_init` are the single source of truth across the
+  pyo3 / magnus / php / extendr / rustler backends; extendr and php emit via Minijinja templates, and
+  the rustler data-enum variant atom is aligned with the constructor and `NifTaggedEnum` decoder for
+  reserved-word variants.
 
 ### Removed
 
