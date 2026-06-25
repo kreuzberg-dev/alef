@@ -251,6 +251,11 @@ pub(super) fn generate_type_stubs(
                 "php_record_class_stub_declaration.jinja",
                 context! { class_name => &enum_def.name },
             ));
+            // Declare a static factory per data-carrying variant so PHPStan sees the
+            // `EmbeddingModelType::preset(...)` constructors the flat enum class exposes at runtime.
+            for ctor in gen_data_enum_variant_constructor_stubs(enum_def) {
+                content.push_str(&ctor);
+            }
             content.push_str("}\n\n");
         } else {
             // Unit-variant enums → PHP 8.1+ enum constants.
@@ -433,3 +438,48 @@ pub(super) fn generate_type_stubs(
         generated_header: false,
     }])
 }
+
+/// Emit a static-factory stub for each per-variant constructor the flat PHP enum class exposes.
+///
+/// The runtime binding exposes these under the camelCase host name (`to_php_name(<snake>)`), so the
+/// stub declares the same public name. Each param maps through the stub's [`php_type`] mapper — the
+/// same one DTO field/method stubs use — and the return type is the enum class. Optional fields gain
+/// a `?` prefix and a `= null` default, mirroring DTO method stubs. `collect_variant_constructors`
+/// owns the skip rules (unit / tuple / `binding_excluded` / sanitized-field variants and hand-written
+/// method collisions) so the stub and runtime binding stay aligned.
+fn gen_data_enum_variant_constructor_stubs(enum_def: &crate::core::ir::EnumDef) -> Vec<String> {
+    use crate::codegen::generators::collect_variant_constructors;
+
+    collect_variant_constructors(enum_def)
+        .iter()
+        .map(|ctor| {
+            let first_optional_idx = ctor.params.iter().position(|p| p.optional);
+            let params: Vec<String> = ctor
+                .params
+                .iter()
+                .enumerate()
+                .map(|(idx, p)| {
+                    let ptype = php_type(&p.ty);
+                    if p.optional || first_optional_idx.is_some_and(|first| idx >= first) {
+                        let nullable = if ptype.starts_with('?') { "" } else { "?" };
+                        format!("{nullable}{ptype} ${} = null", to_php_name(&p.name))
+                    } else {
+                        format!("{} ${}", ptype, to_php_name(&p.name))
+                    }
+                })
+                .collect();
+            crate::backends::php::template_env::render(
+                "php_static_method_stub.jinja",
+                context! {
+                    method_name => to_php_name(&ctor.snake_name),
+                    params => &params.join(", "),
+                    return_type => &enum_def.name,
+                    stub_body => "{ throw new \\RuntimeException('Not implemented — provided by the native extension.'); }",
+                },
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod type_stubs_tests;
