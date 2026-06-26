@@ -285,35 +285,16 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
             // Functions with only required params use fixed arity
             func.params.len() as i32
         };
-        if func.is_async {
-            // Register both sync (blocking) and async variants
-            lines.push(crate::backends::magnus::template_env::render(
-                "module_function_register.rs.jinja",
-                minijinja::context! {
-                    ruby_name => &func.name,
-                    function_name => &func.name,
-                    arity => param_count,
-                },
-            ));
-            let async_name = format!("{}_async", func.name);
-            lines.push(crate::backends::magnus::template_env::render(
-                "module_function_register.rs.jinja",
-                minijinja::context! {
-                    ruby_name => &async_name,
-                    function_name => &async_name,
-                    arity => param_count,
-                },
-            ));
-        } else {
-            lines.push(crate::backends::magnus::template_env::render(
-                "module_function_register.rs.jinja",
-                minijinja::context! {
-                    ruby_name => &func.name,
-                    function_name => &func.name,
-                    arity => param_count,
-                },
-            ));
-        }
+        let ruby_name = crate::backends::magnus::ruby_public_function_name(func);
+        let function_name = crate::backends::magnus::ruby_native_function_name(func);
+        lines.push(crate::backends::magnus::template_env::render(
+            "module_function_register.rs.jinja",
+            minijinja::context! {
+                ruby_name => ruby_name,
+                function_name => function_name.as_ref(),
+                arity => param_count,
+            },
+        ));
     }
 
     // Register trait bridge entry points: pub fn register_xxx(rb_obj, name) -> Result<...>

@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `extract/1` and `extract_batch/1` when the Rust API names are `extract` and `extract_batch`, while
   still delegating to `Native.extract_async/2` and `Native.extract_batch_async/2`.
 
+- **magnus**: register suffixed async helper functions under their original public Ruby names. Ruby
+  bindings now expose canonical methods such as `extract` and `extract_batch` even when the generated
+  native helper functions are named `extract_async` and `extract_batch_async`; RBS stubs use the same
+  public names.
+
 ### Removed
 
 - **napi: stop generating the legacy `packages/typescript` wrapper package.** The napi backend no

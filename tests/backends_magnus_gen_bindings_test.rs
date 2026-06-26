@@ -896,6 +896,53 @@ fn test_async_function() {
 }
 
 #[test]
+fn test_async_helper_registers_under_original_public_name() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract_async".to_string(),
+            rust_path: "test_lib::extract_async".to_string(),
+            original_rust_path: "test_lib::extract".to_string(),
+            params: vec![ParamDef {
+                name: "input".to_string(),
+                ty: TypeRef::String,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            ..FunctionDef::default()
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let config = make_config();
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let lib_file = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().contains("lib.rs"))
+        .unwrap();
+    let content = &lib_file.content;
+
+    assert!(
+        content.contains(r#"module.define_module_function("extract", function!(extract_async, 1))?;"#),
+        "async helper must be registered under the original public name:\n{content}"
+    );
+    assert!(
+        !content.contains(r#"module.define_module_function("extract_async", function!(extract_async, 1))?;"#),
+        "async helper name must not be exposed as the public Ruby method:\n{content}"
+    );
+}
+
+#[test]
 fn test_opaque_type() {
     let backend = MagnusBackend;
 

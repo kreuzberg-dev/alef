@@ -496,7 +496,8 @@ fn gen_function_stub(func: &FunctionDef, streaming_method_names: &ahash::AHashSe
 
     let param_list = format!("({})", params.join(", "));
 
-    format!("  def self.{}: {} -> {}", func.name, param_list, return_type)
+    let function_name = crate::backends::magnus::ruby_public_function_name(func);
+    format!("  def self.{}: {} -> {}", function_name, param_list, return_type)
 }
 
 #[cfg(test)]

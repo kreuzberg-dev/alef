@@ -1028,6 +1028,49 @@ output = "packages/ruby/sig/"
 }
 
 #[test]
+fn test_rbs_uses_original_public_name_for_suffixed_async_helper() {
+    let backend = MagnusBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![],
+        functions: vec![FunctionDef {
+            name: "extract_async".to_string(),
+            rust_path: "test_lib::extract_async".to_string(),
+            original_rust_path: "test_lib::extract".to_string(),
+            params: vec![ParamDef {
+                name: "input".to_string(),
+                ty: TypeRef::String,
+                ..ParamDef::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: true,
+            ..FunctionDef::default()
+        }],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let content = backend.generate_type_stubs(&api, &make_config_with_stubs()).unwrap()[0]
+        .content
+        .clone();
+
+    assert!(
+        content.contains("def self.extract: (String input) -> String"),
+        "RBS must expose the original public function name:\n{content}"
+    );
+    assert!(
+        !content.contains("def self.extract_async:"),
+        "RBS must not expose the generated helper name:\n{content}"
+    );
+}
+
+#[test]
 fn test_rbs_includes_trait_registry_functions() {
     let backend = MagnusBackend;
     let mut config = make_config_with_stubs();
