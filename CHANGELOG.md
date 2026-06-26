@@ -7,7 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.2] - 2026-06-26
+
 ### Fixed
+
+- **java**: read i32-returning FFM downcall results as `(int) (long)` instead of `(int)`. Since all
+  integer FFM layouts are promoted to `JAVA_LONG` (for JBR Win64 Panama compatibility), the downcall
+  handle returns `long`; casting the `invoke(...)` result straight to `(int)` forced an illegal
+  `long → int` `asType` conversion that threw `WrongMethodTypeException` at the call boundary. This
+  broke every byte-result method (e.g. `speech`, `fileContent`) and the trait-bridge
+  register/unregister/clear lifecycle calls. The call sites now narrow via `(int) (long)`, matching
+  the canonical pattern already used for `last_error_code`.
+
+- **swift**: serialize enum-typed struct field getters to JSON instead of emitting a bare variant
+  name. The discriminant-only bridge wrapper's `.to_string()` dropped the variant payload and
+  returned an unquoted name (e.g. `Text`), which Swift's `JSONDecoder` rejected with "The given data
+  was not valid JSON." Getters now emit `serde_json::to_string` of the source enum value, matching
+  the bidirectional `*_from_json` representation the Swift `Codable` types expect.
 
 - **elixir**: keep async NIF symbols suffixed internally while exposing async free functions under
   their original public names in the high-level Elixir facade. Generated modules now expose
