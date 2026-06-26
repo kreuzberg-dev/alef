@@ -113,6 +113,9 @@ pub(crate) struct VariantConstructor<'a> {
     pub(crate) snake_name: String,
     /// Variant fields modeled as params for the shared signature/conversion machinery.
     pub(crate) params: Vec<crate::core::ir::ParamDef>,
+    /// Per-param `is_boxed` flag (parallel to `params`): true when the core variant field is
+    /// `Box<T>`/`Option<Box<T>>` for a Named `T`, so the factory boxes the converted value.
+    pub(crate) boxed: Vec<bool>,
 }
 
 /// Collect the data-carrying struct variants of `enum_def` that need a generated constructor.
@@ -166,10 +169,12 @@ pub(crate) fn collect_variant_constructors(enum_def: &EnumDef) -> Vec<VariantCon
                     ..ParamDef::default()
                 })
                 .collect();
+            let boxed = v.fields.iter().map(|f| f.is_boxed).collect();
             Some(VariantConstructor {
                 variant_name: &v.name,
                 snake_name,
                 params,
+                boxed,
             })
         })
         .collect()
@@ -200,6 +205,7 @@ pub(crate) fn variant_field_init(
     promoted: bool,
     cast_uints_to_i32: bool,
     cast_large_ints_to_f64: bool,
+    is_boxed: bool,
 ) -> String {
     use crate::codegen::conversions::helpers::{core_prim_str, needs_f64_cast, needs_i32_cast};
     use crate::core::ir::TypeRef;
@@ -230,6 +236,9 @@ pub(crate) fn variant_field_init(
             other => other,
         };
         return match inner {
+            // Option<Box<T>> for a Named T: convert through the Option, then box each element,
+            // mirroring the From/Into path (`render::gen_from_binding_to_core`).
+            TypeRef::Named(_) if is_boxed => format!("{name}.map(Into::into).map(Box::new)"),
             TypeRef::Named(_) | TypeRef::Path => format!("{name}.map(Into::into)"),
             TypeRef::Json => format!("{name}.as_ref().and_then(|s| serde_json::from_str(s).ok())"),
             TypeRef::Char => format!("{name}.and_then(|s| s.chars().next())"),
@@ -252,6 +261,11 @@ pub(crate) fn variant_field_init(
         name.clone()
     };
     match &param.ty {
+        // Box<T> for a Named T: box the converted value, mirroring the From/Into path
+        // (`render::gen_from_binding_to_core`). Without this the factory emits `field.into()`
+        // where the core variant field is `Box<T>`, which fails to compile (no `From<Binding>
+        // for Box<Core>`).
+        TypeRef::Named(_) if is_boxed => format!("Box::new({base}.into())"),
         TypeRef::Named(_) | TypeRef::Path => format!("{base}.into()"),
         TypeRef::Json => format!("serde_json::from_str(&{base}).unwrap_or_default()"),
         TypeRef::Char => format!("{base}.chars().next().unwrap_or('*')"),
@@ -295,7 +309,7 @@ fn gen_pyo3_enum_variant_constructors_content(enum_def: &EnumDef, core_path: &st
             .enumerate()
             .map(|(idx, p)| {
                 // pyo3 does not remap primitives, so no numeric cast back to the core type.
-                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), false, false);
+                let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), false, false, ctor.boxed[idx]);
                 if expr == p.name {
                     p.name.clone()
                 } else {

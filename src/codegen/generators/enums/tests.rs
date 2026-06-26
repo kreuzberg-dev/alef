@@ -271,6 +271,45 @@ fn variant_constructors_convert_named_dto_fields() {
 }
 
 #[test]
+fn variant_constructors_box_named_field_when_core_is_boxed() {
+    use crate::codegen::type_mapper::IdentityMapper;
+    // A variant field whose core type is `Box<T>` (Named T) must be boxed in the factory:
+    // `result.into()` alone fails because no `From<Binding> for Box<Core>` exists. Mirrors the
+    // From/Into path in `conversions::binding_to_core::render`.
+    let boxed = FieldDef {
+        is_boxed: true,
+        ..typed_field("result", TypeRef::Named("CrawlPageResult".to_string()))
+    };
+    let def = enum_def("CrawlEvent", vec![variant("Page", vec![boxed])]);
+
+    let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+    assert!(
+        generated.contains("Self { inner: crate::CrawlEvent::Page { result: Box::new(result.into()) } }"),
+        "{generated}"
+    );
+}
+
+#[test]
+fn variant_constructors_box_optional_named_field_when_core_is_boxed() {
+    use crate::codegen::type_mapper::IdentityMapper;
+    // `Option<Box<T>>` (Named T): convert through the Option, then box each element.
+    let boxed_opt = FieldDef {
+        is_boxed: true,
+        optional: true,
+        ..typed_field("result", TypeRef::Named("CrawlPageResult".to_string()))
+    };
+    let def = enum_def("CrawlEvent", vec![variant("Page", vec![boxed_opt])]);
+
+    let generated = gen_pyo3_data_enum_with_mapper(&def, "core", Some(&IdentityMapper));
+
+    assert!(
+        generated.contains("result: result.map(Into::into).map(Box::new)"),
+        "{generated}"
+    );
+}
+
+#[test]
 fn variant_constructors_pair_interleaved_field_exprs_by_position() {
     use crate::codegen::type_mapper::IdentityMapper;
     // Interleave a primitive, a Named-DTO (`.into()`), and a Vec<Named> DTO

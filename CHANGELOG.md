@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Per-variant constructors now box `Box<T>` fields.** When a data enum's struct variant has a
+  field whose core type is `Box<T>`/`Option<Box<T>>` for a Named `T` (e.g. `CrawlEvent::Page {
+  result: Box<CrawlPageResult> }`), the generated `_factory_<variant>` constructor emitted
+  `result.into()`, which fails to compile because there is no `From<Binding> for Box<Core>`. The
+  factory path now wraps the converted value (`Box::new(result.into())`, or
+  `result.map(Into::into).map(Box::new)` for the optional case), mirroring the existing
+  `From`/`Into` impl path (`conversions::binding_to_core::render`). The `is_boxed` flag is carried
+  on `VariantConstructor` (parallel to `params`) and threaded into `variant_field_init`, so the
+  pyo3, magnus, and extendr per-variant factories all box correctly.
+
 ## [0.28.1] - 2026-06-25
 
 ### Added
