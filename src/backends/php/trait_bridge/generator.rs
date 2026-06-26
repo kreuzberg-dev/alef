@@ -29,9 +29,25 @@ pub struct PhpBridgeGenerator {
     /// opaque/handle types, and excluded/unknown `Named` params are absent and keep their prior
     /// JSON-string representation.
     pub struct_param_types: std::collections::HashSet<String>,
+    /// Callback-RETURN type names that get NATIVE-object marshalling — known serde structs returned
+    /// directly by a method, gated to those with a generated `From<Binding> for core` conversion.
+    /// For such a return the bridge first extracts the host's native `#[php_class]` object via
+    /// `FromZval` and converts via `From<Binding>`, falling back to the `val.string()` + serde path.
+    pub struct_return_types: std::collections::HashSet<String>,
 }
 
 impl PhpBridgeGenerator {
+    /// Binding `#[php_class]` name to extract for a native-object return, when the return is a bare
+    /// `Named` struct on the (conversion-gated) native-marshalled return allowlist. The bridge tries
+    /// `FromZval` (which yields `Some` only for the host's native object) and converts via
+    /// `From<Binding>` for core. `None` keeps the `val.string()` + serde path.
+    fn native_struct_return<'a>(&self, ty: &'a TypeRef) -> Option<&'a str> {
+        match ty {
+            TypeRef::Named(n) if self.struct_return_types.contains(n) => Some(n.as_str()),
+            _ => None,
+        }
+    }
+
     /// Build the `Zval` argument expression for one callback parameter.
     ///
     /// Known serde structs (per the shared allowlist) are handed to PHP as the binding's native
@@ -126,6 +142,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 is_unit_return => is_unit_return,
                 is_primitive_return => is_primitive_return,
                 return_type => return_type,
+                native_return_binding => self.native_struct_return(&method.return_type),
                 deserialize_error_expr => deserialize_error_expr,
                 call_error_expr => call_error_expr,
             },
@@ -157,6 +174,7 @@ impl TraitBridgeGenerator for PhpBridgeGenerator {
                 args_expr => args_expr,
                 string_params => string_params,
                 is_result_type => is_result_type,
+                native_return_binding => self.native_struct_return(&method.return_type),
                 deserialize_error_expr => deserialize_error_expr,
                 call_error_expr => call_error_expr,
             },
@@ -307,11 +325,20 @@ pub fn gen_trait_bridge(
         // a JSON string.
         let struct_param_types =
             crate::codegen::generators::trait_bridge::native_marshalled_struct_params(trait_type, api);
+        // Return-side counterpart, gated on the binding->core conversion actually being generated
+        // (`convertible_types`); for a type that does not qualify, keep the proven serde path.
+        let binding_to_core = crate::codegen::conversions::convertible_types(api);
+        let struct_return_types: std::collections::HashSet<String> =
+            crate::codegen::generators::trait_bridge::native_marshalled_struct_returns(trait_type, api)
+                .into_iter()
+                .filter(|name| binding_to_core.contains(name.as_str()))
+                .collect();
         let generator = PhpBridgeGenerator {
             core_import: core_import.to_string(),
             type_paths: type_paths.clone(),
             error_type: error_type.to_string(),
             struct_param_types,
+            struct_return_types,
         };
         let lifetime_type_names: std::collections::HashSet<String> = api
             .types

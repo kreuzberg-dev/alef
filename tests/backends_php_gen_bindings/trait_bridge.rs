@@ -406,6 +406,26 @@ fn test_php_sync_struct_param_marshalled_as_native_object_not_json() {
     }
 }
 
+/// Return-side counterpart to native-arg marshalling: a method returning the serde struct `Doc`
+/// must extract the host's native `#[php_class]` object via `FromZval` and convert via `From<Doc>`
+/// for core, falling back to the `val.string()` + serde path. See issue #153.
+#[test]
+fn test_php_native_struct_return_extracts_native_object_first() {
+    use alef::backends::php::trait_bridge::gen_trait_bridge;
+
+    let (trait_def, api) = make_greeter_api();
+    let bridge_cfg = make_plugin_bridge_cfg_php("Greeter");
+    let code = gen_trait_bridge(&trait_def, &bridge_cfg, "my_lib", "Error", "Error::from({msg})", &api);
+
+    assert!(
+        code.code
+            .contains("<Doc as ext_php_rs::convert::FromZval>::from_zval(&val)")
+            && code.code.contains("Ok(native.into())"),
+        "native struct return must extract the native php object via FromZval + From<Doc>:\n{}",
+        code.code
+    );
+}
+
 #[test]
 fn test_php_typed_interface_emitted_for_plugin_bridge() {
     use alef::backends::php::trait_bridge::gen_registration_interface;
