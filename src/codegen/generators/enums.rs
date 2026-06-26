@@ -8,31 +8,158 @@ use ahash::AHashSet;
 /// has a coercible config-DTO field. Mirrors the struct-field `_to_rust_*` coercion on the Python
 /// side so enum-variant payloads accept the same inputs (the public `LlmConfig` dataclass or a
 /// `dict`), instead of demanding the compiled `#[pyclass]` instance.
-pub const PYO3_DTO_COERCE_HELPER: &str = r#"fn __alef_coerce_dto<T: serde::de::DeserializeOwned>(
+///
+/// The helper is non-parameterized (this rule allows a static `const` for non-interpolated code).
+/// Per-DTO rename fidelity is supplied at the call site as a runtime `&[__AlefAlias]` schema (the
+/// `__ALEF_WIRE_*` module consts emitted by the pyo3 backend), so a dataclass whose fields use
+/// `#[serde(rename)]` or `#[serde(rename_all)]` — including nested DTOs, sequences, maps, and
+/// optionals — round-trips faithfully. Plain dicts already carry serde wire names and pass straight
+/// through without remapping.
+pub const PYO3_DTO_COERCE_HELPER: &str = r#"struct __AlefAlias {
+    rust: &'static str,
+    wire: &'static str,
+    kind: __AlefKind,
+    nested: &'static [__AlefAlias],
+}
+
+enum __AlefKind {
+    Leaf,
+    Object,
+    Seq,
+    Map,
+}
+
+fn __alef_apply_aliases(value: &mut serde_json::Value, aliases: &[__AlefAlias]) {
+    let serde_json::Value::Object(map) = value else {
+        return;
+    };
+    for alias in aliases {
+        if !alias.nested.is_empty() {
+            if let Some(child) = map.get_mut(alias.rust) {
+                match alias.kind {
+                    __AlefKind::Object => __alef_apply_aliases(child, alias.nested),
+                    __AlefKind::Seq => {
+                        if let serde_json::Value::Array(items) = child {
+                            for item in items.iter_mut() {
+                                __alef_apply_aliases(item, alias.nested);
+                            }
+                        }
+                    }
+                    __AlefKind::Map => {
+                        if let serde_json::Value::Object(entries) = child {
+                            for entry in entries.values_mut() {
+                                __alef_apply_aliases(entry, alias.nested);
+                            }
+                        }
+                    }
+                    __AlefKind::Leaf => {}
+                }
+            }
+        }
+        if alias.rust != alias.wire {
+            if let Some(taken) = map.remove(alias.rust) {
+                map.insert(alias.wire.to_string(), taken);
+            }
+        }
+    }
+}
+
+fn __alef_coerce_dto<T: serde::de::DeserializeOwned>(
     py: Python<'_>,
     value: &Bound<'_, pyo3::types::PyAny>,
+    aliases: &[__AlefAlias],
 ) -> PyResult<T> {
-    // Dataclass instances are not directly JSON-serializable; route them through
-    // `dataclasses.asdict` first. Plain dicts and JSON-native values pass straight to `json.dumps`.
-    let payload = if value.hasattr("__dataclass_fields__")? {
-        py.import("dataclasses")?.call_method1("asdict", (value,))?
+    // A public @dataclass is not directly JSON-serializable: convert it via `dataclasses.asdict`
+    // (which emits Rust field names) and rewrite the keys to serde wire names so renamed fields
+    // survive. A plain dict / JSON-native value already uses wire names and passes straight through.
+    if value.hasattr("__dataclass_fields__")? {
+        let as_dict = py.import("dataclasses")?.call_method1("asdict", (value,))?;
+        let json_str: String = py.import("json")?.call_method1("dumps", (as_dict,))?.extract()?;
+        let mut json_value: serde_json::Value =
+            serde_json::from_str(&json_str).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        __alef_apply_aliases(&mut json_value, aliases);
+        serde_json::from_value(json_value).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
     } else {
-        value.clone()
-    };
-    let json_str: String = py.import("json")?.call_method1("dumps", (payload,))?.extract()?;
-    serde_json::from_str(&json_str).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+        let json_str: String = py.import("json")?.call_method1("dumps", (value,))?.extract()?;
+        serde_json::from_str(&json_str).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+}
+
+fn __alef_coerce_dto_seq<T: serde::de::DeserializeOwned>(
+    py: Python<'_>,
+    value: &Bound<'_, pyo3::types::PyAny>,
+    aliases: &[__AlefAlias],
+) -> PyResult<Vec<T>> {
+    let items: Vec<Bound<'_, pyo3::types::PyAny>> = value.extract()?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in &items {
+        out.push(__alef_coerce_dto(py, item, aliases)?);
+    }
+    Ok(out)
+}
+
+fn __alef_coerce_dto_map<T: serde::de::DeserializeOwned>(
+    py: Python<'_>,
+    value: &Bound<'_, pyo3::types::PyAny>,
+    aliases: &[__AlefAlias],
+) -> PyResult<T> {
+    // Build a wire-keyed JSON object from the mapping's items (each value coerced like a DTO via
+    // the object helper), then deserialize the whole map into the core type.
+    let items: Vec<(String, Bound<'_, pyo3::types::PyAny>)> = value.call_method0("items")?.extract()?;
+    let mut object = serde_json::Map::with_capacity(items.len());
+    for (key, val) in &items {
+        object.insert(key.clone(), __alef_coerce_dto(py, val, aliases)?);
+    }
+    serde_json::from_value(serde_json::Value::Object(object))
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
 }"#;
 
-/// Extract the leaf `Named` type name from `Named(n)` or `Optional(Named(n))`. Returns `None` for
-/// every other shape (primitive, `Vec`, `Path`, …). Used to test whether a variant-constructor
-/// payload field is a coercible config DTO.
-fn dto_named_name(ty: &TypeRef) -> Option<&str> {
+/// The module-const identifier holding the `&[__AlefAlias]` rename schema for a coercible DTO
+/// (`LlmConfig` → `__ALEF_WIRE_LLM_CONFIG`). Shared between the pyo3 backend (which emits the const)
+/// and the variant-constructor call site (which references it) so there is a single naming path.
+pub fn pyo3_wire_schema_const_name(type_name: &str) -> String {
+    use heck::ToShoutySnakeCase;
+    format!("__ALEF_WIRE_{}", type_name.to_shouty_snake_case())
+}
+
+/// The JSON shape a coercible payload field takes, selecting which runtime coercion helper the
+/// generated factory calls.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CoercibleShape {
+    /// A single DTO (`Named` / `Optional<Named>`) → `__alef_coerce_dto`.
+    Object,
+    /// A list of DTOs (`Vec<Named>` / `Optional<Vec<Named>>`) → `__alef_coerce_dto_seq`.
+    Seq,
+    /// A string-keyed map of DTOs (`Map<_, Named>` / `Optional<Map<_, Named>>`) → `__alef_coerce_dto_map`.
+    Map,
+}
+
+impl CoercibleShape {
+    /// The `__AlefKind` variant name this shape recurses as in a `__ALEF_WIRE_*` rename schema.
+    pub fn wire_kind(self) -> &'static str {
+        match self {
+            CoercibleShape::Object => "Object",
+            CoercibleShape::Seq => "Seq",
+            CoercibleShape::Map => "Map",
+        }
+    }
+}
+
+/// Resolve the coercible config-DTO a variant payload field carries and the JSON shape of its value.
+/// `Optional` is transparent. Returns `None` when the field is not (or does not contain) a coercible
+/// DTO — those keep the compiled-instance `.into()` path. The returned `&str` is the DTO type name,
+/// used to select its `__ALEF_WIRE_*` rename schema. Single source of truth for both the
+/// variant-constructor call site and the pyo3 backend's rename-schema generation.
+pub fn coercible_payload<'a>(ty: &'a TypeRef, coercible: &AHashSet<&str>) -> Option<(&'a str, CoercibleShape)> {
+    let named_if_coercible = |t: &'a TypeRef| match t {
+        TypeRef::Named(n) if coercible.contains(n.as_str()) => Some(n.as_str()),
+        _ => None,
+    };
     match ty {
-        TypeRef::Named(n) => Some(n.as_str()),
-        TypeRef::Optional(inner) => match inner.as_ref() {
-            TypeRef::Named(n) => Some(n.as_str()),
-            _ => None,
-        },
+        TypeRef::Optional(inner) => coercible_payload(inner, coercible),
+        TypeRef::Vec(inner) => named_if_coercible(inner).map(|n| (n, CoercibleShape::Seq)),
+        TypeRef::Map(_, value) => named_if_coercible(value).map(|n| (n, CoercibleShape::Map)),
+        TypeRef::Named(_) => named_if_coercible(ty).map(|n| (n, CoercibleShape::Object)),
         _ => None,
     }
 }
@@ -46,7 +173,7 @@ pub fn data_enum_needs_dto_coercion(enum_def: &EnumDef, coercible_dto_names: &AH
     collect_variant_constructors(enum_def).iter().any(|c| {
         c.params
             .iter()
-            .any(|p| dto_named_name(&p.ty).is_some_and(|n| coercible_dto_names.contains(n)))
+            .any(|p| coercible_payload(&p.ty, coercible_dto_names).is_some())
     })
 }
 
@@ -365,11 +492,12 @@ fn gen_pyo3_enum_variant_constructors_content(
         return String::new();
     }
 
-    // True for a payload field whose `Named` type is a dataclass-backed config DTO: its public
-    // wrapper is a `@dataclass`/`dict`, not the compiled `#[pyclass]`, so it must be coerced.
-    let is_coercible = |ty: &TypeRef| dto_named_name(ty).is_some_and(|n| coercible_dto_names.contains(n));
+    // A payload field is coercible when its (possibly `Vec`/`Map`/`Optional`-wrapped) `Named` type
+    // is a dataclass-backed config DTO: its public wrapper is a `@dataclass`/`dict`, not the compiled
+    // `#[pyclass]`, so it must be coerced rather than required as the compiled instance.
+    let is_coercible = |ty: &TypeRef| coercible_payload(ty, coercible_dto_names).is_some();
 
-    // A coercible field accepts `&Bound<PyAny>` (the public wrapper or a dict) rather than the
+    // A coercible field accepts `&Bound<PyAny>` (the public wrapper / list / dict) rather than the
     // compiled type. `function_params_vec` wraps optional/promoted params in `Option<…>`.
     let map_fn = |ty: &TypeRef| {
         if is_coercible(ty) {
@@ -381,7 +509,7 @@ fn gen_pyo3_enum_variant_constructors_content(
 
     let mut out = String::new();
     for ctor in &constructors {
-        // A constructor with any coercible payload calls the fallible `__alef_coerce_dto` helper,
+        // A constructor with any coercible payload calls a fallible `__alef_coerce_dto*` helper,
         // so it takes `py` and returns `PyResult<Self>`.
         let needs_coercion = ctor.params.iter().any(|p| is_coercible(&p.ty));
         let params_str = function_params(&ctor.params, &map_fn);
@@ -399,8 +527,8 @@ fn gen_pyo3_enum_variant_constructors_content(
             .enumerate()
             .map(|(idx, p)| {
                 let promoted = is_promoted_optional(&ctor.params, idx);
-                let expr = if is_coercible(&p.ty) {
-                    coercible_field_init(&p.name, p.optional, promoted)
+                let expr = if let Some((dto, shape)) = coercible_payload(&p.ty, coercible_dto_names) {
+                    coercible_field_init(&p.name, dto, shape, p.optional, promoted)
                 } else {
                     // pyo3 does not remap primitives, so no numeric cast back to the core type.
                     variant_field_init(p, promoted, false, false, ctor.boxed[idx])
@@ -458,20 +586,29 @@ fn gen_pyo3_enum_variant_constructors_content(
 
 /// Build the struct-literal init expression for a coercible config-DTO payload field. The param
 /// arrives as `&Bound<PyAny>` (or `Option<&Bound<PyAny>>` when optional/promoted) and is routed
-/// through `__alef_coerce_dto`, whose target core type is resolved by inference from the variant
-/// literal slot — so the core type path is never named (non-re-exported core DTOs work unchanged).
+/// through the shape-appropriate `__alef_coerce_dto*` helper, whose target core type is resolved by
+/// inference from the variant literal slot — so the core type path is never named (non-re-exported
+/// core DTOs work unchanged). The `dto` type name selects the per-DTO `&[__AlefAlias]` rename schema
+/// const so the dataclass round-trips with full serde-rename fidelity (a `Seq`/`Map` field applies
+/// it to each element/value).
 ///
 /// `promoted` is true when the binding signature widened a non-optional core field to `Option<T>`
 /// because it follows an optional param; the coerced value is unwrapped to the field default.
-fn coercible_field_init(name: &str, optional: bool, promoted: bool) -> String {
+fn coercible_field_init(name: &str, dto: &str, shape: CoercibleShape, optional: bool, promoted: bool) -> String {
+    let schema = pyo3_wire_schema_const_name(dto);
+    let helper = match shape {
+        CoercibleShape::Object => "__alef_coerce_dto",
+        CoercibleShape::Seq => "__alef_coerce_dto_seq",
+        CoercibleShape::Map => "__alef_coerce_dto_map",
+    };
     if optional {
         // Genuinely-optional core field: keep the `Option`, coercing the inner value when present.
-        format!("{name}.map(|v| __alef_coerce_dto(py, v)).transpose()?")
+        format!("{name}.map(|v| {helper}(py, v, {schema})).transpose()?")
     } else if promoted {
         // Core field is `T` but the param arrived as `Option<&Bound>`: coerce then unwrap to default.
-        format!("{name}.map(|v| __alef_coerce_dto(py, v)).transpose()?.unwrap_or_default()")
+        format!("{name}.map(|v| {helper}(py, v, {schema})).transpose()?.unwrap_or_default()")
     } else {
-        format!("__alef_coerce_dto(py, {name})?")
+        format!("{helper}(py, {name}, {schema})?")
     }
 }
 

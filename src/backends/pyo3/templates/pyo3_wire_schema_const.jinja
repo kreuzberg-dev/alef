@@ -1,0 +1,5 @@
+const {{ const_name }}: &[__AlefAlias] = &[
+{%- for e in entries %}
+    __AlefAlias { rust: "{{ e.rust }}", wire: "{{ e.wire }}", kind: __AlefKind::{{ e.kind }}, nested: {{ e.nested }} },
+{%- endfor %}
+];

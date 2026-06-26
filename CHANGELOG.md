@@ -68,11 +68,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `dict` — builds the variant instead of raising `TypeError: 'LlmConfig' object is not an instance
   of 'LlmConfig'`. Previously the generated factory demanded the compiled `#[pyclass]` instance
   while the package re-exported the pure-Python `@dataclass` for the same name, so the two never
-  matched. A payload field whose `Named` type is a dataclass-backed config DTO is now generated as
-  `&Bound<PyAny>` and routed through a module-level `__alef_coerce_dto` helper
-  (dataclass via `dataclasses.asdict` / dict / JSON-native → serde into the core type); native
-  re-exported return types stay compiled and are left untouched. The config-vs-native-return
-  classification is shared with `__init__.py` import routing as a single source of truth (xberg #1165).
+  matched. A payload field whose type is a dataclass-backed config DTO — directly, or as a
+  `list`/`dict`/`Optional` of one — is now generated as `&Bound<PyAny>` and routed through the
+  module-level `__alef_coerce_dto` helpers (dataclass via `dataclasses.asdict` / dict / JSON-native
+  → serde into the core type). Renamed fields round-trip with full fidelity: a per-DTO
+  `__ALEF_WIRE_*` schema rewrites dataclass field names to serde wire names, honoring both
+  `#[serde(rename)]` and `#[serde(rename_all)]` and recursing through nested DTOs, sequences, maps,
+  and optionals — wire names are sourced from the same centralized naming transform the Python
+  `_to_rust_*` converters use. Native re-exported return types stay compiled and are left untouched;
+  the config-vs-native-return classification is shared with `__init__.py` import routing as a single
+  source of truth (xberg #1165).
 
 ## [0.28.1] - 2026-06-25
 
