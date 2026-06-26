@@ -40,7 +40,7 @@
                     closeStream();
                     int code;
                     try {
-                        code = (int) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
+                        code = (int)(long) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
                     } catch (Throwable e) {
                         throw new RuntimeException(new {{ exception_class }}("{{ method_name }}: failed to read last_error_code", e));
                     }

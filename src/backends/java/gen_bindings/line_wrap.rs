@@ -547,13 +547,13 @@ mod tests {
 
     #[test]
     fn function_descriptor_split() {
-        let long = "                FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS),\n";
+        let long = "                FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS, ValueLayout.ADDRESS),\n";
         let out = wrap_long_java_lines(long);
         for line in out.lines() {
             assert!(line.len() <= MAX_LINE_LEN, "line too long: {line}");
         }
         assert!(out.contains("FunctionDescriptor.of(\n"));
-        assert!(out.contains("ValueLayout.JAVA_INT,"));
+        assert!(out.contains("ValueLayout.JAVA_LONG,"));
         assert!(out.trim_end().ends_with("),"));
     }
 

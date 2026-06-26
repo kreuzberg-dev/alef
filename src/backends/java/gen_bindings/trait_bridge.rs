@@ -492,26 +492,32 @@ fn gen_bridge_file(
     // Build stub allocations for lifecycle methods
     let mut stubs: Vec<Value> = vec![];
     if has_super_trait {
+        // Lifecycle stubs return i32 status codes; promote to JAVA_LONG for JBR Win64 compat.
         let lifecycle_stubs = vec![
             (
                 "Name",
                 "int.class",
-                "ValueLayout.JAVA_INT",
+                "ValueLayout.JAVA_LONG",
                 ", MemorySegment.class, MemorySegment.class",
             ),
             (
                 "Version",
                 "int.class",
-                "ValueLayout.JAVA_INT",
+                "ValueLayout.JAVA_LONG",
                 ", MemorySegment.class, MemorySegment.class",
             ),
             (
                 "Initialize",
                 "int.class",
-                "ValueLayout.JAVA_INT",
+                "ValueLayout.JAVA_LONG",
                 ", MemorySegment.class",
             ),
-            ("Shutdown", "int.class", "ValueLayout.JAVA_INT", ", MemorySegment.class"),
+            (
+                "Shutdown",
+                "int.class",
+                "ValueLayout.JAVA_LONG",
+                ", MemorySegment.class",
+            ),
         ];
         for (pascal, return_type, descriptor_return, extra_param) in lifecycle_stubs {
             let handle = format!("handle{pascal}");
@@ -583,7 +589,8 @@ fn gen_bridge_file(
             handle_name => &handle_name,
             return_type => "int.class",
             method_type_params => method_type_params.join(", "),
-            descriptor_return => "ValueLayout.JAVA_INT",
+            // Trait method stubs return i32 status codes; promote to JAVA_LONG for JBR Win64 compat.
+            descriptor_return => "ValueLayout.JAVA_LONG",
             descriptor_params => func_desc_params.join(", "),
             returns_void => false,
         });

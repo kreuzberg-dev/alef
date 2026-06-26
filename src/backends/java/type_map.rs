@@ -182,12 +182,24 @@ pub fn java_return_type(ty: &TypeRef) -> Cow<'static, str> {
 }
 
 /// Maps a primitive type to its Java FFI equivalent (Panama FFM ValueLayout).
+///
+/// All integer primitives are promoted to JAVA_LONG to avoid `ClassCastException`
+/// on JetBrains Runtime (JBR) Windows 64-bit Panama linker. JBR's linker cannot handle
+/// sub-64-bit integer layouts (`JAVA_BYTE`, `JAVA_SHORT`, `JAVA_INT`) in `FunctionDescriptor`
+/// and throws: `ClassCastException: ValueLayouts$OfIntImpl cannot be cast to ValueLayout$OfLong`.
+///
+/// `MethodHandle.invoke()` adapts the wider value back to the narrower Java type at the
+/// call site via `asType()`, which is allowed for numeric primitive narrowing.
 pub fn java_ffi_type(prim: &PrimitiveType) -> &'static str {
     match prim {
-        PrimitiveType::Bool => "ValueLayout.JAVA_INT",
-        PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
-        PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
-        PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",
+        // Bool is i32 in FFI; promote to JAVA_LONG for JBR Win64 Panama compat.
+        PrimitiveType::Bool => "ValueLayout.JAVA_LONG",
+        // 8-bit values promoted to JAVA_LONG for JBR Win64 Panama compat.
+        PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_LONG",
+        // 16-bit values promoted to JAVA_LONG for JBR Win64 Panama compat.
+        PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_LONG",
+        // 32-bit integers promoted to JAVA_LONG for JBR Win64 Panama compat.
+        PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_LONG",
         PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => {
             "ValueLayout.JAVA_LONG"
         }
@@ -317,5 +329,32 @@ mod tests {
     fn java_return_type_preserves_vec() {
         let ty = TypeRef::Vec(Box::new(TypeRef::String));
         assert_eq!(java_return_type(&ty), "List<String>");
+    }
+
+    #[test]
+    fn java_ffi_type_promotes_bool_to_java_long() {
+        // Bool is i32 in FFI; must use JAVA_LONG for JBR Win64 Panama compat.
+        assert_eq!(java_ffi_type(&PrimitiveType::Bool), "ValueLayout.JAVA_LONG");
+    }
+
+    #[test]
+    fn java_ffi_type_promotes_all_integers_to_java_long() {
+        // All integer types promoted to JAVA_LONG to avoid OfIntImpl→OfLong ClassCastException on JBR.
+        assert_eq!(java_ffi_type(&PrimitiveType::U8), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::I8), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::U16), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::I16), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::U32), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::I32), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::U64), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::I64), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::Usize), "ValueLayout.JAVA_LONG");
+        assert_eq!(java_ffi_type(&PrimitiveType::Isize), "ValueLayout.JAVA_LONG");
+    }
+
+    #[test]
+    fn java_ffi_type_float_types_unchanged() {
+        assert_eq!(java_ffi_type(&PrimitiveType::F32), "ValueLayout.JAVA_FLOAT");
+        assert_eq!(java_ffi_type(&PrimitiveType::F64), "ValueLayout.JAVA_DOUBLE");
     }
 }

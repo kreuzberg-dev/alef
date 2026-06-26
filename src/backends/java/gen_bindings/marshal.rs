@@ -48,20 +48,34 @@ pub(crate) fn is_ffi_string_return(ty: &TypeRef) -> bool {
     }
 }
 
-/// Return the Java cast expression for a primitive FFI return type.
+/// Returns the Java cast expression to apply to `MethodHandle.invoke()` return value.
+///
+/// The cast must match the widened ValueLayout from `java_ffi_type()`. When the
+/// FunctionDescriptor uses a wider layout than the logical Java type (e.g. JAVA_LONG
+/// for i32, JAVA_LONG for i16), `invoke()` boxes the wider type. We emit a chain of
+/// casts to unbox then narrow back to the target type.
+///
+/// Examples:
+/// - JAVA_LONG return (i32 → long): `(int)(long)` unboxes Long then narrows to int
+/// - JAVA_LONG return (i16 → long): `(short)(long)` unboxes Long then narrows to short
+/// - JAVA_LONG return (bool → long): `(long)` unboxes Long directly (comparison handles narrowing)
 pub(crate) fn java_ffi_return_cast(ty: &TypeRef) -> &'static str {
     match ty {
         TypeRef::Primitive(prim) => match prim {
-            PrimitiveType::Bool => "int",
-            PrimitiveType::U8 | PrimitiveType::I8 => "byte",
-            PrimitiveType::U16 | PrimitiveType::I16 => "short",
-            PrimitiveType::U32 | PrimitiveType::I32 => "int",
-            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "long",
-            PrimitiveType::F32 => "float",
-            PrimitiveType::F64 => "double",
+            // Bool is i32 in FFI (JAVA_LONG layout); keep as long, comparison handles bool semantics.
+            PrimitiveType::Bool => "(long)",
+            // 8-bit types use JAVA_LONG layout; unbox Long then narrow to byte.
+            PrimitiveType::U8 | PrimitiveType::I8 => "(byte)(long)",
+            // 16-bit types use JAVA_LONG layout; unbox Long then narrow to short.
+            PrimitiveType::U16 | PrimitiveType::I16 => "(short)(long)",
+            // 32-bit types use JAVA_LONG layout; unbox Long then narrow to int.
+            PrimitiveType::U32 | PrimitiveType::I32 => "(int)(long)",
+            PrimitiveType::U64 | PrimitiveType::I64 | PrimitiveType::Usize | PrimitiveType::Isize => "(long)",
+            PrimitiveType::F32 => "(float)",
+            PrimitiveType::F64 => "(double)",
         },
-        TypeRef::Duration => "long",
-        _ => "MemorySegment",
+        TypeRef::Duration => "(long)",
+        _ => "(MemorySegment)",
     }
 }
 
@@ -81,9 +95,10 @@ pub(crate) fn gen_ffi_layout_with_enums(ty: &TypeRef, enum_names: &AHashSet<Stri
         TypeRef::Vec(_) => "ValueLayout.ADDRESS".to_string(),
         TypeRef::Map(_, _) => "ValueLayout.ADDRESS".to_string(),
         TypeRef::Named(name) => {
-            // Enum types (Copy-typed Named types) are passed as i32 discriminants
+            // Enum types (Copy-typed Named types) are passed as i32 discriminants.
+            // Use JAVA_LONG for the same JBR Win64 Panama compat reason as PrimitiveType::I32.
             if enum_names.contains(name.as_str()) {
-                "ValueLayout.JAVA_INT".to_string()
+                "ValueLayout.JAVA_LONG".to_string()
             } else {
                 "ValueLayout.ADDRESS".to_string()
             }

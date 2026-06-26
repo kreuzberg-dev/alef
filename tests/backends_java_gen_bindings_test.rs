@@ -255,7 +255,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
         "NativeLib must not import MemoryLayout for pointer-based vtable registration, got:\n{native_lib}"
     );
     assert!(
-        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT,\n            ValueLayout.ADDRESS"),
+        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG,\n            ValueLayout.ADDRESS"),
         "register downcall must pass the vtable as an address, got:\n{native_lib}"
     );
     assert!(
@@ -267,7 +267,7 @@ fn trait_bridge_register_downcall_passes_vtable_address() {
 }
 
 #[test]
-fn bool_function_uses_i32_ffi_layout_and_boolean_wrapper_result() {
+fn bool_function_uses_widened_long_ffi_layout_and_boolean_wrapper_result() {
     let api = ApiSurface {
         crate_name: "test_lib".to_string(),
         version: "0.1.0".to_string(),
@@ -332,18 +332,21 @@ fn bool_function_uses_i32_ffi_layout_and_boolean_wrapper_result() {
         .content
         .as_str();
 
+    // Bool is i32 in the C FFI ABI but its ValueLayout is widened to JAVA_LONG for JBR Win64 Panama
+    // compatibility (the same widening every integer layout gets). The `enabled ? 1 : 0` int arg and
+    // `!= 0` truthiness check still carry the bool semantics over the widened long layout.
     assert!(
-        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.JAVA_INT)"),
-        "bool FFI params and returns must use i32 layouts, got:\n{native_lib}"
+        native_lib.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.JAVA_LONG)"),
+        "bool FFI params and returns must use the widened JAVA_LONG layout, got:\n{native_lib}"
     );
     assert!(!native_lib.contains("ValueLayout.JAVA_BOOLEAN"));
     assert!(
-        main_class.contains("var primitiveResult = (int) NativeLib.TEST_IS_READY.invoke((enabled ? 1 : 0));"),
-        "wrapper must receive the raw i32 bool result, got:\n{main_class}"
+        main_class.contains("var primitiveResult = (long) NativeLib.TEST_IS_READY.invoke((enabled ? 1 : 0));"),
+        "wrapper must unbox the bool result as long, got:\n{main_class}"
     );
     assert!(
         main_class.contains("return primitiveResult != 0;"),
-        "safe wrapper must convert i32 to boolean, got:\n{main_class}"
+        "safe wrapper must convert the long bool result to boolean, got:\n{main_class}"
     );
 }
 
@@ -1991,12 +1994,13 @@ package = "com.test"
         .find(|f| f.path.to_string_lossy().contains("NativeLib"))
         .unwrap();
 
-    // Descriptor must have 4 params: ADDRESS (content ptr), JAVA_LONG (content len), ADDRESS (file_type ptr), no return
-    // Since return is i32 (primitive), descriptor should be:
-    // FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)
+    // Descriptor must have 4 params: ADDRESS (content ptr), JAVA_LONG (content len), ADDRESS (file_type ptr).
+    // The i32 return uses the widened JAVA_LONG layout (every integer layout is widened to JAVA_LONG for
+    // JBR Win64 Panama compatibility), so the descriptor should be:
+    // FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)
     assert!(
-        native_lib.content.contains("FunctionDescriptor.of(ValueLayout.JAVA_INT, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)"),
-        "FunctionDescriptor must have 4 params: int return, ptr, len, string ptr. Got:\n{}",
+        native_lib.content.contains("FunctionDescriptor.of(ValueLayout.JAVA_LONG, ValueLayout.ADDRESS, ValueLayout.JAVA_LONG, ValueLayout.ADDRESS)"),
+        "FunctionDescriptor must have 4 params: long return, ptr, len, string ptr. Got:\n{}",
         native_lib.content
     );
 

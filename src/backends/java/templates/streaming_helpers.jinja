@@ -2,7 +2,7 @@
     // CPD-OFF — generated FFI boilerplate, identical across all opaque types by design.
     private static void checkLastFfiError() throws {{ exception_class }} {
         try {
-            int code = (int) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
+            int code = (int)(long) NativeLib.{{ prefix_upper }}_LAST_ERROR_CODE.invoke();
             if (code == 0) { return; }
             MemorySegment ctxPtr = (MemorySegment) NativeLib.{{ prefix_upper }}_LAST_ERROR_CONTEXT.invoke();
             String msg = ctxPtr.equals(MemorySegment.NULL) ? "unknown" : ctxPtr.reinterpret(Long.MAX_VALUE).getString(0);

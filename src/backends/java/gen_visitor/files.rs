@@ -395,7 +395,7 @@ fn extra_param_from_param(param: &crate::core::ir::ParamDef) -> Option<ExtraPara
         (TypeRef::Primitive(PrimitiveType::Bool), false) => Some(ExtraParam {
             java_name,
             java_type: "boolean".to_string(),
-            c_layouts: vec!["ValueLayout.JAVA_INT".to_string()],
+            c_layouts: vec!["ValueLayout.JAVA_LONG".to_string()],
             decode: format!("{} != 0", super::helpers::raw_var_name(&to_java_name(name), 0)),
         }),
         (TypeRef::Primitive(PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::Usize), false) => {
@@ -419,8 +419,8 @@ fn extra_param_from_param(param: &crate::core::ir::ParamDef) -> Option<ExtraPara
         ) => Some(ExtraParam {
             java_name,
             java_type: "int".to_string(),
-            c_layouts: vec!["ValueLayout.JAVA_INT".to_string()],
-            decode: format!("(int) {}", super::helpers::raw_var_name(&to_java_name(name), 0)),
+            c_layouts: vec!["ValueLayout.JAVA_LONG".to_string()],
+            decode: format!("(int)(long) {}", super::helpers::raw_var_name(&to_java_name(name), 0)),
         }),
         _ => None,
     }

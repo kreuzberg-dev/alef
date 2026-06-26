@@ -141,7 +141,8 @@ pub(crate) fn gen_native_lib(
             layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr: *mut *mut u8
             layouts.push("ValueLayout.ADDRESS".to_string()); // out_len: *mut usize
             layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap: *mut usize
-            ("ValueLayout.JAVA_INT".to_string(), layouts)
+            // Bytes-result functions return i32 error codes; promote to JAVA_LONG for JBR Win64 compat.
+            ("ValueLayout.JAVA_LONG".to_string(), layouts)
         } else {
             let return_layout = gen_ffi_layout_with_enums(&func.return_type, &enum_names);
             // For non-bytes-result functions, still expand Bytes params to (ptr, len)
@@ -756,7 +757,8 @@ pub(crate) fn gen_native_lib(
                 param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_ptr
                 param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
                 param_layouts.push("ValueLayout.ADDRESS".to_string()); // out_cap
-                "ValueLayout.JAVA_INT".to_string()
+                // Methods returning Vec<u8> use i32 error codes; promote to JAVA_LONG for JBR Win64 compat.
+                "ValueLayout.JAVA_LONG".to_string()
             } else {
                 gen_ffi_layout_with_enums(&method.return_type, &enum_names)
             };

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **java: promote all integer FFM `FunctionDescriptor` layouts to `JAVA_LONG` for JBR Win64 Panama
+  compat.** JetBrains Runtime's Panama linker casts every descriptor layout to `OfLong` internally, so
+  any sub-64-bit integer layout (`JAVA_BYTE`/`JAVA_SHORT`/`JAVA_INT`) threw
+  `ClassCastException: OfIntImpl cannot be cast to OfLong` at `NativeLib` class load and corrupted
+  `TreeCursor` FFM calls. `java_ffi_type`, `service_api`, the enum-discriminant layout, the
+  `LAST_ERROR_CODE` descriptor, and the visitor/trait-bridge/registration callback descriptors now
+  emit `JAVA_LONG` for bool, 8/16/32-bit ints, and enum discriminants. `java_ffi_return_cast` emits
+  compound narrowing casts (`(int)(long)`, `(short)(long)`, `(byte)(long)`) and the primitive-result
+  templates no longer double-wrap them in parens. Generated `FunctionDescriptor`s now contain zero
+  sub-64-bit integer layouts.
+
 - **swift: add a runtime rpath to the generated `Package.swift` so the FFI dylib loads at runtime.**
   The `RustBridge` target emitted only `-L` (compile-time search). Because the FFI dylib's
   install_name is `@rpath/lib…dylib`, the consumer (and any test bundle linking the target) needs an
@@ -21,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **extendr (R): skip per-variant factory constructors whose fields cannot cross the extendr input boundary.**
   A tagged data enum (e.g. `NodeContent`) generates a `_factory_<variant>` `#[extendr]` constructor per
   struct variant. When a variant field was a Named DTO (`grid: TableGrid`) or `Vec<DTO>`
-  (`entries: Vec<MetadataEntry>`), the constructor took it *by value*, which the `#[extendr]` proc-macro
+  (`entries: Vec<MetadataEntry>`), the constructor took it _by value_, which the `#[extendr]` proc-macro
   cannot accept (`error[E0277]: T: TryFrom<&Robj> not satisfied`) — extendr derives `TryFrom<&Robj>` only
   for `&T`, never owned `T`, and has no R-list conversion for `Vec<DTO>`. `gen_extendr_enum_variant_constructors`
   and `extendr_enum_variant_constructor_registrations` now skip such variants (predicate

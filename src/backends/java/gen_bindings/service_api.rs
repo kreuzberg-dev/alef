@@ -63,10 +63,11 @@ fn java_layout_for_metadata(ty: &TypeRef) -> &'static str {
         TypeRef::Primitive(p) => {
             use crate::core::ir::PrimitiveType;
             match p {
-                PrimitiveType::Bool => "ValueLayout.JAVA_INT",
-                PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_BYTE",
-                PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_SHORT",
-                PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_INT",
+                // All integer types promoted to JAVA_LONG for JBR Win64 Panama compat.
+                PrimitiveType::Bool => "ValueLayout.JAVA_LONG",
+                PrimitiveType::U8 | PrimitiveType::I8 => "ValueLayout.JAVA_LONG",
+                PrimitiveType::U16 | PrimitiveType::I16 => "ValueLayout.JAVA_LONG",
+                PrimitiveType::U32 | PrimitiveType::I32 => "ValueLayout.JAVA_LONG",
                 PrimitiveType::U64 | PrimitiveType::I64 => "ValueLayout.JAVA_LONG",
                 PrimitiveType::F32 => "ValueLayout.JAVA_FLOAT",
                 PrimitiveType::F64 => "ValueLayout.JAVA_DOUBLE",

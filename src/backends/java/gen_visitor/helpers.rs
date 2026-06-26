@@ -72,7 +72,8 @@ pub(super) fn callback_descriptor(spec: &CallbackSpec) -> String {
     layouts.push("ValueLayout.ADDRESS".to_string()); // out_len
     let indent = "                    ";
     let args = layouts.join(&format!(",\n{indent}"));
-    format!("FunctionDescriptor.of(\n{indent}ValueLayout.JAVA_INT,\n{indent}{args})")
+    // Visitor callbacks return i32 status codes; promote to JAVA_LONG for JBR Win64 compat.
+    format!("FunctionDescriptor.of(\n{indent}ValueLayout.JAVA_LONG,\n{indent}{args})")
 }
 
 /// Build the `MethodType` for `LOOKUP.bind(this, name, type)`.
@@ -229,7 +230,10 @@ mod tests {
             descriptor.contains("FunctionDescriptor.of("),
             "must be FunctionDescriptor.of"
         );
-        assert!(descriptor.contains("ValueLayout.JAVA_INT"), "must have int return type");
+        assert!(
+            descriptor.contains("ValueLayout.JAVA_LONG"),
+            "must have long return type"
+        );
         // ctx + user_data always present
         assert!(descriptor.contains("ValueLayout.ADDRESS"), "must have ADDRESS layouts");
     }
