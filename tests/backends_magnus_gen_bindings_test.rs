@@ -1867,36 +1867,29 @@ fn test_tagged_union_enum_vec_field_serde_marshalling() {
     // Verify that the serde tag attribute is present
     assert!(content.contains("tag = \"type\""), "Should have serde tag attribute");
 
-    // Per-variant singleton constructors: `Result.success(items)` / `Result.error(message)`. The
-    // field type matches the serde-shaped enum variant (Vec<Item> stays Vec<Item>; no conversion).
+    // Tagged data enums get NO Rust factory class: it is represented on the Ruby side as a
+    // `module Result` with per-variant `Data.define` classes, and a `define_class("Result")` would
+    // collide with that module (raising `TypeError: Result is not a module` at load). The factory
+    // methods, class registration, and singleton constructors are all gated on `serde_tag.is_none()`.
     assert!(
-        content.contains("impl Result {"),
-        "data enum should get a constructor impl block: {content}"
+        !content.contains("pub fn _factory_success"),
+        "tagged data enum must not emit per-variant factory constructors: {content}"
     );
     assert!(
-        content.contains("pub fn _factory_success(items: Vec<Item>) -> Self"),
-        "success constructor signature should match the serde-shaped field type: {content}"
+        !content.contains("pub fn _factory_error"),
+        "tagged data enum must not emit per-variant factory constructors: {content}"
     );
     assert!(
-        content.contains("Self::Success { items }"),
-        "success constructor should build the variant directly: {content}"
+        !content.contains(r#"module.define_class("Result""#),
+        "tagged data enum must not register a Rust factory class: {content}"
     );
     assert!(
-        content.contains("pub fn _factory_error(message: String) -> Self"),
-        "error constructor signature: {content}"
-    );
-    // Registered under the bare snake name on a Ruby class for the enum.
-    assert!(
-        content.contains(r#"module.define_class("Result""#),
-        "data enum with constructors should be registered as a Ruby class: {content}"
+        !content.contains(r#"define_singleton_method("success""#),
+        "tagged data enum must not register per-variant singleton constructors: {content}"
     );
     assert!(
-        content.contains(r#"define_singleton_method("success", function!(Result::_factory_success, 1))"#),
-        "success constructor should be registered as a singleton method: {content}"
-    );
-    assert!(
-        content.contains(r#"define_singleton_method("error", function!(Result::_factory_error, 1))"#),
-        "error constructor should be registered as a singleton method: {content}"
+        !content.contains(r#"define_singleton_method("error""#),
+        "tagged data enum must not register per-variant singleton constructors: {content}"
     );
 }
 

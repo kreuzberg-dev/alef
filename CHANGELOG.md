@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.29.0] - 2026-06-26
+
 ### Fixed
 
 - **pyo3 (Python): qualify builtin containers shadowed by a data-enum variant factory name.**
