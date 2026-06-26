@@ -192,7 +192,8 @@ pub(super) fn gen_extendr_enum_variant_constructors(
                 .iter()
                 .enumerate()
                 .map(|(idx, p)| {
-                    let expr = variant_field_init(p, is_promoted_optional(&ctor.params, idx), true, true, ctor.boxed[idx]);
+                    let expr =
+                        variant_field_init(p, is_promoted_optional(&ctor.params, idx), true, true, ctor.boxed[idx]);
                     if expr == p.name {
                         p.name.clone()
                     } else {
