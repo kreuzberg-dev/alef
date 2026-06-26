@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `.map(Box::new)` when optional), using the `VariantConstructor::boxed` flags — mirroring
   `flat_enum_binding_to_core_field_expr` and the shared `variant_field_init`.
 
+- **magnus: per-variant constructors no longer collide with tagged-enum modules.** Tagged data enums
+  are represented on the Ruby side as a `module <Name>` interface with per-variant `Data.define`
+  classes, but the per-variant-constructor feature also emitted a Rust `module.define_class("<Name>")`
+  with singleton factories. At load the `.so` defined the class first, so the pure-Ruby `module <Name>`
+  raised `TypeError: <Name> is not a module` and the extension failed to load. Tagged data enums now
+  skip the Rust factory class entirely — the class/singleton registration (`module_init`), the Rust
+  `_factory_*` methods (avoids unused-method `-D warnings`), and the `.rbs` singleton stubs are all
+  gated on `serde_tag.is_none()`. Construction for tagged enums goes through the variant `Data` classes
+  (`<Name>Basic.new(...)`) and `from_hash`; non-tagged data enums keep their factory constructors.
+
 ### Added
 
 - **Exception handling architecture guide and cross-language pattern documentation.** Added comprehensive

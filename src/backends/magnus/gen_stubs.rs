@@ -402,9 +402,11 @@ fn gen_enum_stub(enum_def: &EnumDef, emit_docstrings: bool) -> String {
             .map(|v| format!(":{}", crate::codegen::naming::pascal_to_snake(&v.name)))
             .collect();
         lines.push(format!("    type value = {}", symbol_variants.join(" | ")));
-    } else {
+    } else if enum_def.serde_tag.is_none() {
         // Data enum: declare a singleton constructor per data-carrying variant so RBS sees the
         // `Shape.circle(...)` factories the runtime binding registers via define_singleton_method.
+        // Tagged data enums get no Rust-side factory class (it collides with their Ruby `module`
+        // representation), so they declare no singleton constructors here either.
         gen_data_enum_variant_constructor_stubs(&mut lines, enum_def);
     }
 

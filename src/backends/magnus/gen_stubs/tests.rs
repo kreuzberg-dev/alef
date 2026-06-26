@@ -59,7 +59,10 @@ fn enum_def(name: &str, variants: Vec<EnumVariant>) -> EnumDef {
         is_copy: false,
         has_serde: true,
         has_default: false,
-        serde_tag: Some("type".to_string()),
+        // Non-tagged: per-variant singleton constructors only apply to data enums WITHOUT a serde
+        // tag. Tagged data enums are represented as a Ruby `module` (variant `Data` classes) and get
+        // no Rust factory class — see `tagged_data_enum_emits_no_singleton_constructors`.
+        serde_tag: None,
         serde_untagged: false,
         serde_rename_all: None,
         binding_excluded: false,
@@ -95,6 +98,21 @@ fn emits_singleton_constructor_per_struct_variant() {
         stub.contains("    def self.rect: (Integer width, Integer height) -> Shape"),
         "{stub}"
     );
+}
+
+#[test]
+fn tagged_data_enum_emits_no_singleton_constructors() {
+    // Tagged data enums are represented on the Ruby side as a `module` with variant `Data` classes,
+    // not a Rust factory class — defining one collides at load (`TypeError: <Name> is not a module`).
+    // So the rbs declares no `self.<variant>` singleton constructors for them.
+    let tagged = EnumDef {
+        serde_tag: Some("type".to_string()),
+        ..shape_enum()
+    };
+    let stub = gen_enum_stub(&tagged, false);
+    assert!(stub.contains("  class Shape"), "{stub}");
+    assert!(!stub.contains("def self.circle"), "tagged enum must not declare factories: {stub}");
+    assert!(!stub.contains("def self.rect"), "tagged enum must not declare factories: {stub}");
 }
 
 #[test]

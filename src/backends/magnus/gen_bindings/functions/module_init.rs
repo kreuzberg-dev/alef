@@ -213,6 +213,14 @@ pub(in crate::backends::magnus::gen_bindings) fn gen_module_init(
         {
             continue;
         }
+        // Tagged data enums are represented on the Ruby side as a `module <Name>` interface with
+        // per-variant `Data.define` classes (see `gen_tagged_enum_ruby_classes`). Defining a Rust
+        // `class <Name>` here collides with that module at load time (`TypeError: <Name> is not a
+        // module`), so tagged enums do not get Rust-side singleton factory constructors. Their Ruby
+        // `Data` classes (`<Name>Basic.new(...)`) and `from_hash` cover construction.
+        if enum_def.serde_tag.is_some() {
+            continue;
+        }
         let registrations = classes::data_enum_variant_constructor_registrations(enum_def);
         if registrations.is_empty() {
             continue;

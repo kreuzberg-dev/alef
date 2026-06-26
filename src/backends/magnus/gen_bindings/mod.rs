@@ -378,10 +378,15 @@ impl Backend for MagnusBackend {
             if !is_reserved_enum(&enum_def.name) && !exclude_types.contains(enum_def.name.as_str()) {
                 builder.add_item(&classes::gen_enum(enum_def));
                 // Per-variant singleton constructors (`Shape.circle(radius)`); empty for enums with
-                // no qualifying struct variant.
-                let constructors = classes::gen_data_enum_variant_constructors(enum_def);
-                if !constructors.is_empty() {
-                    builder.add_item(&constructors);
+                // no qualifying struct variant. Skipped for tagged data enums — they have a Ruby
+                // `module` representation that collides with a Rust factory class, so the
+                // constructors are not registered (see `module_init`); emitting the unused
+                // `_factory_*` methods would also trip `-D warnings` (dead_code).
+                if enum_def.serde_tag.is_none() {
+                    let constructors = classes::gen_data_enum_variant_constructors(enum_def);
+                    if !constructors.is_empty() {
+                        builder.add_item(&constructors);
+                    }
                 }
             }
         }
