@@ -598,7 +598,11 @@ pub(super) fn python_field_type(
             crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "float".to_string(),
             _ => "int".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "str".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "str".to_string(),
+        // A JSON value (serde_json::Value) is exposed as `dict[str, Any]`, matching the native
+        // module's type mapper. Mapping it to `str` instead made the options field disagree with
+        // the compiled config it is converted into (e.g. `paddle_ocr_config`, `additional`).
+        TypeRef::Json => "dict[str, Any]".to_string(),
         TypeRef::Bytes => "bytes".to_string(),
         TypeRef::Vec(inner) => {
             format!(
@@ -708,7 +712,10 @@ fn typed_default_to_python(
                     crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
                     _ => "0".to_string(),
                 },
-                TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+                TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+                // A JSON field is `dict[str, Any]`; its zero value is None (the field-emitter then
+                // widens the annotation to `... | None`), not the empty string.
+                TypeRef::Json => "None".to_string(),
                 TypeRef::Bytes => "b\"\"".to_string(),
                 // Duration fields with Empty default are Option<u64> in the binding;
                 // use None so the core type's Default provides the real default value.
@@ -735,7 +742,9 @@ fn python_zero_value(
             crate::core::ir::PrimitiveType::F32 | crate::core::ir::PrimitiveType::F64 => "0.0".to_string(),
             _ => "0".to_string(),
         },
-        TypeRef::String | TypeRef::Char | TypeRef::Path | TypeRef::Json => "\"\"".to_string(),
+        TypeRef::String | TypeRef::Char | TypeRef::Path => "\"\"".to_string(),
+        // A JSON field is `dict[str, Any]`; its zero value is None (annotation widened to `| None`).
+        TypeRef::Json => "None".to_string(),
         TypeRef::Bytes => "b\"\"".to_string(),
         TypeRef::Vec(_) => "field(default_factory=list)".to_string(),
         TypeRef::Map(_, _) => "field(default_factory=dict)".to_string(),
