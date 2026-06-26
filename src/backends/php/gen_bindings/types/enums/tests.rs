@@ -116,6 +116,28 @@ mod variant_constructor_tests {
     }
 
     #[test]
+    fn boxes_boxed_named_field_in_factory() {
+        // A variant field whose core type is `Box<T>` (Named T) must be boxed in the factory:
+        // `result.clone().into()` alone fails to compile (no `From<Binding> for Box<Core>`).
+        let boxed = FieldDef {
+            is_boxed: true,
+            ..field("result", TypeRef::Named("CrawlPageResult".to_string()))
+        };
+        let def = EnumDef {
+            name: "CrawlEvent".to_string(),
+            rust_path: "test_lib::CrawlEvent".to_string(),
+            variants: vec![variant("Page", vec![boxed])],
+            serde_tag: Some("type".to_string()),
+            ..Default::default()
+        };
+        let code = run(&def, &mapper());
+        assert!(
+            code.contains("test_lib::CrawlEvent::Page { result: Box::new(result.clone().into()) }.into()"),
+            "{code}"
+        );
+    }
+
+    #[test]
     fn converts_bytes_field() {
         // Bytes params arrive as `PhpBytes`; the shared call-arg machinery unwraps to `.0` (Vec<u8>)
         // for the core field — a branch the old hand-rolled converter dropped silently.

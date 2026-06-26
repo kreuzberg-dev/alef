@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **php: per-variant constructor boxes `Box<T>` fields.** The flat-data-enum factory
+  (`gen_flat_data_enum_variant_constructors`) emitted `field: field.clone().into()` for a variant
+  field whose core type is `Box<T>`/`Option<Box<T>>` (Named `T`), which fails to compile (no
+  `From<Binding> for Box<Core>`). It now wraps the converted value in `Box::new(...)` (or
+  `.map(Box::new)` when optional), using the `VariantConstructor::boxed` flags — mirroring
+  `flat_enum_binding_to_core_field_expr` and the shared `variant_field_init`.
+
 ### Added
 
 - **Exception handling architecture guide and cross-language pattern documentation.** Added comprehensive

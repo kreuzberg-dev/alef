@@ -773,8 +773,21 @@ pub(crate) fn gen_flat_data_enum_variant_constructors(
                 .params
                 .iter()
                 .zip(arg_exprs)
-                .map(|(p, expr)| {
+                .enumerate()
+                .map(|(idx, (p, expr))| {
                     let value = inline(p).unwrap_or(expr);
+                    // Box<T>/Option<Box<T>> core field: wrap the converted value so the core variant
+                    // literal type-checks (there is no `From<Binding> for Box<Core>`). Mirrors
+                    // `flat_enum_binding_to_core_field_expr` and the shared `variant_field_init`.
+                    let value = if ctor.boxed[idx] {
+                        if p.optional {
+                            format!("{value}.map(Box::new)")
+                        } else {
+                            format!("Box::new({value})")
+                        }
+                    } else {
+                        value
+                    };
                     format!("{}: {value}", p.name)
                 })
                 .collect();
