@@ -162,9 +162,12 @@ pub(super) fn emit_getters(
                 },
             ));
         } else if is_enum_named(&field.ty, enum_names) {
-            // Enum-typed Named field: return String via to_string() on the wrapper enum.
-            // The opaque enum type is NOT declared in the extern block (see extern_block.rs),
-            // so we must not return the wrapper type here.
+            // Enum-typed Named field: return the serde-JSON encoding of the source enum
+            // value as a String. The opaque enum type is NOT declared in the extern block
+            // (see extern_block.rs), so we must not return the wrapper type here; and the
+            // discriminant-only wrapper would lose the variant payload, so serialize the
+            // original value instead. The Swift side JSON-decodes this back into its Codable
+            // enum (matching the bidirectional `*_from_json` representation).
             emit_enum_string_getter(field, &ctx, enum_names, out);
         } else if is_vec_of_enum(&field.ty, enum_names) {
             // Vec<Named(enum)>: map each element to String via to_string().
@@ -255,8 +258,10 @@ pub(super) fn emit_getters(
 /// Emit a `String`-returning getter for an enum-typed `Named` field.
 ///
 /// Instead of returning the opaque enum wrapper (which would trigger swift-bridge's
-/// `Vec<EnumType> Vectorizable` generation), this converts the enum to `String` by
-/// constructing the bridge wrapper enum and calling `.to_string()`.
+/// `Vec<EnumType> Vectorizable` generation), this serializes the source enum value to
+/// JSON via `serde_json::to_string`. The discriminant-only bridge wrapper drops the
+/// variant payload and its `.to_string()` emits a bare variant name (invalid JSON), so
+/// the original value must be serialized for the Swift `JSONDecoder` to reconstruct it.
 fn emit_enum_string_getter(
     field: &crate::core::ir::FieldDef,
     ctx: &GetterCtx,
@@ -273,13 +278,13 @@ fn emit_enum_string_getter(
     let getter_name = &ctx.getter_name;
 
     if field.optional {
-        // Option<EnumType> → Option<String>
-        let map_expr = if field.is_boxed {
-            format!("self.0.{name}.clone().map(|w| {wrapper}::from(*w).to_string())")
-        } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
-            format!("self.0.{name}.clone().map(|w| {wrapper}::from((*w).clone()).to_string())")
+        // Option<EnumType> → Option<String>. Boxed and Arc fields both deref to the enum via `&*w`.
+        let map_expr = if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+            format!(
+                "self.0.{name}.clone().map(|w| serde_json::to_string(&*w).unwrap_or_else(|_| \"null\".to_string()))"
+            )
         } else {
-            format!("self.0.{name}.clone().map(|w| {wrapper}::from(w).to_string())")
+            format!("self.0.{name}.clone().map(|w| serde_json::to_string(&w).unwrap_or_else(|_| \"null\".to_string()))")
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_enum_string_optional.jinja",
@@ -289,13 +294,11 @@ fn emit_enum_string_getter(
             },
         ));
     } else {
-        // EnumType → String
-        let expr = if field.is_boxed {
-            format!("{wrapper}::from(*self.0.{name}.clone()).to_string()")
-        } else if matches!(field.core_wrapper, CoreWrapper::Arc) {
-            format!("{wrapper}::from((*self.0.{name}).clone()).to_string()")
+        // EnumType → String. Boxed and Arc fields both deref to the enum via `&*self.0.{name}`.
+        let expr = if field.is_boxed || matches!(field.core_wrapper, CoreWrapper::Arc) {
+            format!("serde_json::to_string(&*self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
         } else {
-            format!("{wrapper}::from(self.0.{name}.clone()).to_string()")
+            format!("serde_json::to_string(&self.0.{name}).unwrap_or_else(|_| \"null\".to_string())")
         };
         out.push_str(&crate::backends::swift::template_env::render(
             "getter_enum_string.jinja",
@@ -309,7 +312,7 @@ fn emit_enum_string_getter(
 
 /// Emit a `Vec<String>`-returning getter for a `Vec<Named(enum)>` field.
 ///
-/// Maps each enum element through the bridge wrapper's `to_string()`.
+/// Maps each enum element to its serde-JSON encoding via `serde_json::to_string`.
 fn emit_vec_enum_string_getter(
     field: &crate::core::ir::FieldDef,
     ctx: &GetterCtx,
@@ -330,8 +333,8 @@ fn emit_vec_enum_string_getter(
 
     // Build the per-element mapping expression based on wrapping strategy.
     let elem_expr = match field.vec_inner_core_wrapper {
-        CoreWrapper::Arc => format!("{wrapper}::from((**elem).clone()).to_string()"),
-        _ => format!("{wrapper}::from(elem.clone()).to_string()"),
+        CoreWrapper::Arc => "serde_json::to_string(&**elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
+        _ => "serde_json::to_string(elem).unwrap_or_else(|_| \"null\".to_string())".to_string(),
     };
 
     if field.optional {

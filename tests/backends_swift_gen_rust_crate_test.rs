@@ -752,7 +752,8 @@ fn lib_rs_enum_extern_block_and_wrapper() {
 fn lib_rs_struct_with_enum_field_returns_string() {
     // A struct with an enum-typed field must have that getter return `String`,
     // not the opaque enum wrapper type. The extern block must declare `fn foo(&self) -> String`
-    // (not `fn foo(&self) -> Status`), and the wrapper impl must call Status::from(...).to_string().
+    // (not `fn foo(&self) -> Status`), and the wrapper impl must serialize the enum to JSON via
+    // serde_json::to_string so the Swift side can decode the variant payload.
     let api = ApiSurface {
         crate_name: "demo".into(),
         version: "0.1.0".into(),
@@ -780,10 +781,10 @@ fn lib_rs_struct_with_enum_field_returns_string() {
         "extern block must declare status() -> String, not the opaque enum type: {}",
         lib.content
     );
-    // Wrapper impl must convert enum to String via to_string().
+    // Wrapper impl must serialize the enum to JSON instead of emitting a bare variant name.
     assert!(
-        lib.content.contains("Status::from(") && lib.content.contains(".to_string()"),
-        "wrapper impl must call Status::from(...).to_string(): {}",
+        lib.content.contains("serde_json::to_string(&self.0.status)"),
+        "wrapper impl must serialize the enum field via serde_json::to_string: {}",
         lib.content
     );
     // Opaque enum type IS declared in its own extern block (required for parameter usage).
