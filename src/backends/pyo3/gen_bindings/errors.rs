@@ -66,8 +66,27 @@ fn is_long_import(import_statement: &str) -> bool {
 /// them on the native extension module. Re-exporting those classes here — instead of
 /// defining duplicate Python classes — guarantees that the class a user catches
 /// (`from <pkg> import DownloadError`) is the exact class the native code raises, so
-/// `except DownloadError:` works (tslp issue #147). Re-exporting the variants under the
-/// base also preserves `except Error:` catching every variant.
+/// `except DownloadError:` works (GitHub issue #147).
+///
+/// ## Cross-Language Pattern (Alef Consistency)
+///
+/// This pattern applies to all language bindings, not just Python:
+/// - **Node.js (NAPI-RS)**: Export exception classes from the native module, not new TypeScript classes
+/// - **Ruby (Magnus)**: Expose exception classes through the native module, not thin wrappers
+/// - **PHP (ext-php-rs)**: Map Rust exceptions to PHP exception classes in the native extension
+/// - **Go (cgo)**: Return error types with preserved error codes; no type identity issues
+/// - **Java (JNI/Panama FFM)**: Map Rust errors to Java exception classes; preserve numeric error codes
+/// - **C# (P/Invoke)**: Map Rust errors to C# exception types; re-export from native wrapper
+/// - **Elixir (Rustler)**: Return error tuples with consistent error codes; preserve error context
+/// - **WebAssembly (wasm-bindgen)**: Map Rust errors to JavaScript Error types with numeric codes
+///
+/// The core principle: the **class/type identity of exceptions raised by native code must match
+/// the class/type exposed by the public API**. This ensures users can catch exceptions using
+/// public imports, avoiding the issue where `except SomeError:` fails because the native module
+/// raises a different class object.
+///
+/// Re-exporting the variants under the base exception also preserves the ability to catch
+/// all variants with `except Error:` (or language-equivalent).
 pub(super) fn gen_exceptions_py(api: &ApiSurface, module_name: &str) -> String {
     let mut out = String::with_capacity(1024);
     let mut seen_classes: AHashSet<String> = AHashSet::new();
