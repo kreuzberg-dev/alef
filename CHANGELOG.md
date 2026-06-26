@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **elixir**: keep async NIF symbols suffixed internally while exposing async free functions under
+  their original public names in the high-level Elixir facade. Generated modules now expose
+  `extract/1` and `extract_batch/1` when the Rust API names are `extract` and `extract_batch`, while
+  still delegating to `Native.extract_async/2` and `Native.extract_batch_async/2`.
+
 ### Removed
 
 - **napi: stop generating the legacy `packages/typescript` wrapper package.** The napi backend no

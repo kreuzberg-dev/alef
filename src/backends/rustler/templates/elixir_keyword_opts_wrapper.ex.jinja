@@ -1,5 +1,5 @@
-  def {{ func_name }}({{ params }}) do
-    {{ native_mod }}.{{ func_name }}(
+  def {{ public_func_name }}({{ params }}) do
+    {{ native_mod }}.{{ nif_func_name }}(
       {{ nif_call_args }}
     )
   end

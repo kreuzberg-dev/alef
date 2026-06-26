@@ -99,11 +99,12 @@ pub(super) fn generate_public_api(
         .iter()
         .filter(|f| !exclude_functions.contains(f.name.as_str()))
     {
+        let public_fn_name = func.name.to_snake_case();
         let nif_fn_name = if func.is_async {
-            let s = func.name.to_snake_case();
+            let s = public_fn_name.clone();
             if s.ends_with("_async") { s } else { format!("{s}_async") }
         } else {
-            func.name.to_snake_case()
+            public_fn_name.clone()
         };
         let doc_line_raw = if func.doc.is_empty() {
             "Function".to_string()
@@ -245,10 +246,10 @@ pub(super) fn generate_public_api(
             // @spec: required types + keyword()
             let mut spec_types: Vec<String> = required_types.to_vec();
             spec_types.push("keyword()".to_string());
-            let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", spec_types.join(", "));
+            let spec_inline = format!("  @spec {public_fn_name}({}) :: {return_spec}", spec_types.join(", "));
             if spec_inline.len() > 98 {
                 let spec_broken = format!(
-                    "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                    "  @spec {public_fn_name}({}) ::\n          {return_spec}",
                     spec_types.join(", ")
                 );
                 if spec_broken.lines().all(|l| l.len() <= 98) {
@@ -258,7 +259,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             param_types => &spec_types,
                             return_spec => &return_spec,
                         },
@@ -289,7 +290,8 @@ pub(super) fn generate_public_api(
             content.push_str(&template_env::render(
                 "elixir_keyword_opts_wrapper.ex.jinja",
                 minijinja::context! {
-                    func_name => &nif_fn_name,
+                    public_func_name => &public_fn_name,
+                    nif_func_name => &nif_fn_name,
                     params => &def_params,
                     native_mod => &native_mod,
                     nif_call_args => &nif_call_str,
@@ -319,10 +321,10 @@ pub(super) fn generate_public_api(
                 "elixir_doc_line.jinja",
                 minijinja::context! { doc_line => doc_line },
             ));
-            let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", param_types.join(", "));
+            let spec_inline = format!("  @spec {public_fn_name}({}) :: {return_spec}", param_types.join(", "));
             if spec_inline.len() > 98 {
                 let spec_broken = format!(
-                    "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                    "  @spec {public_fn_name}({}) ::\n          {return_spec}",
                     param_types.join(", ")
                 );
                 if spec_broken.lines().all(|l| l.len() <= 98) {
@@ -332,7 +334,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             param_types => &param_types,
                             return_spec => &return_spec,
                         },
@@ -346,7 +348,7 @@ pub(super) fn generate_public_api(
             content.push_str(&template_env::render(
                 "elixir_def_simple.jinja",
                 minijinja::context! {
-                    func_name => &nif_fn_name,
+                    func_name => &public_fn_name,
                     params => &param_with_defaults.join(", "),
                 },
             ));
@@ -406,10 +408,10 @@ pub(super) fn generate_public_api(
                     doc_line => doc_line,
                 },
             ));
-            let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
+            let spec_inline = format!("  @spec {public_fn_name}({}) :: {return_spec}", arity_types.join(", "));
             if spec_inline.len() > 98 {
                 let spec_broken = format!(
-                    "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                    "  @spec {public_fn_name}({}) ::\n          {return_spec}",
                     arity_types.join(", ")
                 );
                 if spec_broken.lines().all(|l| l.len() <= 98) {
@@ -419,7 +421,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_spec_multiline.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             param_types => &arity_types,
                             return_spec => &return_spec,
                         },
@@ -453,7 +455,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_def_with_guard.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             params => &arity_params.join(", "),
                             guard_param => opts_param,
                         },
@@ -553,7 +555,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_def_simple.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             params => &nil_clause_params.join(", "),
                         },
                     ));
@@ -581,7 +583,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_def_with_guard.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             params => &arity_params.join(", "),
                             guard_param => vis_param,
                         },
@@ -609,10 +611,10 @@ pub(super) fn generate_public_api(
                             doc_line => &doc_line,
                         },
                     ));
-                    let spec_inline = format!("  @spec {nif_fn_name}({}) :: {return_spec}", arity_types.join(", "));
+                    let spec_inline = format!("  @spec {public_fn_name}({}) :: {return_spec}", arity_types.join(", "));
                     if spec_inline.len() > 98 {
                         let spec_broken = format!(
-                            "  @spec {nif_fn_name}({}) ::\n          {return_spec}",
+                            "  @spec {public_fn_name}({}) ::\n          {return_spec}",
                             arity_types.join(", ")
                         );
                         if spec_broken.lines().all(|l| l.len() <= 98) {
@@ -621,7 +623,7 @@ pub(super) fn generate_public_api(
                             content.push_str(&template_env::render(
                                 "elixir_spec_multiline.jinja",
                                 minijinja::context! {
-                                    func_name => &nif_fn_name,
+                                    func_name => &public_fn_name,
                                     param_types => &arity_types,
                                     return_spec => &return_spec,
                                 },
@@ -634,7 +636,7 @@ pub(super) fn generate_public_api(
                     content.push_str(&template_env::render(
                         "elixir_def_simple.jinja",
                         minijinja::context! {
-                            func_name => &nif_fn_name,
+                            func_name => &public_fn_name,
                             params => &arity_params.join(", "),
                         },
                     ));
@@ -655,7 +657,7 @@ pub(super) fn generate_public_api(
                 content.push_str(&template_env::render(
                     "elixir_def_zero_arity.jinja",
                     minijinja::context! {
-                        func_name => &nif_fn_name,
+                        func_name => &public_fn_name,
                     },
                 ));
                 content.push_str(&template_env::render(
@@ -670,7 +672,7 @@ pub(super) fn generate_public_api(
                 content.push_str(&template_env::render(
                     "elixir_def_simple.jinja",
                     minijinja::context! {
-                        func_name => &nif_fn_name,
+                        func_name => &public_fn_name,
                         params => &arity_params.join(", "),
                     },
                 ));
