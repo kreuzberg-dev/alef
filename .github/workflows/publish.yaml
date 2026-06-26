@@ -221,7 +221,7 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          owner: kreuzberg-dev
+          owner: xberg-io
           repositories: homebrew-tap
 
       - uses: actions/checkout@v7
@@ -288,7 +288,7 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          owner: kreuzberg-dev
+          owner: xberg-io
 
       - uses: actions/checkout@v7
         with:
@@ -333,7 +333,7 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          owner: kreuzberg-dev
+          owner: xberg-io
           repositories: homebrew-tap
 
       - uses: actions/checkout@v7
@@ -393,7 +393,7 @@ jobs:
         with:
           app-id: ${{ secrets.BOT_APP_ID }}
           private-key: ${{ secrets.BOT_APP_PRIVATE_KEY }}
-          owner: kreuzberg-dev
+          owner: xberg-io
 
       - uses: actions/checkout@v7
         with:
