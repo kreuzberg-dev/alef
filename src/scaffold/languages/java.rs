@@ -61,11 +61,11 @@ pub(crate) fn scaffold_java(api: &ApiSurface, config: &ResolvedCrateConfig) -> a
 
     let group_id = config.java_group_id();
     // The alef Java backend emits sources under a directory tree mirroring the
-    // package (e.g. group `io.xberg.foo` -> `io/xberg/foo/Foo.java`). The
+    // package (e.g. group `com.example.foo` -> `com/example/foo/Foo.java`). The
     // maven-source-plugin include must target the first path segment so it picks
     // up the generated sources without pulling in `target/`. Deriving it from the
-    // group keeps the source jar correct across namespaces (the `dev.kreuzberg`
-    // -> `io.xberg` rebrand previously broke a hardcoded `dev/**` include).
+    // group keeps the source jar correct across namespaces; a hardcoded
+    // single-segment include breaks whenever the top-level group changes.
     let source_root = group_id.split('.').next().unwrap_or("dev");
 
     // Build developers XML from authors
