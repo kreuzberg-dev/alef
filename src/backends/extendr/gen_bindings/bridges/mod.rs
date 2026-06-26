@@ -151,6 +151,23 @@ impl {name} {{
     )
 }
 
+/// True when a per-variant factory parameter of type `ty` can be accepted as a `#[extendr]`
+/// function argument. extendr derives `TryFrom<&Robj>` only for `&T` of #[extendr] types (never
+/// owned `T`), and has no R-object conversion for `Vec<NamedStruct>`, nested vectors, or maps. A
+/// factory that takes such a field *by value* fails to compile under the `#[extendr]` proc-macro
+/// with `error[E0277]: ... TryFrom<&Robj> not satisfied`. Variants carrying these fields are skipped
+/// from the typed factories; callers still construct them through the enum's `from_json` factory.
+fn extendr_factory_param_is_constructible(ty: &TypeRef) -> bool {
+    match ty {
+        TypeRef::Named(_) | TypeRef::Map(_, _) => false,
+        // R-native vectors only: `Vec<scalar>`. `Vec<Named>`/`Vec<Vec<_>>`/`Vec<Bytes>` have no
+        // automatic R-list conversion.
+        TypeRef::Vec(inner) => matches!(inner.as_ref(), TypeRef::Primitive(_) | TypeRef::String | TypeRef::Char),
+        TypeRef::Optional(inner) => extendr_factory_param_is_constructible(inner),
+        _ => true,
+    }
+}
+
 /// Generate per-variant constructor methods for a JSON-passthrough data enum.
 ///
 /// Each data-carrying struct variant gets a `pub fn _factory_<snake>(<params>) -> <Name>` method
@@ -164,7 +181,8 @@ impl {name} {{
 /// `impl` method of the same name) is shared with pyo3/magnus via `collect_variant_constructors`. The
 /// Rust fn is `_factory_<snake>`; the R wrapper (emitted in `r_wrappers`) exposes it under the bare
 /// snake name so callers write `<Name>$<snake>(...)`. Returns one rendered method per qualifying
-/// variant (empty when none qualifies).
+/// variant (empty when none qualifies). Variants whose fields cannot cross the extendr input
+/// boundary (see `extendr_factory_param_is_constructible`) are skipped.
 pub(super) fn gen_extendr_enum_variant_constructors(
     enum_def: &EnumDef,
     mapper: &dyn TypeMapper,
@@ -178,6 +196,11 @@ pub(super) fn gen_extendr_enum_variant_constructors(
 
     collect_variant_constructors(enum_def)
         .iter()
+        .filter(|ctor| {
+            ctor.params
+                .iter()
+                .all(|p| extendr_factory_param_is_constructible(&p.ty))
+        })
         .map(|ctor| {
             let params_str = function_params(&ctor.params, &map_fn);
 
@@ -226,6 +249,11 @@ pub(super) fn gen_extendr_enum_variant_constructors(
 pub(super) fn extendr_enum_variant_constructor_registrations(enum_def: &EnumDef) -> Vec<(String, String, Vec<String>)> {
     crate::codegen::generators::collect_variant_constructors(enum_def)
         .into_iter()
+        .filter(|ctor| {
+            ctor.params
+                .iter()
+                .all(|p| extendr_factory_param_is_constructible(&p.ty))
+        })
         .map(|ctor| {
             let param_names: Vec<String> = ctor.params.iter().map(|p| p.name.clone()).collect();
             (

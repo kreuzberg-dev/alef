@@ -17,6 +17,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Zig/C e2e generators) and adds `-Wl,-rpath` for both the release and debug profiles. The e2e Swift
   package inherits the rpath transitively through this target.
 
+- **extendr (R): skip per-variant factory constructors whose fields cannot cross the extendr input boundary.**
+  A tagged data enum (e.g. `NodeContent`) generates a `_factory_<variant>` `#[extendr]` constructor per
+  struct variant. When a variant field was a Named DTO (`grid: TableGrid`) or `Vec<DTO>`
+  (`entries: Vec<MetadataEntry>`), the constructor took it *by value*, which the `#[extendr]` proc-macro
+  cannot accept (`error[E0277]: T: TryFrom<&Robj> not satisfied`) — extendr derives `TryFrom<&Robj>` only
+  for `&T`, never owned `T`, and has no R-list conversion for `Vec<DTO>`. `gen_extendr_enum_variant_constructors`
+  and `extendr_enum_variant_constructor_registrations` now skip such variants (predicate
+  `extendr_factory_param_is_constructible`); those variants remain constructible via the enum's `from_json`
+  factory.
+
 - **extendr (R): exclude methods with R-incompatible `Vec`/`Option<Vec>` params from `#[extendr]` impls.**
   Method filtering only dropped methods with bare-enum or bare owned-struct params; it missed
   `Vec<struct>`, `Vec<enum>`, `Vec<Vec<_>>`, and `Option<Vec<_>>` params. extendr generates no

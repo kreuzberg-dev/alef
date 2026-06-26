@@ -83,63 +83,76 @@ fn casts_remapped_primitive_back_to_core() {
 }
 
 #[test]
-fn converts_named_dto_field_inline_without_path_annotation() {
-    // A Named-DTO field converts inline with `.into()` in the core variant literal — no typed
-    // `let <field>_core: <core_import>::<Type>` binding — so the core type path is never named and
-    // non-re-exported field types resolve via inference.
+fn skips_variant_constructor_with_named_dto_field() {
+    // extendr derives `TryFrom<&Robj>` only for `&T` of #[extendr] types, never owned `T`, so a
+    // typed factory taking a non-opaque struct field by value fails to compile under the
+    // `#[extendr]` proc-macro (`error[E0277]: T: TryFrom<&Robj> not satisfied`). Variants whose
+    // fields are Named DTOs are therefore omitted from the typed factories; callers construct them
+    // through the enum's `from_json` factory instead. Primitive/String variants are unaffected.
     let def = EnumDef {
         name: "Wrapper".to_string(),
         rust_path: "test_lib::Wrapper".to_string(),
-        variants: vec![variant(
-            "Llm",
-            vec![field("llm", TypeRef::Named("LlmConfig".to_string()))],
-        )],
+        variants: vec![
+            variant("Llm", vec![field("llm", TypeRef::Named("LlmConfig".to_string()))]),
+            variant("Tag", vec![field("name", TypeRef::String)]),
+        ],
         serde_tag: Some("type".to_string()),
         ..Default::default()
     };
     let methods = gen_extendr_enum_variant_constructors(&def, &ExtendrBackend, "test_lib::Wrapper");
     let code = methods.join("\n");
-    // No `let <field>_core: <path> = ...` annotation anywhere in the body.
     assert!(
-        !code.contains("_core"),
-        "must inline `.into()`, no _core let binding: {code}"
+        !code.contains("_factory_llm"),
+        "variant with a Named DTO field must be skipped: {code}"
     );
     assert!(
-        !code.contains("test_lib::LlmConfig ="),
-        "must not name the field's core path: {code}"
-    );
-    assert!(
-        code.contains("test_lib::Wrapper::Llm { llm: llm.into() }.into()"),
-        "{code}"
+        code.contains("pub fn _factory_tag(name: String) -> Wrapper"),
+        "primitive/String variant must still be generated: {code}"
     );
 }
 
 #[test]
-fn variant_constructor_body_has_no_core_path_let_annotation() {
-    // Guard: across a mix of DTO, primitive-cast, and plain fields, the generated constructor body
-    // must contain no `<core_import>::<Type>` let-binding type annotation — every field converts
-    // inline so a non-re-exported field type can never trigger E0425.
+fn skips_variant_constructor_when_any_field_is_unconstructible() {
+    // A variant mixing a Named DTO (or Vec<DTO>) field with primitives is skipped wholesale — the
+    // typed factory has no per-field JSON-marshalling path, and even one extendr-unconvertible
+    // field by value breaks the whole `#[extendr]` constructor.
     let def = EnumDef {
         name: "Job".to_string(),
         rust_path: "test_lib::Job".to_string(),
-        variants: vec![variant(
-            "Run",
-            vec![
-                field("config", TypeRef::Named("RunConfig".to_string())),
-                field("retries", TypeRef::Primitive(PrimitiveType::U32)),
-                field("name", TypeRef::String),
-            ],
-        )],
+        variants: vec![
+            variant(
+                "Run",
+                vec![
+                    field("config", TypeRef::Named("RunConfig".to_string())),
+                    field("retries", TypeRef::Primitive(PrimitiveType::U32)),
+                    field("name", TypeRef::String),
+                ],
+            ),
+            variant(
+                "Tag",
+                vec![field(
+                    "entries",
+                    TypeRef::Vec(Box::new(TypeRef::Named("Entry".to_string()))),
+                )],
+            ),
+            variant("Ping", vec![field("seq", TypeRef::Primitive(PrimitiveType::U32))]),
+        ],
         serde_tag: Some("type".to_string()),
         ..Default::default()
     };
     let methods = gen_extendr_enum_variant_constructors(&def, &ExtendrBackend, "test_lib::Job");
     let code = methods.join("\n");
-    assert!(!code.contains("_core"), "no _core let binding: {code}");
-    assert!(!code.contains(" = "), "no let-binding assignment in the body: {code}");
     assert!(
-        code.contains("test_lib::Job::Run { config: config.into(), retries: retries as u32, name }.into()"),
-        "{code}"
+        !code.contains("_factory_run"),
+        "Named-DTO-field variant must be skipped: {code}"
+    );
+    assert!(
+        !code.contains("_factory_tag"),
+        "Vec<DTO>-field variant must be skipped: {code}"
+    );
+    assert!(
+        code.contains("test_lib::Job::Ping { seq: seq as u32 }.into()"),
+        "primitive-only variant must still be generated: {code}"
     );
 }
 
