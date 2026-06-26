@@ -1,7 +1,7 @@
             var outPtrHolder = arena.allocate(ValueLayout.ADDRESS);
             var outLenHolder = arena.allocate(ValueLayout.JAVA_LONG);
             var outCapHolder = arena.allocate(ValueLayout.JAVA_LONG);
-            int rc = (int) {{ ffi_handle }}.invoke({{ args }}outPtrHolder, outLenHolder, outCapHolder);
+            int rc = (int) (long) {{ ffi_handle }}.invoke({{ args }}outPtrHolder, outLenHolder, outCapHolder);
             if (rc != 0) {
                 checkLastError();
 {%- if optional %}

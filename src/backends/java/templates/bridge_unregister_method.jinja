@@ -4,7 +4,7 @@
             try (var nameArena = Arena.ofShared()) {
                 var nameCs = nameArena.allocateFrom(name);
                 MemorySegment outErr = nameArena.allocate(ValueLayout.ADDRESS);
-                int rc = (int) NativeLib.{{ prefix_upper }}_UNREGISTER_{{ trait_snake_upper }}.invoke(nameCs, outErr);
+                int rc = (int) (long) NativeLib.{{ prefix_upper }}_UNREGISTER_{{ trait_snake_upper }}.invoke(nameCs, outErr);
                 if (rc != 0) {
                     MemorySegment errPtr = outErr.get(ValueLayout.ADDRESS, 0);
                     String msg = errPtr.equals(MemorySegment.NULL) ? "unregistration failed (rc=" + rc + ")" : errPtr.reinterpret(Long.MAX_VALUE).getString(0);
