@@ -296,7 +296,9 @@ fn variant_constructors_coerce_dataclass_backed_dto_field() {
         "{generated}"
     );
     assert!(
-        generated.contains("Ok(Self { inner: crate::Wrapper::Llm { llm: __alef_coerce_dto(py, llm)? } })"),
+        generated.contains(
+            "Ok(Self { inner: crate::Wrapper::Llm { llm: __alef_coerce_dto(py, llm, __ALEF_WIRE_LLM_CONFIG)? } })"
+        ),
         "{generated}"
     );
     // The compiled-type-only path is gone.
@@ -336,7 +338,9 @@ fn variant_constructors_coerce_only_dto_leaving_primitive_typed() {
         "{generated}"
     );
     assert!(
-        generated.contains("Ok(Self { inner: crate::Job::Run { retries, config: __alef_coerce_dto(py, config)? } })"),
+        generated.contains(
+            "Ok(Self { inner: crate::Job::Run { retries, config: __alef_coerce_dto(py, config, __ALEF_WIRE_RUN_CONFIG)? } })"
+        ),
         "{generated}"
     );
 }
@@ -366,6 +370,52 @@ fn variant_constructors_skip_coercion_for_non_dataclass_named_field() {
     assert!(generated.contains("llm: llm.into()"), "{generated}");
     assert!(!generated.contains("__alef_coerce_dto"), "{generated}");
     assert!(!data_enum_needs_dto_coercion(&def, &empty), "should not flag coercion");
+}
+
+#[test]
+fn variant_constructors_coerce_vec_and_map_of_dto_payloads() {
+    use crate::codegen::generators::gen_pyo3_data_enum_with_coercion;
+    use crate::codegen::type_mapper::IdentityMapper;
+    use ahash::AHashSet;
+    // A `Vec<DTO>` payload coerces each element (`__alef_coerce_dto_seq`) and a `Map<_, DTO>`
+    // payload coerces each value (`__alef_coerce_dto_map`); both accept lists/dicts of public
+    // wrappers, not compiled instances.
+    let def = enum_def(
+        "Pipeline",
+        vec![variant(
+            "Run",
+            vec![
+                typed_field(
+                    "stages",
+                    TypeRef::Vec(Box::new(TypeRef::Named("StageConfig".to_string()))),
+                ),
+                typed_field(
+                    "overrides",
+                    TypeRef::Map(
+                        Box::new(TypeRef::String),
+                        Box::new(TypeRef::Named("StageConfig".to_string())),
+                    ),
+                ),
+            ],
+        )],
+    );
+    let coercible: AHashSet<&str> = ["StageConfig"].into_iter().collect();
+
+    let generated = gen_pyo3_data_enum_with_coercion(&def, "core", Some(&IdentityMapper), &coercible);
+
+    assert!(
+        generated.contains("stages: __alef_coerce_dto_seq(py, stages, __ALEF_WIRE_STAGE_CONFIG)?"),
+        "{generated}"
+    );
+    assert!(
+        generated.contains("overrides: __alef_coerce_dto_map(py, overrides, __ALEF_WIRE_STAGE_CONFIG)?"),
+        "{generated}"
+    );
+    // Both params arrive as PyAny (a list / dict of public wrappers).
+    assert!(
+        generated.contains("stages: &Bound<'_, pyo3::types::PyAny>"),
+        "{generated}"
+    );
 }
 
 #[test]

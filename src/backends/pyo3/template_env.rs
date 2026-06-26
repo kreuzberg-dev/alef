@@ -477,6 +477,10 @@ static TEMPLATES: &[(&str, &str)] = &[
         include_str!("templates/config_default_on_none.jinja"),
     ),
     (
+        "pyo3_wire_schema_const.jinja",
+        include_str!("templates/pyo3_wire_schema_const.jinja"),
+    ),
+    (
         "data_enum_dict_coerce_guard.jinja",
         include_str!("templates/data_enum_dict_coerce_guard.jinja"),
     ),

@@ -18,6 +18,7 @@ mod support_items;
 #[cfg(test)]
 mod tests;
 pub mod types;
+mod wire_schema;
 
 use crate::backends::pyo3::type_map::Pyo3Mapper;
 use crate::codegen::builder::RustFileBuilder;
@@ -620,7 +621,9 @@ impl Backend for Pyo3Backend {
             .map(|t| t.name.as_str())
             .collect();
         // Emit the runtime coercion helper once when any data-enum variant constructor needs it
-        // (gated on serde availability — the helper deserializes the coerced JSON into the core type).
+        // (gated on serde availability — the helper deserializes the coerced JSON into the core type),
+        // followed by the per-DTO `__ALEF_WIRE_*` rename-schema consts that give the helper full
+        // serde-rename fidelity (handling `#[serde(rename)]`/`#[serde(rename_all)]` and nesting).
         if has_serde
             && api
                 .enums
@@ -628,6 +631,10 @@ impl Backend for Pyo3Backend {
                 .any(|e| generators::data_enum_needs_dto_coercion(e, &coercible_dto_names))
         {
             builder.add_item(generators::PYO3_DTO_COERCE_HELPER);
+            let wire_schema_consts = wire_schema::gen_wire_schema_consts(api, &coercible_dto_names);
+            if !wire_schema_consts.is_empty() {
+                builder.add_item(&wire_schema_consts);
+            }
         }
 
         for e in &api.enums {

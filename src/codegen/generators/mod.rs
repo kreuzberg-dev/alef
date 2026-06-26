@@ -146,8 +146,9 @@ pub use binding_helpers::{
     has_named_params, is_simple_non_opaque_param, wrap_return, wrap_return_with_mutex, wrap_return_with_mutex_mapped,
 };
 pub use enums::{
-    PYO3_DTO_COERCE_HELPER, data_enum_needs_dto_coercion, enum_has_data_variants, gen_enum, gen_pyo3_data_enum,
-    gen_pyo3_data_enum_with_coercion, gen_pyo3_data_enum_with_mapper,
+    CoercibleShape, PYO3_DTO_COERCE_HELPER, coercible_payload, data_enum_needs_dto_coercion, enum_has_data_variants,
+    gen_enum, gen_pyo3_data_enum, gen_pyo3_data_enum_with_coercion, gen_pyo3_data_enum_with_mapper,
+    pyo3_wire_schema_const_name,
 };
 pub(crate) use enums::{collect_variant_constructors, variant_field_init};
 pub use functions::{
