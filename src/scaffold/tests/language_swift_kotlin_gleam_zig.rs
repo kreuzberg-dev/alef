@@ -79,8 +79,8 @@ fn test_scaffold_swift() {
         package_swift.content
     );
     assert!(
-        package_swift.content.contains("-Wl,-rpath,"),
-        "Package.swift must emit a runtime -Wl,-rpath so the FFI dylib loads at runtime; got: {}",
+        package_swift.content.contains("\"-Xlinker\", \"-rpath\", \"-Xlinker\""),
+        "Package.swift must emit a runtime rpath via the swiftc-native -Xlinker -rpath spelling so the FFI dylib loads at runtime; got: {}",
         package_swift.content
     );
     assert!(
