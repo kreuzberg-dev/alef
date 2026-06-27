@@ -30,6 +30,12 @@ fn make_field(name: &str, ty: TypeRef, optional: bool) -> FieldDef {
     }
 }
 
+fn make_cfg_field(name: &str, ty: TypeRef, optional: bool, cfg: &str) -> FieldDef {
+    let mut field = make_field(name, ty, optional);
+    field.cfg = Some(cfg.to_string());
+    field
+}
+
 /// Helper to create minimal ResolvedCrateConfig with WASM enabled
 fn make_config() -> ResolvedCrateConfig {
     let cfg: NewAlefConfig = toml::from_str(
@@ -44,6 +50,14 @@ sources = ["src/lib.rs"]
     )
     .unwrap();
     cfg.resolve().unwrap().remove(0)
+}
+
+fn make_config_with_wasm_features(features: &[&str]) -> ResolvedCrateConfig {
+    let mut config = make_config();
+    if let Some(wasm_cfg) = &mut config.wasm {
+        wasm_cfg.features = Some(features.iter().map(|feature| (*feature).to_string()).collect());
+    }
+    config
 }
 
 #[test]
@@ -1387,6 +1401,99 @@ fn test_exclude_fields_removes_wasm_struct_field() {
     assert!(
         !content.contains("enable_http_trace"),
         "excluded wasm field must be absent from struct and conversions: {content}"
+    );
+}
+
+#[test]
+fn test_cfg_gated_struct_field_omitted_when_wasm_feature_inactive() {
+    let backend = WasmBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ServerConfig".to_string(),
+            rust_path: "test_lib::ServerConfig".to_string(),
+            fields: vec![
+                make_field("host", TypeRef::String, false),
+                make_cfg_field(
+                    "telemetry",
+                    TypeRef::Primitive(PrimitiveType::Bool),
+                    false,
+                    r#"feature = "telemetry""#,
+                ),
+            ],
+            is_clone: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config_with_wasm_features(&[]))
+        .expect("generate_bindings failed");
+    let content = &files[0].content;
+
+    assert!(content.contains("pub struct WasmServerConfig"), "content: {content}");
+    assert!(content.contains("host: String"), "content: {content}");
+    assert!(
+        !content.contains("telemetry"),
+        "inactive cfg field must be omitted from WASM bindings: {content}"
+    );
+    assert!(
+        !content.contains("..Default::default()"),
+        "inactive cfg field must not force default-spread conversion when the core feature is inactive: {content}"
+    );
+}
+
+#[test]
+fn test_cfg_gated_struct_field_included_when_wasm_feature_active() {
+    let backend = WasmBackend;
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "ServerConfig".to_string(),
+            rust_path: "test_lib::ServerConfig".to_string(),
+            fields: vec![
+                make_field("host", TypeRef::String, false),
+                make_cfg_field(
+                    "telemetry",
+                    TypeRef::Primitive(PrimitiveType::Bool),
+                    false,
+                    r#"feature = "telemetry""#,
+                ),
+            ],
+            is_clone: true,
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+
+    let files = backend
+        .generate_bindings(&api, &make_config_with_wasm_features(&["telemetry"]))
+        .expect("generate_bindings failed");
+    let content = &files[0].content;
+
+    assert!(content.contains("telemetry: bool"), "content: {content}");
+    assert!(
+        content.contains("pub fn new(host: String, telemetry: bool) -> WasmServerConfig"),
+        "active cfg field must be included in the constructor: {content}"
+    );
+    assert!(
+        content.contains("pub fn telemetry(&self) -> bool"),
+        "active cfg field must get a getter: {content}"
+    );
+    assert!(
+        content.contains("pub fn set_telemetry(&mut self, value: bool)"),
+        "active cfg field must get a setter: {content}"
+    );
+    assert!(
+        content.contains("telemetry: val.telemetry"),
+        "active cfg field must be included in conversions: {content}"
+    );
+    assert!(
+        !content.contains(r#"#[cfg(feature = "telemetry")]"#),
+        "active cfg field must not depend on a separate binding-crate feature gate: {content}"
     );
 }
 

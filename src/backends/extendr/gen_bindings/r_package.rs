@@ -1,4 +1,4 @@
-use super::{options, r_wrappers};
+use super::{cfg_registration, options, r_wrappers};
 use crate::core::backend::GeneratedFile;
 use crate::core::config::{ResolvedCrateConfig, resolve_output_dir};
 use crate::core::hash::{self, CommentStyle};
@@ -9,6 +9,9 @@ pub(super) fn generate_public_api(
     api: &ApiSurface,
     config: &ResolvedCrateConfig,
 ) -> anyhow::Result<Vec<GeneratedFile>> {
+    let enabled_features = cfg_registration::effective_r_cfg_features(api, config);
+    let r_cfg_api = cfg_registration::apply_r_cfg_field_policy(api, &enabled_features);
+    let api = &r_cfg_api;
     let package_name = config.r_package_name();
 
     let r_wrapper_dir = if let Some(rust_out) = config.output_paths.get("r") {

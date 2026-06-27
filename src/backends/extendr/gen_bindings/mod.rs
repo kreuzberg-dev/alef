@@ -8,7 +8,7 @@ pub mod service_api;
 mod trait_bridge_wrappers;
 mod type_mapping;
 
-use self::cfg_registration::{always_registered, prepend_cfg};
+use self::cfg_registration::{always_registered, apply_r_cfg_field_policy, effective_r_cfg_features, prepend_cfg};
 use self::trait_bridge_wrappers::{collect_trait_bridge_fn_names, collect_trait_bridge_functions};
 use crate::codegen::builder::RustFileBuilder;
 use crate::codegen::generators;
@@ -49,7 +49,9 @@ impl Backend for ExtendrBackend {
         // cfg-variant functions must collapse to one definition to avoid E0428 (defined multiple
         // times). See codegen::fn_dedup.
         let deduped_api = api.with_deduped_functions();
-        let api = &deduped_api;
+        let enabled_features = effective_r_cfg_features(&deduped_api, config);
+        let r_cfg_api = apply_r_cfg_field_policy(&deduped_api, &enabled_features);
+        let api = &r_cfg_api;
         let core_import = config.core_import_name();
         // Build type path map for resolving fully-qualified paths to enums not re-exported at crate root
         let type_paths = build_type_path_lookup(api);
@@ -630,10 +632,9 @@ impl Backend for ExtendrBackend {
             // Round-trip-safe ones (e.g. OutputFormat with only String data) have a
             // From<BindingStruct> for CoreEnum impl generated and don't need skipping.
             from_binding_skip_types: &non_round_trip_flat_enums,
-            // The extendr binding crate doesn't carry sample_core feature flags into its
-            // own Cargo.toml, so cfg-gated core fields are dropped from the binding struct
-            // (see `gen_struct` skip rule).  Mirror that in conversions: skip cfg-gated
-            // fields and let `..Default::default()` pad the core struct slot.
+            // The R cfg-field policy above removes disabled cfg fields and makes enabled
+            // cfg fields unconditional before conversion generation. Keep this true so any
+            // residual cfg-gated field is still treated as absent from the binding struct.
             strip_cfg_fields_from_binding_struct: true,
             ..crate::codegen::conversions::ConversionConfig::default()
         };

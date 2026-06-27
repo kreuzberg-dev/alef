@@ -36,6 +36,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   interfaces and skip re-declaring a bridge `clear_*` function that is already exposed as a registry
   function, so `rbs validate` no longer reports an undefined type or a duplicated method definition.
 
+- **wasm**: filter cfg-gated struct fields with the WASM backend's active feature set so
+  inactive fields are omitted and active fields are generated consistently across structs,
+  constructors, accessors, and conversions.
+
+- **r**: keep cfg-gated struct fields when the R backend's configured feature set enables
+  them, and align R wrapper exports with the classes registered in `extendr_module!`.
+
 - **scaffold**: let managed `.cargo/config.toml` render an explicit
   `rustc-wrapper`, and make the R Rust crate honor curated feature sets the
   same way as WASM by disabling core default features and declaring cfg

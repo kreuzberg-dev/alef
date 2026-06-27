@@ -880,6 +880,231 @@ fn extendr_module_registration_registers_complementary_cfg_functions_once() {
 }
 
 #[test]
+fn extendr_codegen_keeps_cfg_fields_enabled_by_explicit_r_features() {
+    let backend = ExtendrBackend;
+    let config = make_r_config_with_features(&["url-ingestion"], false);
+    let mut api = make_api_surface();
+
+    let mut crawl_field = make_field("crawl", TypeRef::Named("CrawlConfig".to_string()), false);
+    crawl_field.cfg = Some("feature = \"url-ingestion\"".to_string());
+
+    api.types = vec![
+        TypeDef {
+            name: "UrlExtractionConfig".to_string(),
+            rust_path: "test_lib::UrlExtractionConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![crawl_field],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        },
+        TypeDef {
+            name: "CrawlConfig".to_string(),
+            rust_path: "test_lib::CrawlConfig".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field("max_depth", TypeRef::Primitive(PrimitiveType::Usize), false)],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        },
+    ];
+
+    let files = backend.generate_bindings(&api, &config).unwrap();
+    let content = &files[0].content;
+
+    assert!(
+        content.contains("pub crawl: CrawlConfig"),
+        "cfg field enabled by the R feature set must remain in the binding struct:\n{content}"
+    );
+    assert!(
+        content.contains("crawl: val.crawl.into()"),
+        "enabled cfg field must participate in core conversion instead of being defaulted away:\n{content}"
+    );
+}
+
+fn make_r_config_with_features(features: &[&str], default_features: bool) -> ResolvedCrateConfig {
+    let features = features
+        .iter()
+        .map(|feature| format!("\"{feature}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    resolved_one(&format!(
+        r#"
+[workspace]
+languages = ["r"]
+
+[[crates]]
+name = "test-lib"
+sources = ["src/lib.rs"]
+
+[crates.r]
+package_name = "testlib"
+features = [{features}]
+default_features = {default_features}
+"#
+    ))
+}
+
+#[test]
+fn r_public_api_omits_from_json_for_unregistered_dto_roots() {
+    let backend = ExtendrBackend;
+    let config = make_config();
+    let api = ApiSurface {
+        crate_name: "test_lib".to_string(),
+        version: "0.1.0".to_string(),
+        types: vec![TypeDef {
+            name: "SearchRequest".to_string(),
+            rust_path: "test_lib::SearchRequest".to_string(),
+            original_rust_path: String::new(),
+            fields: vec![make_field(
+                "modes",
+                TypeRef::Vec(Box::new(TypeRef::Named("SearchMode".to_string()))),
+                false,
+            )],
+            methods: vec![],
+            is_opaque: false,
+            is_clone: true,
+            is_copy: false,
+            is_trait: false,
+            has_default: true,
+            has_stripped_cfg_fields: false,
+            is_return_type: false,
+            serde_rename_all: None,
+            has_serde: true,
+            super_traits: vec![],
+            doc: String::new(),
+            cfg: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            is_variant_wrapper: false,
+            has_lifetime_params: false,
+            version: Default::default(),
+        }],
+        functions: vec![FunctionDef {
+            name: "search".to_string(),
+            rust_path: "test_lib::search".to_string(),
+            original_rust_path: String::new(),
+            params: vec![ParamDef {
+                name: "request".to_string(),
+                ty: TypeRef::Named("SearchRequest".to_string()),
+                ..Default::default()
+            }],
+            return_type: TypeRef::String,
+            is_async: false,
+            error_type: None,
+            doc: String::new(),
+            cfg: None,
+            sanitized: false,
+            return_sanitized: false,
+            returns_ref: false,
+            returns_cow: false,
+            return_newtype_wrapper: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            version: Default::default(),
+        }],
+        enums: vec![EnumDef {
+            name: "SearchMode".to_string(),
+            rust_path: "test_lib::SearchMode".to_string(),
+            original_rust_path: String::new(),
+            variants: vec![EnumVariant {
+                name: "Fast".to_string(),
+                fields: vec![],
+                doc: String::new(),
+                is_default: true,
+                serde_rename: None,
+                binding_excluded: false,
+                binding_exclusion_reason: None,
+                is_tuple: false,
+                originally_had_data_fields: false,
+                cfg: None,
+                version: Default::default(),
+            }],
+            methods: vec![],
+            doc: String::new(),
+            cfg: None,
+            is_copy: false,
+            has_serde: true,
+            has_default: true,
+            serde_tag: None,
+            serde_untagged: false,
+            serde_rename_all: None,
+            binding_excluded: false,
+            binding_exclusion_reason: None,
+            excluded_variants: vec![],
+            version: Default::default(),
+        }],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let binding_files = backend.generate_bindings(&api, &config).unwrap();
+    let module_block = binding_files[0]
+        .content
+        .split("extendr_module!")
+        .nth(1)
+        .expect("extendr module must be generated");
+    assert!(
+        !module_block.contains("impl SearchRequest;"),
+        "SearchRequest is not registered because Vec<Enum> fields are not extendr-native:\n{module_block}"
+    );
+
+    let files = backend.generate_public_api(&api, &config).unwrap();
+    let wrappers = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("extendr-wrappers.R"))
+        .expect("extendr-wrappers.R must be generated");
+    assert!(
+        !wrappers.content.contains("SearchRequest$from_json"),
+        "R wrappers must not expose from_json for classes absent from extendr_module!:\n{}",
+        wrappers.content
+    );
+    let namespace = files
+        .iter()
+        .find(|f| f.path.to_string_lossy().ends_with("NAMESPACE"))
+        .expect("NAMESPACE must be generated");
+    assert!(
+        !namespace.content.contains("export(SearchRequest)"),
+        "NAMESPACE must not export unregistered classes:\n{}",
+        namespace.content
+    );
+}
+
+#[test]
 fn extendr_json_bridged_function_with_named_return_and_optional_named_params() {
     // Regression test for: when a function returns a Named struct, optional Named params
     // must also use JSON bridging for consistency. The fix ensures needs_json_struct

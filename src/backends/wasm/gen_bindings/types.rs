@@ -5,7 +5,7 @@ use crate::codegen::builder::ImplBuilder;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name, shared};
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{ApiSurface, EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToPascalCase;
 
@@ -20,6 +20,34 @@ mod types_unit_enum;
 mod types_tests;
 
 use types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
+
+/// Return a WASM binding surface whose struct fields match the backend feature set.
+///
+/// The extractor can retain a cfg-gated field when the source crate was extracted with a
+/// broader feature set than the WASM binding crate uses. Downstream struct and conversion
+/// generators expect one coherent field list, so drop inactive fields and clear cfg markers
+/// from active fields before generating WASM bindings.
+pub(super) fn filter_cfg_fields_for_features(api: &ApiSurface, enabled_features: &[String]) -> ApiSurface {
+    let mut filtered = api.clone();
+    for typ in &mut filtered.types {
+        let mut fields = Vec::with_capacity(typ.fields.len());
+
+        for mut field in std::mem::take(&mut typ.fields) {
+            let Some(cfg) = field.cfg.as_deref() else {
+                fields.push(field);
+                continue;
+            };
+
+            if super::cfg::cfg_condition_enabled(cfg, enabled_features) {
+                field.cfg = None;
+                fields.push(field);
+            }
+        }
+
+        typ.fields = fields;
+    }
+    filtered
+}
 
 /// Returns `true` when `ty` is `Vec<Named>` where `Named` is a tagged-data enum.
 ///

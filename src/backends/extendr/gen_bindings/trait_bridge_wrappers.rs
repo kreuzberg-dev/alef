@@ -107,7 +107,6 @@ pub(super) fn collect_excluded_class_types(api: &ApiSurface, bridges: &[TraitBri
         .filter(|t| t.is_opaque)
         .map(|t| t.name.clone())
         .collect();
-    let enum_names: ahash::AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
     let bridge_handle_aliases = collect_bridge_handle_aliases(bridges);
     let arc_incompatible: ahash::AHashSet<String> = api
         .types
@@ -116,8 +115,7 @@ pub(super) fn collect_excluded_class_types(api: &ApiSurface, bridges: &[TraitBri
         .map(|t| t.name.clone())
         .collect();
 
-    let is_struct_like =
-        |n: &str| -> bool { !opaque_types.contains(n) && !enum_names.contains(n) && !arc_incompatible.contains(n) };
+    let is_struct_like = |n: &str| -> bool { !opaque_types.contains(n) && !arc_incompatible.contains(n) };
     let is_native_incompatible = |ty: &TypeRef| -> bool {
         match ty {
             TypeRef::Vec(inner) => match inner.as_ref() {

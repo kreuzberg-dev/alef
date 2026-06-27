@@ -26,7 +26,9 @@ use cfg::{
 use enums::gen_enum;
 use errors::{gen_error_converter, gen_error_methods};
 use functions::{gen_env_shims, gen_function_with_emitted_dtos};
-use types::{gen_opaque_struct, gen_opaque_struct_methods, gen_struct, gen_struct_methods};
+use types::{
+    filter_cfg_fields_for_features, gen_opaque_struct, gen_opaque_struct_methods, gen_struct, gen_struct_methods,
+};
 
 /// Prepend `#[cfg(<pred>)]` to a code item when the source symbol carries a cfg predicate.
 fn prepend_cfg(cfg: Option<&str>, item: String) -> String {
@@ -208,6 +210,8 @@ impl Backend for WasmBackend {
             };
             &api_owned
         };
+        let cfg_filtered_api = filter_cfg_fields_for_features(api, &enabled_features);
+        let api = &cfg_filtered_api;
 
         // Note: custom modules and registrations handled below after builder creation
 
