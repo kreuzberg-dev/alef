@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **dart**: suppress ordinary trait-bridge lifecycle wrappers so FRB only sees the generated
+  `{Trait}DartImpl` registration surface.
+
 ## [0.29.4] - 2026-06-27
 
 ### Changed
