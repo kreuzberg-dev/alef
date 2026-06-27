@@ -1,5 +1,5 @@
 use super::filtering::{apply_filters, expand_include_list, is_type_excluded};
-use super::sanitizer::{TypeSanitization, sanitize_type_ref};
+use super::sanitizer::{TypeSanitization, sanitize_type_ref, sanitize_unknown_types};
 use super::validation::validate_extracted_api;
 use crate::core::config::ResolvedCrateConfig;
 use crate::core::ir::{ApiSurface, TypeRef};
@@ -98,6 +98,100 @@ fn sanitize_named_unknown_type_returns_sanitized_true() {
     let sanitized = sanitize_type_ref(&mut ty, &AHashSet::default(), &AHashSet::default());
     assert!(sanitized.is_lossy());
     assert!(matches!(ty, TypeRef::String));
+}
+
+#[test]
+fn sanitize_field_type_path_rejects_same_name_from_different_crate() {
+    let mut api = ApiSurface {
+        types: vec![
+            crate::core::ir::TypeDef {
+                name: "UrlConfig".to_string(),
+                rust_path: "facade::UrlConfig".to_string(),
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "crawl".to_string(),
+                    ty: TypeRef::Named("CrawlConfig".to_string()),
+                    type_rust_path: Some("external_core::CrawlConfig".to_string()),
+                    ..crate::core::ir::FieldDef::default()
+                }],
+                ..crate::core::ir::TypeDef::default()
+            },
+            crate::core::ir::TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "facade::CrawlConfig".to_string(),
+                ..crate::core::ir::TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    };
+
+    sanitize_unknown_types(&mut api);
+
+    let field = &api.types[0].fields[0];
+    assert!(field.sanitized);
+    assert!(matches!(field.ty, TypeRef::String));
+}
+
+#[test]
+fn sanitize_field_type_path_accepts_same_crate_reexport_path() {
+    let mut api = ApiSurface {
+        types: vec![
+            crate::core::ir::TypeDef {
+                name: "Wrapper".to_string(),
+                rust_path: "sample::Wrapper".to_string(),
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("CrawlConfig".to_string()),
+                    type_rust_path: Some("sample::CrawlConfig".to_string()),
+                    ..crate::core::ir::FieldDef::default()
+                }],
+                ..crate::core::ir::TypeDef::default()
+            },
+            crate::core::ir::TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "sample::types::config::CrawlConfig".to_string(),
+                ..crate::core::ir::TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    };
+
+    sanitize_unknown_types(&mut api);
+
+    let field = &api.types[0].fields[0];
+    assert!(!field.sanitized);
+    assert!(matches!(field.ty, TypeRef::Named(ref name) if name == "CrawlConfig"));
+}
+
+#[test]
+fn sanitize_field_type_path_accepts_facade_reexport_path() {
+    let mut api = ApiSurface {
+        crate_name: "sample".to_string(),
+        types: vec![
+            crate::core::ir::TypeDef {
+                name: "Wrapper".to_string(),
+                rust_path: "sample::Wrapper".to_string(),
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "config".to_string(),
+                    ty: TypeRef::Named("CrawlConfig".to_string()),
+                    type_rust_path: Some("sample::CrawlConfig".to_string()),
+                    ..crate::core::ir::FieldDef::default()
+                }],
+                ..crate::core::ir::TypeDef::default()
+            },
+            crate::core::ir::TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "external_core::types::config::CrawlConfig".to_string(),
+                ..crate::core::ir::TypeDef::default()
+            },
+        ],
+        ..ApiSurface::default()
+    };
+
+    sanitize_unknown_types(&mut api);
+
+    let field = &api.types[0].fields[0];
+    assert!(!field.sanitized);
+    assert!(matches!(field.ty, TypeRef::Named(ref name) if name == "CrawlConfig"));
 }
 
 /// Vec<Named("unknown")> should still return sanitized=true (inner Named replaced with String).
@@ -388,6 +482,88 @@ fn expand_include_list_with_empty_functions_matches_legacy_behaviour() {
         !expanded.contains("Dropped"),
         "function not in include.functions must not pull in its return type; got: {expanded:?}"
     );
+}
+
+#[test]
+fn expand_include_list_does_not_follow_binding_excluded_fields() {
+    let surface = surface_with(
+        vec![
+            crate::core::ir::TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "external_core::CrawlConfig".to_string(),
+                fields: vec![
+                    crate::core::ir::FieldDef {
+                        name: "content".to_string(),
+                        ty: TypeRef::Named("ContentConfig".to_string()),
+                        ..crate::core::ir::FieldDef::default()
+                    },
+                    crate::core::ir::FieldDef {
+                        name: "dispatch".to_string(),
+                        ty: TypeRef::Optional(Box::new(TypeRef::Named("DispatchProfile".to_string()))),
+                        binding_excluded: true,
+                        ..crate::core::ir::FieldDef::default()
+                    },
+                ],
+                ..make_typedef("CrawlConfig")
+            },
+            make_typedef("ContentConfig"),
+            crate::core::ir::TypeDef {
+                name: "DispatchProfile".to_string(),
+                rust_path: "external_core::DispatchProfile".to_string(),
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "bypass".to_string(),
+                    ty: TypeRef::Optional(Box::new(TypeRef::Named("DynBypassProvider".to_string()))),
+                    ..crate::core::ir::FieldDef::default()
+                }],
+                ..make_typedef("DispatchProfile")
+            },
+            make_typedef("DynBypassProvider"),
+        ],
+        vec![],
+    );
+
+    let expanded = expand_include_list(&surface, &["CrawlConfig".to_string()], &[]);
+
+    assert!(expanded.contains("CrawlConfig"));
+    assert!(expanded.contains("ContentConfig"));
+    assert!(
+        !expanded.contains("DispatchProfile"),
+        "binding-excluded fields must not pull skipped internals into the public graph: {expanded:?}"
+    );
+    assert!(
+        !expanded.contains("DynBypassProvider"),
+        "nested internals behind binding-excluded fields must stay out: {expanded:?}"
+    );
+}
+
+#[test]
+fn normalize_field_type_paths_preserves_explicit_reexport_path() {
+    let mut surface = surface_with(
+        vec![
+            crate::core::ir::TypeDef {
+                name: "UrlConfig".to_string(),
+                rust_path: "facade::UrlConfig".to_string(),
+                fields: vec![crate::core::ir::FieldDef {
+                    name: "crawl".to_string(),
+                    ty: TypeRef::Named("CrawlConfig".to_string()),
+                    type_rust_path: Some("external_core::CrawlConfig".to_string()),
+                    ..crate::core::ir::FieldDef::default()
+                }],
+                ..make_typedef("UrlConfig")
+            },
+            crate::core::ir::TypeDef {
+                name: "CrawlConfig".to_string(),
+                rust_path: "external_core::types::config::CrawlConfig".to_string(),
+                ..make_typedef("CrawlConfig")
+            },
+        ],
+        vec![],
+    );
+
+    super::type_helpers::normalize_field_type_paths(&mut surface);
+
+    let field = &surface.types[0].fields[0];
+    assert_eq!(field.type_rust_path.as_deref(), Some("external_core::CrawlConfig"));
 }
 
 // ---------------------------------------------------------------------------

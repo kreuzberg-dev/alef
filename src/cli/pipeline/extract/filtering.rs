@@ -179,6 +179,9 @@ pub(super) fn expand_include_list(
         for type_name in &current {
             if let Some(typ) = all_types.get(type_name) {
                 for field in &typ.fields {
+                    if field.binding_excluded {
+                        continue;
+                    }
                     collect_named_types(&field.ty, &mut needed, &all_types, &all_enums, &mut changed);
                 }
                 for method in &typ.methods {

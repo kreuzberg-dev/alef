@@ -282,9 +282,10 @@ fn rewrite_path(path: &str, mappings: &HashMap<String, String>) -> String {
     path.to_string()
 }
 
-/// Rewrite each field's `type_rust_path` to the canonical `rust_path` of the same-named
-/// type or enum in the (post-dedup) surface. Keeps field references and their resolved type
-/// definitions in agreement so downstream path-compatibility checks don't spuriously fail.
+/// Fill missing field `type_rust_path` values from the canonical `rust_path` of the
+/// same-named type or enum in the (post-dedup) surface. Existing explicit field paths
+/// are preserved because they may intentionally point at a public re-export or an
+/// external source crate path.
 pub(super) fn normalize_field_type_paths(api: &mut ApiSurface) {
     // Innermost `Named` short name of a field type, looking through Optional/Vec/Map(value).
     fn named_name(ty: &TypeRef) -> Option<&str> {
@@ -307,11 +308,10 @@ pub(super) fn normalize_field_type_paths(api: &mut ApiSurface) {
     let fix = |fields: &mut Vec<FieldDef>| {
         for field in fields {
             if field.type_rust_path.is_none() {
-                continue;
-            }
-            if let Some(name) = named_name(&field.ty) {
-                if let Some(path) = canonical.get(name) {
-                    field.type_rust_path = Some(path.clone());
+                if let Some(name) = named_name(&field.ty) {
+                    if let Some(path) = canonical.get(name) {
+                        field.type_rust_path = Some(path.clone());
+                    }
                 }
             }
         }

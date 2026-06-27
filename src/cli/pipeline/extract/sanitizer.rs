@@ -1,17 +1,14 @@
 use crate::core::ir::{ApiSurface, TypeRef};
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 use tracing::info;
 
 pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
+    let api_crate_name = api.crate_name.replace('-', "_");
     let known_types: AHashSet<String> = api.types.iter().map(|t| t.name.clone()).collect();
     let known_enums: AHashSet<String> = api.enums.iter().map(|e| e.name.clone()).collect();
 
-    // Build a set of known rust_paths for types and enums.
-    // This enables disambiguation of types with the same short name but different
-    // module paths (e.g., `sample_core::types::OutputFormat` vs `sample_core::OutputFormat`).
-    // Normalize hyphens to underscores in paths for consistent comparison.
-    let known_type_paths: AHashSet<String> = api.types.iter().map(|t| t.rust_path.replace('-', "_")).collect();
-    let known_enum_paths: AHashSet<String> = api.enums.iter().map(|e| e.rust_path.replace('-', "_")).collect();
+    let known_type_paths = rust_paths_by_name(api.types.iter().map(|t| (&t.name, &t.rust_path)));
+    let known_enum_paths = rust_paths_by_name(api.enums.iter().map(|e| (&e.name, &e.rust_path)));
 
     for typ in &mut api.types {
         for field in &mut typ.fields {
@@ -23,44 +20,25 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
                 }
             }
             // Second pass: check type_rust_path for name-collision disambiguation.
-            // If a field has a type_rust_path that doesn't match any known type/enum rust_path,
-            // it references a different type that happens to share the same short name
-            // (e.g., crate::types::OutputFormat vs crate::core::config::OutputFormat).
+            // If a field has a type_rust_path that doesn't match the known type/enum
+            // rust_path for the same short name, it references a different type that
+            // happens to share the short name (e.g., external_core::CrawlConfig vs
+            // facade::CrawlConfig). Same-crate public re-export paths are accepted.
             if !field.sanitized {
-                if let Some(ref path) = field.type_rust_path {
-                    let normalized_path = path.replace('-', "_");
-                    if let TypeRef::Named(ref name) = field.ty {
-                        // Only check if the name matches a known type/enum — otherwise it's
-                        // already handled by the standard sanitization above.
-                        if known_types.contains(name.as_str()) || known_enums.contains(name.as_str()) {
-                            // Check if the full path's last segment matches any known type/enum path's last segment.
-                            // This handles cases where module paths differ but the type is the same
-                            // (e.g., crate::metadata::HtmlMetadata vs sample-markdown-rs::HtmlMetadata).
-                            let path_type_name = normalized_path.rsplit("::").next().unwrap_or("");
-                            let path_matches = known_type_paths
-                                .iter()
-                                .chain(known_enum_paths.iter())
-                                .any(|kp| kp.rsplit("::").next().unwrap_or("") == path_type_name);
-                            if !path_matches {
-                                field.ty = TypeRef::String;
-                                field.sanitized = true;
-                            }
-                        }
-                    }
-                    // Also check Named types inside Optional/Vec wrappers
-                    if let TypeRef::Vec(ref inner) = field.ty {
-                        if let TypeRef::Named(ref name) = **inner {
-                            let vec_path_type = normalized_path.rsplit("::").next().unwrap_or("");
-                            let vec_matches = known_type_paths
-                                .iter()
-                                .chain(known_enum_paths.iter())
-                                .any(|kp| kp.rsplit("::").next().unwrap_or("") == vec_path_type);
-                            if (known_types.contains(name.as_str()) || known_enums.contains(name.as_str()))
-                                && !vec_matches
-                            {
-                                field.ty = TypeRef::String;
-                                field.sanitized = true;
-                            }
+                if let Some(path) = field.type_rust_path.as_deref() {
+                    if let Some(name) = named_type_name(&field.ty) {
+                        let known_name = known_types.contains(name) || known_enums.contains(name);
+                        if known_name
+                            && !field_path_matches_known_type(
+                                path,
+                                name,
+                                &known_type_paths,
+                                &known_enum_paths,
+                                &api_crate_name,
+                            )
+                        {
+                            field.ty = TypeRef::String;
+                            field.sanitized = true;
                         }
                     }
                 }
@@ -142,6 +120,57 @@ pub(super) fn sanitize_unknown_types(api: &mut ApiSurface) {
             }
         }
     }
+}
+
+fn rust_paths_by_name<'a>(items: impl Iterator<Item = (&'a String, &'a String)>) -> AHashMap<String, Vec<String>> {
+    let mut paths = AHashMap::new();
+    for (name, path) in items {
+        paths
+            .entry(name.clone())
+            .or_insert_with(Vec::new)
+            .push(path.replace('-', "_"));
+    }
+    paths
+}
+
+fn named_type_name(ty: &TypeRef) -> Option<&str> {
+    match ty {
+        TypeRef::Named(name) => Some(name.as_str()),
+        TypeRef::Optional(inner) | TypeRef::Vec(inner) => named_type_name(inner),
+        TypeRef::Map(_, value) => named_type_name(value),
+        _ => None,
+    }
+}
+
+fn field_path_matches_known_type(
+    field_path: &str,
+    name: &str,
+    known_type_paths: &AHashMap<String, Vec<String>>,
+    known_enum_paths: &AHashMap<String, Vec<String>>,
+    api_crate_name: &str,
+) -> bool {
+    let field_path = field_path.replace('-', "_");
+    known_type_paths
+        .get(name)
+        .into_iter()
+        .chain(known_enum_paths.get(name))
+        .flatten()
+        .any(|known_path| paths_compatible(&field_path, known_path, api_crate_name))
+}
+
+fn paths_compatible(a: &str, b: &str, api_crate_name: &str) -> bool {
+    if a == b {
+        return true;
+    }
+
+    let a_root = a.split("::").next().unwrap_or("");
+    let b_root = b.split("::").next().unwrap_or("");
+    let a_name = a.rsplit("::").next().unwrap_or("");
+    let b_name = b.rsplit("::").next().unwrap_or("");
+    if a_name != b_name {
+        return false;
+    }
+    a_root == b_root || a_root == api_crate_name
 }
 
 pub(super) fn strip_binding_excluded(api: &mut ApiSurface) -> anyhow::Result<()> {
