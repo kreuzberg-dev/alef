@@ -10,6 +10,9 @@ use ahash::{AHashMap, AHashSet};
 
 use super::enums::{EmitContext, class_name_to_docstring, sanitize_python_doc};
 
+mod typeddict;
+use typeddict::gen_typeddict;
+
 /// Convert a Rust variant name to snake_case for Python enum members (PEP 8),
 /// escaping any result that collides with a Python reserved keyword or `str` method name
 /// (e.g. `Del` → `del_`, `Title` → `title_`).
@@ -176,12 +179,10 @@ pub(super) fn gen_options_py(
         .collect();
     native_type_imports.sort();
 
-    // Enums (needed_enums) — both unit enums and data enums (tagged unions) — are imported at runtime
-    // from the native module and referenced by class name in config-field annotations (e.g.
-    // `model: EmbeddingModelType | None`), so the field type is the same class users construct via
-    // `EmbeddingModelType.plugin(...)`, not a flattened union alias. A runtime import (not just
-    // TYPE_CHECKING) keeps the annotation resolvable and importable from the options module. Some
-    // enums are reached only transitively through data-enum variants, so derive from needed_enums.
+    // Enums (unit AND data) are imported at runtime from the native module and referenced by class
+    // name in field annotations (`model: EmbeddingModelType | None`) — the class users construct,
+    // not a flattened alias. A runtime import keeps the annotation resolvable. Some enums are reached
+    // only transitively through data-enum variants, so derive from needed_enums.
     let mut runtime_native_imports: Vec<String> = needed_enums.iter().cloned().collect();
     runtime_native_imports.sort();
     runtime_native_imports.dedup();
@@ -492,113 +493,9 @@ pub(super) fn gen_options_py(
         }
     }
 
-    // Data enums are NOT redefined here as flattened union aliases (e.g. the old
-    // `EmbeddingModelType = str | int | LlmConfig`). They are imported from the native module
-    // (TYPE_CHECKING) and referenced by their class name in field annotations above, so the
-    // options-module type matches the public `_xberg` class that users actually construct.
+    // Data enums are imported from the native module and referenced by their class name in the
+    // field annotations above — not redefined here as the old flattened union alias.
 
-    out
-}
-
-/// Generate a `TypedDict` class for a return type.
-///
-/// TypedDict is emitted with `total=False` because all fields are optional at the
-/// call site — the caller may receive only a subset of keys.  Default values are
-/// not supported by TypedDict, so we only emit field name + type hint.
-///
-/// ```python
-/// class ParseOutput(TypedDict, total=False):
-///     """One-line doc."""
-///
-///     content: str | None
-///     tables: list[ExtractedTable]
-/// ```
-fn gen_typeddict(
-    typ: &crate::core::ir::TypeDef,
-    enum_names: &AHashSet<&str>,
-    data_enum_names: &AHashSet<&str>,
-    str_coercible_data_enums: &AHashSet<&str>,
-) -> String {
-    let mut out = String::new();
-    out.push_str(&crate::backends::pyo3::template_env::render(
-        "typeddict_header.jinja",
-        minijinja::context! { name => &typ.name },
-    ));
-    let typeddict_doc = if !typ.doc.is_empty() {
-        let raw = doc_first_paragraph_joined(&typ.doc);
-        let first = sanitize_python_doc(&raw);
-        let content = if first.len() > 89 {
-            first[..89].to_string()
-        } else {
-            first
-        };
-        if content.ends_with(['.', '?', '!']) {
-            content
-        } else {
-            format!("{}.", content)
-        }
-    } else {
-        class_name_to_docstring(&typ.name)
-    };
-    out.push_str(&crate::backends::pyo3::template_env::render(
-        "class_docstring.jinja",
-        minijinja::context! { doc => &typeddict_doc },
-    ));
-    for field in binding_fields(&typ.fields) {
-        let type_hint = python_field_type(
-            &field.ty,
-            field.optional,
-            enum_names,
-            data_enum_names,
-            str_coercible_data_enums,
-            EmitContext::OptionsModule,
-        );
-        // Ensure Optional-like fields always include `| None`. Guard on the absence of `None`
-        // rather than any `|`, so a str-coercible data enum (`<Class> | str`) still gains `| None`.
-        let type_hint_with_none = if field.optional && !type_hint.contains("None") {
-            if matches!(&field.ty, crate::core::ir::TypeRef::Named(_)) {
-                format!("{} | None", type_hint)
-            } else {
-                type_hint
-            }
-        } else {
-            type_hint
-        };
-        let safe_name = crate::core::keywords::python_ident(&field.name);
-        if !field.doc.is_empty() {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field.jinja",
-                minijinja::context! {
-                    name => &safe_name,
-                    type_hint => &type_hint_with_none,
-                },
-            ));
-            out.push('\n');
-            let doc_line = sanitize_python_doc(&doc_first_paragraph_joined(&field.doc));
-            // A triple-quoted docstring that ends with `"` would produce `""""` (4 quotes),
-            // which Python parses as an empty string followed by a stray `"`.
-            // Add a trailing space to prevent the collision.
-            let safe_doc = if doc_line.ends_with('"') {
-                format!("{doc_line} ")
-            } else {
-                doc_line
-            };
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field_docstring.jinja",
-                minijinja::context! { doc => &safe_doc },
-            ));
-        } else {
-            out.push_str(&crate::backends::pyo3::template_env::render(
-                "typeddict_field.jinja",
-                minijinja::context! {
-                    name => &safe_name,
-                    type_hint => &type_hint_with_none,
-                },
-            ));
-            out.push('\n');
-        }
-    }
-    out.push('\n');
     out
 }
 
