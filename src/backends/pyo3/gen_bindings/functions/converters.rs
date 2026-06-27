@@ -44,6 +44,11 @@ pub(super) fn emit_converters(
         let is_typeddict = output_style == PythonDtoStyle::TypedDict
             && typ.is_return_type
             && !reexported_names.contains(type_name.as_str());
+        // A reexported-native type IS the native class — the str/dict branches above already turned
+        // the input into a `_rust.{type_name}` instance, and an already-native input is itself the
+        // result. Reconstructing it field-by-field would call `_to_rust_*` on fields that are already
+        // native (a type error). So the converter returns the value directly instead.
+        let is_reexported = reexported_names.contains(type_name.as_str());
 
         // Helper: emit `value.field` or `value.get("field")` depending on the type kind.
         let field_access = |name: &str| -> String {
@@ -397,6 +402,11 @@ pub(super) fn emit_converters(
                 type_name => type_name,
             },
         ));
+        if is_reexported {
+            // `value` is already the native class — return it without field-by-field reconstruction.
+            out.push_str("    return value\n\n\n");
+            continue;
+        }
         out.push_str(&crate::backends::pyo3::template_env::render(
             "converters/return_constructed.jinja",
             minijinja::context! {
