@@ -10,14 +10,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **snippets**: `typecheck` validation level. Ordered between `compile` and `run`, it statically
-  type-checks a snippet without executing it — running `python -m mypy` for Python so the example is
-  checked against the installed package's type stubs. This catches dual-representation mistakes (a
-  config field typed against a flattened union alias that rejects the documented data-enum
-  constructor) that `py_compile` cannot see. Languages whose compiler already type-checks (Rust, Go,
-  TypeScript via `tsc`, the JVM and native toolchains) map the level onto their existing compile
-  path, and a matching `snippet:typecheck-only` ceiling annotation sits alongside `syntax-only` and
-  `compile-only`. mypy is optional: when it is not installed the snippet is reported as unavailable
-  rather than failing.
+  type-checks a snippet without executing it, and for compiled languages without needing the native
+  library. Each language runs its strict static checker: `python -m mypy`, `tsc --noEmit`,
+  `cargo check`, `go vet`, `javac -Xlint:all -Werror`, `dotnet build -warnaserror`,
+  `swiftc -typecheck -warnings-as-errors`, `kotlinc -Werror`, `dart analyze --fatal-infos`, and
+  `cc -fsyntax-only -Wall -Werror`. This catches dual-representation mistakes (a config field typed
+  against a flattened union alias that rejects the documented data-enum constructor) that
+  `py_compile` and a lenient compile cannot see. A matching `snippet:typecheck-only` ceiling
+  annotation sits alongside `syntax-only` and `compile-only`. mypy is optional: when it is not
+  installed the Python snippet is reported as unavailable rather than failing.
 
 ### Fixed
 
