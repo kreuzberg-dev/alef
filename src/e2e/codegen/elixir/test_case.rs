@@ -121,11 +121,6 @@ pub(super) fn render_test_case(
     } else {
         super::values::elixir_module_name(&raw_module)
     };
-    let function_name = if call_config.r#async && !base_fn.ends_with("_async") && !base_fn.ends_with("_stream") {
-        format!("{base_fn}_async")
-    } else {
-        base_fn
-    };
     let result_var = call_config.result_var.clone();
 
     let expects_error = fixture.assertions.iter().any(|a| a.assertion_type == "error");
@@ -221,6 +216,11 @@ pub(super) fn render_test_case(
             .get("elixir")
             .and_then(|o| o.client_factory.as_deref())
     });
+    let function_name = if call_config.r#async && client_factory.is_some() && !base_fn.ends_with("_async") {
+        format!("{base_fn}_async")
+    } else {
+        base_fn
+    };
 
     // Append per-call extra_args (e.g. trailing `nil` for `list_files(client, query)`)
     // so Elixir matches the binding's positional arity. Mirrors the same override the

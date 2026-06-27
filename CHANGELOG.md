@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **e2e**: keep public Ruby and Elixir test calls on configured method names and
+  resolve `$mock_url` placeholders inside typed JSON-array arguments across
+  generated language e2e suites.
+
 - **ffi**: honor `[crates.ffi].exclude_types` when generating `cbindgen.toml`.
   Excluded Rust-only helper DTOs are now omitted from the header prelude forward
   declarations and emitted in `[export].exclude`, keeping C and cgo headers from

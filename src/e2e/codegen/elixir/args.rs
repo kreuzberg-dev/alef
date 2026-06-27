@@ -391,6 +391,27 @@ pub(super) fn build_args_and_setup(
                         // When element_type is set to a simple type (e.g. Vec<String>).
                         // The NIF accepts an Elixir list directly - emit one.
                         if v.is_array() {
+                            if crate::e2e::codegen::value_contains_mock_url_placeholder(v) {
+                                let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                                let base_var = format!("{}_mock_base_url", arg.name);
+                                let json_var = format!("{}_json", arg.name);
+                                let value_var = format!("{}_value", arg.name);
+                                let formatted = json_to_elixir(v);
+                                setup_lines.push(format!(
+                                    "{base_var} = System.get_env(\"{env_key}\") || \"#{{System.get_env(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                                ));
+                                setup_lines.push(format!(
+                                    "{json_var} = Jason.encode!({formatted}) |> String.replace(\"{}\", {base_var})",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                ));
+                                setup_lines.push(format!("{value_var} = Jason.decode!({json_var})"));
+                                if arg.optional {
+                                    parts.push(format!("{}: {value_var}", arg.name));
+                                } else {
+                                    parts.push(value_var);
+                                }
+                                continue;
+                            }
                             let formatted = json_to_elixir(v);
                             if arg.optional {
                                 parts.push(format!("{}: {formatted}", arg.name));

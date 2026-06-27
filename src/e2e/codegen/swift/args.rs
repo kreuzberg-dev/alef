@@ -268,11 +268,32 @@ pub(super) fn build_args_and_setup(
                         // For each JSON item in the array, call the helper to deserialize it
                         let json_strs: Vec<String> =
                             arr.iter().filter_map(|item| serde_json::to_string(item).ok()).collect();
+                        let mock_base_var = if arr.iter().any(crate::e2e::codegen::value_contains_mock_url_placeholder)
+                        {
+                            let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                            let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                            setup_lines.push(format!(
+                                "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                            ));
+                            Some(base_var)
+                        } else {
+                            None
+                        };
 
                         let mut item_vars = Vec::new();
                         for (i, json_str) in json_strs.iter().enumerate() {
                             let escaped = escape_swift(json_str);
                             let item_var = format!("_item_{var_name}_{i}");
+                            let json_expr = if let Some(base_var) = mock_base_var.as_deref()
+                                && json_str.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                            {
+                                format!(
+                                    "\"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                                    crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                                )
+                            } else {
+                                format!("\"{escaped}\"")
+                            };
                             // Call the wrapper-module's `{type}FromJson` helper rather than the
                             // raw `RustBridge` one so the resulting element is the
                             // wrapper-module's `PageAction` (etc.), matching the type the
@@ -280,7 +301,7 @@ pub(super) fn build_args_and_setup(
                             // `RustBridge.{type}FromJson` which understands the
                             // serde(tag = "type") format.
                             setup_lines.push(format!(
-                                "let {item_var} = try {module_name}.{from_json_fn}(\"{escaped}\")"
+                                "let {item_var} = try {module_name}.{from_json_fn}({json_expr})"
                             ));
                             item_vars.push(item_var);
                         }
@@ -305,6 +326,41 @@ pub(super) fn build_args_and_setup(
                 }
             }
             continue;
+        }
+
+        if arg.arg_type == "json_object" && arg.element_type.as_deref() == Some("String") {
+            let field = arg.field.strip_prefix("input.").unwrap_or(&arg.field);
+            if let Some(serde_json::Value::Array(arr)) = input.get(field) {
+                let mock_base_var = if arr.iter().any(crate::e2e::codegen::value_contains_mock_url_placeholder) {
+                    let env_key = crate::e2e::codegen::mock_url_env_key(fixture_id);
+                    let base_var = format!("{}MockBaseUrl", arg.name.to_lower_camel_case());
+                    setup_lines.push(format!(
+                        "let {base_var} = ProcessInfo.processInfo.environment[\"{env_key}\"] ?? (AlefE2EMockServer.baseURL + \"/fixtures/{fixture_id}\")"
+                    ));
+                    Some(base_var)
+                } else {
+                    None
+                };
+                let items: Vec<String> = arr
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .map(|raw| {
+                        let escaped = escape_swift(raw);
+                        if let Some(base_var) = mock_base_var.as_deref()
+                            && raw.contains(crate::e2e::codegen::MOCK_URL_PLACEHOLDER)
+                        {
+                            format!(
+                                "\"{escaped}\".replacingOccurrences(of: \"{}\", with: {base_var})",
+                                crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                            )
+                        } else {
+                            format!("\"{escaped}\"")
+                        }
+                    })
+                    .collect();
+                parts.push((idx, format!("[{}]", items.join(", "))));
+                continue;
+            }
         }
 
         // json_object non-config args with options_via = "from_json":

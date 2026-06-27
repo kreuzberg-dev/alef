@@ -177,10 +177,34 @@ pub(super) fn build_args_string(
                     } else {
                         json_to_r(val, false)
                     };
+                    if crate::e2e::codegen::value_contains_mock_url_placeholder(val) {
+                        let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+                        let base_var = format!(".{}_mock_base_url", arg_name);
+                        setup_lines.push(format!(
+                            "{base_var} <- Sys.getenv(\"{env_key}\", unset = paste0(Sys.getenv(\"MOCK_SERVER_URL\"), \"/fixtures/{}\"))",
+                            fixture.id
+                        ));
+                        return Some(format!(
+                            "{arg_name} = gsub(\"{}\", {base_var}, {r_value}, fixed = TRUE)",
+                            crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                        ));
+                    }
                     return Some(format!("{arg_name} = {r_value}"));
                 }
                 let json_literal = serde_json::to_string(val).unwrap_or_else(|_| "[]".to_string());
                 let escaped = escape_r(&json_literal);
+                if crate::e2e::codegen::value_contains_mock_url_placeholder(val) {
+                    let env_key = crate::e2e::codegen::mock_url_env_key(&fixture.id);
+                    let base_var = format!(".{}_mock_base_url", arg_name);
+                    setup_lines.push(format!(
+                        "{base_var} <- Sys.getenv(\"{env_key}\", unset = paste0(Sys.getenv(\"MOCK_SERVER_URL\"), \"/fixtures/{}\"))",
+                        fixture.id
+                    ));
+                    return Some(format!(
+                        "{arg_name} = gsub(\"{}\", {base_var}, \"{escaped}\", fixed = TRUE)",
+                        crate::e2e::codegen::MOCK_URL_PLACEHOLDER
+                    ));
+                }
                 return Some(format!("{arg_name} = \"{escaped}\""));
             }
             // `bytes` arg type: convert string fixture values into runtime
