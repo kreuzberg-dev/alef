@@ -64,15 +64,23 @@ pub(super) fn replace_constructor_with_serde_rename(
         if !typ.has_default || field.optional || matches!(&field.ty, TypeRef::Optional(_)) {
             return false;
         }
-        if let TypeRef::Named(ref type_name) = field.ty {
-            api.types
-                .iter()
-                .find(|t| t.name == *type_name)
-                .map(|t| t.has_default)
-                .unwrap_or(false)
-        } else {
-            false
+        let TypeRef::Named(ref type_name) = field.ty else {
+            return false;
+        };
+        // A nested struct with its own `Default`.
+        if api.types.iter().any(|t| t.name == *type_name && t.has_default) {
+            return true;
         }
+        // A data enum (tagged union — it lives in `api.enums`, not `api.types`) carried with a serde
+        // default. Such a field is None-able in the public surface, so its `#[new]` param is `Option<T>`
+        // (None falls back to the core default via `unwrap_or_else`). This lets the converter pass the
+        // coerced value or None directly rather than a conditional `**{...}` keyword-spread that no
+        // type checker can verify.
+        field.default.as_deref() == Some("/* serde(default) */")
+            && api
+                .enums
+                .iter()
+                .any(|e| e.name == *type_name && crate::codegen::generators::enum_has_data_variants(e))
     }
 
     // Check if this type has an options-field bridge (e.g., ParseOptions.visitor).
