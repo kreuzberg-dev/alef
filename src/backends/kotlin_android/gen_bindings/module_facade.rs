@@ -80,7 +80,10 @@ pub(super) fn emit_module_kt(
     let visible_functions: Vec<_> = api
         .functions
         .iter()
-        .filter(|f| !exclude_functions.contains(f.name.as_str()))
+        .filter(|f| {
+            !exclude_functions.contains(f.name.as_str())
+                && !trait_bridge_manages_android_function(f.name.as_str(), config)
+        })
         .collect();
 
     // Collect "handle shape" types: every opaque non-trait type that is NOT
@@ -749,6 +752,15 @@ pub(super) fn emit_module_kt(
         content,
         generated_header: false,
     });
+}
+
+fn trait_bridge_manages_android_function(func_name: &str, config: &ResolvedCrateConfig) -> bool {
+    config.trait_bridges.iter().any(|bridge| {
+        !bridge.exclude_languages.iter().any(|lang| lang == "kotlin_android")
+            && (bridge.register_fn.as_deref() == Some(func_name)
+                || bridge.unregister_fn.as_deref() == Some(func_name)
+                || bridge.clear_fn.as_deref() == Some(func_name))
+    })
 }
 
 fn jni_return_type_str(ty: &crate::core::ir::TypeRef) -> &'static str {

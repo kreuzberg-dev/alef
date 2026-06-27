@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **java/kotlin-android**: route configured trait-bridge lifecycle functions through the generated
+  bridge APIs instead of also emitting ordinary FFI wrappers. This keeps raw Rust functions such as
+  `register_document_extractor` from shadowing typed host interfaces (`IDocumentExtractor`,
+  `IRenderer`) with dangling `DocumentExtractor`/`Renderer` parameter types or JSON-string JNI
+  declarations.
+
 ## [0.29.3] - 2026-06-26
 
 ### Fixed
