@@ -52,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   as the generated Rust bridge crate, including default cfg passthrough
   features.
 
+- **swift**: wrap method-shim DTO returns for `Option<&T>` and `Vec<T>`, and
+  pass `&Path` method parameters as borrowed paths instead of owned `PathBuf`s.
+
 - **pyo3/magnus/wasm**: delegate generated binding defaults for defaultable
   DTOs to the core Rust `Default` impl so omitted nested config fields keep
   semantic core defaults.

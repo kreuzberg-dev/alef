@@ -219,6 +219,11 @@ pub(crate) fn emit_type_method_shims(
                     TypeRef::Named(n) if !unit_enum_names.contains(n.as_str()) => format!("{name}.0"),
                     TypeRef::Named(n) if unit_enum_names.contains(n.as_str()) => name,
                     TypeRef::String => format!("&{name}"),
+                    TypeRef::Path if p.optional && p.is_ref => {
+                        format!("{name}.as_ref().map(::std::path::Path::new)")
+                    }
+                    TypeRef::Path if p.optional => format!("{name}.map(::std::path::PathBuf::from)"),
+                    TypeRef::Path if p.is_ref => format!("::std::path::Path::new(&{name})"),
                     TypeRef::Path => format!("::std::path::PathBuf::from({name})"),
                     TypeRef::Bytes if p.is_ref => format!("&{name}"),
                     TypeRef::Vec(_)
@@ -267,19 +272,34 @@ pub(crate) fn emit_type_method_shims(
                 TypeRef::Named(t) => format!("{t}({source})"),
                 TypeRef::Optional(inner) => {
                     if let TypeRef::Named(t) = inner.as_ref() {
-                        format!("({source}).map({t})")
+                        if method.returns_ref {
+                            format!("({source}).map(|v| {t}(v.clone()))")
+                        } else {
+                            format!("({source}).map({t})")
+                        }
                     } else {
                         source
                     }
                 }
-                TypeRef::String => format!("{source}.to_string()"),
-                TypeRef::Path => format!("{source}.to_string_lossy().into_owned()"),
                 // Trait methods that return `&[&str]` (Vec<String> + returns_ref)
                 // can't be bridged to swift's `Vec<String>` without copying each
                 // element to owned `String`.
                 TypeRef::Vec(inner) if method.returns_ref && matches!(inner.as_ref(), TypeRef::String) => {
                     format!("{source}.iter().map(|s| s.to_string()).collect()")
                 }
+                TypeRef::Vec(inner) => {
+                    if let TypeRef::Named(t) = inner.as_ref() {
+                        if method.returns_ref {
+                            format!("({source}).iter().map(|v| {t}(v.clone())).collect()")
+                        } else {
+                            format!("({source}).into_iter().map({t}).collect()")
+                        }
+                    } else {
+                        source
+                    }
+                }
+                TypeRef::String => format!("{source}.to_string()"),
+                TypeRef::Path => format!("{source}.to_string_lossy().into_owned()"),
                 _ => source,
             }
         };

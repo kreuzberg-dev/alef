@@ -2146,6 +2146,92 @@ fn path_param_on_method_converts_to_pathbuf() {
     );
 }
 
+/// Method with a `Path` param where `is_ref = true` must pass `&Path`, not owned `PathBuf`.
+#[test]
+fn path_ref_param_on_method_converts_to_path_ref() {
+    let mut dir_param = make_param("dir", TypeRef::Path);
+    dir_param.is_ref = true;
+    let extend_method = make_simple_method("extend_from_dir", vec![dir_param], TypeRef::Unit);
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![make_opaque_type("Registry", vec![extend_method])],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content
+            .contains("client.0.extend_from_dir(::std::path::Path::new(&dir))"),
+        "Path ref param must convert via Path::new(&dir); got:\n{}",
+        lib.content
+    );
+    assert!(
+        !lib.content.contains("extend_from_dir(::std::path::PathBuf::from(dir))"),
+        "Path ref param must not pass owned PathBuf; got:\n{}",
+        lib.content
+    );
+}
+
+/// Method return shims must wrap first-class DTO returns, including references and vectors.
+#[test]
+fn named_method_returns_wrap_optional_refs_and_vectors() {
+    let mut get_method = make_simple_method(
+        "get",
+        vec![make_param("id", TypeRef::String)],
+        TypeRef::Optional(Box::new(TypeRef::Named("Preset".to_string()))),
+    );
+    get_method.returns_ref = true;
+    let summaries_method = make_simple_method(
+        "summaries",
+        vec![],
+        TypeRef::Vec(Box::new(TypeRef::Named("PresetSummary".to_string()))),
+    );
+
+    let api = ApiSurface {
+        crate_name: "demo".into(),
+        version: "0.1.0".into(),
+        types: vec![
+            make_type("Preset", vec![make_field("id", TypeRef::String)]),
+            make_type("PresetSummary", vec![make_field("id", TypeRef::String)]),
+            make_opaque_type("Registry", vec![get_method, summaries_method]),
+        ],
+        functions: vec![],
+        enums: vec![],
+        errors: vec![],
+        excluded_type_paths: ::std::collections::HashMap::new(),
+        excluded_trait_names: ::std::collections::HashSet::new(),
+        services: vec![],
+        handler_contracts: vec![],
+        unsupported_public_items: Vec::new(),
+    };
+
+    let files = gen_rust_crate::emit(&api, &make_config()).unwrap();
+    let lib = files.iter().find(|f| f.path.ends_with("lib.rs")).unwrap();
+
+    assert!(
+        lib.content.contains("(client.0.get(&id)).map(|v| Preset(v.clone()))"),
+        "Optional ref DTO return must clone and wrap; got:\n{}",
+        lib.content
+    );
+    assert!(
+        lib.content
+            .contains("(client.0.summaries()).into_iter().map(PresetSummary).collect()"),
+        "Vec DTO return must wrap each element; got:\n{}",
+        lib.content
+    );
+}
+
 /// Method with a `Named` param where `is_ref = true` must pass `&name.0` not `name.0`.
 /// This is Class B bug 3.
 #[test]
