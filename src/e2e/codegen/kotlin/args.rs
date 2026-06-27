@@ -347,7 +347,7 @@ pub(super) fn build_args_and_setup(
                             let base_var = format!("{}MockBaseUrl", arg.name);
                             let json_var = format!("{}Json", var_name);
                             setup_lines.push(format!(
-                                "val {base_var} = System.getProperty(\"{env_key}\") ?: \"${{System.getProperty(\"MOCK_SERVER_URL\")}}/fixtures/{fixture_id}\""
+                                "val {base_var} = System.getProperty(\"mockServer.{fixture_id}\", System.getenv(\"{env_key}\") ?: ((System.getProperty(\"mockServerUrl\", System.getenv(\"MOCK_SERVER_URL\") ?: \"\") ?: \"\") + \"/fixtures/{fixture_id}\"))"
                             ));
                             setup_lines.push(format!(
                                 "val {json_var} = \"{}\".replace(\"{}\", {base_var})",
