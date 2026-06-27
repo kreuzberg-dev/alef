@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **go/java**: avoid callback return local-name collisions in generated trait
+  bridges when a method parameter is named `result`.
+
 - **ffi**: keep cbindgen forward declarations for live binding DTOs when cfg-gated
   skipped duplicates leave older entries in Alef's excluded type-path map.
 

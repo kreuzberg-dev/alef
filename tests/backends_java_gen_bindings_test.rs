@@ -167,11 +167,11 @@ fn trait_bridge_string_return_is_not_json_quoted() {
         .as_str();
 
     assert!(
-        bridge.contains("MemorySegment jsonCs = arena.allocateFrom(result);"),
+        bridge.contains("MemorySegment jsonCs = arena.allocateFrom(callbackResult);"),
         "Java trait callback string returns must pass raw UTF-8 through: {bridge}"
     );
     assert!(
-        !bridge.contains("String json = JSON.writeValueAsString(result);"),
+        !bridge.contains("String json = JSON.writeValueAsString(callbackResult);"),
         "Java trait callback string returns must not be JSON-quoted: {bridge}"
     );
 }
