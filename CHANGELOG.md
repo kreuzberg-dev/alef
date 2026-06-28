@@ -27,10 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   crate — neither by naming the private field nor by patching it with `..Default::default()` — so
   the conversion now seeds the core type's `Default` (which fills the private fields inside the
   defining crate) and assigns only the public fields onto it. The strategy is centralized in a
-  shared helper used by the pyo3/napi/wasm/extendr/rustler/magnus generator and the Dart mirror
-  crate generator; when the core type has private fields but no `Default`, a `compile_error!`
-  guides the author to derive `Default`. A new `has_private_fields` flag on struct IR records the
-  condition during extraction.
+  shared helper used by the pyo3/napi/wasm/extendr/rustler/magnus generator, the Dart mirror crate
+  generator, and the PHP enum-tainted conversion path; when the core type has private fields but no
+  `Default`, a `compile_error!` guides the author to derive `Default`. A new `has_private_fields`
+  flag on struct IR records the condition during extraction.
+- **php**: marshal owned (by-value) native-struct callback parameters by value rather than
+  dereferencing them as a borrow (`(*input)` does not type-check on an owned `core::T`), and stop
+  emitting the native-object return fast-path — a PHP `#[php_class]` binding struct implements
+  `FromZvalMut` (for `&mut T`) but not `FromZval` (for `T`), so the bridge keeps the JSON return
+  path that is well-defined for PHP.
 - **pyo3**: marshal owned (by-value) native-struct callback parameters into the host's native
   binding object via `From<core::T>`, the same way borrowed ones already were. A trait method that
   takes a serde struct by value (e.g. an extraction-input envelope) previously passed the raw
