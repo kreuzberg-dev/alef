@@ -18,6 +18,7 @@ __pycache__/
 # Additional generated artifacts
 .remote-cache/
 .alef/
+.ai-rulez/.generated-manifest.json
 .gemini/
 GEMINI.md
 
