@@ -44,6 +44,59 @@ jobs:
       - name: Check Cargo.toml sorting
         run: cargo sort --check --workspace
 
+  snippet-typecheck:
+    name: Snippet typecheck
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: xberg-io/actions/setup-rust@v1
+        with:
+          install-llvm-cov: "false"
+          cache-key-prefix: ci-snippet-typecheck
+      - name: Install snippet typecheck tools
+        run: |
+          python3 -m pip install --upgrade mypy
+          npm install --global typescript
+      - name: Python typecheck accepts valid snippets
+        run: |
+          cat > /tmp/python-valid.md <<'EOF'
+          ```python
+          value: int = 1
+          ```
+          EOF
+          cargo run -- snippets validate -s /tmp/python-valid.md -L typecheck --languages python
+      - name: Python typecheck rejects broken snippets
+        run: |
+          cat > /tmp/python-broken.md <<'EOF'
+          ```python
+          value: int = "wrong"
+          ```
+          EOF
+          if cargo run -- snippets validate -s /tmp/python-broken.md -L typecheck --languages python; then
+            echo "expected Python typecheck to fail"
+            exit 1
+          fi
+      - name: TypeScript typecheck accepts valid snippets
+        run: |
+          cat > /tmp/typescript-valid.md <<'EOF'
+          ```typescript
+          const value: number = 1;
+          ```
+          EOF
+          cargo run -- snippets validate -s /tmp/typescript-valid.md -L typecheck --languages typescript
+      - name: TypeScript typecheck rejects broken snippets
+        run: |
+          cat > /tmp/typescript-broken.md <<'EOF'
+          ```typescript
+          const value: number = "wrong";
+          ```
+          EOF
+          if cargo run -- snippets validate -s /tmp/typescript-broken.md -L typecheck --languages typescript; then
+            echo "expected TypeScript typecheck to fail"
+            exit 1
+          fi
+
   test:
     name: Test (${{ matrix.os }})
     needs: validate
