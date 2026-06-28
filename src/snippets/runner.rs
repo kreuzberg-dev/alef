@@ -207,20 +207,36 @@ mod tests {
 
     #[test]
     fn unavailable_remains_nonfatal_for_syntax_level() {
-        assert_eq!(unavailable_status(&config(ValidationLevel::Syntax)), SnippetStatus::Unavailable);
-        assert_eq!(unavailable_status(&config(ValidationLevel::Compile)), SnippetStatus::Unavailable);
+        assert_eq!(
+            unavailable_status(&config(ValidationLevel::Syntax)),
+            SnippetStatus::Unavailable
+        );
+        assert_eq!(
+            unavailable_status(&config(ValidationLevel::Compile)),
+            SnippetStatus::Unavailable
+        );
     }
 
     #[test]
     fn unavailable_is_error_for_typecheck_or_stronger() {
-        assert_eq!(unavailable_status(&config(ValidationLevel::TypeCheck)), SnippetStatus::Error);
-        assert_eq!(unavailable_status(&config(ValidationLevel::Run)), SnippetStatus::Error);
+        assert_eq!(
+            unavailable_status(&config(ValidationLevel::TypeCheck)),
+            SnippetStatus::Error
+        );
+        assert_eq!(
+            unavailable_status(&config(ValidationLevel::Run)),
+            SnippetStatus::Error
+        );
     }
 
     #[test]
     fn missing_validator_is_unavailable_for_syntax_level() {
         let registry = ValidatorRegistry::new();
-        let result = validate_one(&snippet(Language::Unknown), &registry, &config(ValidationLevel::Syntax));
+        let result = validate_one(
+            &snippet(Language::Unknown),
+            &registry,
+            &config(ValidationLevel::Syntax),
+        );
         assert_eq!(result.status, SnippetStatus::Unavailable);
     }
 
