@@ -5,13 +5,15 @@ use crate::codegen::builder::ImplBuilder;
 use crate::codegen::type_mapper::TypeMapper;
 use crate::codegen::{generators, naming::to_node_name, shared};
 use crate::core::config::TraitBridgeConfig;
-use crate::core::ir::{ApiSurface, EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
+use crate::core::ir::{EnumDef, FieldDef, MethodDef, ReceiverKind, TypeDef, TypeRef};
 use ahash::AHashSet;
 use heck::ToPascalCase;
 
 use super::functions::{emit_rustdoc, format_param_unused, gen_wasm_unimplemented_body, wasm_wrap_return};
 use super::methods::gen_method;
 
+#[path = "types_helpers.rs"]
+mod types_helpers;
 #[path = "types_unit_enum.rs"]
 mod types_unit_enum;
 
@@ -19,73 +21,11 @@ mod types_unit_enum;
 #[path = "types_tests.rs"]
 mod types_tests;
 
+pub(in crate::backends::wasm::gen_bindings) use types_helpers::filter_cfg_fields_for_features;
+use types_helpers::{
+    is_bare_tagged_data_enum, is_copy_type, is_option_of_tagged_data_enum, is_vec_of_tagged_data_enum, optional_inner,
+};
 use types_unit_enum::{is_vec_of_unit_enum, vec_unit_enum_inner_name};
-
-/// Return a WASM binding surface whose struct fields match the backend feature set.
-///
-/// The extractor can retain a cfg-gated field when the source crate was extracted with a
-/// broader feature set than the WASM binding crate uses. Downstream struct and conversion
-/// generators expect one coherent field list, so drop inactive fields and clear cfg markers
-/// from active fields before generating WASM bindings.
-pub(super) fn filter_cfg_fields_for_features(api: &ApiSurface, enabled_features: &[String]) -> ApiSurface {
-    let mut filtered = api.clone();
-    for typ in &mut filtered.types {
-        let mut fields = Vec::with_capacity(typ.fields.len());
-
-        for mut field in std::mem::take(&mut typ.fields) {
-            let Some(cfg) = field.cfg.as_deref() else {
-                fields.push(field);
-                continue;
-            };
-
-            if super::cfg::cfg_condition_enabled(cfg, enabled_features) {
-                field.cfg = None;
-                fields.push(field);
-            }
-        }
-
-        typ.fields = fields;
-    }
-    filtered
-}
-
-/// Returns `true` when `ty` is `Vec<Named>` where `Named` is a tagged-data enum.
-///
-/// These fields are stored as `JsValue` in the wasm binding struct so that plain JS object
-/// literals (e.g. `{ role: "user", content: "..." }`) can be passed without constructing
-/// explicit wasm-bindgen class instances.
-fn is_vec_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
-    matches!(ty, TypeRef::Vec(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
-}
-
-/// Returns `true` when `ty` is a bare `Named` that is a tagged-data enum (not wrapped in Option or Vec).
-///
-/// Bare tagged-data enum fields are stored as `JsValue` in the wasm binding struct so that plain
-/// JS object literals can be assigned without constructing an explicit wasm-bindgen class instance.
-fn is_bare_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
-    matches!(ty, TypeRef::Named(n) if tagged_data_enum_names.contains(n))
-}
-
-/// Returns `true` when `ty` is `Option<Named>` where `Named` is a tagged-data enum.
-///
-/// Optional tagged-data enum fields are stored as `Option<JsValue>` in the wasm binding struct.
-fn is_option_of_tagged_data_enum(ty: &TypeRef, tagged_data_enum_names: &AHashSet<String>) -> bool {
-    matches!(ty, TypeRef::Optional(inner) if matches!(inner.as_ref(), TypeRef::Named(n) if tagged_data_enum_names.contains(n)))
-}
-
-/// Check if a TypeRef is a Copy type that shouldn't be cloned.
-/// `enum_names` contains the set of enum type names that derive Copy.
-pub(super) fn is_copy_type(ty: &TypeRef, enum_names: &AHashSet<String>) -> bool {
-    match ty {
-        TypeRef::Primitive(_) => true, // All primitives are Copy
-        TypeRef::Duration => true,     // Duration maps to u64 (secs), which is Copy
-        TypeRef::String | TypeRef::Char | TypeRef::Bytes | TypeRef::Path | TypeRef::Json => false,
-        TypeRef::Optional(inner) => is_copy_type(inner, enum_names), // Option<Copy> is Copy
-        TypeRef::Vec(_) | TypeRef::Map(_, _) => false,
-        TypeRef::Named(n) => enum_names.contains(n), // WASM enums derive Copy
-        TypeRef::Unit => true,
-    }
-}
 
 /// Generate an opaque wasm-bindgen struct with inner Arc or Arc<Mutex<>>.
 pub(super) fn gen_opaque_struct(typ: &TypeDef, core_import: &str, prefix: &str) -> String {
@@ -800,17 +740,6 @@ fn gen_default_method(typ: &TypeDef, prefix: &str) -> String {
         "#[wasm_bindgen]\n#[allow(clippy::should_implement_trait)]\npub fn default() -> {prefix}{} {{\n    <{prefix}{} as ::core::default::Default>::default()\n}}",
         typ.name, typ.name
     )
-}
-
-/// Extract the inner type of an `Optional` wrapper, or return the type itself.
-/// `FieldDef::optional` + `FieldDef::ty` can be:
-/// - `optional=true, ty=Named(X)`      → inner is Named(X)  (Optional<> added by mapping)
-/// - `optional=true, ty=Optional(X)`   → inner is X         (Optional already in IR)
-fn optional_inner(ty: &TypeRef) -> &TypeRef {
-    match ty {
-        TypeRef::Optional(inner) => inner.as_ref(),
-        other => other,
-    }
 }
 
 /// Generate a getter method for a field.

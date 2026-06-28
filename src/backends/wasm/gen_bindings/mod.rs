@@ -460,8 +460,8 @@ impl Backend for WasmBackend {
                     for p in &func.params {
                         if let TypeRef::Named(name) = &p.ty {
                             if !opaque_types.contains(name.as_str())
-                                && !emitted_input_dtos.contains(name)
-                                && let Some(type_def) = api.types.iter().find(|t| t.name == *name)
+                                && !emitted_input_dtos.contains(name.as_str())
+                                && let Some(type_def) = api.types.iter().find(|t| t.name == name.as_str())
                                 && functions::should_have_input_dto(type_def)
                             {
                                 let non_deserializable_type_names: std::collections::HashSet<String> = api
@@ -471,7 +471,7 @@ impl Backend for WasmBackend {
                                     .map(|t| t.name.clone())
                                     .collect();
                                 let (dto_code, _dto_name) = functions::gen_input_dto_for_type_with_cfg(
-                                    name,
+                                    name.as_str(),
                                     &core_import,
                                     type_def,
                                     &exclude_types,
