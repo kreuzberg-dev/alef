@@ -1721,11 +1721,12 @@ fn build_config_for_frb_emits_post_process_file_step() {
 
     assert_eq!(
         post_process_steps.len(),
-        5,
-        "FRB config must have five PostProcessFile steps: (1) exclude_functions on lib.dart, \
+        8,
+        "FRB config must have eight PostProcessFile steps: (1) exclude_functions on lib.dart, \
          (2) sealed_variants on lib.dart, (3) exclude_functions on frb_generated.dart, \
          (4) sealed_variants on frb_generated.dart for the published-package native-lib loader, \
-         (5) fix handler executor calls on frb_generated.dart"
+         (5) fix handler executor calls on frb_generated.dart, \
+         (6-8) strip trailing whitespace from generated Dart files"
     );
 
     let lib_dart_path = PathBuf::from("packages")
@@ -1740,6 +1741,12 @@ fn build_config_for_frb_emits_post_process_file_step() {
         .join("src")
         .join("demo_crate_bridge_generated")
         .join("frb_generated.dart");
+    let lib_freezed_path = PathBuf::from("packages")
+        .join("dart")
+        .join("lib")
+        .join("src")
+        .join("demo_crate_bridge_generated")
+        .join("lib.freezed.dart");
 
     // (1) exclude_functions on lib.dart
     if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[0] {
@@ -1814,6 +1821,26 @@ fn build_config_for_frb_emits_post_process_file_step() {
             "Fifth PostProcessFile must target frb_generated.dart for handler executor fixes"
         );
     }
+
+    for (idx, expected_path) in [&lib_dart_path, &frb_generated_path, &lib_freezed_path]
+        .into_iter()
+        .enumerate()
+    {
+        if let PostBuildStep::PostProcessFile { path, processor } = post_process_steps[idx + 5] {
+            assert_eq!(
+                *processor,
+                PostProcessor::DartStripTrailingWhitespace,
+                "PostProcessFile {} must strip trailing whitespace",
+                idx + 6
+            );
+            assert_eq!(
+                path,
+                expected_path,
+                "PostProcessFile {} must target the expected generated Dart file",
+                idx + 6
+            );
+        }
+    }
 }
 
 #[test]
@@ -1843,6 +1870,9 @@ fn build_config_for_frb_run_command_precedes_post_process_file() {
         steps,
         vec![
             "RunCommand",
+            "PostProcessFile",
+            "PostProcessFile",
+            "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",
             "PostProcessFile",

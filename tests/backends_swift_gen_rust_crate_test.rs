@@ -2410,15 +2410,15 @@ features = ["serde", "config"]
     let files = gen_rust_crate::emit(&api, &config).unwrap();
     let cargo = files.iter().find(|f| f.path.ends_with("Cargo.toml")).unwrap();
 
-    // Two features should remain on a single line: `features = ["serde", "config"]`
+    // Two sorted features should remain on a single line.
     assert!(
-        cargo.content.contains("features = [\"serde\", \"config\"]"),
+        cargo.content.contains("features = [\"config\", \"serde\"]"),
         "Two features should stay on single line; got:\n{}",
         cargo.content
     );
     // Must NOT be multi-line.
     assert!(
-        !cargo.content.contains("features = [\n    \"serde\","),
+        !cargo.content.contains("features = [\n    \"config\","),
         "Two features should not be multi-line; got:\n{}",
         cargo.content
     );
@@ -2461,7 +2461,7 @@ features = ["serde", "config", "download"]
     assert!(
         cargo
             .content
-            .contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+            .contains("features = [\n    \"config\",\n    \"download\",\n    \"serde\",\n]"),
         "Three features should be multi-line; got:\n{}",
         cargo.content
     );
@@ -2469,7 +2469,7 @@ features = ["serde", "config", "download"]
     assert!(
         !cargo
             .content
-            .contains("features = [\"serde\", \"config\", \"download\"]"),
+            .contains("features = [\"config\", \"download\", \"serde\"]"),
         "Three features should not be single-line; got:\n{}",
         cargo.content
     );
@@ -2523,7 +2523,7 @@ features = ["serde", "config", "download"]
     assert!(
         cargo
             .content
-            .contains("features = [\n    \"serde\",\n    \"config\",\n    \"download\",\n]"),
+            .contains("features = [\n    \"config\",\n    \"download\",\n    \"serde\",\n]"),
         "Multi-line features must be formatted correctly; got:\n{}",
         cargo.content
     );
