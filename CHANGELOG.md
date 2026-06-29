@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3**: serialize `dict`/`list` values for JSON (`serde_json::Value`) config fields in the
+  generated `api.py` converters. PyO3 cannot expose a settable `serde_json::Value` field, so the
+  binding stores such fields as `str`, while the public dataclass and `.pyi` stub type them as
+  `dict[str, Any]`. The converter forwarded the dict straight through, so the documented dict form
+  raised `TypeError: 'dict' object is not an instance of 'str'` at runtime; it now `json.dumps`es a
+  dict/list (passing `str`/`None` through unchanged).
 - **codegen**: generate compiling binding→core conversions for core structs that have private
   (`pub(crate)`) fields. Such a struct cannot be built with struct-literal syntax from a foreign
   crate — neither by naming the private field nor by patching it with `..Default::default()` — so
