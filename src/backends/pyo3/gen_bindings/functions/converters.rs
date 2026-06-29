@@ -503,13 +503,16 @@ pub(super) fn emit_converters(
                         // shared `_coerce_enum` helper to look up the canonical variant.
                         let accessor = field_access(&field.name);
 
-                        // If this enum field has #[serde(default)] and is non-optional in Rust,
-                        // the Python dataclass may have it as Optional[T]. When the value is None,
-                        // we must omit the kwarg so PyO3's default applies (not call _coerce_enum(None)).
+                        // If this enum field is optional (may be None) or has #[serde(default)]
+                        // and is non-optional in Rust, we must guard against None:
+                        // - Optional fields: may receive None from callers, must omit the kwarg
+                        // - Non-optional with serde(default): the Python dataclass may have it as
+                        //   Optional[T], and we must omit the kwarg so PyO3's default applies
                         let has_serde_default = field.default.as_deref() == Some("/* serde(default) */");
                         let is_optional = matches!(field.ty, TypeRef::Optional(_)) || field.optional;
+                        let needs_none_guard = is_optional || (has_serde_default && !is_optional);
 
-                        if has_serde_default && !is_optional {
+                        if needs_none_guard {
                             // Use dict-splat to omit the kwarg when None
                             out.push_str(&crate::backends::pyo3::template_env::render(
                                 "simple_enum_dict_coerce_optional_default.jinja",
