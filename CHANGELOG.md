@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **napi**: give the generated streaming `WORKER_POOL` tokio runtime a 16 MB worker stack, so a
+  deep consumer future does not overflow the default (~2 MB) worker stack and abort with `SIGBUS`.
 - **pyo3**: provision an enlarged worker-thread stack on the generated module's async runtime.
   pyo3-async-runtimes' default multi-thread runtime gives workers a small (~2 MB) stack, which a
   deep consumer future (e.g. a multi-stage OCR pipeline) overflows — aborting the whole process
