@@ -484,9 +484,13 @@ pub(super) fn generate_bindings(api: &ApiSurface, config: &ResolvedCrateConfig) 
             from_binding_skip_types: &flat_data_enum_names_vec,
             ..Default::default()
         };
-        if input_types.contains(&typ.name)
-            && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core)
-        {
+        // Generate the binding→core `From` impl for declared input-param types AND for
+        // non-opaque types that expose a receiver (instance) method: the latter are lowered
+        // to NIFs that call `Core::from(obj).method(..)`, so they need the conversion too
+        // even though the owning type never appears as a standalone function parameter.
+        let needs_binding_to_core =
+            input_types.contains(&typ.name) || (!typ.is_opaque && typ.methods.iter().any(|m| m.receiver.is_some()));
+        if needs_binding_to_core && crate::codegen::conversions::can_generate_conversion(typ, &binding_to_core) {
             builder.add_item(&crate::codegen::conversions::gen_from_binding_to_core_cfg(
                 typ,
                 &core_import,
