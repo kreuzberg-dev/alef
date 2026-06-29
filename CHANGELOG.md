@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3**: provision an enlarged worker-thread stack on the generated module's async runtime.
+  pyo3-async-runtimes' default multi-thread runtime gives workers a small (~2 MB) stack, which a
+  deep consumer future (e.g. a multi-stage OCR pipeline) overflows — aborting the whole process
+  with `SIGBUS`. The `#[pymodule]` init now installs a `tokio` runtime with a 16 MB
+  `thread_stack_size` before the first `future_into_py`.
 - **pyo3**: serialize `dict`/`list` values for JSON (`serde_json::Value`) config fields in the
   generated `api.py` converters. PyO3 cannot expose a settable `serde_json::Value` field, so the
   binding stores such fields as `str`, while the public dataclass and `.pyi` stub type them as
