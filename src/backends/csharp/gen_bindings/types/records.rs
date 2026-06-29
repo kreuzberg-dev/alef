@@ -527,8 +527,13 @@ pub(super) fn emit_record_methods(
                 );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
-                call_args.extend(method.params.iter().map(|p| {
-                    super::super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                call_args.extend(method.params.iter().flat_map(|p| {
+                    let pname = p.name.to_lower_camel_case();
+                    let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                    if matches!(p.ty, TypeRef::Bytes) {
+                        a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
+                    }
+                    a
                 }));
                 let args_str = call_args.join(", ");
                 out.push_str(&render(
@@ -578,13 +583,13 @@ pub(super) fn emit_record_methods(
                 let call_args: Vec<String> = method
                     .params
                     .iter()
-                    .map(|p| {
-                        super::super::native_call_arg(
-                            &p.ty,
-                            &p.name.to_lower_camel_case(),
-                            p.optional,
-                            true_opaque_types,
-                        )
+                    .flat_map(|p| {
+                        let pname = p.name.to_lower_camel_case();
+                        let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                        if matches!(p.ty, TypeRef::Bytes) {
+                            a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
+                        }
+                        a
                     })
                     .collect();
                 let args_str = call_args.join(", ");
@@ -640,8 +645,13 @@ pub(super) fn emit_record_methods(
                 );
                 // Build call args using native_call_arg helper for proper marshalling
                 let mut call_args = vec!["selfHandle".to_string()];
-                call_args.extend(method.params.iter().map(|p| {
-                    super::super::native_call_arg(&p.ty, &p.name.to_lower_camel_case(), p.optional, true_opaque_types)
+                call_args.extend(method.params.iter().flat_map(|p| {
+                    let pname = p.name.to_lower_camel_case();
+                    let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                    if matches!(p.ty, TypeRef::Bytes) {
+                        a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
+                    }
+                    a
                 }));
                 let args_str = call_args.join(", ");
                 out.push_str(&render(
@@ -685,13 +695,13 @@ pub(super) fn emit_record_methods(
                 let call_args: Vec<String> = method
                     .params
                     .iter()
-                    .map(|p| {
-                        super::super::native_call_arg(
-                            &p.ty,
-                            &p.name.to_lower_camel_case(),
-                            p.optional,
-                            true_opaque_types,
-                        )
+                    .flat_map(|p| {
+                        let pname = p.name.to_lower_camel_case();
+                        let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                        if matches!(p.ty, TypeRef::Bytes) {
+                            a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
+                        }
+                        a
                     })
                     .collect();
                 let args_str = call_args.join(", ");
