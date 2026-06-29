@@ -131,6 +131,15 @@ pub(super) fn render_test_file(
         .is_some();
     let has_mock_url_refs = lang_client_factory
         || fixtures.iter().any(|f| {
+            // A `$mock_url` placeholder anywhere in the fixture input is rewritten to a
+            // `_fixtureUrl(...)` call in the generated test body, so the helper (and the
+            // `_fixtureUrls` map) must be emitted even for non-HTTP contract fixtures.
+            if serde_json::to_string(&f.input)
+                .map(|s| s.contains("$mock_url"))
+                .unwrap_or(false)
+            {
+                return true;
+            }
             if f.is_http_test() {
                 return false;
             }
