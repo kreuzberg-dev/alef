@@ -255,15 +255,43 @@ fn workspace_dep_specs(config: &ResolvedCrateConfig) -> std::collections::BTreeM
     let Some(mut dir) = start else {
         return std::collections::BTreeMap::new();
     };
+
+    // If dir is relative (e.g., "."), make it absolute so path operations work correctly
+    // in different process contexts.
+    if !dir.is_absolute() {
+        if let Ok(abs) = std::fs::canonicalize(&dir) {
+            dir = abs;
+        }
+    }
+
     loop {
-        if let Ok(contents) = std::fs::read_to_string(dir.join("Cargo.toml")) {
-            if let Ok(doc) = contents.parse::<toml::Value>() {
-                if let Some(deps) = doc
-                    .get("workspace")
-                    .and_then(|w| w.get("dependencies"))
-                    .and_then(|d| d.as_table())
-                {
-                    return deps.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let cargo_path = dir.join("Cargo.toml");
+        if let Ok(contents) = std::fs::read_to_string(&cargo_path) {
+            // Parse with toml_edit which handles comments and whitespace better
+            if let Ok(doc) = contents.parse::<toml_edit::DocumentMut>() {
+                if let Some(workspace) = doc.get("workspace") {
+                    if let Some(dependencies) = workspace.get("dependencies") {
+                        if let Some(table) = dependencies.as_table() {
+                            let mut result = std::collections::BTreeMap::new();
+                            for (key, value) in table.iter() {
+                                // Convert from toml_edit value to toml::Value
+                                // The value.to_string() just gives us the RHS, so we need to wrap it in a TOML doc
+                                let val_str = value.to_string().trim().to_string();
+                                let wrapped = format!("x = {}", val_str);
+                                match toml::from_str::<std::collections::HashMap<String, toml::Value>>(&wrapped) {
+                                    Ok(map) => {
+                                        if let Some(v) = map.get("x") {
+                                            result.insert(key.to_string(), v.clone());
+                                        }
+                                    }
+                                    Err(_) => {
+                                        // Silently skip on parse error
+                                    }
+                                }
+                            }
+                            return result;
+                        }
+                    }
                 }
             }
         }

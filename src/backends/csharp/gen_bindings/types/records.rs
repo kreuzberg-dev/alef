@@ -419,6 +419,17 @@ pub(in crate::backends::csharp::gen_bindings) fn gen_record_type(
 
     out.push_str("}\n");
 
+    // The bytes-input factory (`FromBytes`) pins the buffer via `GCHandle`, which lives in
+    // `System.Runtime.InteropServices`. That namespace is not in the default implicit-using
+    // set, so add the import when the generated record actually uses it.
+    if out.contains("GCHandle") && !out.contains("using System.Runtime.InteropServices;") {
+        out = out.replacen(
+            "using System.Text.Json.Serialization;\n",
+            "using System.Text.Json.Serialization;\nusing System.Runtime.InteropServices;\n",
+            1,
+        );
+    }
+
     out
 }
 
