@@ -4,7 +4,7 @@ use crate::core::ir::ApiSurface;
 use crate::core::template_versions as tv;
 use crate::core::version::to_r_version;
 use crate::{
-    scaffold::cargo_package_header, scaffold::detect_workspace_inheritance, scaffold::render_extra_deps,
+    scaffold::cargo_package_header, scaffold::render_extra_deps,
     scaffold::scaffold_meta,
 };
 use std::path::PathBuf;
@@ -117,7 +117,10 @@ pub(crate) fn scaffold_r_cargo(api: &ApiSurface, config: &ResolvedCrateConfig) -
     let meta = scaffold_meta(config);
     let version = &api.version;
     let core_crate_dir = config.core_crate_dir();
-    let ws = detect_workspace_inheritance(config.workspace_root.as_deref());
+    // The R crate at `packages/r/src/rust/Cargo.toml` is EXCLUDED from the workspace
+    // (it has its own Cargo.lock and is not a workspace member), so it must NOT use
+    // workspace inheritance for package fields. Always use concrete values instead.
+    let ws = crate::scaffold::WorkspacePackageInheritance::default();
     let pkg_header = cargo_package_header(&format!("{core_crate_dir}-r"), version, "2024", &meta, &ws);
 
     // extendr requires staticlib (for R's dyn.load) + lib (for Rust tests).

@@ -551,3 +551,45 @@ authors = ["Ada Lovelace <ada@example.com>"]
     );
     toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
 }
+
+#[test]
+fn test_scaffold_r_cargo_no_workspace_inheritance() {
+    // The R crate at `packages/r/src/rust/Cargo.toml` is excluded from the workspace,
+    // so it must NOT use workspace inheritance for package fields like version or license.
+    // It should have concrete values instead.
+    let config = test_config_from_toml(
+        r#"
+[crates.package_metadata]
+authors = ["Ada Lovelace <ada@example.com>"]
+"#,
+    );
+    let api = test_api();
+    let all_files = scaffold(&api, &config, &[Language::R]).unwrap();
+    let files = language_files(&all_files);
+    let cargo = files
+        .iter()
+        .find(|f| f.path.ends_with("packages/r/src/rust/Cargo.toml"))
+        .expect("R rust crate Cargo.toml must be emitted");
+
+    // R crate should NOT use workspace inheritance for version or license
+    assert!(
+        !cargo.content.contains("version.workspace"),
+        "R Cargo.toml must NOT use workspace inheritance for version (excluded from workspace); content:\n{}",
+        cargo.content
+    );
+    assert!(
+        !cargo.content.contains("license.workspace"),
+        "R Cargo.toml must NOT use workspace inheritance for license (excluded from workspace); content:\n{}",
+        cargo.content
+    );
+
+    // Should have concrete values instead
+    assert!(
+        cargo.content.contains(r#"version = "0.1.0""#),
+        "R Cargo.toml must have concrete version field; content:\n{}",
+        cargo.content
+    );
+
+    // Validate it's valid TOML
+    toml::from_str::<toml::Value>(&cargo.content).expect("generated R Cargo.toml must be valid TOML");
+}
