@@ -432,8 +432,13 @@ pub(super) fn emit_module_kt(
         body.push_str("                .build(),\n");
         body.push_str("        )\n");
         body.push_str("        .setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE)\n");
+        // NON_NULL (not NON_EMPTY): omit only null fields when serializing DTOs across the
+        // JNI boundary, but PRESERVE explicitly-empty values. NON_EMPTY drops empty strings,
+        // so an explicit `mime_type = ""` would vanish from the JSON and the core would treat
+        // it as absent (None) — falling back to filename-based MIME detection instead of
+        // erroring on the empty MIME type. Matches the C#/Rust contract.
         body.push_str(
-            "        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_EMPTY)\n",
+            "        .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)\n",
         );
         body.push_str("        .configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)\n\n");
     }
