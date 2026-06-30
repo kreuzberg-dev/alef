@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **pyo3**: drop the redundant closure when wrapping a zero-argument sync core call in
+  `py.detach`. `py.detach(|| xberg::list_supported_formats())` tripped `clippy::redundant_closure`
+  and failed `clippy -D warnings`; zero-arg calls now pass the function path directly
+  (`py.detach(xberg::list_supported_formats)`). Calls that capture arguments keep the closure.
 - **php**: generate the correct return type for `serde(default = "...")` helpers on fields whose
   core type is mirrored into a binding DTO. The helper returned the core type (e.g.
   `crawlberg::SsrfPolicy`) while the field is rendered as the crate-root mirror, so the generated

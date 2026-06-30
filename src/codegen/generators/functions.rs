@@ -271,7 +271,14 @@ pub fn gen_function_with_mutex(
     let pyo3_sync = !func.is_async && cfg.async_pattern == AsyncPattern::Pyo3FutureIntoPy;
     let detach_core_call = |core_call: &str| -> String {
         if pyo3_sync {
-            format!("py.detach(|| {core_call})")
+            // A zero-argument core call (`path()`) wrapped in `py.detach(|| path())` trips
+            // clippy::redundant_closure. Pass the function path directly in that case; the
+            // closure is only needed to capture arguments for calls that take them.
+            if let Some(path) = core_call.strip_suffix("()") {
+                format!("py.detach({path})")
+            } else {
+                format!("py.detach(|| {core_call})")
+            }
         } else {
             core_call.to_string()
         }
