@@ -112,6 +112,7 @@ pub(super) fn generate(
             e2e_config.dep_mode,
             &jni_lib_name,
             &jni_crate_path,
+            &e2e_config.env,
         ),
         generated_header: false,
     });

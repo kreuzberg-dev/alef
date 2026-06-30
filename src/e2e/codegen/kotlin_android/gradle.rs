@@ -17,7 +17,27 @@ pub(super) fn render_build_gradle_kotlin_android(
     dep_mode: crate::e2e::config::DependencyMode,
     jni_lib_name: &str,
     jni_crate_path: &str,
+    e2e_env: &std::collections::HashMap<String, String>,
 ) -> String {
+    // Forward `[crates.e2e.env]` vars into the Gradle test worker's *process*
+    // environment via `environment(...)`. The worker is a forked JVM, and the
+    // JNI-loaded native library reads these via libc `getenv` — e.g. the
+    // crawlberg SSRF loopback allowlist (`CRAWLBERG_ALLOW_PRIVATE_NETWORK`) that
+    // lets URL fixtures reach the loopback mock server. Java has no portable way
+    // to mutate `environ` in-process (unlike C#'s `Environment.SetEnvironmentVariable`
+    // or Elixir's `set_env` NIF), so it must be set at worker-fork time. Sorted
+    // for deterministic output.
+    let test_env_block = {
+        let mut keys: Vec<&String> = e2e_env.keys().collect();
+        keys.sort();
+        let mut block = String::new();
+        for key in keys {
+            let value = &e2e_env[key];
+            let esc = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+            block.push_str(&format!("\n    environment(\"{}\", \"{}\")", esc(key), esc(value)));
+        }
+        block
+    };
     let kotlin_plugin = maven::KOTLIN_JVM_PLUGIN;
     let android_gradle_plugin = maven::ANDROID_GRADLE_PLUGIN;
     // AGP 9.0+ ships built-in Kotlin support and rejects the explicit
@@ -199,7 +219,7 @@ tasks.register("copyHostJni", Copy::class) {{
 }}
 
 tasks.withType<Test> {{
-    useJUnitPlatform()
+    useJUnitPlatform(){test_env_block}
     dependsOn("verifyAarPublished")
     if (project.properties["alef.skipHostJni"] != "true") {{
         val hostPlatform = if (System.getProperty("os.name").lowercase().contains("mac")) {{
@@ -225,6 +245,7 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
             maven_coordinate = maven_coordinate,
             jni_crate_path = jni_crate_path,
             jni_lib_name = jni_lib_name,
+            test_env_block = test_env_block,
         )
     } else {
         format!(
@@ -280,7 +301,7 @@ tasks.register("copyHostJni", Copy::class) {{
 }}
 
 tasks.withType<Test> {{
-    useJUnitPlatform()
+    useJUnitPlatform(){test_env_block}
 
     // Resolve the native library location (e.g., ../../target/release)
     val libPath = System.getProperty("kb.lib.path") ?: "${{rootDir}}/../../target/release"
@@ -313,6 +334,7 @@ tasks.matching {{ it.name.startsWith("processDebug") || it.name.startsWith("proc
 }}"#,
             jni_crate_path = jni_crate_path,
             jni_lib_name = jni_lib_name,
+            test_env_block = test_env_block,
         )
     };
 
@@ -500,11 +522,40 @@ mod tests {
             crate::e2e::config::DependencyMode::Local,
             "demo_client_jni",
             "../../crates/demo-client-jni",
+            &std::collections::HashMap::new(),
         );
         assert!(
             output.contains("jackson-module-kotlin"),
             "build.gradle.kts must depend on jackson-module-kotlin, got:\n{output}"
         );
+    }
+
+    /// Regression: `[crates.e2e.env]` vars must be forwarded into the Gradle test
+    /// worker's process environment via `environment(...)` so the JNI-loaded native
+    /// library reads them through libc `getenv` (e.g. the crawlberg SSRF loopback
+    /// allowlist that lets URL fixtures reach the loopback mock server). Java cannot
+    /// mutate `environ` in-process, so it must be set at worker-fork time.
+    #[test]
+    fn build_gradle_kotlin_android_forwards_e2e_env_to_test_worker() {
+        let mut env = std::collections::HashMap::new();
+        env.insert("CRAWLBERG_ALLOW_PRIVATE_NETWORK".to_string(), "true".to_string());
+        for dep_mode in [
+            crate::e2e::config::DependencyMode::Registry,
+            crate::e2e::config::DependencyMode::Local,
+        ] {
+            let output = render_build_gradle_kotlin_android(
+                "dev.sample_crate",
+                "dev.sample_crate:sample_crate-android:5.0.0-rc.1",
+                dep_mode,
+                "sample_crate_jni",
+                "../../crates/sample_crate-jni",
+                &env,
+            );
+            assert!(
+                output.contains(r#"environment("CRAWLBERG_ALLOW_PRIVATE_NETWORK", "true")"#),
+                "build.gradle.kts ({dep_mode:?}) must forward e2e env vars to the test worker, got:\n{output}"
+            );
+        }
     }
 
     /// Regression: build.gradle.kts must always put the JUnit Platform launcher
@@ -526,6 +577,7 @@ mod tests {
                 dep_mode,
                 "sample_crate_jni",
                 "../../crates/sample_crate-jni",
+                &std::collections::HashMap::new(),
             );
             assert!(
                 output.contains(r#"testImplementation("org.junit.platform:junit-platform-launcher:"#),
@@ -552,6 +604,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Registry,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
+            &std::collections::HashMap::new(),
         );
         assert!(
             output.contains(r#"implementation("dev.sample_crate:sample_crate-android:5.0.0-rc.1")"#),
@@ -620,6 +673,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Registry,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
+            &std::collections::HashMap::new(),
         );
         assert!(
             output.contains("verifyAarPublished"),
@@ -656,6 +710,7 @@ mod tests {
                 dep_mode,
                 "sample_crate_jni",
                 "../../crates/sample_crate-jni",
+                &std::collections::HashMap::new(),
             );
             assert!(
                 output.contains("jvmToolchain(17)"),
@@ -674,6 +729,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Local,
             "demo_client_jni",
             "../../crates/demo-client-jni",
+            &std::collections::HashMap::new(),
         );
         assert!(
             !output.contains("verifyAarPublished"),
@@ -696,6 +752,7 @@ mod tests {
                 dep_mode,
                 "sample_crate_jni",
                 "../../crates/sample_crate-jni",
+                &std::collections::HashMap::new(),
             );
 
             assert!(
@@ -727,6 +784,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Local,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
+            &std::collections::HashMap::new(),
         );
 
         assert!(
@@ -749,6 +807,7 @@ mod tests {
             crate::e2e::config::DependencyMode::Registry,
             "sample_crate_jni",
             "../../crates/sample_crate-jni",
+            &std::collections::HashMap::new(),
         );
 
         assert!(
