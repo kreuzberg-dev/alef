@@ -77,15 +77,14 @@ fn render_native_env_and_chdir(e2e_config: &E2eConfig) -> String {
     out.push('\n');
 
     let rel = e2e_config.test_documents_relative_from(1);
-    out.push_str("# Run from the test-documents dir so relative file URIs (e.g. \"text/report.txt\")\n");
-    out.push_str("# resolve, mirroring the other language suites which chdir before running.\n");
-    out.push_str("test_documents_dir =\n");
-    let _ = writeln!(
-        out,
-        "  System.get_env(\"ALEF_TEST_DOCUMENTS_DIR\") || Path.expand(\"{rel}\", __DIR__)"
-    );
-    out.push('\n');
-    out.push_str("if File.dir?(test_documents_dir), do: File.cd!(test_documents_dir)\n\n");
+    out.push_str("# Tests construct absolute paths via test_documents_path, so no chdir needed.\n");
+    out.push_str("# Set ALEF_TEST_DOCUMENTS_DIR for any custom code that may reference it.\n");
+    out.push_str("unless System.get_env(\"ALEF_TEST_DOCUMENTS_DIR\") do\n");
+    out.push_str("  test_documents_dir = Path.expand(\"");
+    out.push_str(&rel);
+    out.push_str("\", __DIR__)\n");
+    out.push_str("  System.put_env(\"ALEF_TEST_DOCUMENTS_DIR\", test_documents_dir)\n");
+    out.push_str("end\n\n");
 
     out
 }

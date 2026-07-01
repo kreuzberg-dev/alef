@@ -1,5 +1,13 @@
   @doc "Unregister a previously registered {{ trait_name }} plugin by name."
-  @spec {{ func_name }}(String.t()) :: :ok | :error
-  def {{ func_name }}(name) do
+  @spec {{ func_name }}(String.t() | keyword(String.t())) :: :ok | :error
+  def {{ func_name }}(name_or_opts) do
+    name = case name_or_opts do
+      # Positional form: unregister_fn("name")
+      n when is_binary(n) -> n
+      # Keyword-list form from Elixir: unregister_fn([{:name, "name"}])
+      # This happens when tests use `unregister_fn(name: "value")` with force_keyword_args
+      opts when is_list(opts) -> Keyword.get(opts, :name, "")
+      _ -> ""
+    end
     {{ native_mod }}.{{ func_name }}(name)
   end

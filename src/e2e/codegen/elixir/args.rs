@@ -456,7 +456,12 @@ pub(super) fn build_args_and_setup(
     // Separate positional and keyword args, preserving order within each group.
     // With the keyword-opts threshold applied above (use_keyword_form_for_optional_args),
     // we should never encounter a positional arg after a keyword arg.
-    if force_keyword_args {
+    // EXCEPTION: test_backend and string args (plugin names) are always positional
+    // because trait-bridge registration functions have fixed positional signatures.
+    let has_test_backend = args
+        .iter()
+        .any(|a| a.arg_type == "test_backend" || a.arg_type == "string");
+    if force_keyword_args && !has_test_backend {
         let args_string = parts
             .into_iter()
             .zip(args.iter())
