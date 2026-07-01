@@ -223,6 +223,17 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
             if let syn::Expr::Path(path) = &*call.func {
                 let segments: Vec<String> = path.path.segments.iter().map(|s| s.ident.to_string()).collect();
 
+                // Some(inner) / Option::Some(inner) → the field's default is the inner
+                // value, not `None`. Recurse so `Some(50 * 1024 * 1024)` surfaces as
+                // `IntLiteral(52428800)` instead of collapsing to `Empty` (which each
+                // backend then renders as the type's zero/null, silently dropping the
+                // real default).
+                if (segments == ["Some"] || segments == ["Option", "Some"]) && call.args.len() == 1 {
+                    if let Some(inner) = call.args.first() {
+                        return expr_to_default_value(inner);
+                    }
+                }
+
                 // String::from("...") or String::from(lit)
                 if segments == ["String", "from"] && call.args.len() == 1 {
                     if let Some(syn::Expr::Lit(lit)) = call.args.first() {
@@ -313,5 +324,44 @@ fn expr_to_default_value(expr: &syn::Expr) -> DefaultValue {
         }
 
         _ => DefaultValue::Empty,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_value_of(expr_src: &str) -> DefaultValue {
+        let expr: syn::Expr = syn::parse_str(expr_src).expect("valid expr");
+        expr_to_default_value(&expr)
+    }
+
+    #[test]
+    fn some_int_literal_unwraps_to_inner_int() {
+        // `Some(50 * 1024 * 1024)` must surface the inner constant, not `Empty`
+        // (which every backend renders as the type's zero/null, silently dropping
+        // the real default — this caused documentMaxSize: 0 in the Dart bindings).
+        assert_eq!(
+            default_value_of("Some(50 * 1024 * 1024)"),
+            DefaultValue::IntLiteral(52_428_800)
+        );
+    }
+
+    #[test]
+    fn some_string_literal_unwraps_to_inner_string() {
+        assert_eq!(
+            default_value_of(r#"Some("hi".to_string())"#),
+            DefaultValue::StringLiteral("hi".to_string())
+        );
+    }
+
+    #[test]
+    fn qualified_option_some_unwraps() {
+        assert_eq!(default_value_of("Option::Some(5)"), DefaultValue::IntLiteral(5));
+    }
+
+    #[test]
+    fn bare_none_stays_none() {
+        assert_eq!(default_value_of("None"), DefaultValue::None);
     }
 }
