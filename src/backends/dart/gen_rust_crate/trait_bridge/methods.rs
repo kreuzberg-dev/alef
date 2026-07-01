@@ -228,9 +228,12 @@ pub(super) fn emit_trait_bridge_method(
     if method.error_type.is_some() {
         // DartFnFuture never fails: wrap the awaited value in Ok(...).
         if method.is_async {
+            // Async methods calling Dart callbacks must spawn_blocking to avoid
+            // "Cannot start a runtime from within a runtime" panic when the extraction
+            // pipeline is already running inside tokio.
             if named_return_default {
                 out.push_str(&crate::backends::dart::template_env::render(
-                    "rust_trait_method_default_await.jinja",
+                    "rust_trait_method_default_await_spawn_blocking.jinja",
                     minijinja::context! {
                         call_expr => call_expr.as_str(),
                         return_expr => "Ok(Default::default())",
@@ -238,14 +241,14 @@ pub(super) fn emit_trait_bridge_method(
                 ));
             } else if ret_conv.is_empty() {
                 out.push_str(&crate::backends::dart::template_env::render(
-                    "rust_trait_method_ok_await.jinja",
+                    "rust_trait_method_ok_await_spawn_blocking.jinja",
                     minijinja::context! {
                         call_expr => call_expr.as_str(),
                     },
                 ));
             } else {
                 out.push_str(&crate::backends::dart::template_env::render(
-                    "rust_trait_method_await_result.jinja",
+                    "rust_trait_method_await_result_spawn_blocking.jinja",
                     minijinja::context! {
                         call_expr => call_expr.as_str(),
                         ret_conv => ret_conv.as_str(),
@@ -281,9 +284,12 @@ pub(super) fn emit_trait_bridge_method(
             }
         }
     } else if method.is_async {
+        // Async methods calling Dart callbacks must spawn_blocking to avoid
+        // "Cannot start a runtime from within a runtime" panic when the extraction
+        // pipeline is already running inside tokio.
         if named_return_default {
             out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_method_default_await.jinja",
+                "rust_trait_method_default_await_spawn_blocking.jinja",
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
                     return_expr => "Default::default()",
@@ -291,14 +297,14 @@ pub(super) fn emit_trait_bridge_method(
             ));
         } else if ret_conv.is_empty() {
             out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_method_await_plain.jinja",
+                "rust_trait_method_await_plain_spawn_blocking.jinja",
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
                 },
             ));
         } else {
             out.push_str(&crate::backends::dart::template_env::render(
-                "rust_trait_method_await_result.jinja",
+                "rust_trait_method_await_result_spawn_blocking.jinja",
                 minijinja::context! {
                     call_expr => call_expr.as_str(),
                     ret_conv => ret_conv.as_str(),

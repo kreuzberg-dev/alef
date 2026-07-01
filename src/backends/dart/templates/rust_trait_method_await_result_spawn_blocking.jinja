@@ -1,0 +1,9 @@
+        Ok(::tokio::task::spawn_blocking(move || {
+            let __fut = {{ call_expr }};
+            ::tokio::runtime::Builder::new_current_thread()
+                .build()
+                .expect("build alef visitor tokio runtime")
+                .block_on(__fut)
+        })
+        .await
+        .expect("spawn_blocking panicked"){{ ret_conv }})

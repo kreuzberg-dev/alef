@@ -94,17 +94,26 @@ const NATIVE_LIB_PATTERNS: &[NativeLibPattern] = &[
 
 /// Find prebuilt native libraries in the cargo target directory.
 /// Searches `{workspace}/target/{rust_target}/release/` for expected library filenames.
+/// Falls back to the workspace-default `{workspace}/target/release/` if the platform-specific
+/// directory does not exist (normal when building workspace members without `--target` flag).
 fn find_native_libraries(
     workspace_root: &Path,
     rust_target: &str,
     filenames: &[String],
 ) -> Result<Vec<(PathBuf, PathBuf)>> {
-    let target_dir = workspace_root.join("target").join(rust_target).join("release");
-    let mut found = Vec::new();
+    let platform_specific_dir = workspace_root.join("target").join(rust_target).join("release");
+    let default_dir = workspace_root.join("target").join("release");
 
-    if !target_dir.exists() {
-        return Ok(found); // Target not yet built; OK to skip
-    }
+    // Try platform-specific directory first, fall back to workspace default
+    let target_dir = if platform_specific_dir.exists() {
+        platform_specific_dir
+    } else if default_dir.exists() {
+        default_dir
+    } else {
+        return Ok(Vec::new()); // Neither directory exists; OK to skip
+    };
+
+    let mut found = Vec::new();
 
     for filename in filenames {
         let relative_path = PathBuf::from(filename);
