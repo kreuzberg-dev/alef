@@ -529,7 +529,12 @@ pub(super) fn emit_record_methods(
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().flat_map(|p| {
                     let pname = p.name.to_lower_camel_case();
-                    let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                    let mut a = vec![super::super::native_call_arg(
+                        &p.ty,
+                        &pname,
+                        p.optional,
+                        true_opaque_types,
+                    )];
                     if matches!(p.ty, TypeRef::Bytes) {
                         a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
                     }
@@ -585,7 +590,12 @@ pub(super) fn emit_record_methods(
                     .iter()
                     .flat_map(|p| {
                         let pname = p.name.to_lower_camel_case();
-                        let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                        let mut a = vec![super::super::native_call_arg(
+                            &p.ty,
+                            &pname,
+                            p.optional,
+                            true_opaque_types,
+                        )];
                         if matches!(p.ty, TypeRef::Bytes) {
                             a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
                         }
@@ -647,7 +657,12 @@ pub(super) fn emit_record_methods(
                 let mut call_args = vec!["selfHandle".to_string()];
                 call_args.extend(method.params.iter().flat_map(|p| {
                     let pname = p.name.to_lower_camel_case();
-                    let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                    let mut a = vec![super::super::native_call_arg(
+                        &p.ty,
+                        &pname,
+                        p.optional,
+                        true_opaque_types,
+                    )];
                     if matches!(p.ty, TypeRef::Bytes) {
                         a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
                     }
@@ -697,7 +712,12 @@ pub(super) fn emit_record_methods(
                     .iter()
                     .flat_map(|p| {
                         let pname = p.name.to_lower_camel_case();
-                        let mut a = vec![super::super::native_call_arg(&p.ty, &pname, p.optional, true_opaque_types)];
+                        let mut a = vec![super::super::native_call_arg(
+                            &p.ty,
+                            &pname,
+                            p.optional,
+                            true_opaque_types,
+                        )];
                         if matches!(p.ty, TypeRef::Bytes) {
                             a.push(super::super::bytes_len_arg("(UIntPtr)", &pname, p.optional));
                         }

@@ -3,10 +3,7 @@ use crate::core::config::{Language, ResolvedCrateConfig};
 use crate::core::ir::ApiSurface;
 use crate::core::template_versions as tv;
 use crate::core::version::to_r_version;
-use crate::{
-    scaffold::cargo_package_header, scaffold::render_extra_deps,
-    scaffold::scaffold_meta,
-};
+use crate::{scaffold::cargo_package_header, scaffold::render_extra_deps, scaffold::scaffold_meta};
 use std::path::PathBuf;
 
 pub(crate) fn scaffold_r(api: &ApiSurface, config: &ResolvedCrateConfig) -> anyhow::Result<Vec<GeneratedFile>> {

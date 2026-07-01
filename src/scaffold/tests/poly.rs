@@ -19,7 +19,10 @@ fn emits_a_generated_poly_toml_replacing_precommit() {
 
     // poly.toml is emitted, alef-managed (hash-tracked, overwritten on regen).
     let poly = poly_toml(&files);
-    assert!(poly.generated_header, "poly.toml must be alef-managed (generated_header)");
+    assert!(
+        poly.generated_header,
+        "poly.toml must be alef-managed (generated_header)"
+    );
 
     // The former per-tool / pre-commit configs are gone.
     let paths: Vec<String> = files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
@@ -100,6 +103,9 @@ fn poly_toml_omits_language_tables_when_language_absent() {
     assert!(!c.contains("pyrefly"), "no pyrefly hook without python");
     // per-file-ignores is always emitted (generated test/e2e suites exist in
     // every repo), but the python-wrapper entries must be absent without python.
-    assert!(!c.contains("\"**/api.py\""), "no python wrapper per-file-ignores without python");
+    assert!(
+        !c.contains("\"**/api.py\""),
+        "no python wrapper per-file-ignores without python"
+    );
     assert!(c.contains("\"**/e2e/**\""), "test/e2e per-file-ignores always emitted");
 }
