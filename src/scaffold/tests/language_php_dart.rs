@@ -7,13 +7,18 @@ fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
-    let paths: Vec<String> = all_files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+    let paths: Vec<String> = all_files
+        .iter()
+        .map(|f| f.path.to_string_lossy().into_owned())
+        .collect();
     assert!(
         !paths.iter().any(|p| p.ends_with(".php-cs-fixer.dist.php")),
         "must not emit .php-cs-fixer.dist.php; got {paths:?}"
     );
     assert!(
-        !paths.iter().any(|p| p.ends_with("phpstan.neon") || p.ends_with("phpstan-baseline.neon")),
+        !paths
+            .iter()
+            .any(|p| p.ends_with("phpstan.neon") || p.ends_with("phpstan-baseline.neon")),
         "must not emit phpstan config; got {paths:?}"
     );
     let composer = all_files

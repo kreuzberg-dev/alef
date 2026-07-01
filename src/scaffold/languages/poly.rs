@@ -83,15 +83,39 @@ const MAGO_IGNORE: &[&str] = &["strict-assertions", "use-specific-assertions", "
 /// defect in the binding surface (which lints clean). Engine-agnostic: a code
 /// simply no-ops on files of other languages.
 const TEST_IGNORES: &[&str] = &[
-    "ANN", "D103", "PLR2004", "PLR0915", "PLR0913", "S101", "S105", "S106", "S108", "S310", "S311", "PT011", "PT012",
-    "PERF401", "PTH123", "T201", "TC001", "TC002", "TC003", "INP001", "no-unused-vars", "no-literal-password",
+    "ANN",
+    "D103",
+    "PLR2004",
+    "PLR0915",
+    "PLR0913",
+    "S101",
+    "S105",
+    "S106",
+    "S108",
+    "S310",
+    "S311",
+    "PT011",
+    "PT012",
+    "PERF401",
+    "PTH123",
+    "T201",
+    "TC001",
+    "TC002",
+    "TC003",
+    "INP001",
+    "no-unused-vars",
+    "no-literal-password",
     "no-unescaped-output",
 ];
 
 /// Render a TOML array of strings indented under `key = [`, one entry per line
 /// with a trailing comma — taplo's canonical multi-line form.
 fn toml_array(entries: &[&str]) -> String {
-    let inner = entries.iter().map(|e| format!("    \"{e}\",")).collect::<Vec<_>>().join("\n");
+    let inner = entries
+        .iter()
+        .map(|e| format!("    \"{e}\","))
+        .collect::<Vec<_>>()
+        .join("\n");
     format!("[\n{inner}\n]")
 }
 
