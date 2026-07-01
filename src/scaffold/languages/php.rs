@@ -220,8 +220,6 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     "php": ">=8.2"
   }},
   "require-dev": {{
-    "phpstan/phpstan": "{phpstan}",
-    "friendsofphp/php-cs-fixer": "{php_cs_fixer}",
     "phpunit/phpunit": "{phpunit}"
   }},
   "autoload": {{
@@ -230,12 +228,11 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     }}
   }},
   "scripts": {{
-    "phpstan": "php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M",
-    "format": "php vendor/bin/php-cs-fixer fix --quiet",
-    "format:check": "php vendor/bin/php-cs-fixer fix --dry-run --quiet",
+    "format": "poly fmt --fix",
+    "format:check": "poly fmt --check",
     "test": "php vendor/bin/phpunit",
-    "lint": "@phpstan",
-    "lint:fix": "php vendor/bin/php-cs-fixer fix --quiet && php -d detect_unicode=0 vendor/bin/phpstan --configuration=phpstan.neon --memory-limit=512M"
+    "lint": "poly lint",
+    "lint:fix": "poly lint --fix && poly fmt --fix"
   }},
   "php-ext": {{
     "extension-name": "{ext_name}",
@@ -254,8 +251,6 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
             ext_name = ext_name,
             keywords = keywords_json,
             pie_binary = pie_binary_block,
-            phpstan = tv::packagist::PHPSTAN,
-            php_cs_fixer = tv::packagist::PHP_CS_FIXER,
             phpunit = tv::packagist::PHPUNIT,
         )
     };
@@ -263,25 +258,9 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
     let content = render_composer("src/");
     let root_content = render_composer("packages/php/src/");
 
-    let stubs_file = format!("stubs/{ext_name}_extension.php");
-
-    let phpstan_content = format!(
-        "includes:\n\
-         \x20   - phpstan-baseline.neon\n\
-         \n\
-         parameters:\n\
-         \x20   level: max\n\
-         \x20   paths:\n\
-         \x20       - src\n\
-         \x20   scanFiles:\n\
-         \x20       - {stubs_file}\n\
-         \x20   treatPhpDocTypesAsCertain: false\n\
-         \x20   reportUnmatchedIgnoredErrors: false\n\
-         \x20   tmpDir: var/cache/phpstan\n"
-    );
-
-    let phpstan_baseline_content = "parameters:\n\tignoreErrors: []\n".to_string();
-
+    // PHP linting + formatting are poly-native via mago (no PHP runtime): no
+    // phpstan.neon / phpstan-baseline.neon / .php-cs-fixer.dist.php is emitted.
+    // The mago ruleset lives in the repo-root poly.toml ([lint.php.mago]).
     Ok(vec![
         GeneratedFile {
             path: PathBuf::from(format!("{pkg_dir}/composer.json")),
@@ -294,54 +273,6 @@ pub(crate) fn scaffold_php(_api: &ApiSurface, config: &ResolvedCrateConfig) -> a
         GeneratedFile {
             path: PathBuf::from("composer.json"),
             content: root_content,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/phpstan.neon")),
-            content: phpstan_content,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/phpstan-baseline.neon")),
-            content: phpstan_baseline_content,
-            generated_header: false,
-        },
-        GeneratedFile {
-            path: PathBuf::from(format!("{pkg_dir}/.php-cs-fixer.dist.php")),
-            content: r#"<?php
-
-declare(strict_types=1);
-
-// Stub files declare classes the native extension provides at runtime.
-// They contain ext-php-rs-style scaffolding that php-cs-fixer's @PHP82Migration
-// rule would otherwise rewrite into constructor-promoted properties, deleting
-// the explicit class-level property declarations phpstan needs to see.
-// Excluding stubs/ keeps the stub structure intact for static analysis.
-$finder = (new PhpCsFixer\Finder())
-    ->in(array_filter([
-        __DIR__ . '/src',
-        is_dir(__DIR__ . '/tests') ? __DIR__ . '/tests' : null,
-    ]))
-    ->notPath('stubs');
-
-return (new PhpCsFixer\Config())
-    ->setUnsupportedPhpVersionAllowed(true)
-    ->setRules([
-        '@PSR12' => true,
-        '@PHP82Migration' => true,
-        'array_syntax' => ['syntax' => 'short'],
-        'single_quote' => true,
-        'trailing_comma_in_multiline' => [
-            'elements' => ['arrays', 'arguments', 'parameters'],
-        ],
-        'declare_strict_types' => true,
-        'ordered_imports' => ['sort_algorithm' => 'alpha'],
-        'no_unused_imports' => true,
-    ])
-    ->setFinder($finder)
-    ->setRiskyAllowed(true);
-"#
-            .to_string(),
             generated_header: false,
         },
     ])

@@ -449,8 +449,10 @@ pub fn scaffold(
     for &lang in languages {
         files.extend(scaffold_language(api, config, lang)?);
     }
-    // Project-level files that depend on the full set of configured languages
-    files.extend(scaffold_pre_commit_config(config, languages));
+    // Project-level files that depend on the full set of configured languages.
+    // The repo-root poly.toml is the single config driving lint/format/hooks/
+    // commit; it replaces the former .pre-commit-config.yaml and per-tool configs.
+    files.extend(scaffold_poly_config(config, languages));
 
     // LICENSE sync — copy the workspace-root LICENSE into every per-language
     // package directory so ecosystems like pub.dev (Dart) that require a LICENSE
@@ -501,14 +503,9 @@ pub fn scaffold(
         });
     }
 
-    // Typos configuration (spell checker)
-    if !std::path::Path::new(".typos.toml").exists() {
-        files.push(GeneratedFile {
-            path: std::path::PathBuf::from(".typos.toml"),
-            content: "[files]\nextend-exclude = [\"target/\", \".alef/\", \"*.lock\", \"*.min.js\"]\n\n[default.extend-words]\n# Add project-specific words here\n# crate_name = \"crate_name\"\n".to_string(),
-            generated_header: false,
-        });
-    }
+    // Spell-checking (typos) is driven by poly.toml — its excludes live in
+    // `[discovery] exclude` and project words in `[lint.<lang>.typos]`. No
+    // standalone .typos.toml is emitted.
 
     // .gitattributes — mark all generated output directories as linguist-generated
     // so GitHub collapses them in PR diffs. create-once seed; skipped if the file
@@ -868,7 +865,7 @@ fn scaffold_gitattributes(config: &ResolvedCrateConfig, languages: &[Language]) 
 use languages::{
     scaffold_csharp, scaffold_dart, scaffold_elixir, scaffold_elixir_cargo, scaffold_ffi, scaffold_gleam, scaffold_go,
     scaffold_java, scaffold_jni, scaffold_kotlin, scaffold_node, scaffold_node_cargo, scaffold_php, scaffold_php_cargo,
-    scaffold_pre_commit_config, scaffold_python, scaffold_python_cargo, scaffold_r, scaffold_r_cargo, scaffold_ruby,
+    scaffold_poly_config, scaffold_python, scaffold_python_cargo, scaffold_r, scaffold_r_cargo, scaffold_ruby,
     scaffold_ruby_cargo, scaffold_swift, scaffold_wasm, scaffold_zig,
 };
 

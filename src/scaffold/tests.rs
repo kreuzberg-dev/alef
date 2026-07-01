@@ -1,8 +1,7 @@
 use super::*;
 use crate::core::config::{
-    Language, NewAlefConfig, PrecommitConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig,
+    Language, NewAlefConfig, PythonConfig, ResolvedCrateConfig, ScaffoldCargoTargets, ScaffoldConfig,
 };
-use crate::scaffold::languages::generate_pre_commit_config;
 use std::path::{Path, PathBuf};
 
 fn test_config() -> ResolvedCrateConfig {
@@ -64,15 +63,14 @@ fn test_api() -> ApiSurface {
     }
 }
 
-/// Filter out project-level scaffold files (like .pre-commit-config.yaml)
+/// Filter out project-level scaffold files (like poly.toml)
 /// to isolate language-specific scaffold tests.
 fn language_files(files: &[GeneratedFile]) -> Vec<&GeneratedFile> {
     files
         .iter()
         .filter(|f| {
             let p = f.path.to_string_lossy();
-            !p.ends_with(".pre-commit-config.yaml")
-                && !p.ends_with(".typos.toml")
+            p != "poly.toml"
                 && !p.ends_with("rust-toolchain.toml")
                 && !p.ends_with(".cargo/config.toml")
                 && p != ".gitattributes"
@@ -95,5 +93,5 @@ mod language_elixir;
 mod language_php_dart;
 mod language_swift_kotlin_gleam_zig;
 mod licenses;
-mod precommit;
+mod poly;
 mod python_node;

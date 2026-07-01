@@ -49,7 +49,7 @@ pub use new_config::{NewAlefConfig, ResolveError};
 pub use output::{
     BuildCommandConfig, CitationAuthor, CitationConfig, CleanConfig, DocsConfig, DocsLlmsConfig,
     DocsSkillTemplateConfig, DocsSkillsConfig, DocsSnippetsConfig, DocsSourceConfig, ExcludeConfig,
-    GeneratedHeaderConfig, IncludeConfig, LintConfig, OutputConfig, OutputTemplate, PrecommitConfig, ReadmeConfig,
+    GeneratedHeaderConfig, IncludeConfig, LintConfig, OutputConfig, OutputTemplate, ReadmeConfig,
     ScaffoldCargo, ScaffoldCargoEnvValue, ScaffoldCargoTargets, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig,
     TextReplacement, UpdateConfig,
 };

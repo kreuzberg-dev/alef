@@ -10,7 +10,6 @@ fn cargo_only_config(cargo: ScaffoldCargo) -> ResolvedCrateConfig {
         authors: vec!["Alice".to_string()],
         keywords: vec!["test".to_string()],
         generated_header: None,
-        precommit: None,
         cargo: Some(cargo),
     });
     cfg

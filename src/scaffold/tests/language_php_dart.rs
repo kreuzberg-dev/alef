@@ -1,29 +1,34 @@
 use super::*;
 
 #[test]
-fn test_scaffold_php_cs_fixer_handles_missing_tests_dir() {
+fn test_scaffold_php_omits_phpstan_and_cs_fixer_configs() {
+    // PHP lint+format is poly-native via mago: no phpstan/php-cs-fixer config
+    // files, and composer.json carries neither dep nor their scripts.
     let config = test_config();
     let api = test_api();
     let all_files = scaffold(&api, &config, &[Language::Php]).unwrap();
-    let files = language_files(&all_files);
-    let fixer = files
+    let paths: Vec<String> = all_files.iter().map(|f| f.path.to_string_lossy().into_owned()).collect();
+    assert!(
+        !paths.iter().any(|p| p.ends_with(".php-cs-fixer.dist.php")),
+        "must not emit .php-cs-fixer.dist.php; got {paths:?}"
+    );
+    assert!(
+        !paths.iter().any(|p| p.ends_with("phpstan.neon") || p.ends_with("phpstan-baseline.neon")),
+        "must not emit phpstan config; got {paths:?}"
+    );
+    let composer = all_files
         .iter()
-        .find(|f| f.path.ends_with(".php-cs-fixer.dist.php"))
-        .unwrap();
+        .find(|f| f.path.to_string_lossy() == "composer.json")
+        .expect("composer.json must be emitted");
     assert!(
-        fixer.content.contains("declare(strict_types=1);"),
-        "php-cs-fixer config should be fixer-clean; content:\n{}",
-        fixer.content
+        !composer.content.contains("phpstan") && !composer.content.contains("php-cs-fixer"),
+        "composer.json must not reference phpstan/php-cs-fixer; content:\n{}",
+        composer.content
     );
     assert!(
-        fixer.content.contains("is_dir(__DIR__ . '/tests')"),
-        "php-cs-fixer config must not require a tests directory; content:\n{}",
-        fixer.content
-    );
-    assert!(
-        fixer.content.contains("setUnsupportedPhpVersionAllowed(true)"),
-        "php-cs-fixer config must suppress unsupported-runtime advisory in config; content:\n{}",
-        fixer.content
+        composer.content.contains("\"lint\": \"poly lint\""),
+        "composer.json lint script must call poly; content:\n{}",
+        composer.content
     );
 }
 

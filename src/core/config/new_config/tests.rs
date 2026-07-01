@@ -104,7 +104,7 @@ keywords = ["bindings"]
 }
 
 #[test]
-fn resolve_merges_workspace_header_and_precommit_defaults() {
+fn resolve_merges_workspace_generated_header_defaults() {
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -113,19 +113,12 @@ languages = ["python"]
 [workspace.generated_header]
 issues_url = "https://docs.example.invalid/alef"
 
-[workspace.precommit]
-shared_hooks_repo = "https://github.com/acme/hooks"
-include_alef_hooks = false
-
 [[crates]]
 name = "sample_router"
 sources = ["src/lib.rs"]
 
 [crates.scaffold.generated_header]
 verify_command = "sample_router verify"
-
-[crates.scaffold.precommit]
-shared_hooks_rev = "v1.2.3"
 "#,
     )
     .unwrap();
@@ -133,16 +126,9 @@ shared_hooks_rev = "v1.2.3"
     let resolved = cfg.resolve().unwrap().remove(0);
     let scaffold = resolved.scaffold.unwrap();
     let header = scaffold.generated_header.unwrap();
-    let precommit = scaffold.precommit.unwrap();
 
     assert_eq!(header.issues_url.as_deref(), Some("https://docs.example.invalid/alef"));
     assert_eq!(header.verify_command.as_deref(), Some("sample_router verify"));
-    assert_eq!(
-        precommit.shared_hooks_repo.as_deref(),
-        Some("https://github.com/acme/hooks")
-    );
-    assert_eq!(precommit.shared_hooks_rev.as_deref(), Some("v1.2.3"));
-    assert_eq!(precommit.include_alef_hooks, Some(false));
 }
 
 #[test]

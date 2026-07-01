@@ -4339,59 +4339,6 @@
       ],
       "type": "string"
     },
-    "PrecommitConfig": {
-      "properties": {
-        "alef_hooks_repo": {
-          "default": null,
-          "description": "Repository URL for the alef hook block.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "alef_hooks_rev": {
-          "default": null,
-          "description": "Revision for the alef hook block.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "include_alef_hooks": {
-          "default": null,
-          "description": "Whether to include the alef hook block.",
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "include_shared_hooks": {
-          "default": null,
-          "description": "Whether to include the shared shell/Docker/docs hooks block.",
-          "type": [
-            "boolean",
-            "null"
-          ]
-        },
-        "shared_hooks_repo": {
-          "default": null,
-          "description": "Repository URL for the shared hooks block.",
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "shared_hooks_rev": {
-          "default": null,
-          "description": "Revision for the shared hooks block.",
-          "type": [
-            "string",
-            "null"
-          ]
-        }
-      },
-      "type": "object"
-    },
     "PublishConfig": {
       "description": "Configuration for the `alef publish` command group.",
       "properties": {
@@ -5842,18 +5789,6 @@
             "null"
           ]
         },
-        "precommit": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PrecommitConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Pre-commit scaffold overrides."
-        },
         "repository": {
           "type": [
             "string",
@@ -7158,18 +7093,6 @@
           "default": null,
           "description": "Default PHP backend settings."
         },
-        "precommit": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PrecommitConfig"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Default pre-commit scaffold metadata.\nPer-crate `[scaffold.precommit]` values override this field-by-field."
-        },
         "python": {
           "anyOf": [
             {
@@ -7473,7 +7396,6 @@
         },
         "package_metadata": null,
         "php": null,
-        "precommit": null,
         "python": null,
         "r": null,
         "ruby": null,

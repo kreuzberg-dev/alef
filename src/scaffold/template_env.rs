@@ -6,14 +6,6 @@ static TEMPLATES: &[(&str, &str)] = &[
         "cargo_env_structured.jinja",
         include_str!("templates/cargo_env_structured.jinja"),
     ),
-    (
-        "precommit_clippy_exclude.jinja",
-        include_str!("templates/precommit_clippy_exclude.jinja"),
-    ),
-    (
-        "precommit_config.yaml.jinja",
-        include_str!("templates/precommit_config.yaml.jinja"),
-    ),
 ];
 
 pub(crate) fn make_env() -> Environment<'static> {

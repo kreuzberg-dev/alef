@@ -55,9 +55,7 @@ Imports: jsonlite
 Suggests:
     testthat (>= 3.0.0),
     withr,
-    roxygen2,
-    lintr,
-    styler
+    roxygen2
 SystemRequirements: Cargo (Rust's package manager), rustc (>= 1.91)
 Config/rextendr/version: {rextendr}
 Encoding: UTF-8
@@ -75,28 +73,13 @@ Config/testthat/edition: 3
         rextendr = tv::cran::REXTENDR,
     );
 
-    Ok(vec![
-        GeneratedFile {
-            path: PathBuf::from("packages/r/DESCRIPTION"),
-            content,
-            generated_header: true,
-        },
-        GeneratedFile {
-            path: PathBuf::from("packages/r/.lintr"),
-            content: r#"linters: linters_with_defaults(
-    line_length_linter(120),
-    object_name_linter = NULL,
-    object_usage_linter = NULL,
-    commented_code_linter = NULL
-  )
-exclusions: list(
-    "R/extendr-wrappers.R"
-  )
-"#
-            .to_string(),
-            generated_header: false,
-        },
-    ])
+    // R linting (jarl) and formatting (air) are poly-native — no `.lintr` is
+    // emitted; configuration lives in the repo-root poly.toml.
+    Ok(vec![GeneratedFile {
+        path: PathBuf::from("packages/r/DESCRIPTION"),
+        content,
+        generated_header: true,
+    }])
 }
 
 fn parse_r_author(author: &str) -> Option<(String, String, String)> {

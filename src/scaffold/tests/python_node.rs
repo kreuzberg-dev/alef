@@ -181,8 +181,9 @@ fn test_scaffold_python_production_features() {
     let content = &files[0].content;
     assert!(content.contains("urls.repository"));
     assert!(content.contains("repository ="));
-    // Linter config (ruff) is included in the generated pyproject.toml
-    assert!(content.contains("[tool.ruff]"));
+    // Type-check config (pyrefly) is included; ruff selection now lives in poly.toml.
+    assert!(content.contains("[tool.pyrefly]"));
+    assert!(!content.contains("[tool.ruff]"), "ruff config moved to poly.toml");
 }
 
 #[test]
@@ -192,7 +193,6 @@ fn test_scaffold_python_pyproject_canonical_format() {
     // - arrays with spaces: [ "a", "b" ]
     // - sorted keywords
     // - dot-syntax for nested tables: urls.repository instead of [project.urls]
-    // - tool sections use dot-syntax: lint.* instead of [tool.ruff.lint]
     let cfg: NewAlefConfig = toml::from_str(
         r#"
 [workspace]
@@ -257,40 +257,31 @@ keywords = ["zebra", "apple", "banana"]
         "should have urls.repository in dot-syntax"
     );
 
-    // Check tool.ruff uses dot-syntax for nested sections
+    // ruff rule selection no longer lives in pyproject.toml — it moved to the
+    // repo-root poly.toml ([lint.python.ruff] + [per-file-ignores]).
     assert!(
-        !content.contains("[tool.ruff.lint]"),
-        "should use dot-syntax lint.*, not [tool.ruff.lint]"
-    );
-    assert!(
-        content.contains("lint.select = "),
-        "should have lint.select in dot-syntax"
-    );
-    assert!(
-        content.contains("lint.mccabe.max-complexity"),
-        "should have lint.mccabe.max-complexity in dot-syntax"
+        !content.contains("[tool.ruff]"),
+        "ruff config must not be emitted into pyproject.toml — it lives in poly.toml. got:\n{content}"
     );
 
-    // lint.ignore is a long alphabetised list whose inline form blows past
-    // pyproject-fmt's 80-char column width, so it must expand to one element
-    // per line with a trailing comma after the last entry.
+    // Type-checking is pyrefly (mypy is gone): the strict preset plus a
+    // sub-config that suppresses the api.py wrapper's known FromPyObject
+    // discrepancy errors. mypy tables must not be emitted at all.
     assert!(
-        content.contains("lint.ignore = [\n  \"ANN401\","),
-        "long lint.ignore array should expand to multi-line. got:\n{content}"
-    );
-
-    // The mypy overrides table must be rendered as an array of inline tables
-    // (`overrides = [ { module = ..., disable_error_code = [...] } ]`) rather
-    // than the `[[tool.mypy.overrides]]` block form: pyproject-fmt rewrites
-    // every block-form override into the inline-array form, so emitting the
-    // block form ourselves triggers a rewrite on every regen.
-    assert!(
-        !content.contains("[[tool.mypy.overrides]]"),
-        "tool.mypy.overrides must be rendered inline, not as [[tool.mypy.overrides]]. got:\n{content}"
+        !content.contains("[tool.mypy]"),
+        "mypy config must not be emitted — pyrefly replaces it. got:\n{content}"
     );
     assert!(
-        content.contains("overrides = [\n") && content.contains("disable_error_code = ["),
-        "tool.mypy.overrides must be rendered as inline-table array with disable_error_code. got:\n{content}"
+        content.contains("[tool.pyrefly]") && content.contains("preset = \"strict\""),
+        "should emit [tool.pyrefly] with strict preset. got:\n{content}"
+    );
+    assert!(
+        content.contains("[[tool.pyrefly.sub-config]]") && content.contains("matches = \"**/api.py\""),
+        "should emit a pyrefly sub-config matching the api.py wrapper. got:\n{content}"
+    );
+    assert!(
+        content.contains("[tool.pyrefly.sub-config.errors]") && content.contains("bad-argument-type = false"),
+        "should suppress the api.py wrapper errors via sub-config.errors. got:\n{content}"
     );
 }
 

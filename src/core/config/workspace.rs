@@ -23,7 +23,7 @@ use super::languages::{
 };
 use super::output::{
     BuildCommandConfig, CitationConfig, CleanConfig, DocsConfig, GeneratedHeaderConfig, LintConfig, OutputTemplate,
-    PrecommitConfig, ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
+    ScaffoldConfig, SetupConfig, SyncConfig, TestConfig, UpdateConfig,
 };
 use super::package_metadata::PackageMetadataConfig;
 use super::tools::ToolsConfig;
@@ -191,11 +191,6 @@ pub struct WorkspaceConfig {
     /// Per-crate `[scaffold.generated_header]` values override this field-by-field.
     #[serde(default)]
     pub generated_header: Option<GeneratedHeaderConfig>,
-
-    /// Default pre-commit scaffold metadata.
-    /// Per-crate `[scaffold.precommit]` values override this field-by-field.
-    #[serde(default)]
-    pub precommit: Option<PrecommitConfig>,
 
     /// Default lint pipeline keyed by language code (`"python"`, `"node"`, …).
     /// Merged field-wise with per-crate `[crates.lint.<lang>]`.

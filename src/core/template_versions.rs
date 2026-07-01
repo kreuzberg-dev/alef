@@ -124,8 +124,10 @@ pub mod pypi {
     // renovate: datasource=pypi depName=ruff
     pub const RUFF: &str = ">=0.14.8";
 
-    // renovate: datasource=pypi depName=mypy
-    pub const MYPY: &str = ">=1.19.0";
+    // renovate: datasource=pypi depName=pyrefly
+    // Replaces mypy: pyrefly is a fast single-binary Rust type-checker, run as a
+    // poly hook. See `[tool.pyrefly]` emission in scaffold/languages/python.rs.
+    pub const PYREFLY: &str = ">=1.1.1";
 }
 
 pub mod gem {
@@ -177,11 +179,7 @@ pub mod gem {
 }
 
 pub mod packagist {
-    // renovate: datasource=packagist depName=phpstan/phpstan
-    pub const PHPSTAN: &str = "^2.1";
-
-    // renovate: datasource=packagist depName=friendsofphp/php-cs-fixer
-    pub const PHP_CS_FIXER: &str = "^3.95";
+    // PHP lint+format is poly-native via mago — no phpstan / php-cs-fixer deps.
 
     // renovate: datasource=packagist depName=phpunit/phpunit
     pub const PHPUNIT: &str = "^13.1";

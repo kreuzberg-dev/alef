@@ -1,0 +1,190 @@
+//! Repo-root `poly.toml` scaffolding.
+//!
+//! Emits the single config that drives `poly lint`, `poly fmt`, `poly hooks`,
+//! and `poly commit` — replacing the former `.pre-commit-config.yaml` and the
+//! per-tool config files (`[tool.ruff]`, `[tool.mypy]`, `phpstan.neon`,
+//! `.php-cs-fixer.dist.php`, `.lintr`, `.typos.toml`).
+//!
+//! poly covers most languages natively with zero system dependencies (ruff for
+//! Python lint+fmt, oxc for JS/TS/JSON, taplo for TOML, rumdl for Markdown,
+//! mago for PHP, jarl+air for R, rubyfmt for Ruby format, rustfmt + the `cargo`
+//! builtin for Rust). It auto-detects languages and dispatches the right engine,
+//! so only languages that need non-default config get an explicit table here:
+//! Python (ruff rule selection + pyrefly type-check hook) and PHP (mago
+//! correctness/security ruleset).
+//!
+//! `[defaults]` is omitted because poly's built-in defaults already match ours
+//! (line_length 120, lf, final_newline, trim_trailing_whitespace).
+
+use crate::core::backend::GeneratedFile;
+use crate::core::config::{Language, ResolvedCrateConfig};
+use std::path::PathBuf;
+
+/// Gitignore-style globs pruned from every lint/format pass. Emitted into
+/// `[discovery] exclude` (direct `poly lint`/`poly fmt`/CI path) and mirrored
+/// into the `polylint`/`polyfmt`/`file_safety` builtin excludes (the git-hook
+/// path, which filters per-builtin rather than via discovery).
+///
+/// Covers build output + lock files, plus the conventional non-source trees a
+/// polyglot repo keeps under version control that must NOT be linted/reformatted:
+/// `fixtures/` and `test_documents/` (exact-byte test data), `docs/assets/`
+/// (canonical SVG/image assets), and `docs/snippets/` (compiled separately by the
+/// snippet runner). Generated code under `packages/`, `e2e/`, `test_apps/` is
+/// deliberately NOT excluded — poly owns its formatting.
+const EXCLUDES: &[&str] = &[
+    "**/*.freezed.dart",
+    "**/*.g.dart",
+    "**/*.lock",
+    "**/Cargo.lock",
+    "**/go.sum",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".alef/**",
+    "artifacts/**",
+    "dist/**",
+    "docs/assets/**",
+    "docs/snippets/**",
+    "fixtures/**",
+    "node_modules/**",
+    "target/**",
+    "test_documents/**",
+    "vendor/**",
+];
+
+/// Ruff rules ignored repo-wide for generated Python (ported verbatim from the
+/// former pyproject `[tool.ruff] lint.ignore`).
+const RUFF_IGNORE: &[&str] = &[
+    "ANN401", "ASYNC109", "ASYNC110", "BLE001", "COM812", "D100", "D104", "D107", "D205", "E501", "EM", "FBT", "FIX",
+    "ISC001", "PD011", "PGH003", "PLR2004", "PLW0603", "S104", "S110", "S603", "TD", "TRY",
+];
+
+/// rumdl rules disabled repo-wide for Markdown — the Zensical docs convention
+/// shared across every polyglot repo's `.rumdl.toml`: tables/code run long
+/// (MD013), the docs use inline HTML grids/cards (MD033), Zensical tabs indent
+/// fenced blocks (MD046) and rewrite anchors (MD051), READMEs intentionally skip
+/// a leading H1 (MD041) and use emphasis-as-heading (MD036), etc.
+const RUMDL_DISABLE: &[&str] = &[
+    "MD012", "MD013", "MD024", "MD033", "MD036", "MD041", "MD046", "MD051", "MD076",
+];
+
+/// mago rules suppressed: test-assertion style/consistency checks that fire on
+/// the generated PHP e2e suites (phpunit assertions) without indicating a real
+/// defect in the binding surface. Scoped here rather than narrowed to tests
+/// because the generated binding code is already clean of them.
+const MAGO_IGNORE: &[&str] = &["strict-assertions", "use-specific-assertions", "no-redundant-variable"];
+
+/// Cross-engine rule codes relaxed for the GENERATED test/e2e suites
+/// (`tests/`, `e2e/`, `test_apps/`). These are conventional test-code allowances
+/// — unused test imports (`no-unused-vars`), `print`/diagnostics (`T201`),
+/// pytest `raises` shape (`PT011`/`PT012`), assert/random/URL-in-test
+/// (`S101`/`S310`/`S311`), literal creds in fixtures (`no-literal-password`),
+/// missing annotations/docstrings, and magic values — none of which indicate a
+/// defect in the binding surface (which lints clean). Engine-agnostic: a code
+/// simply no-ops on files of other languages.
+const TEST_IGNORES: &[&str] = &[
+    "ANN", "D103", "PLR2004", "PLR0915", "PLR0913", "S101", "S105", "S106", "S108", "S310", "S311", "PT011", "PT012",
+    "PERF401", "PTH123", "T201", "TC001", "TC002", "TC003", "INP001", "no-unused-vars", "no-literal-password",
+    "no-unescaped-output",
+];
+
+/// Render a TOML array of strings indented under `key = [`, one entry per line
+/// with a trailing comma — taplo's canonical multi-line form.
+fn toml_array(entries: &[&str]) -> String {
+    let inner = entries.iter().map(|e| format!("    \"{e}\",")).collect::<Vec<_>>().join("\n");
+    format!("[\n{inner}\n]")
+}
+
+/// Generate the repo-root `poly.toml` from the configured language set.
+pub(crate) fn scaffold_poly_config(config: &ResolvedCrateConfig, languages: &[Language]) -> Vec<GeneratedFile> {
+    let has = |lang: Language| languages.contains(&lang);
+    let excludes = toml_array(EXCLUDES);
+
+    let mut out = String::new();
+
+    // Direct-CLI / CI discovery prune.
+    out.push_str(&format!("[discovery]\nexclude = {excludes}\n\n"));
+
+    // Markdown (rumdl) — universal; every repo carries READMEs + Zensical docs.
+    let md_disable = toml_array(RUMDL_DISABLE);
+    out.push_str(&format!("[lint.markdown.rumdl]\ndisable = {md_disable}\n\n"));
+    out.push_str(&format!("[fmt.markdown.rumdl]\ndisable = {md_disable}\n\n"));
+
+    // Native lint/format tables — only for languages needing non-default config.
+    if has(Language::Python) {
+        out.push_str(&format!(
+            "[lint.python.ruff]\nselect = [ \"ALL\" ]\nignore = {ignore}\n",
+            ignore = toml_array(RUFF_IGNORE)
+        ));
+        // Per-plugin params (poly >= 0.1.6 honors these). `pydocstyle_convention`
+        // both selects the convention and disables the D-rules it turns off, so
+        // no explicit D-set ignore is needed; INP001 resolves via poly's package
+        // -root detection. Generated code relies on these to stay lint-clean.
+        out.push_str(
+            "mccabe_max_complexity = 15\n\
+             pydocstyle_convention = \"google\"\n\
+             pylint_max_args = 10\n\
+             pylint_max_branches = 15\n\
+             pylint_max_returns = 10\n\n",
+        );
+    }
+
+    if has(Language::Php) {
+        // mago replaces phpstan + php-cs-fixer (no PHP runtime). Generated
+        // bindings target correctness + security; mago's style/complexity rules
+        // are intentionally not selected, and a few correctness-category rules
+        // that only fire on generated phpunit assertions are ignored.
+        out.push_str(&format!(
+            "[lint.php.mago]\nselect = [ \"correctness\", \"security\" ]\nignore = {ignore}\nphp_version = \"8.2\"\n\n",
+            ignore = toml_array(MAGO_IGNORE)
+        ));
+    }
+
+    // Cross-engine per-file suppressions. Always emitted: every alef repo ships
+    // generated test/e2e suites. Python repos add wrapper-specific relaxations.
+    out.push_str("[per-file-ignores]\n");
+    if has(Language::Python) {
+        out.push_str(
+            "\"**/api.py\" = [ \"F401\", \"I001\", \"UP035\" ]\n\
+             \"**/options.py\" = [ \"F401\", \"RUF100\" ]\n\
+             \"**/__init__.py\" = [ \"I001\" ]\n",
+        );
+    }
+    let test_ignores = toml_array(TEST_IGNORES);
+    for glob in ["**/tests/**", "**/e2e/**", "**/test_apps/**"] {
+        out.push_str(&format!("\"{glob}\" = {test_ignores}\n"));
+    }
+    out.push('\n');
+
+    // typos runs via the polylint builtin with its default dictionary; alef
+    // emits no project-specific allowlist (repos add `[lint.<lang>.typos]
+    // extend_ignore_words` as needed).
+
+    // Git-hook orchestration.
+    out.push_str("[hooks]\nstages = [ \"pre-commit\" ]\n\n[hooks.builtin]\n");
+    out.push_str(&format!("polylint = {{ exclude = {excludes} }}\n"));
+    out.push_str(&format!("polyfmt = {{ exclude = {excludes} }}\n"));
+    out.push_str(&format!("file_safety = {{ exclude = {excludes} }}\n"));
+    // Whole-workspace clippy/sort/machete/deny; capability-probed (skipped when
+    // the cargo toolchain is absent). Per-crate clippy excludes for binding
+    // crates await a polylint feature (tracked with the owner).
+    out.push_str("cargo = true\n");
+    // gitfluff-equivalent conventional-commit + AI-attribution stripping.
+    out.push_str("commit = { stages = [ \"commit-msg\" ] }\n");
+
+    if has(Language::Python) {
+        // pyrefly type-check (replaces mypy) as a pre-commit hook, run in
+        // project mode from the package root so it resolves the pyo3 _native
+        // module and the [tool.pyrefly] sub-config.
+        let py_dir = config.package_dir(Language::Python);
+        out.push_str(&format!(
+            "\n[hooks.pre-commit.commands.pyrefly]\nrun = \"pyrefly check {py_dir}\"\nfiles = \"{py_dir}/**/*.py\"\n"
+        ));
+    }
+
+    vec![GeneratedFile {
+        path: PathBuf::from("poly.toml"),
+        content: out,
+        generated_header: true,
+    }]
+}

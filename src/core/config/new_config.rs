@@ -7,7 +7,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use super::extras::{Language, is_known_language};
-use super::output::{BuildCommandConfig, GeneratedHeaderConfig, PrecommitConfig, ScaffoldConfig};
+use super::output::{BuildCommandConfig, GeneratedHeaderConfig, ScaffoldConfig};
 use super::package_metadata::PackageMetadataConfig;
 use super::raw_crate::RawCrateConfig;
 use super::resolve_helpers::{merge_map, resolve_output_paths};
@@ -301,7 +301,6 @@ impl NewAlefConfig {
                 ws.scaffold.as_ref(),
                 krate.scaffold.as_ref(),
                 ws.generated_header.as_ref(),
-                ws.precommit.as_ref(),
             ),
             package_metadata: PackageMetadataConfig::merge(
                 ws.package_metadata.as_ref(),
@@ -322,19 +321,14 @@ fn merge_scaffold(
     workspace: Option<&ScaffoldConfig>,
     krate: Option<&ScaffoldConfig>,
     workspace_header: Option<&GeneratedHeaderConfig>,
-    workspace_precommit: Option<&PrecommitConfig>,
 ) -> Option<ScaffoldConfig> {
-    if workspace.is_none() && krate.is_none() && workspace_header.is_none() && workspace_precommit.is_none() {
+    if workspace.is_none() && krate.is_none() && workspace_header.is_none() {
         return None;
     }
 
     let generated_header = merge_generated_header(
         workspace.and_then(|s| s.generated_header.as_ref()).or(workspace_header),
         krate.and_then(|s| s.generated_header.as_ref()),
-    );
-    let precommit = merge_precommit(
-        workspace.and_then(|s| s.precommit.as_ref()).or(workspace_precommit),
-        krate.and_then(|s| s.precommit.as_ref()),
     );
 
     Some(ScaffoldConfig {
@@ -361,7 +355,6 @@ fn merge_scaffold(
             .or_else(|| workspace.map(|s| s.keywords.clone()))
             .unwrap_or_default(),
         generated_header,
-        precommit,
         cargo: krate
             .and_then(|s| s.cargo.clone())
             .or_else(|| workspace.and_then(|s| s.cargo.clone())),
@@ -385,32 +378,6 @@ fn merge_generated_header(
         verify_command: krate
             .and_then(|h| h.verify_command.clone())
             .or_else(|| workspace.and_then(|h| h.verify_command.clone())),
-    })
-}
-
-fn merge_precommit(workspace: Option<&PrecommitConfig>, krate: Option<&PrecommitConfig>) -> Option<PrecommitConfig> {
-    if workspace.is_none() && krate.is_none() {
-        return None;
-    }
-    Some(PrecommitConfig {
-        include_shared_hooks: krate
-            .and_then(|p| p.include_shared_hooks)
-            .or_else(|| workspace.and_then(|p| p.include_shared_hooks)),
-        shared_hooks_repo: krate
-            .and_then(|p| p.shared_hooks_repo.clone())
-            .or_else(|| workspace.and_then(|p| p.shared_hooks_repo.clone())),
-        shared_hooks_rev: krate
-            .and_then(|p| p.shared_hooks_rev.clone())
-            .or_else(|| workspace.and_then(|p| p.shared_hooks_rev.clone())),
-        include_alef_hooks: krate
-            .and_then(|p| p.include_alef_hooks)
-            .or_else(|| workspace.and_then(|p| p.include_alef_hooks)),
-        alef_hooks_repo: krate
-            .and_then(|p| p.alef_hooks_repo.clone())
-            .or_else(|| workspace.and_then(|p| p.alef_hooks_repo.clone())),
-        alef_hooks_rev: krate
-            .and_then(|p| p.alef_hooks_rev.clone())
-            .or_else(|| workspace.and_then(|p| p.alef_hooks_rev.clone())),
     })
 }
 

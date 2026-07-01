@@ -19,7 +19,7 @@ pub fn default_lint_config(lang: Language, output_dir: &str, ctx: &LangContext) 
                 ctx.run_wrapper,
             );
             let typecheck_cmd = wrap(
-                append_paths(format!("mypy {output_dir}"), ctx.extra_lint_paths),
+                append_paths(format!("pyrefly check {output_dir}"), ctx.extra_lint_paths),
                 ctx.run_wrapper,
             );
             LintConfig {
@@ -378,14 +378,14 @@ mod tests {
     }
 
     #[test]
-    fn python_defaults_use_ruff_and_mypy() {
+    fn python_defaults_use_ruff_and_pyrefly() {
         let c = cfg(Language::Python, "packages/python");
         let fmt = c.format.unwrap().commands().join(" ");
         let check = c.check.unwrap().commands().join(" ");
         let tc = c.typecheck.unwrap().commands().join(" ");
         assert!(fmt.contains("ruff format"));
         assert!(check.contains("ruff check"));
-        assert!(tc.contains("mypy"));
+        assert!(tc.contains("pyrefly check"));
         assert_eq!(c.precondition.as_deref(), Some("command -v ruff >/dev/null 2>&1"));
     }
 
