@@ -129,6 +129,7 @@ const TEST_IGNORES: &[&str] = &[
     "ARG001",
     "ARG002",
     "D403",
+    "E713",
     "UP035",
     "UP012",
     "RUF015",
