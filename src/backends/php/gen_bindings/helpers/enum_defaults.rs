@@ -104,12 +104,20 @@ pub(crate) fn gen_enum_tainted_from_binding_to_core(
             // `<field>: Default::default()` would shadow custom defaults.
             continue;
         }
-        // cfg-gated fields are absent from the binding struct and must not appear in the
-        // From impl field list — they are filled by the ..Default::default() spread.
+        // cfg-gated fields: only skip when the binding crate strips them from the binding
+        // struct (e.g. extendr/wasm, `strip_cfg_fields_from_binding_struct = true`). When the
+        // backend keeps cfg-gated fields in the binding struct (PHP keeps them unconditionally),
+        // the field carries a real value and MUST be mapped here — otherwise the value is
+        // silently dropped and `..Default::default()` overwrites it with the core default
+        // (e.g. `keywords` on `ExtractionConfig`, `crawl` on `UrlExtractionConfig`).
+        // This mirrors the standard `gen_from_binding_to_core_cfg` (render.rs) skip condition.
         // Exception: fields in `never_skip_cfg_field_names` (trait-bridge options-field
         // attachments like `visitor`) are emitted unconditionally on the binding side,
         // so they must appear in the From impl too — otherwise the handle is silently dropped.
-        if field.cfg.is_some() && !config.never_skip_cfg_field_names.contains(&field.name) {
+        if field.cfg.is_some()
+            && !config.never_skip_cfg_field_names.contains(&field.name)
+            && config.strip_cfg_fields_from_binding_struct
+        {
             continue;
         }
         let name = &field.name;
