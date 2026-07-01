@@ -1,5 +1,5 @@
   @doc "Build a default instance."
   @spec new() :: t()
   def new do
-    %__MODULE__{ref: Native.{{ type_lower }}_default()}
+    %__MODULE__{ref: Native.{{ type_lower }}_new()}
   end

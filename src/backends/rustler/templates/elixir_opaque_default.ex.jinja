@@ -1,4 +1,4 @@
   def default() do
-    ref = Native.{{ type_lower }}_default()
+    ref = Native.{{ type_lower }}_new()
     %__MODULE__{ref: ref}
   end
