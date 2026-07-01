@@ -74,7 +74,7 @@ result.as_string()
     .ok_or_else(|| {{ error_result_conv }})
     .and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&format!("\"{}\"", s)).map_err(|e| {{ error_deser }}))
 {% else %}
-result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&format!("\"{}\"", s)).map_err(|_| {{ error_deser }})).unwrap_or_default()
+result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&format!("\"{}\"", s)).ok()).unwrap_or_default()
 {% endif %}
 {% else %}
 // Convert JS result to {{ ret_ty }}
@@ -83,6 +83,6 @@ result.as_string()
     .ok_or_else(|| {{ error_result_conv }})
     .and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&s).map_err(|e| {{ error_deser }}))
 {% else %}
-result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&s).map_err(|_| {{ error_deser }})).unwrap_or_default()
+result.as_string().and_then(|s| serde_json::from_str::<{{ ret_ty }}>(&s).ok()).unwrap_or_default()
 {% endif %}
 {% endif %}
