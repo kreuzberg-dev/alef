@@ -80,6 +80,70 @@ pub(super) fn filter_empty_enum_strings(value: &serde_json::Value) -> serde_json
     }
 }
 
+/// True when `field_name` on `struct_name` is a plain `String` or `Optional<String>`
+/// field — i.e. a field where an empty string `""` is a meaningful value the fixture
+/// intends to send (e.g. `ExtractInput.mime_type = ""` to exercise the empty-MIME
+/// error path), not an absent enum variant. Returns false when the struct or field is
+/// unknown, so callers fall back to the conservative "drop empty string" behaviour.
+pub(super) fn field_is_string_typed(
+    struct_name: Option<&str>,
+    field_name: &str,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> bool {
+    let Some(struct_name) = struct_name else {
+        return false;
+    };
+    type_defs
+        .iter()
+        .find(|td| td.name == struct_name)
+        .and_then(|td| td.fields.iter().find(|f| f.name == field_name))
+        .map(|field| match &field.ty {
+            TypeRef::String => true,
+            TypeRef::Optional(inner) => matches!(**inner, TypeRef::String),
+            _ => false,
+        })
+        .unwrap_or(false)
+}
+
+/// Type-aware variant of [`filter_empty_enum_strings`]: drops empty string values only
+/// for fields that are NOT plain `String`/`Optional<String>` (i.e. enum fields, where
+/// `""` represents an absent variant and would fail deserialization), while preserving
+/// `""` for genuine string fields whose emptiness is meaningful (e.g. an explicit empty
+/// `mime_type` that must trigger the core's empty-MIME error). `current_type_name` is the
+/// binding struct the object deserialises into; nested objects resolve their own type.
+pub(super) fn filter_empty_enum_strings_with_types(
+    value: &serde_json::Value,
+    current_type_name: Option<&str>,
+    type_defs: &[crate::core::ir::TypeDef],
+) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(map) => {
+            let filtered: serde_json::Map<String, serde_json::Value> = map
+                .iter()
+                .filter_map(|(k, v)| {
+                    if let serde_json::Value::String(s) = v {
+                        if s.is_empty() && !field_is_string_typed(current_type_name, k, type_defs) {
+                            return None;
+                        }
+                    }
+                    let nested_type_name = current_type_name.and_then(|tn| get_field_type_name(tn, k, type_defs));
+                    Some((
+                        k.clone(),
+                        filter_empty_enum_strings_with_types(v, nested_type_name.as_deref(), type_defs),
+                    ))
+                })
+                .collect();
+            serde_json::Value::Object(filtered)
+        }
+        serde_json::Value::Array(arr) => serde_json::Value::Array(
+            arr.iter()
+                .map(|v| filter_empty_enum_strings_with_types(v, None, type_defs))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
+}
+
 /// Convert a `serde_json::Value` to a PHP literal string.
 pub(super) fn json_to_php(value: &serde_json::Value) -> String {
     match value {

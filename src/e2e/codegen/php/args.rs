@@ -222,8 +222,14 @@ pub(super) fn build_args_and_setup(
                         }
                     }
 
-                    let emission =
-                        super::stubs::emit_test_backend_with_ns(trait_bridge, &methods, fixture, namespace, class_name);
+                    let emission = super::stubs::emit_test_backend_with_ns(
+                        trait_bridge,
+                        &methods,
+                        fixture,
+                        namespace,
+                        class_name,
+                        type_defs,
+                    );
                     // Split multi-line setup_block into individual lines so the
                     // Jinja template can indent each line uniformly with `        {{ line }}`.
                     for line in emission.setup_block.lines() {
@@ -388,8 +394,12 @@ pub(super) fn build_args_and_setup(
                                 // Use TypeName::from_json(json_encode([...])) to construct the
                                 // typed config object. ext-php-rs structs expose a from_json()
                                 // static method that accepts a JSON string.
-                                // Filter out empty string enum values before passing to from_json().
-                                let filtered_v = super::values::filter_empty_enum_strings(v);
+                                // Filter out empty string enum values before passing to from_json(),
+                                // but preserve empty strings on genuine String fields (e.g. an explicit
+                                // empty `mime_type` that must reach the core to trigger the empty-MIME
+                                // error path) — type-aware so only enum-typed `""` are dropped.
+                                let filtered_v =
+                                    super::values::filter_empty_enum_strings_with_types(v, Some(type_name), type_defs);
 
                                 // For empty objects, construct with from_json('{}') to get the
                                 // type's defaults rather than passing null (which fails for non-optional params).
