@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.3] - 2026-07-01
+
+### Changed
+
+- **scaffold**: bump the generated e2e Java `jackson-databind` version (`JACKSON_E2E`) from
+  2.18.2 to 2.22.0, matching the main jackson pin so regenerated e2e poms carry the security
+  update instead of drifting from a manually-bumped dependency.
+- **scaffold**: fold generated-test-code lint allowances into the emitter — `A001` and `N801`
+  added to `TEST_IGNORES` (generated e2e tests take an `input` param shadowing the builtin;
+  generated plugin trait-bridge stub classes aren't CapWords), and `I001` added to the
+  `options.py` per-file-ignore. Consumer repos no longer need repo-specific `[workspace.poly]`
+  overrides for these.
+
 ## [0.30.2] - 2026-07-01
 
 ### Added
