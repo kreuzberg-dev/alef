@@ -236,6 +236,9 @@ fn gen_type_init_stub(
                 f.serde_rename.as_ref(),
                 renames_ref,
             );
+            // PyO3 exposes a raw-ident param (`r#type`) to Python as `type`; the stub must
+            // match the runtime kwarg, so strip the Rust raw-identifier prefix here.
+            let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
             format!("{param_name}: {param_type}")
         })
         .collect();
@@ -252,6 +255,9 @@ fn gen_type_init_stub(
             f.serde_rename.as_ref(),
             renames_ref,
         );
+        // PyO3 exposes a raw-ident param (`r#type`) to Python as `type`; the stub must
+        // match the runtime kwarg, so strip the Rust raw-identifier prefix here.
+        let param_name = param_name.strip_prefix("r#").map(str::to_owned).unwrap_or(param_name);
         format!("{param_name}: {param_type} = None")
     }));
 
