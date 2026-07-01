@@ -37,6 +37,7 @@ fn cargo_config_default_renders_canonical_six_target_template() {
     assert!(rendered.contains("[target.x86_64-unknown-linux-musl]"));
     assert!(rendered.contains("[target.wasm32-unknown-unknown]"));
     assert!(rendered.contains("getrandom_backend=\\\"wasm_js\\\""));
+    assert!(rendered.contains("link-arg=--allow-multiple-definition"));
 
     // No [env] block when none declared.
     assert!(!rendered.contains("\n[env]\n"));

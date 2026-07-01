@@ -498,7 +498,7 @@ pub fn scaffold(
     } else if languages.contains(&Language::Wasm) && !std::path::Path::new(".cargo/config.toml").exists() {
         files.push(GeneratedFile {
             path: std::path::PathBuf::from(".cargo/config.toml"),
-            content: "[build]\nincremental = true\n\n[target.wasm32-unknown-unknown]\nrustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\"]\n\n[net]\ngit-fetch-with-cli = true\n\n[registries.crates-io]\nprotocol = \"sparse\"\n".to_string(),
+            content: "[build]\nincremental = true\n\n[target.wasm32-unknown-unknown]\nrustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\", \"-C\", \"link-arg=--allow-multiple-definition\"]\n\n[net]\ngit-fetch-with-cli = true\n\n[registries.crates-io]\nprotocol = \"sparse\"\n".to_string(),
             generated_header: false,
         });
     }
@@ -566,9 +566,15 @@ pub fn render_cargo_config(cargo: &ScaffoldCargo) -> String {
         out.push_str("\n[target.x86_64-unknown-linux-musl]\nlinker = \"musl-gcc\"\n");
     }
     if t.wasm32_unknown_unknown {
+        // `--allow-multiple-definition`: wasm32-unknown-unknown has no unified libc,
+        // so multiple C deps each ship their own libc stubs (e.g. tree-sitter's wasm
+        // shim defines `__assert_fail`, a WASI-built Tesseract bundles wasi-libc's
+        // `assert.o`/`atexit.o`). These are functionally-equivalent duplicates that
+        // wasm-ld rejects; first-definition-wins is the correct policy. rust-lld drives
+        // the wasm link directly, so the flag is passed bare (not `-Wl,`-wrapped).
         out.push_str(
             "\n[target.wasm32-unknown-unknown]\n\
-             rustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\"]\n",
+             rustflags = [\"-C\", \"target-feature=+bulk-memory\", \"--cfg\", \"getrandom_backend=\\\"wasm_js\\\"\", \"-C\", \"link-arg=--allow-multiple-definition\"]\n",
         );
     }
 
