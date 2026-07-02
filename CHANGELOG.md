@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.4] - 2026-07-02
+
+### Fixed
+
+- **defaults**: unwrap `Some(inner)` Rust defaults instead of collapsing them to `Empty`.
+  `expr_to_default_value` had no `Some(...)` case in the `Expr::Call` arm, so `Option` fields with a
+  `Some(literal)` default (e.g. `document_max_size: Some(50 * 1024 * 1024)`,
+  `extraction_timeout_secs: Some(60)`) rendered as the type's zero value — Dart's `documentMaxSize`
+  became `0`, truncating fetched documents to 0 bytes. The extractor now recurses into `Some(inner)`
+  so the inner literal surfaces in synthesized default-config literals across every backend that
+  emits them (dart/php/swift/…).
+- **php**: map cfg-gated fields the binding keeps in the `From<binding>` conversion for core. The
+  enum-tainted `From<binding>` generator unconditionally skipped every cfg-gated field, letting
+  `..Default::default()` fill it. PHP keeps cfg-gated fields in the binding struct
+  (`strip_cfg_fields_from_binding_struct = false`), so real values (`ExtractionConfig::keywords`,
+  `UrlExtractionConfig::crawl`) were silently dropped on the PHP→core conversion. The skip is now
+  gated on `strip_cfg_fields_from_binding_struct`, mirroring the standard `render.rs` path.
+- **wasm**: infallible trait-bridge result conversion now returns `Option`. The `unwrap_or_default`
+  branch chained `.and_then` on the `Option<String>` from `.as_string()` but the closure returned a
+  `Result`, failing to compile (`E0308` expected `Option`, found `Result`; `E0425` unknown `e`). The
+  closure now uses `.ok()`, fixing infallible trait methods that return enums/collections
+  (`backend_type`, `processing_stage`, `supported_languages`, `dimensions`).
+- **wasm**: add `--allow-multiple-definition` to the scaffolded `wasm32` rustflags.
+  `wasm32-unknown-unknown` has no unified libc, so multiple C deps each ship functionally-equivalent
+  libc stubs (tree-sitter's shim defines `__assert_fail`; a WASI-built Tesseract bundles
+  wasi-libc `assert.o`/`atexit.o`) that `wasm-ld` rejects. The emitted `.cargo/config.toml` now
+  passes first-def-wins linking, a no-op unless duplicates exist.
+- **e2e/dart**: clear process-global plugin registries in `tearDownAll` to prevent a cross-isolate
+  deadlock. Each Dart test file runs in its own isolate, but the Rust plugin registries are
+  process-global; a file that registered a Dart-backed plugin left its `DartFnFuture` callback in the
+  registry after its isolate died, and a later file's isolate deadlocked (30s timeout) invoking the
+  dead callback via `block_on`. The generator now emits a `clear<Registry>()` call for each
+  `register_*` backend fixture present in a file, taking the Dart e2e suite from 27 to 78 passing.
+
 ## [0.30.3] - 2026-07-01
 
 ### Changed
