@@ -46,6 +46,9 @@ rust_out.*
 
 .basemind/
 
+# polylint result cache (per-developer)
+.polylint/
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .claude/
 .codex/
